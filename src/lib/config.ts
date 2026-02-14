@@ -9,9 +9,11 @@ const DEFAULTS: SqlApiConfig = {
 };
 
 export async function loadConfig(): Promise<SqlApiConfig> {
-  const configPath = resolve(process.cwd(), 'sqlapi.config.ts');
+  const tsPath = resolve(process.cwd(), 'sqlapi.config.ts');
+  const jsPath = resolve(process.cwd(), 'sqlapi.config.js');
+  const configPath = existsSync(tsPath) ? tsPath : existsSync(jsPath) ? jsPath : null;
 
-  if (!existsSync(configPath)) {
+  if (!configPath) {
     return { ...DEFAULTS };
   }
 
@@ -26,7 +28,7 @@ export async function loadConfig(): Promise<SqlApiConfig> {
     };
   } catch (err) {
     console.warn(
-      `Warning: failed to load sqlapi.config.ts, using defaults. Error: ${(err as Error).message}`
+      `Warning: failed to load ${configPath}, using defaults. Error: ${(err as Error).message}`
     );
     return { ...DEFAULTS };
   }
