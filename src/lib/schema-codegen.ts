@@ -97,9 +97,9 @@ const _Schema = ${fieldsStr};
 const validation = Type.Object(_Schema, { $id: "${schemaName}" });
 const partialValidation = Type.Object(
   Object.fromEntries(
-    Object.keys(_Schema).map((k) => [
+    Object.entries(_Schema).map(([k, v]) => [
       k,
-      validation.required?.includes(k) ? Type.Optional(_Schema[k]) : _Schema[k],
+      (validation.required as string[] | undefined)?.includes(k) ? Type.Optional(v) : v,
     ])
   ),
   { additionalProperties: false, $id: "Partial${schemaName}" }
