@@ -22,9 +22,9 @@ try {
   await app.listen({ port: 3000 });
   console.log('\n  Swagger UI: http://localhost:3000/auto/documentation');
   console.log('\n  Available routes:');
-  console.log('  POST http://localhost:3000/auto/search/customer');
-  console.log('  POST http://localhost:3000/auto/search/customer_order');
-  console.log('  POST http://localhost:3000/auto/search/product');
+  console.log('  POST http://localhost:3000/auto/customer/search');
+  console.log('  POST http://localhost:3000/auto/customer_order/search');
+  console.log('  POST http://localhost:3000/auto/product/search');
   console.log('  POST http://localhost:3000/auto/customer          (insert)');
   console.log('  POST http://localhost:3000/auto/customer_order    (insert)');
   console.log('  POST http://localhost:3000/auto/product           (insert)');

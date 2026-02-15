@@ -1,13 +1,14 @@
 ### ─── Customer: base search ───────────────────────────────────
 
 ### All customers
-POST http://localhost:3000/auto/search/customer
+POST http://localhost:3000/auto/customer/search
 Content-Type: application/json
 
 {}
 
 ### Filter by isActive
-POST http://localhost:3000/auto/search/customer
+
+POST http://localhost:3000/auto/customer/search
 Content-Type: application/json
 
 {
@@ -17,7 +18,8 @@ Content-Type: application/json
 }
 
 ### Full-text search (extraFilter q)
-POST http://localhost:3000/auto/search/customer
+
+POST http://localhost:3000/auto/customer/search
 Content-Type: application/json
 
 {
@@ -27,7 +29,8 @@ Content-Type: application/json
 }
 
 ### Filter by name + isActive
-POST http://localhost:3000/auto/search/customer
+
+POST http://localhost:3000/auto/customer/search
 Content-Type: application/json
 
 {
@@ -40,19 +43,21 @@ Content-Type: application/json
 ### ─── Customer: pagination ───────────────────────────────────
 
 ### Page 1, 2 items per page
-POST http://localhost:3000/auto/search/customer?page=1&itemsPerPage=2
+POST http://localhost:3000/auto/customer/search?page=1&itemsPerPage=2
 Content-Type: application/json
 
 {}
 
 ### Page 2
-POST http://localhost:3000/auto/search/customer?page=2&itemsPerPage=2
+
+POST http://localhost:3000/auto/customer/search?page=2&itemsPerPage=2
 Content-Type: application/json
 
 {}
 
 ### Pagination + compute aggregates
-POST http://localhost:3000/auto/search/customer?page=1&itemsPerPage=10&computeMin=id&computeMax=id
+
+POST http://localhost:3000/auto/customer/search?page=1&itemsPerPage=10&computeMin=id&computeMax=id
 Content-Type: application/json
 
 {}
@@ -60,7 +65,7 @@ Content-Type: application/json
 ### ─── Customer: order by ─────────────────────────────────────
 
 ### Order by email DESC
-POST http://localhost:3000/auto/search/customer?orderBy=email%20DESC
+POST http://localhost:3000/auto/customer/search?orderBy=email%20DESC
 Content-Type: application/json
 
 {}
@@ -68,7 +73,7 @@ Content-Type: application/json
 ### ─── Customer: joins ────────────────────────────────────────
 
 ### Join customer_order (no filters)
-POST http://localhost:3000/auto/search/customer
+POST http://localhost:3000/auto/customer/search
 Content-Type: application/json
 
 {
@@ -78,7 +83,7 @@ Content-Type: application/json
 }
 
 ### Join customer_order with filter on status
-POST http://localhost:3000/auto/search/customer
+POST http://localhost:3000/auto/customer/search
 Content-Type: application/json
 
 {
@@ -92,7 +97,7 @@ Content-Type: application/json
 }
 
 ### Join + main filters combined
-POST http://localhost:3000/auto/search/customer
+POST http://localhost:3000/auto/customer/search
 Content-Type: application/json
 
 {
@@ -111,7 +116,7 @@ Content-Type: application/json
 ### ─── Customer: joinGroups ───────────────────────────────────
 
 ### Sum totals per customer
-POST http://localhost:3000/auto/search/customer
+POST http://localhost:3000/auto/customer/search
 Content-Type: application/json
 
 {
@@ -125,7 +130,7 @@ Content-Type: application/json
 }
 
 ### Multiple aggregations: sum, min, max on total
-POST http://localhost:3000/auto/search/customer
+POST http://localhost:3000/auto/customer/search
 Content-Type: application/json
 
 {
@@ -141,7 +146,7 @@ Content-Type: application/json
 }
 
 ### distinctCount on status
-POST http://localhost:3000/auto/search/customer
+POST http://localhost:3000/auto/customer/search
 Content-Type: application/json
 
 {
@@ -155,7 +160,7 @@ Content-Type: application/json
 }
 
 ### Group by status
-POST http://localhost:3000/auto/search/customer
+POST http://localhost:3000/auto/customer/search
 Content-Type: application/json
 
 {
@@ -170,7 +175,7 @@ Content-Type: application/json
 }
 
 ### joinGroups with filters
-POST http://localhost:3000/auto/search/customer
+POST http://localhost:3000/auto/customer/search
 Content-Type: application/json
 
 {
@@ -190,7 +195,7 @@ Content-Type: application/json
 ### ─── Customer: joins + joinGroups combined ──────────────────
 
 ### Full: filters + joins + joinGroups + pagination
-POST http://localhost:3000/auto/search/customer?page=1&itemsPerPage=10
+POST http://localhost:3000/auto/customer/search?page=1&itemsPerPage=10
 Content-Type: application/json
 
 {
@@ -215,13 +220,13 @@ Content-Type: application/json
 ### ─── CustomerOrder: base search ─────────────────────────────
 
 ### All orders
-POST http://localhost:3000/auto/search/customer_order
+POST http://localhost:3000/auto/customer/search_order
 Content-Type: application/json
 
 {}
 
 ### Filter by status
-POST http://localhost:3000/auto/search/customer_order
+POST http://localhost:3000/auto/customer/search_order
 Content-Type: application/json
 
 {
@@ -231,7 +236,7 @@ Content-Type: application/json
 }
 
 ### Filter by customerId
-POST http://localhost:3000/auto/search/customer_order
+POST http://localhost:3000/auto/customer/search_order
 Content-Type: application/json
 
 {
@@ -243,13 +248,13 @@ Content-Type: application/json
 ### ─── Product: base search ───────────────────────────────────
 
 ### All products
-POST http://localhost:3000/auto/search/product
+POST http://localhost:3000/auto/product/search
 Content-Type: application/json
 
 {}
 
 ### Filter by isAvailable
-POST http://localhost:3000/auto/search/product
+POST http://localhost:3000/auto/product/search
 Content-Type: application/json
 
 {
@@ -259,7 +264,7 @@ Content-Type: application/json
 }
 
 ### Filter by name
-POST http://localhost:3000/auto/search/product
+POST http://localhost:3000/auto/product/search
 Content-Type: application/json
 
 {
