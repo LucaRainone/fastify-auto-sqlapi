@@ -93,10 +93,15 @@ export function generateTablesFile(schemas: ParsedSchema[]): string {
   const relations = detectRelations(schemas);
 
   const relsByParent = new Map<string, DetectedRelation[]>();
+  const relsByChild = new Map<string, DetectedRelation[]>();
   for (const rel of relations) {
     const arr = relsByParent.get(rel.parentSchemaName) || [];
     arr.push(rel);
     relsByParent.set(rel.parentSchemaName, arr);
+
+    const childArr = relsByChild.get(rel.childSchemaName) || [];
+    childArr.push(rel);
+    relsByChild.set(rel.childSchemaName, childArr);
   }
 
   const lines: string[] = [];
@@ -119,11 +124,21 @@ export function generateTablesFile(schemas: ParsedSchema[]): string {
   lines.push(` *   afterInsert?          - async (db, req, record, secondaries) => void`);
   lines.push(` *   distinctResults?      - SELECT DISTINCT`);
   lines.push(` *   onRequests?           - Per-table request hooks (auth, etc.)`);
+  lines.push(` *   tenantScope?          - Multi-tenant isolation (see below)`);
   lines.push(` *`);
   lines.push(` * extraFilters + extendedCondition:`);
   lines.push(` *   ...exportTableInfo(Schema, { q: Type.String() }, (condition, opts) => {`);
   lines.push(` *     if (opts.q) condition.isILike('name', \`%\${opts.q}%\`);`);
   lines.push(` *   })`);
+  lines.push(` *`);
+  lines.push(` * tenantScope (direct — column on this table):`);
+  lines.push(` *   tenantScope: { column: 'organization_id' }`);
+  lines.push(` *`);
+  lines.push(` * tenantScope (indirect — via JOIN to parent table):`);
+  lines.push(` *   tenantScope: {`);
+  lines.push(` *     column: 'organization_id',`);
+  lines.push(` *     through: { schema: SchemaParent, localField: 'parentId', foreignField: 'id' }`);
+  lines.push(` *   }`);
   lines.push(` */`);
 
   // Imports
@@ -185,6 +200,17 @@ export function generateTablesFile(schemas: ParsedSchema[]): string {
     lines.push(`  // afterInsert: async (db, req, record, secondaryRecords) => {},`);
     lines.push(`  // beforeUpdate: async (db, req, fields) => {},`);
     lines.push(`  // onRequests: [],`);
+
+    const childRels = relsByChild.get(schema.schemaName) || [];
+    if (childRels.length > 0) {
+      // Child table: suggest indirect tenantScope via first parent
+      const rel = childRels[0];
+      lines.push(`  // tenantScope: { column: 'tenant_col', through: { schema: ${rel.parentSchemaName}, localField: '${rel.childField}', foreignField: '${rel.parentField}' } },`);
+    } else {
+      // Root table: suggest direct tenantScope
+      lines.push(`  // tenantScope: { column: 'tenant_col' },`);
+    }
+
     lines.push(`});`);
   }
 

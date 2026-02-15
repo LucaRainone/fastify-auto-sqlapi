@@ -159,4 +159,28 @@ describe('generateTablesFile', () => {
 
     assert.ok(output.includes('// Fields: id, name, email'));
   });
+
+  it('includes tenantScope reference in header comment', () => {
+    const customer = parseSchemaFile(customerSchemaContent);
+    const output = generateTablesFile([customer]);
+
+    assert.ok(output.includes("tenantScope?"));
+    assert.ok(output.includes("tenantScope (direct"));
+    assert.ok(output.includes("tenantScope (indirect"));
+  });
+
+  it('suggests direct tenantScope for root tables', () => {
+    const customer = parseSchemaFile(customerSchemaContent);
+    const output = generateTablesFile([customer]);
+
+    assert.ok(output.includes("// tenantScope: { column: 'tenant_col' },"));
+  });
+
+  it('suggests indirect tenantScope for child tables', () => {
+    const customer = parseSchemaFile(customerSchemaContent);
+    const order = parseSchemaFile(orderSchemaContent);
+    const output = generateTablesFile([customer, order]);
+
+    assert.ok(output.includes("// tenantScope: { column: 'tenant_col', through: { schema: SchemaCustomer, localField: 'customerId', foreignField: 'id' } },"));
+  });
 });
