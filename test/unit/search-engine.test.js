@@ -126,6 +126,49 @@ describe('searchEngine - main query', () => {
     assert.ok(mockPg.calls[0].text.includes('ORDER BY "name" DESC'));
   });
 
+  it('applies multi-field orderBy', async () => {
+    const mockPg = createMockPg([
+      { rows: [], rowCount: 0 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      orderBy: 'id DESC, name ASC',
+    });
+
+    assert.ok(mockPg.calls[0].text.includes('ORDER BY "id" DESC, "name" ASC'));
+  });
+
+  it('rejects invalid orderBy field', async () => {
+    const mockPg = createMockPg([]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await assert.rejects(
+      () => searchEngine(DbTables, {
+        db,
+        tableConf: DbTables.customer,
+        orderBy: 'nonExistent DESC',
+      }),
+      (err) => err.statusCode === 400 && err.message.includes('Unknown field')
+    );
+  });
+
+  it('rejects SQL injection in orderBy', async () => {
+    const mockPg = createMockPg([]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await assert.rejects(
+      () => searchEngine(DbTables, {
+        db,
+        tableConf: DbTables.customer,
+        orderBy: 'id; DROP TABLE customer; --',
+      }),
+      (err) => err.statusCode === 400
+    );
+  });
+
   it('returns no joins, joinGroups, pagination when not requested', async () => {
     const mockPg = createMockPg([
       { rows: [], rowCount: 0 },
