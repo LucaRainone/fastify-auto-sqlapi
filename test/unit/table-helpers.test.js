@@ -65,18 +65,36 @@ describe('exportTableInfo', () => {
     assert.equal(values.length, 0);
   });
 
-  it('filters() handles extraFilters fields', () => {
+  it('filters() does not auto-apply extraFilters (they go through extendedCondition)', () => {
     const schema = createMockSchema('customer', {
       id: Type.Number(),
       name: Type.String(),
     });
-    const extraFilters = { isActive: Type.Boolean() };
+    const extraFilters = { q: Type.String() };
     const { filters } = exportTableInfo(schema, extraFilters);
 
-    const condition = filters({ isActive: true });
+    // q is an extraFilter, not a real column - should not generate a condition
+    const condition = filters({ q: 'test' });
+    const values = condition.getValues();
+    assert.equal(values.length, 0);
+  });
+
+  it('filters() extraFilters are available via extendedCondition', () => {
+    const schema = createMockSchema('customer', {
+      id: Type.Number(),
+      name: Type.String(),
+    });
+    const extraFilters = { q: Type.String() };
+    const { filters } = exportTableInfo(schema, extraFilters, (condition, opts) => {
+      if (opts.q) {
+        condition.isILike('name', `%${opts.q}%`);
+      }
+    });
+
+    const condition = filters({ q: 'test' });
     const values = condition.getValues();
     assert.equal(values.length, 1);
-    assert.ok(values.includes(true));
+    assert.ok(values.includes('%test%'));
   });
 
   it('filters() invokes extendedCondition callback', () => {

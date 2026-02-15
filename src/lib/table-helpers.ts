@@ -14,18 +14,15 @@ export function exportTableInfo(
 ): { Schema: SchemaDefinition; filters: TableFilterFn; extraFilters: Record<string, TSchema> } {
   const filters: TableFilterFn = (filterValues: Record<string, unknown>) => {
     const condition = new ConditionBuilder('AND');
-    const allFields = { ...Schema.fields, ...extraFilters };
 
-    for (const field of Object.keys(allFields)) {
+    // Only auto-match real schema fields (DB columns)
+    for (const field of Object.keys(Schema.fields)) {
       if (field in filterValues && filterValues[field] !== null && filterValues[field] !== undefined) {
-        // Use Schema.col for schema fields, toUnderscore for extraFilters
-        const column = field in Schema.fields
-          ? Schema.col(field)
-          : Schema.col(field);
-        condition.isEqual(column, filterValues[field]);
+        condition.isEqual(Schema.col(field), filterValues[field]);
       }
     }
 
+    // extraFilters are handled exclusively by extendedCondition
     if (extendedCondition) {
       extendedCondition(condition, filterValues);
     }

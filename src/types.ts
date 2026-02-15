@@ -58,7 +58,7 @@ export interface SelectOptions {
 // ─── Schema Definition (output della CLI) ────────────────────
 
 export interface SchemaDefinition<T = Record<string, TSchema>> {
-  col: (field: string) => string;
+  col(field: string): string;
   fields: T;
   validation: TObject;
   tableName: string;
