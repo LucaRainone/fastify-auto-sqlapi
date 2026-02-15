@@ -1,5 +1,8 @@
 import type { QueryResult, QueryResultRow } from 'pg';
-import type { Expression } from 'node-condition-builder';
+import type { Expression, ConditionBuilder } from 'node-condition-builder';
+import type { TSchema, TObject } from '@sinclair/typebox';
+import type { FastifyRequest, FastifyReply } from 'fastify';
+import type { QueryClient } from './lib/db.js';
 
 // ─── CLI / Schema Generation ────────────────────────────────
 
@@ -50,4 +53,98 @@ export interface SelectOptions {
   orderBy?: string;
   joins?: string[];
   distinct?: boolean;
+}
+
+// ─── Schema Definition (output della CLI) ────────────────────
+
+export interface SchemaDefinition<T = Record<string, TSchema>> {
+  col: (field: string) => string;
+  fields: T;
+  validation: TObject;
+  tableName: string;
+  partialValidation: TObject;
+}
+
+// ─── Join Definition ─────────────────────────────────────────
+
+// [joinSchema, joinField, mainField, selection]
+export type JoinDefinition = [SchemaDefinition, string, string | string[], string];
+
+// ─── Table Configuration ─────────────────────────────────────
+
+export type ExtendedConditionFn = (condition: ConditionBuilder, filters: Record<string, unknown>) => void;
+export type TableFilterFn = (filters: Record<string, unknown>) => ConditionBuilder;
+
+export interface ITable<T = Record<string, unknown>> {
+  primary: string;
+  Schema: SchemaDefinition;
+  filters: TableFilterFn;
+  extraFilters: Record<string, TSchema>;
+  allowedReadJoins?: JoinDefinition[];
+  upsertMap?: Map<SchemaDefinition, string[]>;
+  beforeInsert?: (db: QueryClient, req: FastifyRequest, record: T) => Promise<void>;
+  beforeUpdate?: (db: QueryClient, req: FastifyRequest, fields: T, secondaryFieldsFetcher?: unknown) => void | Promise<void>;
+  afterInsert?: (db: QueryClient, req: FastifyRequest, record: Record<string, unknown>, secondaryRecords?: unknown) => Promise<void>;
+  defaultOrder?: string;
+  excludeFromCreation?: string[];
+  distinctResults?: boolean;
+  onRequests?: ((request: FastifyRequest, reply: FastifyReply) => Promise<void | FastifyReply>)[];
+}
+
+export type DbTables = Record<string, ITable>;
+
+// ─── Plugin Options ──────────────────────────────────────────
+
+export interface SqlApiPluginOptions {
+  DbTables: DbTables;
+  onRequests?: ((request: FastifyRequest, reply: FastifyReply) => Promise<void | FastifyReply>)[];
+  prefix?: string;
+}
+
+// ─── Search Types ────────────────────────────────────────────
+
+export interface Paginator {
+  page: number;
+  itemsPerPage: number;
+}
+
+export interface AggregationRequest {
+  by?: string;
+  distinctCount?: string[];
+  min?: string[];
+  max?: string[];
+  sum?: string[];
+}
+
+export interface JoinGroupRequest {
+  aggregations: AggregationRequest;
+  filters?: Record<string, unknown>;
+}
+
+export interface SearchParams {
+  db: QueryClient;
+  tableConf: ITable;
+  filters?: Record<string, unknown>;
+  joins?: Record<string, { filters?: Record<string, unknown> }>;
+  joinGroups?: Record<string, JoinGroupRequest>;
+  orderBy?: string;
+  paginator?: Paginator;
+  computeMin?: string;
+  computeMax?: string;
+  computeSum?: string;
+  computeAvg?: string;
+}
+
+export interface PaginationResult {
+  total: number;
+  pages: number;
+  computed?: Record<string, Record<string, unknown>>;
+  paginator: Paginator;
+}
+
+export interface SearchResult {
+  main: Record<string, unknown>[];
+  joins: Record<string, Record<string, unknown>[]>;
+  joinGroups: Record<string, Record<string, unknown>>;
+  pagination?: PaginationResult;
 }

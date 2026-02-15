@@ -30,15 +30,21 @@
     "pg": "^8.13.1"
   },
   "devDependencies": {
+    "@fastify/postgres": "^6.0.2",
     "@types/node": "^22.13.4",
     "@types/pg": "^8.11.11",
+    "fastify": "^5.7.4",
     "typescript": "^5.7.3"
   },
   "peerDependencies": {
-    "fastify": "^5.0.0"
+    "@fastify/postgres": ">=5.0.0",
+    "fastify": ">=4.0.0"
   },
   "peerDependenciesMeta": {
     "fastify": {
+      "optional": true
+    },
+    "@fastify/postgres": {
       "optional": true
     }
   }
