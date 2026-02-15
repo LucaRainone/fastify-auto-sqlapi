@@ -5,7 +5,10 @@ import { dbTables } from './tables.js';
 
 const connectionString = 'postgres://test:test@127.0.0.1:5433/testdb';
 
-const app = Fastify({ logger: true });
+const app = Fastify({
+  logger: true,
+  ajv: { customOptions: { removeAdditional: false } },
+});
 
 await app.register(fastifyPostgres, { connectionString });
 

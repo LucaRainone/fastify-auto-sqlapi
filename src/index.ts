@@ -13,6 +13,7 @@ export { QueryClient } from './lib/db.js';
 // Table helpers
 export { exportTableInfo, defineTable, buildRelation, buildUpsertRule, buildUpsertRules } from './lib/table-helpers.js';
 
+
 // Swagger
 export { setupSwagger } from './lib/setup-swagger.js';
 

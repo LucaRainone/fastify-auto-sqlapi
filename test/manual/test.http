@@ -220,13 +220,13 @@ Content-Type: application/json
 ### ─── CustomerOrder: base search ─────────────────────────────
 
 ### All orders
-POST http://localhost:3000/auto/customer/search_order
+POST http://localhost:3000/auto/customer_order/search
 Content-Type: application/json
 
 {}
 
 ### Filter by status
-POST http://localhost:3000/auto/customer/search_order
+POST http://localhost:3000/auto/customer_order/search
 Content-Type: application/json
 
 {
@@ -236,7 +236,7 @@ Content-Type: application/json
 }
 
 ### Filter by customerId
-POST http://localhost:3000/auto/customer/search_order
+POST http://localhost:3000/auto/customer_order/search
 Content-Type: application/json
 
 {
