@@ -27,6 +27,10 @@ export { insertEngine } from './lib/engine/insert.js';
 export { InsertTableBody, InsertTableResponse } from './lib/schema/insert.js';
 export { default as insertRoutes } from './routes/auto/insert.routes.js';
 
+// Delete
+export { deleteEngine } from './lib/engine/delete.js';
+export { default as deleteRoutes } from './routes/auto/delete.routes.js';
+
 // Update
 export { updateEngine } from './lib/engine/update.js';
 export { UpdateTableBody, UpdateTableResponse } from './lib/schema/update.js';
@@ -59,6 +63,8 @@ export type {
   ExtendedConditionFn,
   AggregationRequest,
   JoinGroupRequest,
+  DeleteParams,
+  DeleteResult,
   InsertParams,
   InsertResult,
   UpdateParams,

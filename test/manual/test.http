@@ -378,6 +378,16 @@ Content-Type: application/json
   }
 }
 
+### ─── Delete: customer ──────────────────────────────────────
+
+### Delete customer by id
+DELETE http://localhost:3000/auto/rest/customer/1
+
+### Delete order by id
+DELETE http://localhost:3000/auto/rest/customer_order/5
+
+### ─── Update: secondaries + deletions ───────────────────────
+
 ### Update customer + secondaries + deletions
 PUT http://localhost:3000/auto/rest/customer
 Content-Type: application/json

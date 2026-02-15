@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import fastifyPostgres from '@fastify/postgres';
-import { setupSwagger, searchRoutes, insertRoutes, updateRoutes } from 'fastify-auto-sqlapi';
+import { setupSwagger, searchRoutes, insertRoutes, updateRoutes, deleteRoutes } from 'fastify-auto-sqlapi';
 import { dbTables } from './tables.js';
 
 const connectionString = 'postgres://test:test@127.0.0.1:5433/testdb';
@@ -17,6 +17,7 @@ await app.register(async (instance) => {
   await instance.register(searchRoutes, { DbTables: dbTables });
   await instance.register(insertRoutes, { DbTables: dbTables });
   await instance.register(updateRoutes, { DbTables: dbTables });
+  await instance.register(deleteRoutes, { DbTables: dbTables });
 }, { prefix: '/auto' });
 
 // Health check
@@ -26,15 +27,12 @@ try {
   await app.listen({ port: 3000 });
   console.log('\n  Swagger UI: http://localhost:3000/auto/documentation');
   console.log('\n  Available routes:');
-  console.log('  POST http://localhost:3000/auto/customer/search');
-  console.log('  POST http://localhost:3000/auto/customer_order/search');
-  console.log('  POST http://localhost:3000/auto/product/search');
-  console.log('  POST http://localhost:3000/auto/customer          (insert)');
-  console.log('  POST http://localhost:3000/auto/customer_order    (insert)');
-  console.log('  POST http://localhost:3000/auto/product           (insert)');
-  console.log('  PUT  http://localhost:3000/auto/customer          (update)');
-  console.log('  PUT  http://localhost:3000/auto/customer_order    (update)');
-  console.log('  PUT  http://localhost:3000/auto/product           (update)');
+  console.log('  POST   http://localhost:3000/auto/search/customer');
+  console.log('  POST   http://localhost:3000/auto/search/customer_order');
+  console.log('  POST   http://localhost:3000/auto/search/product');
+  console.log('  POST   http://localhost:3000/auto/rest/customer          (insert)');
+  console.log('  PUT    http://localhost:3000/auto/rest/customer          (update)');
+  console.log('  DELETE http://localhost:3000/auto/rest/customer/:id      (delete)');
 } catch (err) {
   app.log.error(err);
   process.exit(1);
