@@ -91,8 +91,8 @@ export function SearchTableResponse(dbTables: DbTables, tableName: string): TObj
   return Type.Object({
     table: Type.String(),
     main: Type.Array(mainItem),
-    joins: Type.Partial(Type.Object(joinResponseProperties)),
-    joinGroups: Type.Partial(Type.Object(joinGroupResponseProperties)),
+    joins: Type.Optional(Type.Partial(Type.Object(joinResponseProperties))),
+    joinGroups: Type.Optional(Type.Partial(Type.Object(joinGroupResponseProperties))),
     pagination: Type.Optional(
       Type.Object({
         total: Type.Integer(),

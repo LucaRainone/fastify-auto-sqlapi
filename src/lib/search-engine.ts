@@ -300,22 +300,21 @@ export async function searchEngine(
     pagination = await buildPagination(db, tableConf, where, values, paginator, computeMin, computeMax, computeSum, computeAvg);
   }
 
-  // Virtual joins
-  let joinsResult: Record<string, Record<string, unknown>[]> = {};
+  // Virtual joins (only if requested)
+  const result: SearchResult = { main };
+
   if (joins && Object.keys(joins).length > 0) {
-    joinsResult = await executeVirtualJoins(db, dbTables, tableConf, main, joins);
+    result.joins = await executeVirtualJoins(db, dbTables, tableConf, main, joins);
   }
 
-  // Join groups
-  let joinGroupsResult: Record<string, Record<string, unknown>> = {};
+  // Join groups (only if requested)
   if (joinGroups && Object.keys(joinGroups).length > 0) {
-    joinGroupsResult = await executeJoinGroups(db, dbTables, tableConf, main, joinGroups);
+    result.joinGroups = await executeJoinGroups(db, dbTables, tableConf, main, joinGroups);
   }
 
-  return {
-    main,
-    joins: joinsResult,
-    joinGroups: joinGroupsResult,
-    ...(pagination ? { pagination } : {}),
-  };
+  if (pagination) {
+    result.pagination = pagination;
+  }
+
+  return result;
 }

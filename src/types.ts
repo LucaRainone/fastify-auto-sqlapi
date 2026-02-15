@@ -154,7 +154,7 @@ export interface PaginationResult {
 
 export interface SearchResult {
   main: Record<string, unknown>[];
-  joins: Record<string, Record<string, unknown>[]>;
-  joinGroups: Record<string, Record<string, unknown>>;
+  joins?: Record<string, Record<string, unknown>[]>;
+  joinGroups?: Record<string, Record<string, unknown>>;
   pagination?: PaginationResult;
 }

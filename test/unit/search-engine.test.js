@@ -126,7 +126,7 @@ describe('searchEngine - main query', () => {
     assert.ok(mockPg.calls[0].text.includes('ORDER BY name DESC'));
   });
 
-  it('returns empty joins and joinGroups when not requested', async () => {
+  it('returns no joins, joinGroups, pagination when not requested', async () => {
     const mockPg = createMockPg([
       { rows: [], rowCount: 0 },
     ]);
@@ -137,8 +137,8 @@ describe('searchEngine - main query', () => {
       tableConf: DbTables.customer,
     });
 
-    assert.deepEqual(result.joins, {});
-    assert.deepEqual(result.joinGroups, {});
+    assert.equal(result.joins, undefined);
+    assert.equal(result.joinGroups, undefined);
     assert.equal(result.pagination, undefined);
   });
 });
