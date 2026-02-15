@@ -22,7 +22,7 @@ export default async function searchRoutes(
 
     fastify.route({
       method: 'POST',
-      url: `/${tableConf.Schema.tableName}/search`,
+      url: `/search/${tableConf.Schema.tableName}`,
       schema: {
         body: bodySchema,
         querystring: SearchTableQueryString,

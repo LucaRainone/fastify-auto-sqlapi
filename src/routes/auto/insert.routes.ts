@@ -24,7 +24,7 @@ export default async function insertRoutes(
 
     fastify.route({
       method: 'POST',
-      url: `/${tableConf.Schema.tableName}`,
+      url: `/rest/${tableConf.Schema.tableName}`,
       schema: {
         body: bodySchema,
         response: { 201: responseSchema },

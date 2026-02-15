@@ -24,7 +24,7 @@ export default async function updateRoutes(
 
     fastify.route({
       method: 'PUT',
-      url: `/${tableConf.Schema.tableName}`,
+      url: `/rest/${tableConf.Schema.tableName}`,
       schema: {
         body: bodySchema,
         response: { 200: responseSchema },
