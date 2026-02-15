@@ -93,12 +93,22 @@ export interface ITable<T = Record<string, unknown>> {
 
 export type DbTables = Record<string, ITable>;
 
+// ─── Swagger ─────────────────────────────────────────────────
+
+export interface SwaggerOptions {
+  title?: string;
+  description?: string;
+  version?: string;
+  routePrefix?: string;
+}
+
 // ─── Plugin Options ──────────────────────────────────────────
 
 export interface SqlApiPluginOptions {
   DbTables: DbTables;
   onRequests?: ((request: FastifyRequest, reply: FastifyReply) => Promise<void | FastifyReply>)[];
   prefix?: string;
+  swagger?: boolean | SwaggerOptions;
 }
 
 // ─── Search Types ────────────────────────────────────────────

@@ -2,13 +2,43 @@ import type { FastifyInstance } from 'fastify';
 import { QueryClient } from '../../lib/db.js';
 import { searchEngine } from '../../lib/search-engine.js';
 import { SearchTableBodyPost, SearchTableQueryString, SearchTableResponse } from '../../lib/search-schema.js';
-import type { SqlApiPluginOptions } from '../../types.js';
+import type { SqlApiPluginOptions, SwaggerOptions } from '../../types.js';
 
 export default async function searchRoutes(
   fastify: FastifyInstance,
   options: SqlApiPluginOptions
 ): Promise<void> {
   const { DbTables } = options;
+
+  if (options.swagger) {
+    if (!fastify.hasDecorator('swagger')) {
+      try {
+        const swaggerMod = await import('@fastify/swagger');
+        const swaggerUiMod = await import('@fastify/swagger-ui');
+
+        const swaggerConf: SwaggerOptions = typeof options.swagger === 'object' ? options.swagger : {};
+
+        await fastify.register(swaggerMod.default, {
+          openapi: {
+            info: {
+              title: swaggerConf.title || 'SqlAPI Documentation',
+              description: swaggerConf.description || 'Auto-generated API documentation',
+              version: swaggerConf.version || '1.0.0',
+            },
+          },
+        });
+
+        await fastify.register(swaggerUiMod.default, {
+          routePrefix: swaggerConf.routePrefix || '/documentation',
+          indexPrefix: options.prefix || '',
+        });
+      } catch {
+        fastify.log.warn(
+          'swagger: true requires @fastify/swagger and @fastify/swagger-ui. Install them: npm i @fastify/swagger @fastify/swagger-ui'
+        );
+      }
+    }
+  }
 
   for (const [tableName, tableConf] of Object.entries(DbTables)) {
     const bodySchema = SearchTableBodyPost(DbTables, tableName);

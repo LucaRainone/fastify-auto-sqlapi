@@ -36,6 +36,7 @@ export type {
   ITable,
   DbTables,
   SqlApiPluginOptions,
+  SwaggerOptions,
   SearchParams,
   SearchResult,
   Paginator,

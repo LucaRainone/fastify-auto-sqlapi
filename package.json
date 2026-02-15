@@ -1,6 +1,6 @@
 {
   "name": "fastify-auto-sqlapi",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "Fastify plugin for automatic CRUD API generation from PostgreSQL tables",
   "type": "module",
   "main": "./dist/index.js",
@@ -32,6 +32,8 @@
   },
   "devDependencies": {
     "@fastify/postgres": "^6.0.2",
+    "@fastify/swagger": "^9.0.0",
+    "@fastify/swagger-ui": "^5.0.0",
     "@types/node": "^22.13.4",
     "@types/pg": "^8.11.11",
     "fastify": "^5.7.4",
@@ -39,6 +41,8 @@
   },
   "peerDependencies": {
     "@fastify/postgres": ">=5.0.0",
+    "@fastify/swagger": ">=9.0.0",
+    "@fastify/swagger-ui": ">=5.0.0",
     "fastify": ">=4.0.0"
   },
   "peerDependenciesMeta": {
@@ -46,6 +50,12 @@
       "optional": true
     },
     "@fastify/postgres": {
+      "optional": true
+    },
+    "@fastify/swagger": {
+      "optional": true
+    },
+    "@fastify/swagger-ui": {
       "optional": true
     }
   }

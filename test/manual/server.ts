@@ -8,13 +8,14 @@ const connectionString = 'postgres://test:test@127.0.0.1:5433/testdb';
 const app = Fastify({ logger: true });
 
 await app.register(fastifyPostgres, { connectionString });
-await app.register(searchRoutes, { DbTables: dbTables, prefix: '/auto' });
+await app.register(searchRoutes, { DbTables: dbTables, prefix: '/auto', swagger: true });
 
 // Health check
 app.get('/health', async () => ({ status: 'ok' }));
 
 try {
   await app.listen({ port: 3000 });
+  console.log('\n  Swagger UI: http://localhost:3000/auto/documentation');
   console.log('\n  Available routes:');
   console.log('  POST http://localhost:3000/auto/search/customer');
   console.log('  POST http://localhost:3000/auto/search/customer_order');
