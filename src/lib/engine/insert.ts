@@ -1,17 +1,32 @@
 import { camelcaseObject, snakecaseRecord } from '../naming.js';
 import { removeExcludedFields, processSecondaries } from './write-helpers.js';
+import { injectTenantValue, validateTenantFK } from '../tenant.js';
 import type {
   InsertParams,
   InsertResult,
   DbRecord,
+  TenantScopeIndirect,
 } from '../../types.js';
 
 export async function insertEngine(params: InsertParams): Promise<InsertResult> {
-  const { db, tableConf, dbTables, request, record, secondaries } = params;
+  const { db, tableConf, dbTables, request, record, secondaries, tenant } = params;
 
   // 1. Prepare main record
   let mainRecord = snakecaseRecord(record);
   mainRecord = removeExcludedFields(mainRecord, tableConf);
+
+  // 1b. Tenant: inject or validate
+  if (tenant) {
+    if ('through' in tenant.scope) {
+      // Indirect: validate FK belongs to tenant
+      const scope = tenant.scope as TenantScopeIndirect;
+      const fkCol = scope.through.localField;
+      const fkValue = mainRecord[fkCol];
+      await validateTenantFK(db, scope, tenant.ids, [fkValue]);
+    } else {
+      injectTenantValue(mainRecord, tenant.scope, tenant.ids);
+    }
+  }
 
   // 2. beforeInsert hook
   if (tableConf.beforeInsert) {

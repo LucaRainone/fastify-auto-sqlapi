@@ -1,13 +1,15 @@
 import { camelcaseObject, snakecaseRecord } from '../naming.js';
 import { removeExcludedFields, processSecondaries, processDeletions } from './write-helpers.js';
+import { injectTenantValue, validateTenantFK } from '../tenant.js';
 import type {
   BulkUpsertParams,
   BulkUpsertResult,
   DbRecord,
+  TenantScopeIndirect,
 } from '../../types.js';
 
 export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUpsertResult[]> {
-  const { db, tableConf, dbTables, request, items } = params;
+  const { db, tableConf, dbTables, request, items, tenant } = params;
   if (!items.length) return [];
 
   // 1. Prepare all main records
@@ -16,6 +18,21 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
     rec = removeExcludedFields(rec, tableConf);
     return rec as DbRecord;
   });
+
+  // 1b. Tenant: inject or validate FK
+  if (tenant) {
+    if ('through' in tenant.scope) {
+      // Indirect: collect all FK values, validate in batch
+      const scope = tenant.scope as TenantScopeIndirect;
+      const fkCol = scope.through.localField;
+      const fkValues = preparedMains.map((rec) => rec[fkCol]);
+      await validateTenantFK(db, scope, tenant.ids, fkValues as unknown[]);
+    } else {
+      for (const rec of preparedMains) {
+        injectTenantValue(rec as Record<string, unknown>, tenant.scope, tenant.ids);
+      }
+    }
+  }
 
   // 2. beforeInsert hook per record
   if (tableConf.beforeInsert) {

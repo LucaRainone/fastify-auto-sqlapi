@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { QueryClient } from '../../lib/db.js';
 import { insertEngine } from '../../lib/engine/insert.js';
+import { resolveTenant } from '../../lib/tenant.js';
 import { InsertTableBody, InsertTableResponse } from '../../lib/schema/insert.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
@@ -35,6 +36,7 @@ export default async function insertRoutes(
       onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
       handler: async (request, reply) => {
         const db = new QueryClient((fastify as any).pg);
+        const tenant = await resolveTenant(options, tableConf, request);
         const body = request.body as {
           main: Record<string, unknown>;
           secondaries?: Record<string, Record<string, unknown>[]>;
@@ -47,6 +49,7 @@ export default async function insertRoutes(
           request,
           record: body.main,
           secondaries: body.secondaries,
+          tenant,
         });
 
         reply.status(201).send(result);

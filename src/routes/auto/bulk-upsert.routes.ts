@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { QueryClient } from '../../lib/db.js';
 import { bulkUpsertEngine } from '../../lib/engine/bulk-upsert.js';
+import { resolveTenant } from '../../lib/tenant.js';
 import { BulkUpsertTableBody, BulkUpsertTableResponse } from '../../lib/schema/bulk-upsert.js';
 import type { SqlApiPluginOptions, BulkUpsertItem } from '../../types.js';
 
@@ -35,6 +36,7 @@ export default async function bulkUpsertRoutes(
       onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
       handler: async (request, reply) => {
         const db = new QueryClient((fastify as any).pg);
+        const tenant = await resolveTenant(options, tableConf, request);
         const items = request.body as BulkUpsertItem[];
 
         const result = await bulkUpsertEngine({
@@ -43,6 +45,7 @@ export default async function bulkUpsertRoutes(
           dbTables: DbTables,
           request,
           items,
+          tenant,
         });
 
         reply.send(result);

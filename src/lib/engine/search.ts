@@ -1,5 +1,6 @@
 import { escapeIdent, type QueryClient } from '../db.js';
 import { camelcaseObject } from '../naming.js';
+import { buildTenantWhere, buildTenantJoin } from '../tenant.js';
 import type {
   DbTables,
   SearchParams,
@@ -9,6 +10,7 @@ import type {
   JoinGroupRequest,
   ITable,
   SchemaDefinition,
+  TenantScopeIndirect,
 } from '../../types.js';
 
 function validateSchemaField(field: string, schema: SchemaDefinition): string {
@@ -41,7 +43,8 @@ async function executeMainQuery(
   where: string,
   values: unknown[],
   orderBy?: string,
-  paginator?: { page: number; itemsPerPage: number }
+  paginator?: { page: number; itemsPerPage: number },
+  extraJoins: string[] = []
 ): Promise<Record<string, unknown>[]> {
   const tableName = tableConf.Schema.tableName;
   const order = orderBy || tableConf.defaultOrder || tableConf.primary;
@@ -57,6 +60,7 @@ async function executeMainQuery(
     orderBy: order,
     limit,
     distinct: tableConf.distinctResults,
+    joins: extraJoins.length > 0 ? extraJoins : undefined,
   });
 
   return rows.map((r) => camelcaseObject(r as Record<string, unknown>));
@@ -68,15 +72,17 @@ async function buildPagination(
   where: string,
   values: unknown[],
   paginator: { page: number; itemsPerPage: number },
+  extraJoins: string[] = [],
   computeMin?: string,
   computeMax?: string,
   computeSum?: string,
   computeAvg?: string
 ): Promise<PaginationResult> {
   const tableName = tableConf.Schema.tableName;
+  const joinClause = extraJoins.length > 0 ? ' ' + extraJoins.join(' ') : '';
 
   const countResult = await db.query<{ total: string }>(
-    `SELECT COUNT(*) as total FROM "${escapeIdent(tableName)}" WHERE ${where}`,
+    `SELECT COUNT(*) as total FROM "${escapeIdent(tableName)}"${joinClause} WHERE ${where}`,
     values
   );
   const total = parseInt(countResult.rows[0].total, 10);
@@ -93,7 +99,7 @@ async function buildPagination(
     if (field) {
       const col = validateSchemaField(field, tableConf.Schema);
       const result = await db.query<{ value: unknown }>(
-        `SELECT ${fn}("${escapeIdent(col)}") as value FROM "${escapeIdent(tableName)}" WHERE ${where}`,
+        `SELECT ${fn}("${escapeIdent(col)}") as value FROM "${escapeIdent(tableName)}"${joinClause} WHERE ${where}`,
         values
       );
       computed[key] = { [field]: result.rows[0].value };
@@ -316,23 +322,34 @@ export async function searchEngine(
   dbTables: DbTables,
   params: SearchParams
 ): Promise<SearchResult> {
-  const { db, tableConf, filters, joins, joinGroups, orderBy, paginator, computeMin, computeMax, computeSum, computeAvg } = params;
+  const { db, tableConf, filters, joins, joinGroups, orderBy, paginator, computeMin, computeMax, computeSum, computeAvg, tenant } = params;
 
   // Build main condition
   const condition = tableConf.filters(filters || {});
   const values = condition.getValues();
-  const where = condition.build(1, (i) => `$${i}`) || '1=1';
+  let where = condition.build(1, (i) => `$${i}`) || '1=1';
+
+  // Tenant filtering
+  const tenantJoins: string[] = [];
+  if (tenant) {
+    const tw = buildTenantWhere(tenant.scope, tenant.ids, values.length + 1);
+    where += ` AND ${tw.sql}`;
+    values.push(...tw.values);
+    if ('through' in tenant.scope) {
+      tenantJoins.push(buildTenantJoin(tenant.scope as TenantScopeIndirect, tableConf.Schema.tableName));
+    }
+  }
 
   // Validate and sanitize orderBy (user input → SQL identifier)
   const safeOrderBy = orderBy ? validateOrderBy(orderBy, tableConf) : undefined;
 
   // Main query
-  const main = await executeMainQuery(db, tableConf, where, values, safeOrderBy, paginator);
+  const main = await executeMainQuery(db, tableConf, where, values, safeOrderBy, paginator, tenantJoins);
 
   // Pagination
   let pagination: PaginationResult | undefined;
   if (paginator) {
-    pagination = await buildPagination(db, tableConf, where, values, paginator, computeMin, computeMax, computeSum, computeAvg);
+    pagination = await buildPagination(db, tableConf, where, values, paginator, tenantJoins, computeMin, computeMax, computeSum, computeAvg);
   }
 
   // Virtual joins (only if requested)

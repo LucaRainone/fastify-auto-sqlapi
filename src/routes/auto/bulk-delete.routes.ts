@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { QueryClient } from '../../lib/db.js';
 import { bulkDeleteEngine } from '../../lib/engine/bulk-delete.js';
+import { resolveTenant } from '../../lib/tenant.js';
 import { BulkDeleteTableBody, BulkDeleteTableResponse } from '../../lib/schema/bulk-delete.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
@@ -27,10 +28,11 @@ export default async function bulkDeleteRoutes(
       onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
       handler: async (request, reply) => {
         const db = new QueryClient((fastify as any).pg);
+        const tenant = await resolveTenant(options, tableConf, request);
         const items = request.body as Record<string, unknown>[];
         const ids = items.map((item) => item[tableConf.primary] as string | number);
 
-        const result = await bulkDeleteEngine({ db, tableConf, ids });
+        const result = await bulkDeleteEngine({ db, tableConf, ids, tenant });
 
         reply.send(result);
       },

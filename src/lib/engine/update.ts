@@ -1,13 +1,17 @@
 import { camelcaseObject, snakecaseRecord } from '../naming.js';
+import { escapeIdent } from '../db.js';
 import { processSecondaries, processDeletions } from './write-helpers.js';
+import { stripTenantColumn, buildTenantWhere, buildTenantJoin } from '../tenant.js';
+import { ConditionBuilder } from 'node-condition-builder';
 import type {
   UpdateParams,
   UpdateResult,
   DbRecord,
+  TenantScopeIndirect,
 } from '../../types.js';
 
 export async function updateEngine(params: UpdateParams): Promise<UpdateResult> {
-  const { db, tableConf, dbTables, request, record, secondaries, deletions } = params;
+  const { db, tableConf, dbTables, request, record, secondaries, deletions, tenant } = params;
 
   // 1. Prepare: extract PK, snakecase, build update fields
   const pk = tableConf.primary;
@@ -24,16 +28,48 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
   const updateFields = { ...snaked };
   delete updateFields[pkCol];
 
+  // 1b. Tenant: strip tenant column from update fields + validate ownership
+  if (tenant) {
+    stripTenantColumn(updateFields, tenant.scope);
+
+    if ('through' in tenant.scope) {
+      // Indirect: verify the record belongs to tenant via subquery
+      const scope = tenant.scope as TenantScopeIndirect;
+      const tableName = tableConf.Schema.tableName;
+      const tw = buildTenantWhere(scope, tenant.ids, 2);
+      const joinSql = buildTenantJoin(scope, tableName);
+      const checkSql = `SELECT 1 FROM "${escapeIdent(tableName)}" ${joinSql} WHERE "${escapeIdent(tableName)}"."${escapeIdent(pkCol)}" = $1 AND ${tw.sql} LIMIT 1`;
+      const checkResult = await db.query(checkSql, [pkValue, ...tw.values]);
+      if (checkResult.rows.length === 0) {
+        const error = new Error('Record not found') as Error & { statusCode: number };
+        error.statusCode = 404;
+        throw error;
+      }
+    }
+  }
+
   // 2. beforeUpdate hook
   if (tableConf.beforeUpdate) {
     await tableConf.beforeUpdate(db, request, updateFields);
   }
 
   // 3. Update main
+  let extraCondition: ConditionBuilder | undefined;
+  if (tenant && !('through' in tenant.scope)) {
+    // Direct: add tenant to WHERE
+    extraCondition = new ConditionBuilder('AND');
+    if (tenant.ids.length === 1) {
+      extraCondition.isEqual(tenant.scope.column, tenant.ids[0]);
+    } else {
+      extraCondition.isIn(tenant.scope.column, tenant.ids);
+    }
+  }
+
   const rows = await db.update(
     tableConf.Schema.tableName,
     updateFields as DbRecord,
-    { [pkCol]: pkValue } as DbRecord
+    { [pkCol]: pkValue } as DbRecord,
+    extraCondition
   );
 
   if (rows.length === 0) {

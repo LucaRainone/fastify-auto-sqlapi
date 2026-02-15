@@ -65,6 +65,30 @@ export interface SchemaDefinition<T = Record<string, TSchema>> {
   partialValidation: TObject;
 }
 
+// ─── Tenant ──────────────────────────────────────────────────
+
+export type TenantId = string | number;
+
+export interface TenantScopeDirect {
+  column: string;
+}
+
+export interface TenantScopeIndirect {
+  column: string;
+  through: {
+    schema: SchemaDefinition;
+    localField: string;
+    foreignField: string;
+  };
+}
+
+export type TenantScope = TenantScopeDirect | TenantScopeIndirect;
+
+export interface TenantContext {
+  ids: TenantId[];
+  scope: TenantScope;
+}
+
 // ─── Join Definition ─────────────────────────────────────────
 
 // [joinSchema, joinField, mainField, selection]
@@ -90,6 +114,7 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
   excludeFromCreation?: (string & keyof F)[];
   distinctResults?: boolean;
   onRequests?: ((request: FastifyRequest, reply: FastifyReply) => Promise<void | FastifyReply>)[];
+  tenantScope?: TenantScope;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -111,6 +136,8 @@ export interface SqlApiPluginOptions {
   onRequests?: ((request: FastifyRequest, reply: FastifyReply) => Promise<void | FastifyReply>)[];
   prefix?: string;
   swagger?: boolean | SwaggerOptions;
+  getTenantId?: (request: FastifyRequest) => TenantId | TenantId[] | null | undefined
+    | Promise<TenantId | TenantId[] | null | undefined>;
 }
 
 // ─── Search Types ────────────────────────────────────────────
@@ -145,6 +172,7 @@ export interface SearchParams {
   computeMax?: string;
   computeSum?: string;
   computeAvg?: string;
+  tenant?: TenantContext;
 }
 
 export interface PaginationResult {
@@ -170,6 +198,7 @@ export interface InsertParams {
   request: FastifyRequest;
   record: Record<string, unknown>;
   secondaries?: Record<string, Record<string, unknown>[]>;
+  tenant?: TenantContext;
 }
 
 export interface InsertResult {
@@ -183,6 +212,7 @@ export interface GetParams {
   db: QueryClient;
   tableConf: ITable;
   id: string | number;
+  tenant?: TenantContext;
 }
 
 export interface GetResult {
@@ -195,6 +225,7 @@ export interface DeleteParams {
   db: QueryClient;
   tableConf: ITable;
   id: string | number;
+  tenant?: TenantContext;
 }
 
 export interface DeleteResult {
@@ -215,6 +246,7 @@ export interface BulkUpsertParams {
   dbTables: DbTables;
   request: FastifyRequest;
   items: BulkUpsertItem[];
+  tenant?: TenantContext;
 }
 
 export interface BulkUpsertResult {
@@ -229,6 +261,7 @@ export interface BulkDeleteParams {
   db: QueryClient;
   tableConf: ITable;
   ids: (string | number)[];
+  tenant?: TenantContext;
 }
 
 export interface BulkDeleteResult {
@@ -245,6 +278,7 @@ export interface UpdateParams {
   record: Record<string, unknown>;
   secondaries?: Record<string, Record<string, unknown>[]>;
   deletions?: Record<string, Record<string, unknown>[]>;
+  tenant?: TenantContext;
 }
 
 export interface UpdateResult {

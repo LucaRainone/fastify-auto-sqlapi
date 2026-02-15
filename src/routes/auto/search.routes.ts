@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { QueryClient } from '../../lib/db.js';
 import { searchEngine } from '../../lib/engine/search.js';
+import { resolveTenant } from '../../lib/tenant.js';
 import { SearchTableBodyPost, SearchTableQueryString, SearchTableResponse } from '../../lib/schema/search.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
@@ -34,6 +35,7 @@ export default async function searchRoutes(
       onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
       handler: async (request, reply) => {
         const db = new QueryClient((fastify as any).pg);
+        const tenant = await resolveTenant(options, tableConf, request);
 
         const body = request.body as Record<string, any>;
         const query = request.query as Record<string, any>;
@@ -55,6 +57,7 @@ export default async function searchRoutes(
           computeMax: query.computeMax,
           computeSum: query.computeSum,
           computeAvg: query.computeAvg,
+          tenant,
         });
 
         reply.send({ table: tableConf.Schema.tableName, ...result });

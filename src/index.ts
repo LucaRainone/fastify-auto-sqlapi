@@ -13,6 +13,9 @@ export { QueryClient } from './lib/db.js';
 // Table helpers
 export { exportTableInfo, defineTable, buildRelation, buildUpsertRule, buildUpsertRules } from './lib/table-helpers.js';
 
+// Tenant
+export { resolveTenant } from './lib/tenant.js';
+
 
 // Plugin
 export { default as fastifyAutoSqlApi } from './routes/auto/plugin.js';
@@ -93,4 +96,9 @@ export type {
   BulkDeleteResult,
   UpdateParams,
   UpdateResult,
+  TenantId,
+  TenantScope,
+  TenantScopeDirect,
+  TenantScopeIndirect,
+  TenantContext,
 } from './types.js';
