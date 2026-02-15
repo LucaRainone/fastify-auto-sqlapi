@@ -1,0 +1,269 @@
+### ─── Customer: base search ───────────────────────────────────
+
+### All customers
+POST http://localhost:3000/auto/search/customer
+Content-Type: application/json
+
+{}
+
+### Filter by isActive
+POST http://localhost:3000/auto/search/customer
+Content-Type: application/json
+
+{
+  "filters": {
+    "isActive": true
+  }
+}
+
+### Full-text search (extraFilter q)
+POST http://localhost:3000/auto/search/customer
+Content-Type: application/json
+
+{
+  "filters": {
+    "q": "mario"
+  }
+}
+
+### Filter by name + isActive
+POST http://localhost:3000/auto/search/customer
+Content-Type: application/json
+
+{
+  "filters": {
+    "name": "Mario Rossi",
+    "isActive": true
+  }
+}
+
+### ─── Customer: pagination ───────────────────────────────────
+
+### Page 1, 2 items per page
+POST http://localhost:3000/auto/search/customer?page=1&itemsPerPage=2
+Content-Type: application/json
+
+{}
+
+### Page 2
+POST http://localhost:3000/auto/search/customer?page=2&itemsPerPage=2
+Content-Type: application/json
+
+{}
+
+### Pagination + compute aggregates
+POST http://localhost:3000/auto/search/customer?page=1&itemsPerPage=10&computeMin=id&computeMax=id
+Content-Type: application/json
+
+{}
+
+### ─── Customer: order by ─────────────────────────────────────
+
+### Order by email DESC
+POST http://localhost:3000/auto/search/customer?orderBy=email%20DESC
+Content-Type: application/json
+
+{}
+
+### ─── Customer: joins ────────────────────────────────────────
+
+### Join customer_order (no filters)
+POST http://localhost:3000/auto/search/customer
+Content-Type: application/json
+
+{
+  "joins": {
+    "customer_order": {}
+  }
+}
+
+### Join customer_order with filter on status
+POST http://localhost:3000/auto/search/customer
+Content-Type: application/json
+
+{
+  "joins": {
+    "customer_order": {
+      "filters": {
+        "status": "completed"
+      }
+    }
+  }
+}
+
+### Join + main filters combined
+POST http://localhost:3000/auto/search/customer
+Content-Type: application/json
+
+{
+  "filters": {
+    "isActive": true
+  },
+  "joins": {
+    "customer_order": {
+      "filters": {
+        "status": "pending"
+      }
+    }
+  }
+}
+
+### ─── Customer: joinGroups ───────────────────────────────────
+
+### Sum totals per customer
+POST http://localhost:3000/auto/search/customer
+Content-Type: application/json
+
+{
+  "joinGroups": {
+    "customer_order": {
+      "aggregations": {
+        "sum": ["total"]
+      }
+    }
+  }
+}
+
+### Multiple aggregations: sum, min, max on total
+POST http://localhost:3000/auto/search/customer
+Content-Type: application/json
+
+{
+  "joinGroups": {
+    "customer_order": {
+      "aggregations": {
+        "sum": ["total"],
+        "min": ["total"],
+        "max": ["total"]
+      }
+    }
+  }
+}
+
+### distinctCount on status
+POST http://localhost:3000/auto/search/customer
+Content-Type: application/json
+
+{
+  "joinGroups": {
+    "customer_order": {
+      "aggregations": {
+        "distinctCount": ["status"]
+      }
+    }
+  }
+}
+
+### Group by status
+POST http://localhost:3000/auto/search/customer
+Content-Type: application/json
+
+{
+  "joinGroups": {
+    "customer_order": {
+      "aggregations": {
+        "by": "status",
+        "sum": ["total"]
+      }
+    }
+  }
+}
+
+### joinGroups with filters
+POST http://localhost:3000/auto/search/customer
+Content-Type: application/json
+
+{
+  "joinGroups": {
+    "customer_order": {
+      "aggregations": {
+        "sum": ["total"],
+        "max": ["total"]
+      },
+      "filters": {
+        "status": "completed"
+      }
+    }
+  }
+}
+
+### ─── Customer: joins + joinGroups combined ──────────────────
+
+### Full: filters + joins + joinGroups + pagination
+POST http://localhost:3000/auto/search/customer?page=1&itemsPerPage=10
+Content-Type: application/json
+
+{
+  "filters": {
+    "isActive": true
+  },
+  "joins": {
+    "customer_order": {}
+  },
+  "joinGroups": {
+    "customer_order": {
+      "aggregations": {
+        "sum": ["total"],
+        "min": ["total"],
+        "max": ["total"],
+        "distinctCount": ["status"]
+      }
+    }
+  }
+}
+
+### ─── CustomerOrder: base search ─────────────────────────────
+
+### All orders
+POST http://localhost:3000/auto/search/customer_order
+Content-Type: application/json
+
+{}
+
+### Filter by status
+POST http://localhost:3000/auto/search/customer_order
+Content-Type: application/json
+
+{
+  "filters": {
+    "status": "completed"
+  }
+}
+
+### Filter by customerId
+POST http://localhost:3000/auto/search/customer_order
+Content-Type: application/json
+
+{
+  "filters": {
+    "customerId": 1
+  }
+}
+
+### ─── Product: base search ───────────────────────────────────
+
+### All products
+POST http://localhost:3000/auto/search/product
+Content-Type: application/json
+
+{}
+
+### Filter by isAvailable
+POST http://localhost:3000/auto/search/product
+Content-Type: application/json
+
+{
+  "filters": {
+    "isAvailable": true
+  }
+}
+
+### Filter by name
+POST http://localhost:3000/auto/search/product
+Content-Type: application/json
+
+{
+  "filters": {
+    "name": "Widget"
+  }
+}

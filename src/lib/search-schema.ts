@@ -70,11 +70,13 @@ export function SearchTableResponse(dbTables: DbTables, tableName: string): TObj
   const mainItem = Type.Partial(Type.Object(tableConf.Schema.fields));
 
   const joinResponseProperties: Record<string, ReturnType<typeof Type.Array>> = {};
+  const joinGroupResponseProperties: Record<string, ReturnType<typeof Type.Record>> = {};
   if (tableConf.allowedReadJoins) {
     for (const [joinSchema] of tableConf.allowedReadJoins) {
       joinResponseProperties[joinSchema.tableName] = Type.Array(
         Type.Partial(Type.Object(joinSchema.fields))
       );
+      joinGroupResponseProperties[joinSchema.tableName] = Type.Record(Type.String(), Type.Unknown());
     }
   }
 
@@ -82,7 +84,7 @@ export function SearchTableResponse(dbTables: DbTables, tableName: string): TObj
     table: Type.String(),
     main: Type.Array(mainItem),
     joins: Type.Partial(Type.Object(joinResponseProperties)),
-    joinGroups: Type.Record(Type.String(), Type.Unknown()),
+    joinGroups: Type.Partial(Type.Object(joinGroupResponseProperties)),
     pagination: Type.Optional(
       Type.Object({
         total: Type.Integer(),
