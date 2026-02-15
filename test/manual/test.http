@@ -327,3 +327,78 @@ Content-Type: application/json
     "orderDate": "2024-07-01"
   }
 }
+
+### ─── Update: customer ──────────────────────────────────────
+
+### Update customer (main only)
+PUT http://localhost:3000/auto/customer
+Content-Type: application/json
+
+{
+  "main": {
+    "id": 1,
+    "name": "Nome Aggiornato",
+    "phoneNumber": "000000000"
+  }
+}
+
+### Update customer + add secondary orders
+PUT http://localhost:3000/auto/customer
+Content-Type: application/json
+
+{
+  "main": {
+    "id": 1,
+    "name": "Cliente Aggiornato"
+  },
+  "secondaries": {
+    "customer_order": [
+      {
+        "total": 500.00,
+        "status": "pending",
+        "orderDate": "2024-08-01"
+      }
+    ]
+  }
+}
+
+### Update customer + delete secondary orders
+PUT http://localhost:3000/auto/customer
+Content-Type: application/json
+
+{
+  "main": {
+    "id": 1,
+    "name": "Cliente Aggiornato"
+  },
+  "deletions": {
+    "customer_order": [
+      { "id": 5 }
+    ]
+  }
+}
+
+### Update customer + secondaries + deletions
+PUT http://localhost:3000/auto/customer
+Content-Type: application/json
+
+{
+  "main": {
+    "id": 1,
+    "name": "Full Update"
+  },
+  "secondaries": {
+    "customer_order": [
+      {
+        "total": 300.00,
+        "status": "new",
+        "orderDate": "2024-09-01"
+      }
+    ]
+  },
+  "deletions": {
+    "customer_order": [
+      { "id": 10 }
+    ]
+  }
+}

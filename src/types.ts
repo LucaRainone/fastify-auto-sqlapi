@@ -176,3 +176,21 @@ export interface InsertResult {
   main: Record<string, unknown>;
   secondaries?: Record<string, Record<string, unknown>[]>;
 }
+
+// ─── Update Types ─────────────────────────────────────────────
+
+export interface UpdateParams {
+  db: QueryClient;
+  tableConf: ITable;
+  dbTables: DbTables;
+  request: FastifyRequest;
+  record: Record<string, unknown>;
+  secondaries?: Record<string, Record<string, unknown>[]>;
+  deletions?: Record<string, Record<string, unknown>[]>;
+}
+
+export interface UpdateResult {
+  main: Record<string, unknown>;
+  secondaries?: Record<string, Record<string, unknown>[]>;
+  deletions?: Record<string, Record<string, unknown>[]>;
+}

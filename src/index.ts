@@ -27,6 +27,11 @@ export { insertEngine } from './lib/insert-engine.js';
 export { InsertTableBody, InsertTableResponse } from './lib/insert-schema.js';
 export { default as insertRoutes } from './routes/auto/insert.routes.js';
 
+// Update
+export { updateEngine } from './lib/update-engine.js';
+export { UpdateTableBody, UpdateTableResponse } from './lib/update-schema.js';
+export { default as updateRoutes } from './routes/auto/update.routes.js';
+
 // Re-export deps
 export { Type, type Static } from '@sinclair/typebox';
 export { ConditionBuilder, Expression } from 'node-condition-builder';
@@ -56,4 +61,6 @@ export type {
   JoinGroupRequest,
   InsertParams,
   InsertResult,
+  UpdateParams,
+  UpdateResult,
 } from './types.js';
