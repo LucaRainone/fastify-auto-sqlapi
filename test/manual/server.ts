@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import fastifyPostgres from '@fastify/postgres';
-import { setupSwagger, searchRoutes, insertRoutes, updateRoutes, deleteRoutes, getRoutes, bulkUpsertRoutes, bulkDeleteRoutes } from 'fastify-auto-sqlapi';
+import { fastifyAutoSqlApi } from 'fastify-auto-sqlapi';
 import { dbTables } from './tables.js';
 
 const connectionString = 'postgres://test:test@127.0.0.1:5433/testdb';
@@ -12,16 +12,11 @@ const app = Fastify({
 
 await app.register(fastifyPostgres, { connectionString });
 
-await app.register(async (instance) => {
-  await setupSwagger(instance, { swagger: true });
-  await instance.register(searchRoutes, { DbTables: dbTables });
-  await instance.register(insertRoutes, { DbTables: dbTables });
-  await instance.register(updateRoutes, { DbTables: dbTables });
-  await instance.register(deleteRoutes, { DbTables: dbTables });
-  await instance.register(getRoutes, { DbTables: dbTables });
-  await instance.register(bulkUpsertRoutes, { DbTables: dbTables });
-  await instance.register(bulkDeleteRoutes, { DbTables: dbTables });
-}, { prefix: '/auto' });
+await app.register(fastifyAutoSqlApi, {
+  DbTables: dbTables,
+  swagger: true,
+  prefix: '/auto',
+});
 
 // Health check
 app.get('/health', async () => ({ status: 'ok' }));

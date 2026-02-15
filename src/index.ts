@@ -14,6 +14,9 @@ export { QueryClient } from './lib/db.js';
 export { exportTableInfo, defineTable, buildRelation, buildUpsertRule, buildUpsertRules } from './lib/table-helpers.js';
 
 
+// Plugin
+export { default as fastifyAutoSqlApi } from './routes/auto/plugin.js';
+
 // Swagger
 export { setupSwagger } from './lib/setup-swagger.js';
 
