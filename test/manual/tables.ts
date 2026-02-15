@@ -1,16 +1,9 @@
-import {
-  Type,
-  exportTableInfo,
-  defineTable,
-  buildRelation,
-  buildUpsertRules,
-  ConditionBuilder,
-} from 'fastify-auto-sqlapi';
-import type { DbTables, TenantScope } from 'fastify-auto-sqlapi';
+import type {DbTables} from 'fastify-auto-sqlapi';
+import {buildRelation, ConditionBuilder, defineTable, exportTableInfo, Type,} from 'fastify-auto-sqlapi';
 
-import { SchemaCustomer } from './output/SchemaCustomer.js';
-import { SchemaCustomerOrder } from './output/SchemaCustomerOrder.js';
-import { SchemaProduct } from './output/SchemaProduct.js';
+import {SchemaCustomer} from './output/SchemaCustomer.js';
+import {SchemaCustomerOrder} from './output/SchemaCustomerOrder.js';
+import {SchemaProduct} from './output/SchemaProduct.js';
 
 // ─── Table Configurations ────────────────────────────────────
 

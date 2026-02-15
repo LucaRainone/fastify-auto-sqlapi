@@ -25,7 +25,7 @@ export function parseSchemaFile(content: string): ParsedSchema | null {
   const exportMatch = content.match(/export const (Schema\w+)\s*=\s*Schema/);
   if (!exportMatch) return null;
 
-  const schemaBlockMatch = content.match(/const _Schema\s*=\s*\{([\s\S]*?)\};/);
+  const schemaBlockMatch = content.match(/const _Schema\s*=\s*\{([\s\S]*?)};/);
   if (!schemaBlockMatch) return null;
 
   const fields: string[] = [];
