@@ -1,4 +1,4 @@
-import type { QueryClient } from '../db.js';
+import { escapeIdent, type QueryClient } from '../db.js';
 import { camelcaseObject } from '../naming.js';
 import type {
   DbTables,
@@ -8,7 +8,32 @@ import type {
   JoinDefinition,
   JoinGroupRequest,
   ITable,
+  SchemaDefinition,
 } from '../../types.js';
+
+function validateSchemaField(field: string, schema: SchemaDefinition): string {
+  if (!(field in schema.fields)) {
+    const err = new Error(`Unknown field: ${field}`) as Error & { statusCode: number };
+    err.statusCode = 400;
+    throw err;
+  }
+  return schema.col(field);
+}
+
+function validateOrderBy(orderBy: string, tableConf: ITable): string {
+  return orderBy.split(',').map((part) => {
+    const trimmed = part.trim();
+    const match = trimmed.match(/^(\w+)(?:\s+(ASC|DESC))?$/i);
+    if (!match) {
+      const err = new Error(`Invalid orderBy: ${trimmed}`) as Error & { statusCode: number };
+      err.statusCode = 400;
+      throw err;
+    }
+    const [, field, dir] = match;
+    const col = validateSchemaField(field, tableConf.Schema);
+    return `"${col}" ${(dir || 'ASC').toUpperCase()}`;
+  }).join(', ');
+}
 
 async function executeMainQuery(
   db: QueryClient,
@@ -51,7 +76,7 @@ async function buildPagination(
   const tableName = tableConf.Schema.tableName;
 
   const countResult = await db.query<{ total: string }>(
-    `SELECT COUNT(*) as total FROM "${tableName}" WHERE ${where}`,
+    `SELECT COUNT(*) as total FROM "${escapeIdent(tableName)}" WHERE ${where}`,
     values
   );
   const total = parseInt(countResult.rows[0].total, 10);
@@ -66,9 +91,9 @@ async function buildPagination(
 
   for (const { key, field, fn } of computations) {
     if (field) {
-      const col = tableConf.Schema.col(field);
+      const col = validateSchemaField(field, tableConf.Schema);
       const result = await db.query<{ value: unknown }>(
-        `SELECT ${fn}("${col}") as value FROM "${tableName}" WHERE ${where}`,
+        `SELECT ${fn}("${escapeIdent(col)}") as value FROM "${escapeIdent(tableName)}" WHERE ${where}`,
         values
       );
       computed[key] = { [field]: result.rows[0].value };
@@ -128,13 +153,15 @@ async function executeVirtualJoins(
       values.push(...joinCondition.getValues());
       const inPlaceholders = ids.map((_, i) => `$${values.length + i + 1}`).join(', ');
       values.push(...ids);
+      const fkCol = escapeIdent(joinSchema.col(joinField));
       where = condStr
-        ? `${condStr} AND "${joinSchema.col(joinField)}" IN (${inPlaceholders})`
-        : `"${joinSchema.col(joinField)}" IN (${inPlaceholders})`;
+        ? `${condStr} AND "${fkCol}" IN (${inPlaceholders})`
+        : `"${fkCol}" IN (${inPlaceholders})`;
     } else {
       const inPlaceholders = ids.map((_, i) => `$${i + 1}`).join(', ');
       values.push(...ids);
-      where = `"${joinSchema.col(joinField)}" IN (${inPlaceholders})`;
+      const fkCol = escapeIdent(joinSchema.col(joinField));
+      where = `"${fkCol}" IN (${inPlaceholders})`;
     }
 
     const columns = selection === '*' ? '*' : selection;
@@ -177,29 +204,33 @@ async function executeJoinGroups(
     const groupByParts: string[] = [];
 
     if (aggregations.by) {
-      const byCol = joinSchema.col(aggregations.by);
+      const byCol = escapeIdent(validateSchemaField(aggregations.by, joinSchema));
       selectParts.push(`"${byCol}" as "by"`);
       groupByParts.push(`"${byCol}"`);
     }
 
     if (aggregations.distinctCount) {
       for (const f of aggregations.distinctCount) {
-        selectParts.push(`COUNT(DISTINCT "${joinSchema.col(f)}") as "distinctCount_${f}"`);
+        const col = escapeIdent(validateSchemaField(f, joinSchema));
+        selectParts.push(`COUNT(DISTINCT "${col}") as "distinctCount_${f}"`);
       }
     }
     if (aggregations.min) {
       for (const f of aggregations.min) {
-        selectParts.push(`MIN("${joinSchema.col(f)}") as "min_${f}"`);
+        const col = escapeIdent(validateSchemaField(f, joinSchema));
+        selectParts.push(`MIN("${col}") as "min_${f}"`);
       }
     }
     if (aggregations.max) {
       for (const f of aggregations.max) {
-        selectParts.push(`MAX("${joinSchema.col(f)}") as "max_${f}"`);
+        const col = escapeIdent(validateSchemaField(f, joinSchema));
+        selectParts.push(`MAX("${col}") as "max_${f}"`);
       }
     }
     if (aggregations.sum) {
       for (const f of aggregations.sum) {
-        selectParts.push(`SUM("${joinSchema.col(f)}") as "sum_${f}"`);
+        const col = escapeIdent(validateSchemaField(f, joinSchema));
+        selectParts.push(`SUM("${col}") as "sum_${f}"`);
       }
     }
 
@@ -216,22 +247,23 @@ async function executeJoinGroups(
       : undefined;
 
     let where: string;
+    const fkCol = escapeIdent(joinSchema.col(joinField));
     if (filterCondition) {
       const condStr = filterCondition.build(1, (i) => `$${i}`);
       values.push(...filterCondition.getValues());
       const inPlaceholders = ids.map((_, i) => `$${values.length + i + 1}`).join(', ');
       values.push(...ids);
       where = condStr
-        ? `${condStr} AND "${joinSchema.col(joinField)}" IN (${inPlaceholders})`
-        : `"${joinSchema.col(joinField)}" IN (${inPlaceholders})`;
+        ? `${condStr} AND "${fkCol}" IN (${inPlaceholders})`
+        : `"${fkCol}" IN (${inPlaceholders})`;
     } else {
       const inPlaceholders = ids.map((_, i) => `$${i + 1}`).join(', ');
       values.push(...ids);
-      where = `"${joinSchema.col(joinField)}" IN (${inPlaceholders})`;
+      where = `"${fkCol}" IN (${inPlaceholders})`;
     }
 
     const groupBy = groupByParts.length > 0 ? `GROUP BY ${groupByParts.join(', ')}` : '';
-    const sql = `SELECT ${selectParts.join(', ')} FROM "${joinSchema.tableName}" WHERE ${where} ${groupBy}`;
+    const sql = `SELECT ${selectParts.join(', ')} FROM "${escapeIdent(joinSchema.tableName)}" WHERE ${where} ${groupBy}`;
 
     const queryResult = await db.query(sql, values);
     const rows = queryResult.rows;
@@ -291,8 +323,11 @@ export async function searchEngine(
   const values = condition.getValues();
   const where = condition.build(1, (i) => `$${i}`) || '1=1';
 
+  // Validate and sanitize orderBy (user input → SQL identifier)
+  const safeOrderBy = orderBy ? validateOrderBy(orderBy, tableConf) : undefined;
+
   // Main query
-  const main = await executeMainQuery(db, tableConf, where, values, orderBy, paginator);
+  const main = await executeMainQuery(db, tableConf, where, values, safeOrderBy, paginator);
 
   // Pagination
   let pagination: PaginationResult | undefined;

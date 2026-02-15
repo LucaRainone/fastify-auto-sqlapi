@@ -5,7 +5,8 @@ import type { Queryable, DbRecord, SelectOptions } from '../types.js';
 
 const DEFAULT_CHUNK_SIZE = 500;
 
-const q = (fields: string[]) => fields.map((f) => `"${f}"`).join(', ');
+export const escapeIdent = (f: string) => f.replace(/"/g, '""');
+const q = (fields: string[]) => fields.map((f) => `"${escapeIdent(f)}"`).join(', ');
 
 export class QueryClient {
   private pg: Queryable;
@@ -89,7 +90,7 @@ export class QueryClient {
     if (!fields.length) throw new Error('Cannot execute empty insert');
 
     const result = await this.query<T>(
-      `INSERT INTO "${table}" (${q(fields)})
+      `INSERT INTO "${escapeIdent(table)}" (${q(fields)})
        VALUES (${placeholders.join(', ')})
        RETURNING *`,
       values
@@ -108,11 +109,11 @@ export class QueryClient {
 
     const updateCols = fields.filter((f) => !conflictKeys.includes(f));
     const onConflict = updateCols.length
-      ? `DO UPDATE SET ${updateCols.map((f) => `"${f}" = EXCLUDED."${f}"`).join(', ')}`
+      ? `DO UPDATE SET ${updateCols.map((f) => `"${escapeIdent(f)}" = EXCLUDED."${escapeIdent(f)}"`).join(', ')}`
       : 'DO NOTHING';
 
     const result = await this.query<T>(
-      `INSERT INTO "${table}" (${q(fields)})
+      `INSERT INTO "${escapeIdent(table)}" (${q(fields)})
        VALUES (${placeholders.join(', ')})
        ON CONFLICT (${q(conflictKeys)}) ${onConflict}
        RETURNING *`,
@@ -137,7 +138,7 @@ export class QueryClient {
         records.slice(i, i + chunkSize)
       );
       const result = await this.query<T>(
-        `INSERT INTO "${table}" (${q(fields)}) VALUES ${rows} RETURNING *`,
+        `INSERT INTO "${escapeIdent(table)}" (${q(fields)}) VALUES ${rows} RETURNING *`,
         values
       );
       results.push(...result.rows);
@@ -157,7 +158,7 @@ export class QueryClient {
     const fields = Object.keys(records[0]);
     const updateCols = fields.filter((f) => !conflictKeys.includes(f));
     const onConflict = updateCols.length
-      ? `DO UPDATE SET ${updateCols.map((f) => `"${f}" = EXCLUDED."${f}"`).join(', ')}`
+      ? `DO UPDATE SET ${updateCols.map((f) => `"${escapeIdent(f)}" = EXCLUDED."${escapeIdent(f)}"`).join(', ')}`
       : 'DO NOTHING';
     const results: T[] = [];
 
@@ -167,7 +168,7 @@ export class QueryClient {
         records.slice(i, i + chunkSize)
       );
       const result = await this.query<T>(
-        `INSERT INTO "${table}" (${q(fields)})
+        `INSERT INTO "${escapeIdent(table)}" (${q(fields)})
          VALUES ${rows}
          ON CONFLICT (${q(conflictKeys)}) ${onConflict}
          RETURNING *`,
@@ -202,9 +203,9 @@ export class QueryClient {
     const returning = options.returning ? ' RETURNING *' : '';
 
     const result = await this.query<T>(
-      `UPDATE "${table}"
-       SET ${setF.map((f, i) => `"${f}" = ${setP[i]}`).join(', ')}
-       WHERE ${whereF.map((f, i) => `"${f}" = ${whereP[i]}`).join(' AND ')}${extraWhere}${returning}`,
+      `UPDATE "${escapeIdent(table)}"
+       SET ${setF.map((f, i) => `"${escapeIdent(f)}" = ${setP[i]}`).join(', ')}
+       WHERE ${whereF.map((f, i) => `"${escapeIdent(f)}" = ${whereP[i]}`).join(' AND ')}${extraWhere}${returning}`,
       values
     );
     return result.rows;
@@ -218,8 +219,8 @@ export class QueryClient {
     const { fields, placeholders } = this.#params(where, values);
 
     const result = await this.query<T>(
-      `DELETE FROM "${table}"
-       WHERE ${fields.map((f, i) => `"${f}" = ${placeholders[i]}`).join(' AND ')}
+      `DELETE FROM "${escapeIdent(table)}"
+       WHERE ${fields.map((f, i) => `"${escapeIdent(f)}" = ${placeholders[i]}`).join(' AND ')}
        RETURNING *`,
       values
     );
@@ -236,10 +237,10 @@ export class QueryClient {
     joins = [],
     distinct = false,
   }: SelectOptions): Promise<T[]> {
-    const cols = columns === '*' ? `"${tableName}".*` : columns;
+    const cols = columns === '*' ? `"${escapeIdent(tableName)}".*` : columns;
     const parts = [
       `SELECT${distinct ? ' DISTINCT' : ''} ${cols}`,
-      `FROM "${tableName}"`,
+      `FROM "${escapeIdent(tableName)}"`,
       ...joins,
       `WHERE ${where}`,
     ];

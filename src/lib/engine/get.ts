@@ -1,4 +1,5 @@
 import { camelcaseObject } from '../naming.js';
+import { escapeIdent } from '../db.js';
 import type { GetParams, GetResult } from '../../types.js';
 
 export async function getEngine(params: GetParams): Promise<GetResult> {
@@ -7,7 +8,7 @@ export async function getEngine(params: GetParams): Promise<GetResult> {
 
   const rows = await db.select({
     tableName: tableConf.Schema.tableName,
-    where: `"${pkCol}" = $1`,
+    where: `"${escapeIdent(pkCol)}" = $1`,
     values: [id],
     limit: '1',
   });

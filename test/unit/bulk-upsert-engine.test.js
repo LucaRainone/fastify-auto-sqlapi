@@ -230,6 +230,98 @@ describe('bulkUpsertEngine - with deletions', () => {
   });
 });
 
+describe('bulkUpsertEngine - hooks', () => {
+  it('calls beforeInsert for each record before bulk query', async () => {
+    const hookCalls = [];
+    const mockPg = createMockPg([
+      { rows: [
+        { id: 1, name: 'Mario', email: 'mario@test.it' },
+        { id: 2, name: 'Luigi', email: 'luigi@test.it' },
+      ], rowCount: 2 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+    DbTables.customer.beforeInsert = async (_db, _req, record) => {
+      hookCalls.push({ ...record });
+    };
+
+    await bulkUpsertEngine({
+      db,
+      tableConf: DbTables.customer,
+      dbTables: DbTables,
+      request: mockRequest,
+      items: [
+        { main: { name: 'Mario', email: 'mario@test.it' } },
+        { main: { name: 'Luigi', email: 'luigi@test.it' } },
+      ],
+    });
+
+    assert.equal(hookCalls.length, 2);
+    assert.equal(hookCalls[0].name, 'Mario');
+    assert.equal(hookCalls[1].name, 'Luigi');
+  });
+
+  it('beforeInsert can mutate records before bulk insert', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it', status: 'active' }], rowCount: 1 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+    DbTables.customer.beforeInsert = async (_db, _req, record) => {
+      record.status = 'active';
+    };
+
+    await bulkUpsertEngine({
+      db,
+      tableConf: DbTables.customer,
+      dbTables: DbTables,
+      request: mockRequest,
+      items: [{ main: { name: 'Mario', email: 'mario@test.it' } }],
+    });
+
+    // The INSERT should include the mutated field
+    assert.ok(mockPg.calls[0].values.includes('active'));
+  });
+
+  it('calls afterInsert for each item with secondaryRecords', async () => {
+    const hookCalls = [];
+    const mockPg = createMockPg([
+      { rows: [
+        { id: 10, name: 'Mario', email: 'mario@test.it' },
+        { id: 20, name: 'Luigi', email: 'luigi@test.it' },
+      ], rowCount: 2 },
+      // Item 1: secondary
+      { rows: [{ id: 100, customer_id: 10, total: 50, status: 'pending' }], rowCount: 1 },
+      // Item 2: no secondaries
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+    DbTables.customer.afterInsert = async (_db, _req, record, secondaryRecords) => {
+      hookCalls.push({ record: { ...record }, secondaryRecords });
+    };
+
+    await bulkUpsertEngine({
+      db,
+      tableConf: DbTables.customer,
+      dbTables: DbTables,
+      request: mockRequest,
+      items: [
+        {
+          main: { name: 'Mario', email: 'mario@test.it' },
+          secondaries: { customer_order: [{ total: 50, status: 'pending' }] },
+        },
+        { main: { name: 'Luigi', email: 'luigi@test.it' } },
+      ],
+    });
+
+    assert.equal(hookCalls.length, 2);
+    // Item 1: has secondaries
+    assert.equal(hookCalls[0].record.id, 10);
+    assert.ok(hookCalls[0].secondaryRecords);
+    assert.equal(hookCalls[0].secondaryRecords.customer_order.length, 1);
+    // Item 2: no secondaries
+    assert.equal(hookCalls[1].record.id, 20);
+    assert.equal(hookCalls[1].secondaryRecords, undefined);
+  });
+});
+
 describe('bulkUpsertEngine - mixed items', () => {
   it('handles items with and without secondaries/deletions', async () => {
     const mockPg = createMockPg([

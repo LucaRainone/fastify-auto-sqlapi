@@ -123,7 +123,7 @@ describe('searchEngine - main query', () => {
       orderBy: 'name DESC',
     });
 
-    assert.ok(mockPg.calls[0].text.includes('ORDER BY name DESC'));
+    assert.ok(mockPg.calls[0].text.includes('ORDER BY "name" DESC'));
   });
 
   it('returns no joins, joinGroups, pagination when not requested', async () => {

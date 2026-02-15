@@ -1,4 +1,5 @@
 import { camelcaseObject } from '../naming.js';
+import { escapeIdent } from '../db.js';
 import type { BulkDeleteParams, BulkDeleteResult } from '../../types.js';
 
 export async function bulkDeleteEngine(params: BulkDeleteParams): Promise<BulkDeleteResult[]> {
@@ -9,8 +10,8 @@ export async function bulkDeleteEngine(params: BulkDeleteParams): Promise<BulkDe
   const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ');
 
   const result = await db.query(
-    `DELETE FROM "${tableConf.Schema.tableName}"
-     WHERE "${pkCol}" IN (${placeholders})
+    `DELETE FROM "${escapeIdent(tableConf.Schema.tableName)}"
+     WHERE "${escapeIdent(pkCol)}" IN (${placeholders})
      RETURNING *`,
     ids
   );

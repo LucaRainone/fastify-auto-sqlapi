@@ -7,7 +7,7 @@ import type {
 } from '../../types.js';
 
 export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUpsertResult[]> {
-  const { db, tableConf, dbTables, items } = params;
+  const { db, tableConf, dbTables, request, items } = params;
   if (!items.length) return [];
 
   // 1. Prepare all main records
@@ -17,7 +17,14 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
     return rec as DbRecord;
   });
 
-  // 2. Bulk upsert all mains in one query
+  // 2. beforeInsert hook per record
+  if (tableConf.beforeInsert) {
+    for (const rec of preparedMains) {
+      await tableConf.beforeInsert(db, request, rec);
+    }
+  }
+
+  // 3. Bulk upsert all mains in one query
   const upsertKeys = tableConf.upsertMap?.get(tableConf.Schema);
   let mainRows: Record<string, unknown>[];
   if (upsertKeys) {
@@ -36,7 +43,7 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
 
   const mainsCamel = mainRows.map((r) => camelcaseObject(r as Record<string, unknown>));
 
-  // 3. Process secondaries and deletions per item
+  // 4. Process secondaries and deletions per item
   const results: BulkUpsertResult[] = [];
 
   for (let i = 0; i < items.length; i++) {
@@ -52,6 +59,11 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
     if (item.deletions && Object.keys(item.deletions).length > 0) {
       const del = await processDeletions(db, tableConf, item.deletions);
       if (Object.keys(del).length > 0) result.deletions = del;
+    }
+
+    // 5. afterInsert hook per item
+    if (tableConf.afterInsert) {
+      await tableConf.afterInsert(db, request, mainUpserted, result.secondaries);
     }
 
     results.push(result);
