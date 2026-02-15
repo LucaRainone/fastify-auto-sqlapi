@@ -81,6 +81,7 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
   filters: TableFilterFn;
   extraFilters: Record<string, TSchema>;
   allowedReadJoins?: JoinDefinition[];
+  allowedWriteJoins?: JoinDefinition[];
   upsertMap?: Map<SchemaDefinition, string[]>;
   beforeInsert?: (db: QueryClient, req: FastifyRequest, record: Record<string, unknown>) => Promise<void>;
   beforeUpdate?: (db: QueryClient, req: FastifyRequest, fields: Record<string, unknown>, secondaryFieldsFetcher?: unknown) => void | Promise<void>;
@@ -158,4 +159,20 @@ export interface SearchResult {
   joins?: Record<string, Record<string, unknown>[]>;
   joinGroups?: Record<string, Record<string, unknown>>;
   pagination?: PaginationResult;
+}
+
+// ─── Insert Types ─────────────────────────────────────────────
+
+export interface InsertParams {
+  db: QueryClient;
+  tableConf: ITable;
+  dbTables: DbTables;
+  request: FastifyRequest;
+  record: Record<string, unknown>;
+  secondaries?: Record<string, Record<string, unknown>[]>;
+}
+
+export interface InsertResult {
+  main: Record<string, unknown>;
+  secondaries?: Record<string, Record<string, unknown>[]>;
 }

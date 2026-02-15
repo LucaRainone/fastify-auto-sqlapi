@@ -3,6 +3,7 @@ import {
   exportTableInfo,
   defineTable,
   buildRelation,
+  buildUpsertRules,
   ConditionBuilder,
 } from 'fastify-auto-sqlapi';
 import type { DbTables } from 'fastify-auto-sqlapi';
@@ -32,12 +33,17 @@ const TableCustomer = defineTable({
   allowedReadJoins: [
     buildRelation(SchemaCustomer, 'id', SchemaCustomerOrder, 'customerId'),
   ],
+  allowedWriteJoins: [
+    buildRelation(SchemaCustomer, 'id', SchemaCustomerOrder, 'customerId'),
+  ],
+  excludeFromCreation: ['id'],
 });
 
 const TableCustomerOrder = defineTable({
   primary: 'id',
   ...exportTableInfo(SchemaCustomerOrder),
   defaultOrder: 'order_date DESC',
+  excludeFromCreation: ['id'],
 });
 
 const TableProduct = defineTable({

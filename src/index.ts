@@ -13,10 +13,18 @@ export { QueryClient } from './lib/db.js';
 // Table helpers
 export { exportTableInfo, defineTable, buildRelation, buildUpsertRule, buildUpsertRules } from './lib/table-helpers.js';
 
+// Swagger
+export { setupSwagger } from './lib/setup-swagger.js';
+
 // Search
 export { searchEngine } from './lib/search-engine.js';
 export { SearchTableBodyPost, SearchTableQueryString, SearchTableResponse } from './lib/search-schema.js';
 export { default as searchRoutes } from './routes/auto/search.routes.js';
+
+// Insert
+export { insertEngine } from './lib/insert-engine.js';
+export { InsertTableBody, InsertTableResponse } from './lib/insert-schema.js';
+export { default as insertRoutes } from './routes/auto/insert.routes.js';
 
 // Re-export deps
 export { Type, type Static } from '@sinclair/typebox';
@@ -45,4 +53,6 @@ export type {
   ExtendedConditionFn,
   AggregationRequest,
   JoinGroupRequest,
+  InsertParams,
+  InsertResult,
 } from './types.js';

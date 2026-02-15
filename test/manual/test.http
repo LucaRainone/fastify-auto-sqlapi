@@ -267,3 +267,58 @@ Content-Type: application/json
     "name": "Widget"
   }
 }
+
+### ─── Insert: customer ────────────────────────────────────────
+
+### Insert customer (main only)
+POST http://localhost:3000/auto/customer
+Content-Type: application/json
+
+{
+  "main": {
+    "name": "Nuovo Cliente",
+    "email": "nuovo@test.it",
+    "phoneNumber": "123456789",
+    "isActive": true
+  }
+}
+
+### Insert customer + orders (main + secondaries)
+POST http://localhost:3000/auto/customer
+Content-Type: application/json
+
+{
+  "main": {
+    "name": "Cliente con Ordini",
+    "email": "ordini@test.it",
+    "phoneNumber": "987654321",
+    "isActive": true
+  },
+  "secondaries": {
+    "customer_order": [
+      {
+        "total": 150.00,
+        "status": "pending",
+        "orderDate": "2024-06-01"
+      },
+      {
+        "total": 250.00,
+        "status": "completed",
+        "orderDate": "2024-06-15"
+      }
+    ]
+  }
+}
+
+### Insert customer order (standalone)
+POST http://localhost:3000/auto/customer_order
+Content-Type: application/json
+
+{
+  "main": {
+    "customerId": 1,
+    "total": 99.99,
+    "status": "pending",
+    "orderDate": "2024-07-01"
+  }
+}
