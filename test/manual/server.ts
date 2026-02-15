@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import fastifyPostgres from '@fastify/postgres';
-import { setupSwagger, searchRoutes, insertRoutes, updateRoutes, deleteRoutes, getRoutes } from 'fastify-auto-sqlapi';
+import { setupSwagger, searchRoutes, insertRoutes, updateRoutes, deleteRoutes, getRoutes, bulkUpsertRoutes } from 'fastify-auto-sqlapi';
 import { dbTables } from './tables.js';
 
 const connectionString = 'postgres://test:test@127.0.0.1:5433/testdb';
@@ -19,6 +19,7 @@ await app.register(async (instance) => {
   await instance.register(updateRoutes, { DbTables: dbTables });
   await instance.register(deleteRoutes, { DbTables: dbTables });
   await instance.register(getRoutes, { DbTables: dbTables });
+  await instance.register(bulkUpsertRoutes, { DbTables: dbTables });
 }, { prefix: '/auto' });
 
 // Health check
@@ -35,6 +36,7 @@ try {
   console.log('  PUT    http://localhost:3000/auto/rest/customer          (update)');
   console.log('  GET    http://localhost:3000/auto/rest/customer/:id      (get)');
   console.log('  DELETE http://localhost:3000/auto/rest/customer/:id      (delete)');
+  console.log('  PUT    http://localhost:3000/auto/bulk/customer          (bulk upsert)');
 } catch (err) {
   app.log.error(err);
   process.exit(1);

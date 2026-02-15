@@ -201,6 +201,28 @@ export interface DeleteResult {
   main: Record<string, unknown>;
 }
 
+// ─── Bulk Upsert Types ────────────────────────────────────────
+
+export interface BulkUpsertItem {
+  main: Record<string, unknown>;
+  secondaries?: Record<string, Record<string, unknown>[]>;
+  deletions?: Record<string, Record<string, unknown>[]>;
+}
+
+export interface BulkUpsertParams {
+  db: QueryClient;
+  tableConf: ITable;
+  dbTables: DbTables;
+  request: FastifyRequest;
+  items: BulkUpsertItem[];
+}
+
+export interface BulkUpsertResult {
+  main: Record<string, unknown>;
+  secondaries?: Record<string, Record<string, unknown>[]>;
+  deletions?: Record<string, Record<string, unknown>[]>;
+}
+
 // ─── Update Types ─────────────────────────────────────────────
 
 export interface UpdateParams {

@@ -40,6 +40,11 @@ export { updateEngine } from './lib/engine/update.js';
 export { UpdateTableBody, UpdateTableResponse } from './lib/schema/update.js';
 export { default as updateRoutes } from './routes/auto/update.routes.js';
 
+// Bulk Upsert
+export { bulkUpsertEngine } from './lib/engine/bulk-upsert.js';
+export { BulkUpsertTableBody, BulkUpsertTableResponse } from './lib/schema/bulk-upsert.js';
+export { default as bulkUpsertRoutes } from './routes/auto/bulk-upsert.routes.js';
+
 // Re-export deps
 export { Type, type Static } from '@sinclair/typebox';
 export { ConditionBuilder, Expression } from 'node-condition-builder';
@@ -73,6 +78,9 @@ export type {
   DeleteResult,
   InsertParams,
   InsertResult,
+  BulkUpsertItem,
+  BulkUpsertParams,
+  BulkUpsertResult,
   UpdateParams,
   UpdateResult,
 } from './types.js';

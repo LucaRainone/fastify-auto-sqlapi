@@ -423,3 +423,79 @@ Content-Type: application/json
     ]
   }
 }
+
+### ─── Bulk Upsert: customer ─────────────────────────────────
+
+### Bulk upsert multiple customers (main only)
+PUT http://localhost:3000/auto/bulk/customer
+Content-Type: application/json
+
+[
+  {
+    "main": {
+      "name": "Bulk Customer 1",
+      "email": "bulk1@test.it",
+      "phoneNumber": "111111",
+      "isActive": true
+    }
+  },
+  {
+    "main": {
+      "name": "Bulk Customer 2",
+      "email": "bulk2@test.it",
+      "phoneNumber": "222222",
+      "isActive": true
+    }
+  }
+]
+
+### Bulk upsert with secondaries
+PUT http://localhost:3000/auto/bulk/customer
+Content-Type: application/json
+
+[
+  {
+    "main": {
+      "name": "Cliente con Ordini Bulk",
+      "email": "bulk-orders@test.it",
+      "phoneNumber": "333333",
+      "isActive": true
+    },
+    "secondaries": {
+      "customer_order": [
+        { "total": 100.00, "status": "pending", "orderDate": "2024-10-01" },
+        { "total": 200.00, "status": "completed", "orderDate": "2024-10-15" }
+      ]
+    }
+  }
+]
+
+### Bulk upsert with secondaries + deletions
+PUT http://localhost:3000/auto/bulk/customer
+Content-Type: application/json
+
+[
+  {
+    "main": {
+      "id": 1,
+      "name": "Update via Bulk",
+      "email": "updated@test.it"
+    },
+    "secondaries": {
+      "customer_order": [
+        { "total": 500.00, "status": "new", "orderDate": "2024-11-01" }
+      ]
+    },
+    "deletions": {
+      "customer_order": [
+        { "id": 10 }
+      ]
+    }
+  },
+  {
+    "main": {
+      "name": "Nuovo via Bulk",
+      "email": "nuovo-bulk@test.it"
+    }
+  }
+]
