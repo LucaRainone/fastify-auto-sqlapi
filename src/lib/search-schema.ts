@@ -1,5 +1,13 @@
-import { Type, type TObject } from '@sinclair/typebox';
+import { Type, type TObject, type TSchema } from '@sinclair/typebox';
 import type { DbTables } from '../types.js';
+
+const JoinGroupResultItem = Type.Object({
+  sum: Type.Optional(Type.Record(Type.String(), Type.Any())),
+  min: Type.Optional(Type.Record(Type.String(), Type.Any())),
+  max: Type.Optional(Type.Record(Type.String(), Type.Any())),
+  distinctCount: Type.Optional(Type.Record(Type.String(), Type.Any())),
+  rows: Type.Optional(Type.Array(Type.Any())),
+});
 
 export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObject {
   const tableConf = dbTables[tableName];
@@ -70,13 +78,13 @@ export function SearchTableResponse(dbTables: DbTables, tableName: string): TObj
   const mainItem = Type.Partial(Type.Object(tableConf.Schema.fields));
 
   const joinResponseProperties: Record<string, ReturnType<typeof Type.Array>> = {};
-  const joinGroupResponseProperties: Record<string, ReturnType<typeof Type.Record>> = {};
+  const joinGroupResponseProperties: Record<string, TSchema> = {};
   if (tableConf.allowedReadJoins) {
     for (const [joinSchema] of tableConf.allowedReadJoins) {
       joinResponseProperties[joinSchema.tableName] = Type.Array(
         Type.Partial(Type.Object(joinSchema.fields))
       );
-      joinGroupResponseProperties[joinSchema.tableName] = Type.Record(Type.String(), Type.Unknown());
+      joinGroupResponseProperties[joinSchema.tableName] = JoinGroupResultItem;
     }
   }
 
