@@ -1,0 +1,39 @@
+import type { FastifyInstance } from 'fastify';
+import { QueryClient } from '../../lib/db.js';
+import { bulkDeleteEngine } from '../../lib/engine/bulk-delete.js';
+import { BulkDeleteTableBody, BulkDeleteTableResponse } from '../../lib/schema/bulk-delete.js';
+import type { SqlApiPluginOptions } from '../../types.js';
+
+export default async function bulkDeleteRoutes(
+  fastify: FastifyInstance,
+  options: SqlApiPluginOptions
+): Promise<void> {
+  const { DbTables } = options;
+
+  for (const [tableName, tableConf] of Object.entries(DbTables)) {
+    const bodySchema = BulkDeleteTableBody(DbTables, tableName);
+    const responseSchema = BulkDeleteTableResponse(DbTables, tableName);
+
+    fastify.route({
+      method: 'POST',
+      url: `/bulk/${tableConf.Schema.tableName}/delete`,
+      schema: {
+        body: bodySchema,
+        response: { 200: responseSchema },
+        tags: [`SqlAPI-${tableName}`],
+        summary: `Bulk delete ${tableName}`,
+        description: `Delete multiple records from ${tableName} by primary key`,
+      },
+      onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
+      handler: async (request, reply) => {
+        const db = new QueryClient((fastify as any).pg);
+        const items = request.body as Record<string, unknown>[];
+        const ids = items.map((item) => item[tableConf.primary] as string | number);
+
+        const result = await bulkDeleteEngine({ db, tableConf, ids });
+
+        reply.send(result);
+      },
+    });
+  }
+}

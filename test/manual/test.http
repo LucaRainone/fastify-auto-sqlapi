@@ -499,3 +499,14 @@ Content-Type: application/json
     }
   }
 ]
+
+### ─── Bulk Delete: customer ───────────────────────────────────
+
+### Bulk delete multiple customers by id
+POST http://localhost:3000/auto/bulk/customer/delete
+Content-Type: application/json
+
+[
+  { "id": 10 },
+  { "id": 11 }
+]

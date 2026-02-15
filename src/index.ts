@@ -45,6 +45,11 @@ export { bulkUpsertEngine } from './lib/engine/bulk-upsert.js';
 export { BulkUpsertTableBody, BulkUpsertTableResponse } from './lib/schema/bulk-upsert.js';
 export { default as bulkUpsertRoutes } from './routes/auto/bulk-upsert.routes.js';
 
+// Bulk Delete
+export { bulkDeleteEngine } from './lib/engine/bulk-delete.js';
+export { BulkDeleteTableBody, BulkDeleteTableResponse } from './lib/schema/bulk-delete.js';
+export { default as bulkDeleteRoutes } from './routes/auto/bulk-delete.routes.js';
+
 // Re-export deps
 export { Type, type Static } from '@sinclair/typebox';
 export { ConditionBuilder, Expression } from 'node-condition-builder';
@@ -81,6 +86,8 @@ export type {
   BulkUpsertItem,
   BulkUpsertParams,
   BulkUpsertResult,
+  BulkDeleteParams,
+  BulkDeleteResult,
   UpdateParams,
   UpdateResult,
 } from './types.js';

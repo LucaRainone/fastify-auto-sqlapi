@@ -223,6 +223,18 @@ export interface BulkUpsertResult {
   deletions?: Record<string, Record<string, unknown>[]>;
 }
 
+// ─── Bulk Delete Types ────────────────────────────────────────
+
+export interface BulkDeleteParams {
+  db: QueryClient;
+  tableConf: ITable;
+  ids: (string | number)[];
+}
+
+export interface BulkDeleteResult {
+  main: Record<string, unknown>;
+}
+
 // ─── Update Types ─────────────────────────────────────────────
 
 export interface UpdateParams {
