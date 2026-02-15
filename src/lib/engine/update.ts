@@ -1,10 +1,10 @@
-import { camelcaseObject, snakecaseRecord } from './naming.js';
+import { camelcaseObject, snakecaseRecord } from '../naming.js';
 import { processSecondaries, processDeletions } from './write-helpers.js';
 import type {
   UpdateParams,
   UpdateResult,
   DbRecord,
-} from '../types.js';
+} from '../../types.js';
 
 export async function updateEngine(params: UpdateParams): Promise<UpdateResult> {
   const { db, tableConf, dbTables, request, record, secondaries, deletions } = params;

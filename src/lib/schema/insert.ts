@@ -1,5 +1,5 @@
 import { Type, type TObject, type TSchema } from '@sinclair/typebox';
-import type { DbTables } from '../types.js';
+import type { DbTables } from '../../types.js';
 
 export function InsertTableBody(dbTables: DbTables, tableName: string): TObject {
   const tableConf = dbTables[tableName];

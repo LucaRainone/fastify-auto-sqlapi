@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { QueryClient } from '../../lib/db.js';
-import { updateEngine } from '../../lib/update-engine.js';
-import { UpdateTableBody, UpdateTableResponse } from '../../lib/update-schema.js';
+import { updateEngine } from '../../lib/engine/update.js';
+import { UpdateTableBody, UpdateTableResponse } from '../../lib/schema/update.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
 export default async function updateRoutes(

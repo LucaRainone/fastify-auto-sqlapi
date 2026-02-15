@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { QueryClient } from '../../lib/db.js';
-import { insertEngine } from '../../lib/insert-engine.js';
-import { InsertTableBody, InsertTableResponse } from '../../lib/insert-schema.js';
+import { insertEngine } from '../../lib/engine/insert.js';
+import { InsertTableBody, InsertTableResponse } from '../../lib/schema/insert.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
 export default async function insertRoutes(

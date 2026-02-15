@@ -1,5 +1,5 @@
-import { toCamelCase, toSchemaName } from './naming.js';
-import type { ColumnInfo, TableMap } from '../types.js';
+import { toCamelCase, toSchemaName } from '../naming.js';
+import type { ColumnInfo, TableMap } from '../../types.js';
 
 export function convertColType(
   udtName: string,

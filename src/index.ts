@@ -18,18 +18,18 @@ export { exportTableInfo, defineTable, buildRelation, buildUpsertRule, buildUpse
 export { setupSwagger } from './lib/setup-swagger.js';
 
 // Search
-export { searchEngine } from './lib/search-engine.js';
-export { SearchTableBodyPost, SearchTableQueryString, SearchTableResponse } from './lib/search-schema.js';
+export { searchEngine } from './lib/engine/search.js';
+export { SearchTableBodyPost, SearchTableQueryString, SearchTableResponse } from './lib/schema/search.js';
 export { default as searchRoutes } from './routes/auto/search.routes.js';
 
 // Insert
-export { insertEngine } from './lib/insert-engine.js';
-export { InsertTableBody, InsertTableResponse } from './lib/insert-schema.js';
+export { insertEngine } from './lib/engine/insert.js';
+export { InsertTableBody, InsertTableResponse } from './lib/schema/insert.js';
 export { default as insertRoutes } from './routes/auto/insert.routes.js';
 
 // Update
-export { updateEngine } from './lib/update-engine.js';
-export { UpdateTableBody, UpdateTableResponse } from './lib/update-schema.js';
+export { updateEngine } from './lib/engine/update.js';
+export { UpdateTableBody, UpdateTableResponse } from './lib/schema/update.js';
 export { default as updateRoutes } from './routes/auto/update.routes.js';
 
 // Re-export deps

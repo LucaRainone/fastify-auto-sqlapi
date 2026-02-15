@@ -7,7 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
 const { SearchTableBodyPost, SearchTableQueryString, SearchTableResponse } =
-  await import(path.join(ROOT, 'dist/lib/search-schema.js'));
+  await import(path.join(ROOT, 'dist/lib/schema/search.js'));
 const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { Type } = await import('@sinclair/typebox');

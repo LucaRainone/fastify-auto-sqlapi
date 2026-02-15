@@ -1,6 +1,6 @@
 import { Type, type TObject, type TSchema } from '@sinclair/typebox';
-import type { DbTables } from '../types.js';
-import { findSecondaryTableConf } from './write-helpers.js';
+import type { DbTables } from '../../types.js';
+import { findSecondaryTableConf } from '../engine/write-helpers.js';
 
 export function UpdateTableBody(dbTables: DbTables, tableName: string): TObject {
   const tableConf = dbTables[tableName];

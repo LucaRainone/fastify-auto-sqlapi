@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { loadConfig } from '../lib/config.js';
-import { buildConnectionString, introspectTables } from '../lib/pg-introspect.js';
-import { buildTableMap, generateSchemaFile } from '../lib/schema-codegen.js';
+import { loadConfig } from '../lib/cli/config.js';
+import { buildConnectionString, introspectTables } from '../lib/cli/pg-introspect.js';
+import { buildTableMap, generateSchemaFile } from '../lib/cli/schema-codegen.js';
 import { CONSOLE_COLORS, display, displayAsTableRow, error } from './utils.js';
 
 async function main(): Promise<void> {

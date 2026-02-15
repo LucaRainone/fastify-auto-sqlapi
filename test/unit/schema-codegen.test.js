@@ -7,7 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
 const { convertColType, buildTableMap, generateSchemaFile } = await import(
-  path.join(ROOT, 'dist/lib/schema-codegen.js')
+  path.join(ROOT, 'dist/lib/cli/schema-codegen.js')
 );
 
 const notNull = { column_default: null, is_nullable: 'NO' };

@@ -1,5 +1,5 @@
 import { Type, type TObject, type TSchema } from '@sinclair/typebox';
-import type { DbTables } from '../types.js';
+import type { DbTables } from '../../types.js';
 
 const JoinGroupResultItem = Type.Object({
   sum: Type.Optional(Type.Record(Type.String(), Type.Any())),

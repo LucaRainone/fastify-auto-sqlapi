@@ -1,11 +1,11 @@
-import { camelcaseObject, snakecaseRecord } from './naming.js';
-import type { QueryClient } from './db.js';
+import { camelcaseObject, snakecaseRecord } from '../naming.js';
+import type { QueryClient } from '../db.js';
 import type {
   ITable,
   DbTables,
   JoinDefinition,
   DbRecord,
-} from '../types.js';
+} from '../../types.js';
 
 export function findWriteJoin(
   tableConf: ITable,

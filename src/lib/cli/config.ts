@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
-import type { SqlApiConfig } from '../types.js';
+import type { SqlApiConfig } from '../../types.js';
 
 const DEFAULTS: SqlApiConfig = {
   outputDir: './src/schemas',

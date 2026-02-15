@@ -1,5 +1,5 @@
-import type { QueryClient } from './db.js';
-import { camelcaseObject } from './naming.js';
+import type { QueryClient } from '../db.js';
+import { camelcaseObject } from '../naming.js';
 import type {
   DbTables,
   SearchParams,
@@ -8,7 +8,7 @@ import type {
   JoinDefinition,
   JoinGroupRequest,
   ITable,
-} from '../types.js';
+} from '../../types.js';
 
 async function executeMainQuery(
   db: QueryClient,

@@ -1,5 +1,5 @@
 import pg from 'pg';
-import type { ColumnInfo } from '../types.js';
+import type { ColumnInfo } from '../../types.js';
 
 const { Client } = pg;
 

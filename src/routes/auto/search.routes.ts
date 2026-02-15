@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { QueryClient } from '../../lib/db.js';
-import { searchEngine } from '../../lib/search-engine.js';
-import { SearchTableBodyPost, SearchTableQueryString, SearchTableResponse } from '../../lib/search-schema.js';
+import { searchEngine } from '../../lib/engine/search.js';
+import { SearchTableBodyPost, SearchTableQueryString, SearchTableResponse } from '../../lib/schema/search.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
 export default async function searchRoutes(

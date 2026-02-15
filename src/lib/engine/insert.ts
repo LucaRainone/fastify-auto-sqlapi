@@ -1,10 +1,10 @@
-import { camelcaseObject, snakecaseRecord } from './naming.js';
+import { camelcaseObject, snakecaseRecord } from '../naming.js';
 import { removeExcludedFields, processSecondaries } from './write-helpers.js';
 import type {
   InsertParams,
   InsertResult,
   DbRecord,
-} from '../types.js';
+} from '../../types.js';
 
 export async function insertEngine(params: InsertParams): Promise<InsertResult> {
   const { db, tableConf, dbTables, request, record, secondaries } = params;
