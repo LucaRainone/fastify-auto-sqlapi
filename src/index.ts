@@ -11,7 +11,7 @@ export {
 export { QueryClient } from './lib/db.js';
 
 // Table helpers
-export { exportTableInfo, buildRelation, buildUpsertRule, buildUpsertRules } from './lib/table-helpers.js';
+export { exportTableInfo, defineTable, buildRelation, buildUpsertRule, buildUpsertRules } from './lib/table-helpers.js';
 
 // Search
 export { searchEngine } from './lib/search-engine.js';

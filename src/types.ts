@@ -75,23 +75,24 @@ export type JoinDefinition = [SchemaDefinition, string, string | string[], strin
 export type ExtendedConditionFn = (condition: ConditionBuilder, filters: Record<string, unknown>) => void;
 export type TableFilterFn = (filters: Record<string, unknown>) => ConditionBuilder;
 
-export interface ITable<T = Record<string, unknown>> {
-  primary: string;
-  Schema: SchemaDefinition;
+export interface ITable<F extends Record<string, TSchema> = Record<string, TSchema>> {
+  primary: string & keyof F;
+  Schema: SchemaDefinition<F>;
   filters: TableFilterFn;
   extraFilters: Record<string, TSchema>;
   allowedReadJoins?: JoinDefinition[];
   upsertMap?: Map<SchemaDefinition, string[]>;
-  beforeInsert?: (db: QueryClient, req: FastifyRequest, record: T) => Promise<void>;
-  beforeUpdate?: (db: QueryClient, req: FastifyRequest, fields: T, secondaryFieldsFetcher?: unknown) => void | Promise<void>;
+  beforeInsert?: (db: QueryClient, req: FastifyRequest, record: Record<string, unknown>) => Promise<void>;
+  beforeUpdate?: (db: QueryClient, req: FastifyRequest, fields: Record<string, unknown>, secondaryFieldsFetcher?: unknown) => void | Promise<void>;
   afterInsert?: (db: QueryClient, req: FastifyRequest, record: Record<string, unknown>, secondaryRecords?: unknown) => Promise<void>;
   defaultOrder?: string;
-  excludeFromCreation?: string[];
+  excludeFromCreation?: (string & keyof F)[];
   distinctResults?: boolean;
   onRequests?: ((request: FastifyRequest, reply: FastifyReply) => Promise<void | FastifyReply>)[];
 }
 
-export type DbTables = Record<string, ITable>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type DbTables = Record<string, ITable<any>>;
 
 // ─── Swagger ─────────────────────────────────────────────────
 

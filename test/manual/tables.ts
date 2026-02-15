@@ -1,10 +1,11 @@
 import {
   Type,
   exportTableInfo,
+  defineTable,
   buildRelation,
   ConditionBuilder,
 } from 'fastify-auto-sqlapi';
-import type { ITable, DbTables } from 'fastify-auto-sqlapi';
+import type { DbTables } from 'fastify-auto-sqlapi';
 
 import { SchemaCustomer } from './output/SchemaCustomer.js';
 import { SchemaCustomerOrder } from './output/SchemaCustomerOrder.js';
@@ -16,7 +17,7 @@ const customerExtraFilters = {
   q: Type.String(),
 };
 
-const TableCustomer: ITable = {
+const TableCustomer = defineTable({
   primary: 'id',
   ...exportTableInfo(SchemaCustomer, customerExtraFilters, (condition, opts) => {
     if (opts.q) {
@@ -31,19 +32,19 @@ const TableCustomer: ITable = {
   allowedReadJoins: [
     buildRelation(SchemaCustomer, 'id', SchemaCustomerOrder, 'customerId'),
   ],
-};
+});
 
-const TableCustomerOrder: ITable = {
+const TableCustomerOrder = defineTable({
   primary: 'id',
   ...exportTableInfo(SchemaCustomerOrder),
   defaultOrder: 'order_date DESC',
-};
+});
 
-const TableProduct: ITable = {
+const TableProduct = defineTable({
   primary: 'id',
   ...exportTableInfo(SchemaProduct),
   defaultOrder: 'name',
-};
+});
 
 // ─── DbTables export ────────────────────────────────────────
 

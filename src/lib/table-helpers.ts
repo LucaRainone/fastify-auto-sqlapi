@@ -5,13 +5,14 @@ import type {
   JoinDefinition,
   ExtendedConditionFn,
   TableFilterFn,
+  ITable,
 } from '../types.js';
 
-export function exportTableInfo(
-  Schema: SchemaDefinition,
+export function exportTableInfo<F extends Record<string, TSchema>>(
+  Schema: SchemaDefinition<F>,
   extraFilters: Record<string, TSchema> = {},
   extendedCondition?: ExtendedConditionFn
-): { Schema: SchemaDefinition; filters: TableFilterFn; extraFilters: Record<string, TSchema> } {
+): { Schema: SchemaDefinition<F>; filters: TableFilterFn; extraFilters: Record<string, TSchema> } {
   const filters: TableFilterFn = (filterValues: Record<string, unknown>) => {
     const condition = new ConditionBuilder('AND');
 
@@ -33,19 +34,28 @@ export function exportTableInfo(
   return { Schema, filters, extraFilters };
 }
 
-export function buildRelation(
-  mainSchema: SchemaDefinition,
-  mainField: string | string[],
-  joinSchema: SchemaDefinition,
-  joinField: string,
+export function defineTable<F extends Record<string, TSchema>>(
+  config: ITable<F>
+): ITable<F> {
+  return config;
+}
+
+export function buildRelation<
+  M extends Record<string, TSchema>,
+  J extends Record<string, TSchema>,
+>(
+  mainSchema: SchemaDefinition<M>,
+  mainField: string & keyof M | (string & keyof M)[],
+  joinSchema: SchemaDefinition<J>,
+  joinField: string & keyof J,
   selection: string = '*'
 ): JoinDefinition {
   return [joinSchema, joinField, mainField, selection];
 }
 
-export function buildUpsertRule(
-  schema: SchemaDefinition,
-  columns: string[]
+export function buildUpsertRule<F extends Record<string, TSchema>>(
+  schema: SchemaDefinition<F>,
+  columns: (string & keyof F)[]
 ): [SchemaDefinition, string[]] {
   return [schema, columns];
 }
