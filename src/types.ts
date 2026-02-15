@@ -177,6 +177,18 @@ export interface InsertResult {
   secondaries?: Record<string, Record<string, unknown>[]>;
 }
 
+// ─── Get Types ────────────────────────────────────────────────
+
+export interface GetParams {
+  db: QueryClient;
+  tableConf: ITable;
+  id: string | number;
+}
+
+export interface GetResult {
+  main: Record<string, unknown>;
+}
+
 // ─── Delete Types ─────────────────────────────────────────────
 
 export interface DeleteParams {

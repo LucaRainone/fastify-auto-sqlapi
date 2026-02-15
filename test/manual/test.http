@@ -378,6 +378,17 @@ Content-Type: application/json
   }
 }
 
+### ─── Get: single record ────────────────────────────────────
+
+### Get customer by id
+GET http://localhost:3000/auto/rest/customer/1
+
+### Get order by id
+GET http://localhost:3000/auto/rest/customer_order/3
+
+### Get non-existing record (404)
+GET http://localhost:3000/auto/rest/customer/99999
+
 ### ─── Delete: customer ──────────────────────────────────────
 
 ### Delete customer by id
