@@ -510,3 +510,276 @@ Content-Type: application/json
   { "id": 10 },
   { "id": 11 }
 ]
+
+###########################################################################
+#                     MULTI-TENANT FILTERING
+#
+# Header X-Tenant-Id controlla il tenant:
+#   - assente     → admin (nessun filtro, vede tutto)
+#   - "1"         → filtra per organization_id = 1
+#   - "1,2"       → filtra per organization_id IN (1, 2)
+#
+# customer:       tenant DIRETTO   (colonna organization_id sulla tabella)
+# customer_order: tenant INDIRETTO (via INNER JOIN su customer.organization_id)
+# product:        nessun tenant    (sempre visibile a tutti)
+###########################################################################
+
+### ─── Tenant: search (diretto) ──────────────────────────────
+
+### Admin: tutti i customer (no header X-Tenant-Id)
+POST http://localhost:3000/auto/search/customer
+Content-Type: application/json
+
+{}
+
+### Tenant 1: solo customer dell'organizzazione 1
+POST http://localhost:3000/auto/search/customer
+Content-Type: application/json
+X-Tenant-Id: 1
+
+{}
+
+### Tenant 2: solo customer dell'organizzazione 2
+POST http://localhost:3000/auto/search/customer
+Content-Type: application/json
+X-Tenant-Id: 2
+
+{}
+
+### Multi-tenant: customer delle organizzazioni 1 e 2
+POST http://localhost:3000/auto/search/customer
+Content-Type: application/json
+X-Tenant-Id: 1,2
+
+{}
+
+### Tenant + filtri combinati
+POST http://localhost:3000/auto/search/customer
+Content-Type: application/json
+X-Tenant-Id: 1
+
+{
+  "filters": {
+    "isActive": true
+  }
+}
+
+### Tenant + pagination
+POST http://localhost:3000/auto/search/customer?page=1&itemsPerPage=2
+Content-Type: application/json
+X-Tenant-Id: 1
+
+{}
+
+### ─── Tenant: search (indiretto) ────────────────────────────
+
+### Tenant 1: ordini dei customer dell'organizzazione 1 (INNER JOIN)
+POST http://localhost:3000/auto/search/customer_order
+Content-Type: application/json
+X-Tenant-Id: 1
+
+{}
+
+### Admin: tutti gli ordini (no header)
+POST http://localhost:3000/auto/search/customer_order
+Content-Type: application/json
+
+{}
+
+### ─── Tenant: search product (no tenant scope) ──────────────
+
+### Tutti i prodotti anche con header (product non ha tenantScope)
+POST http://localhost:3000/auto/search/product
+Content-Type: application/json
+X-Tenant-Id: 1
+
+{}
+
+### ─── Tenant: get (diretto) ─────────────────────────────────
+
+### Admin: get customer 1 (vede tutto)
+GET http://localhost:3000/auto/rest/customer/1
+
+### Tenant 1: get customer 1 (solo se appartiene a org 1, altrimenti 404)
+GET http://localhost:3000/auto/rest/customer/1
+X-Tenant-Id: 1
+
+### Tenant 99: get customer 1 (404 — non appartiene a org 99)
+GET http://localhost:3000/auto/rest/customer/1
+X-Tenant-Id: 99
+
+### ─── Tenant: get (indiretto) ───────────────────────────────
+
+### Tenant 1: get ordine (solo se il customer dell'ordine appartiene a org 1)
+GET http://localhost:3000/auto/rest/customer_order/1
+X-Tenant-Id: 1
+
+### ─── Tenant: insert (diretto — auto-inject) ───────────────
+
+### Tenant 1: insert customer — organization_id auto-iniettato
+POST http://localhost:3000/auto/rest/customer
+Content-Type: application/json
+X-Tenant-Id: 1
+
+{
+  "main": {
+    "name": "Tenant Customer",
+    "email": "tenant@test.it",
+    "isActive": true
+  }
+}
+
+### Tenant 1: insert con organizationId esplicito (ok se corrisponde)
+POST http://localhost:3000/auto/rest/customer
+Content-Type: application/json
+X-Tenant-Id: 1
+
+{
+  "main": {
+    "name": "Tenant Esplicito",
+    "email": "esplicito@test.it",
+    "organizationId": 1,
+    "isActive": true
+  }
+}
+
+### Tenant 1: insert con organizationId sbagliato (403)
+POST http://localhost:3000/auto/rest/customer
+Content-Type: application/json
+X-Tenant-Id: 1
+
+{
+  "main": {
+    "name": "Tenant Sbagliato",
+    "email": "sbagliato@test.it",
+    "organizationId": 99,
+    "isActive": true
+  }
+}
+
+### Multi-tenant: insert senza organizationId (400 — ambiguo)
+POST http://localhost:3000/auto/rest/customer
+Content-Type: application/json
+X-Tenant-Id: 1,2
+
+{
+  "main": {
+    "name": "Multi Tenant Ambiguo",
+    "email": "ambiguo@test.it",
+    "isActive": true
+  }
+}
+
+### Multi-tenant: insert con organizationId esplicito (ok)
+POST http://localhost:3000/auto/rest/customer
+Content-Type: application/json
+X-Tenant-Id: 1,2
+
+{
+  "main": {
+    "name": "Multi Tenant Esplicito",
+    "email": "multi@test.it",
+    "organizationId": 2,
+    "isActive": true
+  }
+}
+
+### ─── Tenant: insert ordine (indiretto — FK validation) ─────
+
+### Tenant 1: insert ordine per customer appartenente a org 1 (ok)
+POST http://localhost:3000/auto/rest/customer_order
+Content-Type: application/json
+X-Tenant-Id: 1
+
+{
+  "main": {
+    "customerId": 1,
+    "total": 99.99,
+    "status": "pending"
+  }
+}
+
+### Tenant 1: insert ordine per customer di org diversa (403)
+POST http://localhost:3000/auto/rest/customer_order
+Content-Type: application/json
+X-Tenant-Id: 1
+
+{
+  "main": {
+    "customerId": 999,
+    "total": 99.99,
+    "status": "pending"
+  }
+}
+
+### ─── Tenant: update (diretto) ──────────────────────────────
+
+### Tenant 1: update customer dell'organizzazione 1
+PUT http://localhost:3000/auto/rest/customer
+Content-Type: application/json
+X-Tenant-Id: 1
+
+{
+  "main": {
+    "id": 1,
+    "name": "Aggiornato dal Tenant 1"
+  }
+}
+
+### Tenant 99: update customer 1 (404 — non appartiene a org 99)
+PUT http://localhost:3000/auto/rest/customer
+Content-Type: application/json
+X-Tenant-Id: 99
+
+{
+  "main": {
+    "id": 1,
+    "name": "Non Dovrebbe Funzionare"
+  }
+}
+
+### ─── Tenant: delete (diretto) ──────────────────────────────
+
+### Tenant 1: delete customer dell'organizzazione 1
+DELETE http://localhost:3000/auto/rest/customer/1
+X-Tenant-Id: 1
+
+### Tenant 99: delete customer 1 (404 — non appartiene a org 99)
+DELETE http://localhost:3000/auto/rest/customer/1
+X-Tenant-Id: 99
+
+### ─── Tenant: bulk upsert (diretto — auto-inject) ──────────
+
+### Tenant 1: bulk insert customer — organization_id auto-iniettato
+PUT http://localhost:3000/auto/bulk/customer
+Content-Type: application/json
+X-Tenant-Id: 1
+
+[
+  {
+    "main": {
+      "name": "Bulk Tenant 1a",
+      "email": "bulk-t1a@test.it",
+      "isActive": true
+    }
+  },
+  {
+    "main": {
+      "name": "Bulk Tenant 1b",
+      "email": "bulk-t1b@test.it",
+      "isActive": true
+    }
+  }
+]
+
+### ─── Tenant: bulk delete (diretto) ─────────────────────────
+
+### Tenant 1: bulk delete — elimina solo customer dell'organizzazione 1
+POST http://localhost:3000/auto/bulk/customer/delete
+Content-Type: application/json
+X-Tenant-Id: 1
+
+[
+  { "id": 10 },
+  { "id": 11 }
+]

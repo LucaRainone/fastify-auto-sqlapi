@@ -16,6 +16,16 @@ await app.register(fastifyAutoSqlApi, {
   DbTables: dbTables,
   swagger: true,
   prefix: '/auto',
+  // Tenant: reads X-Tenant-Id header
+  // - single value: "1" → filters by organization_id = 1
+  // - multi-tenant: "1,2" → filters by organization_id IN (1, 2)
+  // - absent or empty → admin (no filter)
+  getTenantId: (request) => {
+    const header = request.headers['x-tenant-id'] as string | undefined;
+    if (!header) return null; // admin
+    const ids = header.split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n));
+    return ids.length === 0 ? null : ids.length === 1 ? ids[0] : ids;
+  },
 });
 
 // Health check

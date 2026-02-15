@@ -6,6 +6,7 @@ CREATE TABLE customer (
   email VARCHAR(255),
   phone_number VARCHAR(50),
   is_active BOOLEAN NOT NULL DEFAULT true,
+  organization_id INTEGER,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ,
   updated_by INTEGER

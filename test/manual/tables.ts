@@ -6,7 +6,7 @@ import {
   buildUpsertRules,
   ConditionBuilder,
 } from 'fastify-auto-sqlapi';
-import type { DbTables } from 'fastify-auto-sqlapi';
+import type { DbTables, TenantScope } from 'fastify-auto-sqlapi';
 
 import { SchemaCustomer } from './output/SchemaCustomer.js';
 import { SchemaCustomerOrder } from './output/SchemaCustomerOrder.js';
@@ -37,6 +37,7 @@ const TableCustomer = defineTable({
     buildRelation(SchemaCustomer, 'id', SchemaCustomerOrder, 'customerId'),
   ],
   excludeFromCreation: ['id'],
+  tenantScope: { column: 'organization_id' },
 });
 
 const TableCustomerOrder = defineTable({
@@ -44,6 +45,10 @@ const TableCustomerOrder = defineTable({
   ...exportTableInfo(SchemaCustomerOrder),
   defaultOrder: 'order_date DESC',
   excludeFromCreation: ['id'],
+  tenantScope: {
+    column: 'organization_id',
+    through: { schema: SchemaCustomer, localField: 'customer_id', foreignField: 'id' },
+  },
 });
 
 const TableProduct = defineTable({
