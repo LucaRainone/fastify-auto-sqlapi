@@ -92,8 +92,8 @@ describe('generateSchemaFile', () => {
       name: 'Type.Optional(Type.String())',
     });
 
-    assert.ok(content.includes('import { Type, Static }'));
-    assert.ok(content.includes('import { toUnderscore }'));
+    assert.ok(content.includes('import { Type, toUnderscore }'));
+    assert.ok(content.includes('import type { Static }'));
     assert.ok(content.includes('id: Type.Integer()'));
     assert.ok(content.includes('name: Type.Optional(Type.String())'));
     assert.ok(content.includes('$id: "SchemaCustomer"'));

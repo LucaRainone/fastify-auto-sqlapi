@@ -17,28 +17,34 @@ npm install fastify @fastify/postgres
 npm install @fastify/swagger @fastify/swagger-ui
 ```
 
-### 2. Configure database connection
+### 2. Configure `sqlapi.config.ts` (CLI only)
 
-Create `sqlapi.config.js` (or `.ts`) in the project root:
+Create `sqlapi.config.ts` (or `.js`) in the project root. This config is used **only by the CLI** (`sqlapi-generate-schema` / `sqlapi-generate-tables`), NOT at runtime by the Fastify plugin.
 
-```javascript
+```typescript
+// sqlapi.config.ts — interface: { outputDir: string; schema?: string }
 export default {
-  outputDir: './src/schemas',  // where Schema files will be generated
-  schema: 'public',            // PostgreSQL schema name
+  outputDir: './src/schemas',  // where Schema files will be generated (default: './src/schemas')
+  schema: 'public',            // PostgreSQL schema to introspect (default: 'public')
 };
 ```
 
-Set environment variables for DB connection (or `DATABASE_URL`):
+That's it — only these two fields exist. **No connection string, no migration path.** If the file is missing, defaults are used.
+
+### 3. Configure database connection (env vars)
+
+The CLI reads DB connection from environment variables (NOT from the config file):
+
+- `DATABASE_URL` — full connection string (takes priority), OR:
+- `POSTGRES_HOST` (default: `127.0.0.1`), `POSTGRES_PORT` (default: `5433`), `POSTGRES_USER` (default: `test`), `POSTGRES_PASSWORD` (default: `test`), `POSTGRES_DB` (default: `testdb`)
 
 ```
-POSTGRES_HOST=127.0.0.1
-POSTGRES_PORT=5432
-POSTGRES_USER=myuser
-POSTGRES_PASSWORD=mypassword
-POSTGRES_DB=mydb
+DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 ```
 
-### 3. Generate Schema files
+At runtime, the Fastify plugin uses `@fastify/postgres` which you configure separately (see step 6).
+
+### 4. Generate Schema files
 
 ```bash
 npx sqlapi-generate-schema
@@ -46,7 +52,7 @@ npx sqlapi-generate-schema
 
 This introspects the database and generates one `Schema*.ts` file per table in `outputDir`. These files are auto-generated and should not be manually edited. They contain TypeBox field definitions, `col()` for camelCase→snake_case mapping, and validation schemas.
 
-### 4. Generate tables template
+### 5. Generate tables template
 
 ```bash
 npx sqlapi-generate-tables
@@ -60,7 +66,7 @@ This reads the Schema files and generates a `tables.ts` template with `defineTab
 
 **Edit `tables.ts` to customize** — this file is yours to maintain.
 
-### 5. Create the Fastify server
+### 6. Create the Fastify server
 
 ```typescript
 import Fastify from 'fastify';
@@ -85,11 +91,13 @@ await app.register(fastifyPostgres, {
 });
 
 // Option A: Single plugin (recommended)
+// ONLY DbTables is required. All other options are optional.
 await app.register(fastifyAutoSqlApi, {
-  DbTables: dbTables,
-  swagger: true,
-  prefix: '/auto',
-  getTenantId: (request) => request.user?.organizationId ?? null, // optional
+  DbTables: dbTables,          // REQUIRED — Record<string, ITable>
+  swagger: true,               // optional — true or SwaggerOptions object
+  prefix: '/auto',             // optional — standard Fastify prefix
+  onRequests: [],              // optional — global auth hooks (run on every route)
+  getTenantId: (request) => request.user?.organizationId ?? null, // optional — multi-tenant
 });
 
 // Option B: Granular composition
@@ -109,10 +117,12 @@ await app.register(async (instance) => {
 await app.listen({ port: 3000 });
 ```
 
-This generates these endpoints for each table (e.g. `customer`):
+### Generated endpoints
+
+The plugin defines routes with these base paths: `/search/`, `/rest/`, `/bulk/`. The prefix from `register()` is prepended by Fastify. For a table `customer` with `prefix: '/auto'`:
 
 ```
-POST   /auto/search/customer           — search with filters, pagination, joins
+POST   /auto/search/customer           — search with filters in body
 GET    /auto/rest/customer/:id         — get single record by PK
 POST   /auto/rest/customer             — insert record (+ secondaries)
 PUT    /auto/rest/customer             — update record (+ secondaries + deletions)
@@ -120,6 +130,10 @@ DELETE /auto/rest/customer/:id         — delete record by PK
 PUT    /auto/bulk/customer             — bulk upsert (array of items)
 POST   /auto/bulk/customer/delete      — bulk delete (array of PKs)
 ```
+
+Without prefix, routes are at root: `/search/customer`, `/rest/customer/:id`, etc.
+
+**Important**: Search uses `POST` (not GET) because filters are passed in the request body as JSON.
 
 ---
 
@@ -148,6 +162,8 @@ const TableCustomer = defineTable({
 ```
 
 `exportTableInfo(Schema)` returns `{ Schema, filters, extraFilters }`. The `filters` function auto-builds WHERE conditions from any schema field present in the request.
+
+**Important**: there is no `tableName` key in `defineTable()`. The SQL table name comes from `Schema.tableName` (set by the CLI). The route URL name is the key you use in the `dbTables` record (e.g. `{ customer: TableCustomer }` → `/search/customer`).
 
 ### All keys
 
@@ -692,3 +708,29 @@ await app.register(async (instance) => {
   await instance.register(bulkDeleteRoutes, opts);
 }, { prefix: '/admin' });
 ```
+
+---
+
+## FAQ / Gotchas
+
+### Schema files `default export` — do I need to register them?
+
+No. The generated Schema files export a default Fastify plugin that calls `fastify.addSchema()`. **You do NOT need to register them manually.** The plugin works without it. The default export exists only for advanced use cases where you want `$ref` schema resolution in Swagger. If you don't need it, ignore it.
+
+### `sqlapi.config.ts` module warning
+
+When running the CLI, Node may show: `Module type of file:///...sqlapi.config.ts is not specified...`. This is harmless — Node detects `export default` and reparses as ESM. To suppress it, ensure your project has `"type": "module"` in `package.json`, or rename the config to `sqlapi.config.mjs`.
+
+### TypeBox version conflicts
+
+The CLI generates Schema files that import `Type` and `Static` from `fastify-auto-sqlapi` (not from `@sinclair/typebox` directly). This ensures the consumer uses the same TypeBox version bundled with the plugin, avoiding `[Kind]` type errors from duplicate TypeBox installations.
+
+### Prefix behavior
+
+The `prefix` is a standard Fastify register option. Pass it alongside the plugin options:
+
+```typescript
+await app.register(fastifyAutoSqlApi, { DbTables: dbTables, prefix: '/api' });
+```
+
+The plugin internally strips `prefix` before passing options to sub-route plugins, so it is applied only once. Without prefix, routes are at root (`/search/customer`, `/rest/customer/:id`, etc.).

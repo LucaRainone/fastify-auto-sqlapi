@@ -17,11 +17,15 @@ export default async function fastifyAutoSqlApi(
     await setupSwagger(fastify, options);
   }
 
-  await fastify.register(searchRoutes, options);
-  await fastify.register(getRoutes, options);
-  await fastify.register(insertRoutes, options);
-  await fastify.register(updateRoutes, options);
-  await fastify.register(deleteRoutes, options);
-  await fastify.register(bulkUpsertRoutes, options);
-  await fastify.register(bulkDeleteRoutes, options);
+  // Strip prefix to avoid double-prefixing: Fastify already applied
+  // it when the consumer registered this plugin.
+  const { prefix: _prefix, ...routeOptions } = options;
+
+  await fastify.register(searchRoutes, routeOptions);
+  await fastify.register(getRoutes, routeOptions);
+  await fastify.register(insertRoutes, routeOptions);
+  await fastify.register(updateRoutes, routeOptions);
+  await fastify.register(deleteRoutes, routeOptions);
+  await fastify.register(bulkUpsertRoutes, routeOptions);
+  await fastify.register(bulkDeleteRoutes, routeOptions);
 }
