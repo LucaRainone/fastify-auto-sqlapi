@@ -95,7 +95,7 @@ await app.register(fastifyPostgres, {
 await app.register(fastifyAutoSqlApi, {
   DbTables: dbTables,          // REQUIRED — Record<string, ITable>
   swagger: true,               // optional — true or SwaggerOptions object
-  prefix: '/auto',             // optional — standard Fastify prefix
+  prefix: '/auto',             // optional — standard Fastify prefix  
   onRequests: [],              // optional — global auth hooks (run on every route)
   getTenantId: (request) => request.user?.organizationId ?? null, // optional — multi-tenant
 });

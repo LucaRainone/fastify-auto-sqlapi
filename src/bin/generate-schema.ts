@@ -6,16 +6,30 @@ import { buildConnectionString, introspectTables } from '../lib/cli/pg-introspec
 import { buildTableMap, generateSchemaFile } from '../lib/cli/schema-codegen.js';
 import { CONSOLE_COLORS, display, displayAsTableRow, error } from './utils.js';
 
+function parseCliArgs(): { output?: string; tables?: string[] } {
+  const args = process.argv.slice(2);
+  const result: { output?: string; tables?: string[] } = {};
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--output' && i + 1 < args.length) {
+      result.output = args[++i];
+    } else if (args[i] === '--tables' && i + 1 < args.length) {
+      result.tables = args[++i].split(',').map((t) => t.trim()).filter(Boolean);
+    }
+  }
+  return result;
+}
+
 async function main(): Promise<void> {
   display(
     '++++++ fastify-auto-sqlapi: generating schemas ++++++',
     CONSOLE_COLORS.yellow
   );
 
+  const cliArgs = parseCliArgs();
   const config = await loadConfig();
   const connectionString = buildConnectionString();
   const schema = config.schema || 'public';
-  const outputDir = path.resolve(process.cwd(), config.outputDir);
+  const outputDir = path.resolve(process.cwd(), cliArgs.output || config.outputDir);
 
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
@@ -33,6 +47,23 @@ async function main(): Promise<void> {
   }
 
   const tableMap = buildTableMap(rows);
+
+  // Filter tables if --tables flag is provided
+  const tableNames = cliArgs.tables;
+  if (tableNames) {
+    for (const schemaName of Object.keys(tableMap)) {
+      if (!tableNames.includes(tableMap[schemaName].name)) {
+        delete tableMap[schemaName];
+      }
+    }
+    if (Object.keys(tableMap).length === 0) {
+      display(
+        `No matching tables found for: ${tableNames.join(', ')}`,
+        CONSOLE_COLORS.magenta
+      );
+      return;
+    }
+  }
 
   let somethingCreated = false;
   let somethingTouched = false;
@@ -69,14 +100,16 @@ async function main(): Promise<void> {
     }
   }
 
-  // Remove orphan Schema*.ts files
-  const existingFiles = fs.readdirSync(outputDir);
-  for (const file of existingFiles) {
-    if (file.startsWith('Schema') && file.endsWith('.ts') && !generatedFiles.has(file)) {
-      const filePath = path.join(outputDir, file);
-      fs.unlinkSync(filePath);
-      displayAsTableRow(filePath, 'removed', 90, CONSOLE_COLORS.red);
-      somethingTouched = true;
+  // Remove orphan Schema*.ts files (only when generating all tables)
+  if (!tableNames) {
+    const existingFiles = fs.readdirSync(outputDir);
+    for (const file of existingFiles) {
+      if (file.startsWith('Schema') && file.endsWith('.ts') && !generatedFiles.has(file)) {
+        const filePath = path.join(outputDir, file);
+        fs.unlinkSync(filePath);
+        displayAsTableRow(filePath, 'removed', 90, CONSOLE_COLORS.red);
+        somethingTouched = true;
+      }
     }
   }
 

@@ -6,14 +6,26 @@ import { parseSchemaFile, generateTablesFile } from '../lib/cli/tables-codegen.j
 import type { ParsedSchema } from '../lib/cli/tables-codegen.js';
 import { CONSOLE_COLORS, display, displayAsTableRow, error } from './utils.js';
 
+function parseCliArgs(): { output?: string } {
+  const args = process.argv.slice(2);
+  const result: { output?: string } = {};
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--output' && i + 1 < args.length) {
+      result.output = args[++i];
+    }
+  }
+  return result;
+}
+
 async function main(): Promise<void> {
   display(
     '++++++ fastify-auto-sqlapi: generating tables template ++++++',
     CONSOLE_COLORS.yellow
   );
 
+  const cliArgs = parseCliArgs();
   const config = await loadConfig();
-  const outputDir = path.resolve(process.cwd(), config.outputDir);
+  const outputDir = path.resolve(process.cwd(), cliArgs.output || config.outputDir);
 
   if (!fs.existsSync(outputDir)) {
     error(`Output directory not found: ${outputDir}`);
