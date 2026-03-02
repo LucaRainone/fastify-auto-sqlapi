@@ -29,7 +29,7 @@ function createMockPg(responses = []) {
     calls,
     query(text, values) {
       calls.push({ text: text.replace(/\s+/g, ' ').trim(), values });
-      const response = responses[callIndex] || { rows: [], rowCount: 0 };
+      const response = responses[callIndex] || { rows: [], affectedRows: 0 };
       callIndex++;
       return Promise.resolve(response);
     },
@@ -79,7 +79,7 @@ function createTestDbTables(mockPg) {
 describe('searchEngine - main query', () => {
   it('executes SELECT on main table', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], rowCount: 1 },
+      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -97,7 +97,7 @@ describe('searchEngine - main query', () => {
 
   it('applies filters to WHERE clause', async () => {
     const mockPg = createMockPg([
-      { rows: [], rowCount: 0 },
+      { rows: [], affectedRows: 0 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -113,7 +113,7 @@ describe('searchEngine - main query', () => {
 
   it('applies custom orderBy', async () => {
     const mockPg = createMockPg([
-      { rows: [], rowCount: 0 },
+      { rows: [], affectedRows: 0 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -128,7 +128,7 @@ describe('searchEngine - main query', () => {
 
   it('applies multi-field orderBy', async () => {
     const mockPg = createMockPg([
-      { rows: [], rowCount: 0 },
+      { rows: [], affectedRows: 0 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -171,7 +171,7 @@ describe('searchEngine - main query', () => {
 
   it('returns no joins, joinGroups, pagination when not requested', async () => {
     const mockPg = createMockPg([
-      { rows: [], rowCount: 0 },
+      { rows: [], affectedRows: 0 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -190,9 +190,9 @@ describe('searchEngine - pagination', () => {
   it('adds LIMIT/OFFSET and returns pagination', async () => {
     const mockPg = createMockPg([
       // Main query
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], rowCount: 1 },
+      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], affectedRows: 1 },
       // COUNT
-      { rows: [{ total: '25' }], rowCount: 1 },
+      { rows: [{ total: '25' }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -217,13 +217,13 @@ describe('searchEngine - pagination', () => {
   it('computes MIN/MAX/SUM/AVG when requested', async () => {
     const mockPg = createMockPg([
       // Main query
-      { rows: [{ id: 1, name: 'A', email: 'a@t.it' }], rowCount: 1 },
+      { rows: [{ id: 1, name: 'A', email: 'a@t.it' }], affectedRows: 1 },
       // COUNT
-      { rows: [{ total: '5' }], rowCount: 1 },
+      { rows: [{ total: '5' }], affectedRows: 1 },
       // MIN
-      { rows: [{ value: 10 }], rowCount: 1 },
+      { rows: [{ value: 10 }], affectedRows: 1 },
       // MAX
-      { rows: [{ value: 100 }], rowCount: 1 },
+      { rows: [{ value: 100 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -246,7 +246,7 @@ describe('searchEngine - pagination', () => {
 describe('searchEngine - no pagination', () => {
   it('does not add LIMIT/OFFSET without paginator', async () => {
     const mockPg = createMockPg([
-      { rows: [], rowCount: 0 },
+      { rows: [], affectedRows: 0 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -264,9 +264,9 @@ describe('searchEngine - virtual joins', () => {
   it('executes SELECT IN for join table', async () => {
     const mockPg = createMockPg([
       // Main query: customer results
-      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }, { id: 2, name: 'Luigi', email: 'l@t.it' }], rowCount: 2 },
+      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }, { id: 2, name: 'Luigi', email: 'l@t.it' }], affectedRows: 2 },
       // Join query: orders
-      { rows: [{ id: 10, customer_id: 1, total: 50, status: 'pending' }], rowCount: 1 },
+      { rows: [{ id: 10, customer_id: 1, total: 50, status: 'pending' }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -287,7 +287,7 @@ describe('searchEngine - virtual joins', () => {
   it('returns empty array when main results have no matching IDs', async () => {
     const mockPg = createMockPg([
       // Main query: empty
-      { rows: [], rowCount: 0 },
+      { rows: [], affectedRows: 0 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -303,8 +303,8 @@ describe('searchEngine - virtual joins', () => {
 
   it('applies join filters', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], rowCount: 1 },
-      { rows: [], rowCount: 0 },
+      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
+      { rows: [], affectedRows: 0 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -323,9 +323,9 @@ describe('searchEngine - joinGroups', () => {
   it('executes GROUP BY aggregation', async () => {
     const mockPg = createMockPg([
       // Main
-      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], rowCount: 1 },
+      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
       // JoinGroup aggregation
-      { rows: [{ sum_total: 150 }], rowCount: 1 },
+      { rows: [{ sum_total: 150 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -347,8 +347,8 @@ describe('searchEngine - joinGroups', () => {
 
   it('includes GROUP BY when "by" is specified', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], rowCount: 1 },
-      { rows: [{ by: 'pending', sum_total: 100 }], rowCount: 1 },
+      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
+      { rows: [{ by: 'pending', sum_total: 100 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 

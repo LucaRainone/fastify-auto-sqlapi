@@ -29,7 +29,7 @@ function createMockPg(responses = []) {
     calls,
     query(text, values) {
       calls.push({ text: text.replace(/\s+/g, ' ').trim(), values });
-      const response = responses[callIndex] || { rows: [], rowCount: 0 };
+      const response = responses[callIndex] || { rows: [], affectedRows: 0 };
       callIndex++;
       return Promise.resolve(response);
     },
@@ -59,7 +59,7 @@ function createTestTableConf(mockPg) {
 describe('getEngine', () => {
   it('fetches record by PK and returns camelCase result', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it', created_at: '2024-01-01' }], rowCount: 1 },
+      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it', created_at: '2024-01-01' }], affectedRows: 1 },
     ]);
     const { tableConf, db } = createTestTableConf(mockPg);
 
@@ -73,7 +73,7 @@ describe('getEngine', () => {
 
   it('builds correct SELECT with PK WHERE and LIMIT 1', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 42, name: 'Luigi', email: 'luigi@test.it', created_at: '2024-02-01' }], rowCount: 1 },
+      { rows: [{ id: 42, name: 'Luigi', email: 'luigi@test.it', created_at: '2024-02-01' }], affectedRows: 1 },
     ]);
     const { tableConf, db } = createTestTableConf(mockPg);
 
@@ -89,7 +89,7 @@ describe('getEngine', () => {
 
   it('throws 404 when record not found', async () => {
     const mockPg = createMockPg([
-      { rows: [], rowCount: 0 },
+      { rows: [], affectedRows: 0 },
     ]);
     const { tableConf, db } = createTestTableConf(mockPg);
 
@@ -101,7 +101,7 @@ describe('getEngine', () => {
 
   it('executes exactly one query', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it', created_at: '2024-01-01' }], rowCount: 1 },
+      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it', created_at: '2024-01-01' }], affectedRows: 1 },
     ]);
     const { tableConf, db } = createTestTableConf(mockPg);
 

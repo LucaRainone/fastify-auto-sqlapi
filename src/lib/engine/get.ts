@@ -1,5 +1,4 @@
 import { camelcaseObject } from '../naming.js';
-import { escapeIdent } from '../db.js';
 import { buildTenantWhere, buildTenantJoin } from '../tenant.js';
 import type { GetParams, GetResult, TenantScopeIndirect } from '../../types.js';
 
@@ -8,15 +7,15 @@ export async function getEngine(params: GetParams): Promise<GetResult> {
   const pkCol = tableConf.Schema.col(tableConf.primary);
 
   const values: unknown[] = [id];
-  let where = `"${escapeIdent(pkCol)}" = $1`;
+  let where = `${db.qi(pkCol)} = ${db.ph(1)}`;
   const joins: string[] = [];
 
   if (tenant) {
-    const tw = buildTenantWhere(tenant.scope, tenant.ids, values.length + 1);
+    const tw = buildTenantWhere(db, tenant.scope, tenant.ids, values.length + 1);
     where += ` AND ${tw.sql}`;
     values.push(...tw.values);
     if ('through' in tenant.scope) {
-      joins.push(buildTenantJoin(tenant.scope as TenantScopeIndirect, tableConf.Schema.tableName));
+      joins.push(buildTenantJoin(db, tenant.scope as TenantScopeIndirect, tableConf.Schema.tableName));
     }
   }
 

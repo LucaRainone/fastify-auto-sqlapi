@@ -59,9 +59,12 @@ export function UpdateTableBody(dbTables: DbTables, tableName: string): TObject 
 
 export function UpdateTableResponse(dbTables: DbTables, tableName: string): TObject {
   const tableConf = dbTables[tableName];
+  const pkField = tableConf.primary;
+  const pkType = tableConf.Schema.fields[pkField];
 
+  // Main: PK-only response
   const responseProperties: Record<string, TSchema> = {
-    main: Type.Partial(Type.Object(tableConf.Schema.fields)),
+    main: Type.Object({ [pkField]: pkType }),
   };
 
   if (tableConf.allowedWriteJoins?.length) {
@@ -69,9 +72,16 @@ export function UpdateTableResponse(dbTables: DbTables, tableName: string): TObj
     const deletionProperties: Record<string, TSchema> = {};
 
     for (const [joinSchema] of tableConf.allowedWriteJoins) {
-      const partial = Type.Partial(Type.Object(joinSchema.fields));
-      secondaryProperties[joinSchema.tableName] = Type.Array(partial);
-      deletionProperties[joinSchema.tableName] = Type.Array(partial);
+      const secondaryTableConf = Object.values(dbTables).find(
+        (c) => c.Schema.tableName === joinSchema.tableName
+      );
+      const secPkField = secondaryTableConf?.primary || 'id';
+      const secPkType = joinSchema.fields[secPkField] || Type.Any();
+      const pkOnlySchema = Type.Object({ [secPkField]: secPkType });
+      secondaryProperties[joinSchema.tableName] = Type.Array(pkOnlySchema);
+      deletionProperties[joinSchema.tableName] = Type.Array(
+        Type.Partial(Type.Object(joinSchema.fields))
+      );
     }
 
     responseProperties.secondaries = Type.Optional(

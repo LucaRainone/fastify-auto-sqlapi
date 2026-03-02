@@ -3,17 +3,21 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { loadConfig } from '../lib/cli/config.js';
 import { buildConnectionString, introspectTables } from '../lib/cli/pg-introspect.js';
+import { buildMysqlConnectionConfig, introspectMysqlTables } from '../lib/cli/mysql-introspect.js';
 import { buildTableMap, generateSchemaFile } from '../lib/cli/schema-codegen.js';
 import { CONSOLE_COLORS, display, displayAsTableRow, error } from './utils.js';
+import type { ColumnInfo, DialectName } from '../types.js';
 
-function parseCliArgs(): { output?: string; tables?: string[] } {
+function parseCliArgs(): { output?: string; tables?: string[]; dialect?: string } {
   const args = process.argv.slice(2);
-  const result: { output?: string; tables?: string[] } = {};
+  const result: { output?: string; tables?: string[]; dialect?: string } = {};
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--output' && i + 1 < args.length) {
       result.output = args[++i];
     } else if (args[i] === '--tables' && i + 1 < args.length) {
       result.tables = args[++i].split(',').map((t) => t.trim()).filter(Boolean);
+    } else if (args[i] === '--dialect' && i + 1 < args.length) {
+      result.dialect = args[++i];
     }
   }
   return result;
@@ -27,8 +31,8 @@ async function main(): Promise<void> {
 
   const cliArgs = parseCliArgs();
   const config = await loadConfig();
-  const connectionString = buildConnectionString();
-  const schema = config.schema || 'public';
+  const dialect = (cliArgs.dialect || config.dialect || 'postgres') as DialectName;
+  const schema = config.schema || (dialect === 'postgres' ? 'public' : config.schema || 'public');
   const outputDir = path.resolve(process.cwd(), cliArgs.output || config.outputDir);
 
   if (!fs.existsSync(outputDir)) {
@@ -36,7 +40,14 @@ async function main(): Promise<void> {
     display(`Created directory: ${outputDir}`, CONSOLE_COLORS.green);
   }
 
-  const rows = await introspectTables(connectionString, schema);
+  let rows: ColumnInfo[];
+  if (dialect === 'mysql' || dialect === 'mariadb') {
+    const connConfig = buildMysqlConnectionConfig();
+    rows = await introspectMysqlTables(connConfig, connConfig.database);
+  } else {
+    const connectionString = buildConnectionString();
+    rows = await introspectTables(connectionString, schema);
+  }
 
   if (rows.length === 0) {
     display(

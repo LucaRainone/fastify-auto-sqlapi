@@ -1,14 +1,17 @@
-import type { QueryResult, QueryResultRow } from 'pg';
 import type { Expression, ConditionBuilder } from 'node-condition-builder';
 import type { TSchema, TObject } from '@sinclair/typebox';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { QueryClient } from './lib/db.js';
+import type { DialectName } from './lib/dialect.js';
+
+export type { DialectName } from './lib/dialect.js';
 
 // ─── CLI / Schema Generation ────────────────────────────────
 
 export interface SqlApiConfig {
   outputDir: string;
   schema?: string;
+  dialect?: DialectName;
 }
 
 export interface ColumnInfo {
@@ -28,11 +31,17 @@ export interface TableMap {
 
 // ─── Database ────────────────────────────────────────────────
 
+export interface SqlResult<T = Record<string, unknown>> {
+  rows: T[];
+  affectedRows: number;
+  insertId?: number;
+}
+
 export interface Queryable {
-  query<T extends QueryResultRow = QueryResultRow>(
+  query<T = Record<string, unknown>>(
     text: string,
     values?: unknown[]
-  ): Promise<QueryResult<T>>;
+  ): Promise<SqlResult<T>>;
 }
 
 export type DbRecordValue =
@@ -136,6 +145,7 @@ export interface SqlApiPluginOptions {
   onRequests?: ((request: FastifyRequest, reply: FastifyReply) => Promise<void | FastifyReply>)[];
   prefix?: string;
   swagger?: boolean | SwaggerOptions;
+  dialect?: DialectName;
   getTenantId?: (request: FastifyRequest) => TenantId | TenantId[] | null | undefined
     | Promise<TenantId | TenantId[] | null | undefined>;
 }

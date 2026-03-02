@@ -35,7 +35,7 @@ function createMockPg(responses = []) {
     calls,
     query(text, values) {
       calls.push({ text: text.replace(/\s+/g, ' ').trim(), values });
-      const response = responses[callIndex] || { rows: [], rowCount: 0 };
+      const response = responses[callIndex] || { rows: [], affectedRows: 0 };
       callIndex++;
       return Promise.resolve(response);
     },
@@ -104,37 +104,45 @@ describe('resolveTenant', () => {
 
 describe('buildTenantWhere', () => {
   it('builds = $N for single tenant ID (direct)', () => {
+    const mockPg = createMockPg();
+    const db = new QueryClient(mockPg);
     const scope = { column: 'organization_id' };
-    const { sql, values } = buildTenantWhere(scope, [42], 3);
+    const { sql, values } = buildTenantWhere(db, scope, [42], 3);
     assert.equal(sql, '"organization_id" = $3');
     assert.deepEqual(values, [42]);
   });
 
   it('builds IN ($N, $M) for multiple tenant IDs (direct)', () => {
+    const mockPg = createMockPg();
+    const db = new QueryClient(mockPg);
     const scope = { column: 'organization_id' };
-    const { sql, values } = buildTenantWhere(scope, [1, 2, 3], 5);
+    const { sql, values } = buildTenantWhere(db, scope, [1, 2, 3], 5);
     assert.equal(sql, '"organization_id" IN ($5, $6, $7)');
     assert.deepEqual(values, [1, 2, 3]);
   });
 
   it('qualifies with through table for indirect scope', () => {
+    const mockPg = createMockPg();
+    const db = new QueryClient(mockPg);
     const throughSchema = createMockSchema('customer', { id: Type.Number(), organizationId: Type.Number() });
     const scope = {
       column: 'organization_id',
       through: { schema: throughSchema, localField: 'customer_id', foreignField: 'id' },
     };
-    const { sql, values } = buildTenantWhere(scope, [10], 1);
+    const { sql, values } = buildTenantWhere(db, scope, [10], 1);
     assert.equal(sql, '"customer"."organization_id" = $1');
     assert.deepEqual(values, [10]);
   });
 
   it('qualifies with through table for indirect scope (multiple)', () => {
+    const mockPg = createMockPg();
+    const db = new QueryClient(mockPg);
     const throughSchema = createMockSchema('customer', { id: Type.Number(), organizationId: Type.Number() });
     const scope = {
       column: 'organization_id',
       through: { schema: throughSchema, localField: 'customer_id', foreignField: 'id' },
     };
-    const { sql, values } = buildTenantWhere(scope, [10, 20], 1);
+    const { sql, values } = buildTenantWhere(db, scope, [10, 20], 1);
     assert.equal(sql, '"customer"."organization_id" IN ($1, $2)');
     assert.deepEqual(values, [10, 20]);
   });
@@ -144,12 +152,14 @@ describe('buildTenantWhere', () => {
 
 describe('buildTenantJoin', () => {
   it('builds INNER JOIN clause', () => {
+    const mockPg = createMockPg();
+    const db = new QueryClient(mockPg);
     const throughSchema = createMockSchema('customer', { id: Type.Number() });
     const scope = {
       column: 'organization_id',
       through: { schema: throughSchema, localField: 'customer_id', foreignField: 'id' },
     };
-    const sql = buildTenantJoin(scope, 'customer_order');
+    const sql = buildTenantJoin(db, scope, 'customer_order');
     assert.equal(sql, 'INNER JOIN "customer" ON "customer_order"."customer_id" = "customer"."id"');
   });
 });
@@ -223,7 +233,7 @@ describe('validateTenantFK', () => {
   });
 
   it('filters out null/undefined from fkValues', async () => {
-    const mockPg = createMockPg([{ rows: [], rowCount: 0 }]);
+    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
     const db = new QueryClient(mockPg);
     const throughSchema = createMockSchema('customer', { id: Type.Number(), organizationId: Type.Number() });
     const scope = {
@@ -235,7 +245,7 @@ describe('validateTenantFK', () => {
   });
 
   it('passes when no violations found', async () => {
-    const mockPg = createMockPg([{ rows: [], rowCount: 0 }]);
+    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
     const db = new QueryClient(mockPg);
     const throughSchema = createMockSchema('customer', { id: Type.Number(), organizationId: Type.Number() });
     const scope = {
@@ -251,7 +261,7 @@ describe('validateTenantFK', () => {
   });
 
   it('throws 403 when violations found', async () => {
-    const mockPg = createMockPg([{ rows: [{ id: 2 }], rowCount: 1 }]);
+    const mockPg = createMockPg([{ rows: [{ id: 2 }], affectedRows: 1 }]);
     const db = new QueryClient(mockPg);
     const throughSchema = createMockSchema('customer', { id: Type.Number(), organizationId: Type.Number() });
     const scope = {
@@ -265,7 +275,7 @@ describe('validateTenantFK', () => {
   });
 
   it('deduplicates fkValues', async () => {
-    const mockPg = createMockPg([{ rows: [], rowCount: 0 }]);
+    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
     const db = new QueryClient(mockPg);
     const throughSchema = createMockSchema('customer', { id: Type.Number(), organizationId: Type.Number() });
     const scope = {
@@ -310,7 +320,7 @@ describe('getEngine with direct tenant', () => {
 
   it('adds tenant WHERE for direct scope', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', organization_id: 42 }], rowCount: 1 },
+      { rows: [{ id: 1, name: 'Mario', organization_id: 42 }], affectedRows: 1 },
     ]);
     const db = new QueryClient(mockPg);
     const tenant = { ids: [42], scope: { column: 'organization_id' } };
@@ -324,7 +334,7 @@ describe('getEngine with direct tenant', () => {
   });
 
   it('returns 404 when tenant does not match', async () => {
-    const mockPg = createMockPg([{ rows: [], rowCount: 0 }]);
+    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
     const db = new QueryClient(mockPg);
     const tenant = { ids: [99], scope: { column: 'organization_id' } };
 
@@ -344,7 +354,7 @@ describe('getEngine with indirect tenant', () => {
 
   it('adds INNER JOIN and tenant WHERE for indirect scope', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, customer_id: 10, total: 100 }], rowCount: 1 },
+      { rows: [{ id: 1, customer_id: 10, total: 100 }], affectedRows: 1 },
     ]);
     const db = new QueryClient(mockPg);
     const tenant = {
@@ -374,7 +384,7 @@ describe('deleteEngine with direct tenant', () => {
 
   it('adds tenant condition to DELETE', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', organization_id: 42 }], rowCount: 1 },
+      { rows: [], affectedRows: 1 },
     ]);
     const db = new QueryClient(mockPg);
     const tenant = { ids: [42], scope: { column: 'organization_id' } };
@@ -385,7 +395,7 @@ describe('deleteEngine with direct tenant', () => {
     assert.ok(sql.includes('DELETE FROM "customer"'));
     assert.ok(sql.includes('"id" = $1'));
     assert.ok(sql.includes('"organization_id" = $2'));
-    assert.ok(sql.includes('RETURNING *'));
+    assert.ok(!sql.includes('RETURNING'));
   });
 });
 
@@ -399,7 +409,7 @@ describe('bulkDeleteEngine with direct tenant', () => {
 
   it('adds tenant condition to bulk DELETE', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', organization_id: 42 }], rowCount: 1 },
+      { rows: [], affectedRows: 2 },
     ]);
     const db = new QueryClient(mockPg);
     const tenant = { ids: [42], scope: { column: 'organization_id' } };
@@ -423,7 +433,7 @@ describe('insertEngine with direct tenant', () => {
 
   it('injects tenant value into record on insert', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', organization_id: 42 }], rowCount: 1 },
+      { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
     const db = new QueryClient(mockPg);
     const tenant = { ids: [42], scope: { column: 'organization_id' } };
@@ -466,7 +476,7 @@ describe('searchEngine with direct tenant', () => {
 
   it('adds tenant WHERE to search query', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', organization_id: 42 }], rowCount: 1 },
+      { rows: [{ id: 1, name: 'Mario', organization_id: 42 }], affectedRows: 1 },
     ]);
     const db = new QueryClient(mockPg);
     const tenant = { ids: [42], scope: { column: 'organization_id' } };
@@ -479,7 +489,7 @@ describe('searchEngine with direct tenant', () => {
 
   it('no tenant filtering without tenant context', async () => {
     const mockPg = createMockPg([
-      { rows: [], rowCount: 0 },
+      { rows: [], affectedRows: 0 },
     ]);
     const db = new QueryClient(mockPg);
 

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { QueryClient } from '../../lib/db.js';
+import { getDb } from './route-helpers.js';
 import { searchEngine } from '../../lib/engine/search.js';
 import { resolveTenant } from '../../lib/tenant.js';
 import { SearchTableBodyPost, SearchTableQueryString, SearchTableResponse } from '../../lib/schema/search.js';
@@ -34,7 +34,7 @@ export default async function searchRoutes(
       },
       onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
       handler: async (request, reply) => {
-        const db = new QueryClient((fastify as any).pg);
+        const db = getDb(fastify, options.dialect);
         const tenant = await resolveTenant(options, tableConf, request);
 
         const body = request.body as Record<string, any>;

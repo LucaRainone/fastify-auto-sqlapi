@@ -1,5 +1,3 @@
-import { camelcaseObject } from '../naming.js';
-import { escapeIdent } from '../db.js';
 import { buildTenantWhere, buildTenantJoin } from '../tenant.js';
 import type { BulkDeleteParams, BulkDeleteResult, TenantScopeIndirect } from '../../types.js';
 
@@ -7,33 +5,43 @@ export async function bulkDeleteEngine(params: BulkDeleteParams): Promise<BulkDe
   const { db, tableConf, ids, tenant } = params;
   if (!ids.length) return [];
 
-  const pkCol = tableConf.Schema.col(tableConf.primary);
+  const pk = tableConf.primary;
+  const pkCol = tableConf.Schema.col(pk);
   const tableName = tableConf.Schema.tableName;
   const values: unknown[] = [...ids];
-  const idPlaceholders = ids.map((_, i) => `$${i + 1}`).join(', ');
+  const idPlaceholders = ids.map((_, i) => db.ph(i + 1)).join(', ');
 
   let where: string;
   if (tenant) {
-    const tw = buildTenantWhere(tenant.scope, tenant.ids, values.length + 1);
+    const tw = buildTenantWhere(db, tenant.scope, tenant.ids, values.length + 1);
     values.push(...tw.values);
 
     if ('through' in tenant.scope) {
       const scope = tenant.scope as TenantScopeIndirect;
-      const joinSql = buildTenantJoin(scope, tableName);
-      where = `"${escapeIdent(pkCol)}" IN (SELECT "${escapeIdent(tableName)}"."${escapeIdent(pkCol)}" FROM "${escapeIdent(tableName)}" ${joinSql} WHERE "${escapeIdent(tableName)}"."${escapeIdent(pkCol)}" IN (${idPlaceholders}) AND ${tw.sql})`;
+      const joinSql = buildTenantJoin(db, scope, tableName);
+      where = `${db.qi(pkCol)} IN (SELECT ${db.qi(tableName)}.${db.qi(pkCol)} FROM ${db.qi(tableName)} ${joinSql} WHERE ${db.qi(tableName)}.${db.qi(pkCol)} IN (${idPlaceholders}) AND ${tw.sql})`;
     } else {
-      where = `"${escapeIdent(pkCol)}" IN (${idPlaceholders}) AND ${tw.sql}`;
+      where = `${db.qi(pkCol)} IN (${idPlaceholders}) AND ${tw.sql}`;
     }
   } else {
-    where = `"${escapeIdent(pkCol)}" IN (${idPlaceholders})`;
+    where = `${db.qi(pkCol)} IN (${idPlaceholders})`;
   }
 
   const result = await db.query(
-    `DELETE FROM "${escapeIdent(tableName)}" WHERE ${where} RETURNING *`,
+    `DELETE FROM ${db.qi(tableName)} WHERE ${where}`,
     values
   );
 
-  return result.rows.map((row) => ({
-    main: camelcaseObject(row as Record<string, unknown>),
-  }));
+  // Return PK-only for each deleted record
+  // We don't know exactly which ids were deleted on MySQL (no RETURNING),
+  // so we return the requested ids if affectedRows matches, otherwise just count
+  if (result.affectedRows === ids.length) {
+    return ids.map((id) => ({ main: { [pk]: id } }));
+  }
+
+  // Partial delete: return affectedRows count of items from the requested ids
+  // Since we can't determine exactly which ones were deleted without RETURNING,
+  // return the first N ids (best effort)
+  const deletedCount = result.affectedRows;
+  return ids.slice(0, deletedCount).map((id) => ({ main: { [pk]: id } }));
 }

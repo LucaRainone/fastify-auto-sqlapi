@@ -1,7 +1,7 @@
 {
   "name": "fastify-auto-sqlapi",
   "version": "0.0.1",
-  "description": "Fastify plugin for automatic CRUD API generation from PostgreSQL tables",
+  "description": "Fastify plugin for automatic CRUD API generation from PostgreSQL, MySQL and MariaDB tables",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -35,6 +35,8 @@
     "fastify",
     "fastify-plugin",
     "postgresql",
+    "mysql",
+    "mariadb",
     "crud",
     "api",
     "sql",
@@ -50,8 +52,7 @@
   "license": "MIT",
   "dependencies": {
     "@sinclair/typebox": "^0.34.14",
-    "node-condition-builder": "^1.0.4",
-    "pg": "^8.13.1"
+    "node-condition-builder": "^1.0.4"
   },
   "devDependencies": {
     "@fastify/postgres": "^6.0.2",
@@ -60,19 +61,32 @@
     "@types/node": "^22.13.4",
     "@types/pg": "^8.11.11",
     "fastify": "^5.7.4",
+    "pg": "^8.13.1",
     "typescript": "^5.7.3"
   },
   "peerDependencies": {
+    "@fastify/mysql": ">=4.0.0",
     "@fastify/postgres": ">=5.0.0",
     "@fastify/swagger": ">=9.0.0",
     "@fastify/swagger-ui": ">=5.0.0",
-    "fastify": ">=4.0.0"
+    "fastify": ">=4.0.0",
+    "mysql2": ">=3.0.0",
+    "pg": ">=8.0.0"
   },
   "peerDependenciesMeta": {
     "fastify": {
       "optional": true
     },
+    "pg": {
+      "optional": true
+    },
+    "mysql2": {
+      "optional": true
+    },
     "@fastify/postgres": {
+      "optional": true
+    },
+    "@fastify/mysql": {
       "optional": true
     },
     "@fastify/swagger": {

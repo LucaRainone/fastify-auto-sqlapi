@@ -29,7 +29,7 @@ function createMockPg(responses = []) {
     calls,
     query(text, values) {
       calls.push({ text: text.replace(/\s+/g, ' ').trim(), values });
-      const response = responses[callIndex] || { rows: [], rowCount: 0 };
+      const response = responses[callIndex] || { rows: [], affectedRows: 0 };
       callIndex++;
       return Promise.resolve(response);
     },
@@ -56,15 +56,9 @@ function createTestTableConf(mockPg) {
 }
 
 describe('bulkDeleteEngine', () => {
-  it('deletes multiple records in a single query with IN clause', async () => {
+  it('deletes multiple records and returns PK-only', async () => {
     const mockPg = createMockPg([
-      {
-        rows: [
-          { id: 1, name: 'Mario', email: 'mario@test.it' },
-          { id: 3, name: 'Luigi', email: 'luigi@test.it' },
-        ],
-        rowCount: 2,
-      },
+      { rows: [], affectedRows: 2 },
     ]);
     const { tableConf, db } = createTestTableConf(mockPg);
 
@@ -72,7 +66,7 @@ describe('bulkDeleteEngine', () => {
 
     assert.equal(results.length, 2);
     assert.equal(results[0].main.id, 1);
-    assert.equal(results[0].main.name, 'Mario');
+    assert.equal(results[0].main.name, undefined);
     assert.equal(results[1].main.id, 3);
     assert.equal(mockPg.calls.length, 1);
     assert.ok(mockPg.calls[0].text.includes('DELETE FROM "customer"'));
@@ -80,12 +74,9 @@ describe('bulkDeleteEngine', () => {
     assert.deepEqual(mockPg.calls[0].values, [1, 3]);
   });
 
-  it('returns camelCase results', async () => {
+  it('returns PK-only results', async () => {
     const mockPg = createMockPg([
-      {
-        rows: [{ id: 5, name: 'Test', email: 'test@test.it' }],
-        rowCount: 1,
-      },
+      { rows: [], affectedRows: 1 },
     ]);
     const { tableConf, db } = createTestTableConf(mockPg);
 
@@ -93,7 +84,8 @@ describe('bulkDeleteEngine', () => {
 
     assert.equal(results.length, 1);
     assert.equal(results[0].main.id, 5);
-    assert.equal(results[0].main.name, 'Test');
+    // No other fields in response
+    assert.equal(results[0].main.name, undefined);
   });
 
   it('returns empty array for empty ids', async () => {
@@ -107,7 +99,7 @@ describe('bulkDeleteEngine', () => {
   });
 
   it('uses correct PK column from tableConf.primary', async () => {
-    const mockPg = createMockPg([{ rows: [], rowCount: 0 }]);
+    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
     const { tableConf, db } = createTestTableConf(mockPg);
 
     await bulkDeleteEngine({ db, tableConf, ids: [42] });

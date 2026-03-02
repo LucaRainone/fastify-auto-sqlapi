@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { Type } from '@sinclair/typebox';
-import { QueryClient } from '../../lib/db.js';
+import { getDb } from './route-helpers.js';
 import { deleteEngine } from '../../lib/engine/delete.js';
 import { resolveTenant } from '../../lib/tenant.js';
 import type { SqlApiPluginOptions } from '../../types.js';
@@ -12,8 +12,10 @@ export default async function deleteRoutes(
   const { DbTables } = options;
 
   for (const [tableName, tableConf] of Object.entries(DbTables)) {
+    const pkField = tableConf.primary;
+    const pkType = tableConf.Schema.fields[pkField];
     const responseSchema = Type.Object({
-      main: Type.Partial(Type.Object(tableConf.Schema.fields)),
+      main: Type.Object({ [pkField]: pkType }),
     });
 
     fastify.route({
@@ -28,7 +30,7 @@ export default async function deleteRoutes(
       },
       onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
       handler: async (request, reply) => {
-        const db = new QueryClient((fastify as any).pg);
+        const db = getDb(fastify, options.dialect);
         const tenant = await resolveTenant(options, tableConf, request);
         const { id } = request.params as { id: string };
 

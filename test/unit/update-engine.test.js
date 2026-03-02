@@ -29,7 +29,7 @@ function createMockPg(responses = []) {
     calls,
     query(text, values) {
       calls.push({ text: text.replace(/\s+/g, ' ').trim(), values });
-      const response = responses[callIndex] || { rows: [], rowCount: 0 };
+      const response = responses[callIndex] || { rows: [], affectedRows: 0 };
       callIndex++;
       return Promise.resolve(response);
     },
@@ -80,9 +80,9 @@ function createTestDbTables(mockPg, opts = {}) {
 }
 
 describe('updateEngine - main update', () => {
-  it('updates main record by PK', async () => {
+  it('updates main record by PK and returns PK-only', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario Updated', email: 'mario@test.it' }], rowCount: 1 },
+      { rows: [], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -95,15 +95,15 @@ describe('updateEngine - main update', () => {
     });
 
     assert.equal(result.main.id, 1);
-    assert.equal(result.main.name, 'Mario Updated');
+    assert.equal(result.main.name, undefined);
     assert.ok(mockPg.calls[0].text.includes('UPDATE "customer"'));
     assert.ok(mockPg.calls[0].text.includes('WHERE'));
-    assert.ok(mockPg.calls[0].text.includes('RETURNING *'));
+    assert.ok(!mockPg.calls[0].text.includes('RETURNING'));
   });
 
   it('does not include PK in SET clause', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Updated', email: 'new@test.it' }], rowCount: 1 },
+      { rows: [], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -139,7 +139,7 @@ describe('updateEngine - main update', () => {
 
   it('throws 404 when record not found', async () => {
     const mockPg = createMockPg([
-      { rows: [], rowCount: 0 },
+      { rows: [], affectedRows: 0 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -155,9 +155,9 @@ describe('updateEngine - main update', () => {
     );
   });
 
-  it('returns camelCase result', async () => {
+  it('returns PK-only result', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], rowCount: 1 },
+      { rows: [], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -179,7 +179,7 @@ describe('updateEngine - beforeUpdate hook', () => {
   it('calls beforeUpdate with update fields', async () => {
     let hookFields = null;
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Updated', email: 'mario@test.it' }], rowCount: 1 },
+      { rows: [], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg, {
       beforeUpdate: async (_db, _req, fields) => {
@@ -206,9 +206,9 @@ describe('updateEngine - secondaries', () => {
   it('inserts secondary records with FK auto-fill', async () => {
     const mockPg = createMockPg([
       // Main update
-      { rows: [{ id: 42, name: 'Mario', email: 'mario@test.it' }], rowCount: 1 },
-      // Bulk insert orders
-      { rows: [{ id: 10, customer_id: 42, total: 100, status: 'pending' }], rowCount: 1 },
+      { rows: [], affectedRows: 1 },
+      // Bulk insert orders (PK-only)
+      { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -235,9 +235,9 @@ describe('updateEngine - deletions', () => {
   it('deletes secondary records', async () => {
     const mockPg = createMockPg([
       // Main update
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], rowCount: 1 },
-      // Delete order
-      { rows: [{ id: 5, customer_id: 1, total: 50, status: 'cancelled' }], rowCount: 1 },
+      { rows: [], affectedRows: 1 },
+      // Delete order (affectedRows)
+      { rows: [], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -261,7 +261,7 @@ describe('updateEngine - deletions', () => {
 
   it('ignores deletions not in allowedWriteJoins', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], rowCount: 1 },
+      { rows: [], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg, {
       allowedWriteJoins: [],
@@ -285,11 +285,11 @@ describe('updateEngine - deletions', () => {
   it('handles secondaries + deletions together', async () => {
     const mockPg = createMockPg([
       // Main update
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], rowCount: 1 },
-      // Bulk insert (secondary)
-      { rows: [{ id: 20, customer_id: 1, total: 200, status: 'new' }], rowCount: 1 },
-      // Delete
-      { rows: [{ id: 5, customer_id: 1, total: 50, status: 'old' }], rowCount: 1 },
+      { rows: [], affectedRows: 1 },
+      // Bulk insert (secondary, PK-only)
+      { rows: [{ id: 20 }], affectedRows: 1 },
+      // Delete (affectedRows)
+      { rows: [], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 

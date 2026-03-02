@@ -15,27 +15,27 @@ function createMockClient() {
     calls,
     query(text, values) {
       calls.push({ text: text.replace(/\s+/g, ' ').trim(), values });
-      return Promise.resolve({ rows: [{ id: 1 }], rowCount: 1 });
+      return Promise.resolve({ rows: [{ id: 1 }], affectedRows: 1 });
     },
   };
 }
 
 describe('QueryClient.insert', () => {
-  it('builds parameterized INSERT', async () => {
+  it('builds parameterized INSERT with RETURNING pk', async () => {
     const mock = createMockClient();
     const db = new QueryClient(mock);
 
-    await db.insert('customer', { name: 'Mario', email: 'mario@test.it' });
+    await db.insert('customer', { name: 'Mario', email: 'mario@test.it' }, 'id');
 
     assert.ok(mock.calls[0].text.includes('"name", "email"'));
     assert.ok(mock.calls[0].text.includes('$1, $2'));
-    assert.ok(mock.calls[0].text.includes('RETURNING *'));
+    assert.ok(mock.calls[0].text.includes('RETURNING "id"'));
     assert.deepEqual(mock.calls[0].values, ['Mario', 'mario@test.it']);
   });
 
   it('throws on empty values', async () => {
     const db = new QueryClient(createMockClient());
-    await assert.rejects(() => db.insert('t', {}), /empty insert/);
+    await assert.rejects(() => db.insert('t', {}, 'id'), /empty insert/);
   });
 
   it('handles Expression as raw SQL', async () => {
@@ -45,7 +45,7 @@ describe('QueryClient.insert', () => {
     await db.insert('customer', {
       name: 'Mario',
       created_at: new Expression('NOW()'),
-    });
+    }, 'id');
 
     assert.ok(mock.calls[0].text.includes('$1, NOW()'));
     assert.deepEqual(mock.calls[0].values, ['Mario']);
@@ -57,7 +57,7 @@ describe('QueryClient.insertOrUpdate', () => {
     const mock = createMockClient();
     const db = new QueryClient(mock);
 
-    await db.insertOrUpdate('customer', { id: 1, name: 'Mario' }, ['id']);
+    await db.insertOrUpdate('customer', { id: 1, name: 'Mario' }, ['id'], 'id');
 
     assert.ok(mock.calls[0].text.includes('ON CONFLICT ("id")'));
     assert.ok(mock.calls[0].text.includes('"name" = EXCLUDED."name"'));
@@ -68,7 +68,7 @@ describe('QueryClient.insertOrUpdate', () => {
     const mock = createMockClient();
     const db = new QueryClient(mock);
 
-    await db.insertOrUpdate('customer', { id: 1 }, ['id']);
+    await db.insertOrUpdate('customer', { id: 1 }, ['id'], 'id');
 
     assert.ok(mock.calls[0].text.includes('DO NOTHING'));
   });
@@ -82,7 +82,7 @@ describe('QueryClient.bulkInsert', () => {
     await db.bulkInsert('product', [
       { name: 'A', price: 10 },
       { name: 'B', price: 20 },
-    ]);
+    ], 'id');
 
     assert.ok(mock.calls[0].text.includes('($1, $2), ($3, $4)'));
     assert.deepEqual(mock.calls[0].values, ['A', 10, 'B', 20]);
@@ -90,7 +90,7 @@ describe('QueryClient.bulkInsert', () => {
 
   it('returns empty array for empty input', async () => {
     const db = new QueryClient(createMockClient());
-    const result = await db.bulkInsert('t', []);
+    const result = await db.bulkInsert('t', [], 'id');
     assert.deepEqual(result, []);
   });
 
@@ -99,7 +99,7 @@ describe('QueryClient.bulkInsert', () => {
     const db = new QueryClient(mock);
     const records = Array.from({ length: 5 }, (_, i) => ({ name: `r${i}` }));
 
-    await db.bulkInsert('t', records, 2);
+    await db.bulkInsert('t', records, 'id', 2);
 
     assert.equal(mock.calls.length, 3); // 2+2+1
   });
@@ -116,7 +116,8 @@ describe('QueryClient.bulkInsertOrUpdate', () => {
         { id: 1, name: 'A', price: 10 },
         { id: 2, name: 'B', price: 20 },
       ],
-      ['id']
+      ['id'],
+      'id'
     );
 
     assert.ok(mock.calls[0].text.includes('ON CONFLICT ("id")'));
@@ -126,38 +127,39 @@ describe('QueryClient.bulkInsertOrUpdate', () => {
 });
 
 describe('QueryClient.update', () => {
-  it('builds parameterized UPDATE', async () => {
+  it('builds parameterized UPDATE and returns affectedRows', async () => {
     const mock = createMockClient();
     const db = new QueryClient(mock);
 
-    await db.update('customer', { name: 'Luigi' }, { id: 1 });
+    const result = await db.update('customer', { name: 'Luigi' }, { id: 1 });
 
     assert.ok(mock.calls[0].text.includes('SET "name" = $1'));
     assert.ok(mock.calls[0].text.includes('WHERE "id" = $2'));
     assert.deepEqual(mock.calls[0].values, ['Luigi', 1]);
+    assert.equal(result, 1);
   });
 
-  it('supports returning: false', async () => {
+  it('does not include RETURNING', async () => {
     const mock = createMockClient();
     const db = new QueryClient(mock);
 
-    await db.update('customer', { name: 'Luigi' }, { id: 1 }, undefined, {
-      returning: false,
-    });
+    await db.update('customer', { name: 'Luigi' }, { id: 1 });
 
     assert.ok(!mock.calls[0].text.includes('RETURNING'));
   });
 });
 
 describe('QueryClient.delete', () => {
-  it('builds parameterized DELETE', async () => {
+  it('builds parameterized DELETE and returns affectedRows', async () => {
     const mock = createMockClient();
     const db = new QueryClient(mock);
 
-    await db.delete('customer', { id: 1 });
+    const result = await db.delete('customer', { id: 1 });
 
     assert.ok(mock.calls[0].text.includes('DELETE FROM "customer"'));
     assert.ok(mock.calls[0].text.includes('"id" = $1'));
+    assert.ok(!mock.calls[0].text.includes('RETURNING'));
+    assert.equal(result, 1);
   });
 });
 

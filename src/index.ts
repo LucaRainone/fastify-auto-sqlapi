@@ -8,7 +8,14 @@ export {
 } from './lib/naming.js';
 
 // DB
-export { QueryClient } from './lib/db.js';
+export { QueryClient, createQueryClient, escapeIdent } from './lib/db.js';
+
+// Dialect
+export { getDialect, type SqlDialect, type DialectName } from './lib/dialect.js';
+
+// Adapters
+export { pgQueryable } from './lib/adapters/pg-adapter.js';
+export { mysqlQueryable } from './lib/adapters/mysql-adapter.js';
 
 // Table helpers
 export { exportTableInfo, defineTable, buildRelation, buildUpsertRule, buildUpsertRules } from './lib/table-helpers.js';
@@ -66,6 +73,7 @@ export type {
   ColumnInfo,
   TableMap,
   Queryable,
+  SqlResult,
   DbRecord,
   DbRecordValue,
   SelectOptions,

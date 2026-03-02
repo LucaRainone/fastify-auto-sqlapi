@@ -1,5 +1,4 @@
 import type { FastifyRequest } from 'fastify';
-import { escapeIdent } from './db.js';
 import type { QueryClient } from './db.js';
 import type {
   ITable,
@@ -30,38 +29,39 @@ export async function resolveTenant(
 }
 
 export function buildTenantWhere(
+  db: QueryClient,
   scope: TenantScope,
   tenantIds: TenantId[],
   startIndex: number
 ): { sql: string; values: TenantId[] } {
-  const col = escapeIdent(scope.column);
+  const col = scope.column;
   let qualifier: string;
 
   if (isIndirect(scope)) {
-    const throughTable = escapeIdent(scope.through.schema.tableName);
-    qualifier = `"${throughTable}"."${col}"`;
+    const throughTable = scope.through.schema.tableName;
+    qualifier = `${db.qi(throughTable)}.${db.qi(col)}`;
   } else {
-    qualifier = `"${col}"`;
+    qualifier = db.qi(col);
   }
 
   if (tenantIds.length === 1) {
-    return { sql: `${qualifier} = $${startIndex}`, values: [tenantIds[0]] };
+    return { sql: `${qualifier} = ${db.ph(startIndex)}`, values: [tenantIds[0]] };
   }
 
-  const placeholders = tenantIds.map((_, i) => `$${startIndex + i}`).join(', ');
+  const placeholders = tenantIds.map((_, i) => db.ph(startIndex + i)).join(', ');
   return { sql: `${qualifier} IN (${placeholders})`, values: [...tenantIds] };
 }
 
 export function buildTenantJoin(
+  db: QueryClient,
   scope: TenantScopeIndirect,
   mainTableName: string
 ): string {
-  const throughTable = escapeIdent(scope.through.schema.tableName);
-  const localField = escapeIdent(scope.through.localField);
-  const foreignField = escapeIdent(scope.through.foreignField);
-  const mainTable = escapeIdent(mainTableName);
+  const throughTable = scope.through.schema.tableName;
+  const localField = scope.through.localField;
+  const foreignField = scope.through.foreignField;
 
-  return `INNER JOIN "${throughTable}" ON "${mainTable}"."${localField}" = "${throughTable}"."${foreignField}"`;
+  return `INNER JOIN ${db.qi(throughTable)} ON ${db.qi(mainTableName)}.${db.qi(localField)} = ${db.qi(throughTable)}.${db.qi(foreignField)}`;
 }
 
 export function injectTenantValue(
@@ -102,17 +102,17 @@ export async function validateTenantFK(
   const uniqueFKs = [...new Set(fkValues.filter((v) => v != null))];
   if (!uniqueFKs.length) return;
 
-  const throughTable = escapeIdent(scope.through.schema.tableName);
-  const foreignField = escapeIdent(scope.through.foreignField);
-  const tenantCol = escapeIdent(scope.column);
+  const throughTable = scope.through.schema.tableName;
+  const foreignField = scope.through.foreignField;
+  const tenantCol = scope.column;
 
-  const fkPlaceholders = uniqueFKs.map((_, i) => `$${i + 1}`).join(', ');
-  const tenantPlaceholders = tenantIds.map((_, i) => `$${uniqueFKs.length + i + 1}`).join(', ');
+  const fkPlaceholders = uniqueFKs.map((_, i) => db.ph(i + 1)).join(', ');
+  const tenantPlaceholders = tenantIds.map((_, i) => db.ph(uniqueFKs.length + i + 1)).join(', ');
 
   const sql =
-    `SELECT "${foreignField}" FROM "${throughTable}" ` +
-    `WHERE "${foreignField}" IN (${fkPlaceholders}) ` +
-    `AND "${tenantCol}" NOT IN (${tenantPlaceholders})`;
+    `SELECT ${db.qi(foreignField)} FROM ${db.qi(throughTable)} ` +
+    `WHERE ${db.qi(foreignField)} IN (${fkPlaceholders}) ` +
+    `AND ${db.qi(tenantCol)} NOT IN (${tenantPlaceholders})`;
 
   const result = await db.query(sql, [...uniqueFKs, ...tenantIds]);
 

@@ -1,4 +1,6 @@
 import type { FastifyInstance } from 'fastify';
+import { ConditionBuilder } from 'node-condition-builder';
+import { getDialect } from '../../lib/dialect.js';
 import { setupSwagger } from '../../lib/setup-swagger.js';
 import searchRoutes from './search.routes.js';
 import getRoutes from './get.routes.js';
@@ -13,6 +15,10 @@ export default async function fastifyAutoSqlApi(
   fastify: FastifyInstance,
   options: SqlApiPluginOptions
 ): Promise<void> {
+  // Set ConditionBuilder dialect globally
+  const dialect = getDialect(options.dialect || 'postgres');
+  ConditionBuilder.DIALECT = dialect.cbDialect;
+
   if (options.swagger) {
     await setupSwagger(fastify, options);
   }

@@ -55,20 +55,26 @@ export function InsertTableBody(dbTables: DbTables, tableName: string): TObject 
 
 export function InsertTableResponse(dbTables: DbTables, tableName: string): TObject {
   const tableConf = dbTables[tableName];
+  const pkField = tableConf.primary;
+  const pkType = tableConf.Schema.fields[pkField];
 
-  const mainItem = Type.Partial(Type.Object(tableConf.Schema.fields));
-
+  // Main: PK-only response
   const responseProperties: Record<string, TSchema> = {
-    main: mainItem,
+    main: Type.Object({ [pkField]: pkType }),
   };
 
-  // Secondaries response
+  // Secondaries response: PK-only
   if (tableConf.allowedWriteJoins?.length) {
     const secondaryProperties: Record<string, TSchema> = {};
 
     for (const [joinSchema] of tableConf.allowedWriteJoins) {
+      const secondaryTableConf = Object.values(dbTables).find(
+        (c) => c.Schema.tableName === joinSchema.tableName
+      );
+      const secPkField = secondaryTableConf?.primary || 'id';
+      const secPkType = joinSchema.fields[secPkField] || Type.Any();
       secondaryProperties[joinSchema.tableName] = Type.Array(
-        Type.Partial(Type.Object(joinSchema.fields))
+        Type.Object({ [secPkField]: secPkType })
       );
     }
 

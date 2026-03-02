@@ -11,6 +11,9 @@ import type {
 export async function insertEngine(params: InsertParams): Promise<InsertResult> {
   const { db, tableConf, dbTables, request, record, secondaries, tenant } = params;
 
+  const pk = tableConf.primary;
+  const pkCol = tableConf.Schema.col(pk);
+
   // 1. Prepare main record
   let mainRecord = snakecaseRecord(record);
   mainRecord = removeExcludedFields(mainRecord, tableConf);
@@ -33,37 +36,43 @@ export async function insertEngine(params: InsertParams): Promise<InsertResult> 
     await tableConf.beforeInsert(db, request, mainRecord);
   }
 
-  // 3. Insert main
-  let mainInserted: Record<string, unknown>;
+  // 3. Insert main → returns PK-only
+  let pkResult: Record<string, unknown>;
   const upsertKeys = tableConf.upsertMap?.get(tableConf.Schema);
   if (upsertKeys) {
     const conflictCols = upsertKeys.map((k) => tableConf.Schema.col(k));
-    mainInserted = await db.insertOrUpdate(
+    pkResult = await db.insertOrUpdate(
       tableConf.Schema.tableName,
       mainRecord as DbRecord,
-      conflictCols
+      conflictCols,
+      pkCol
     );
   } else {
-    mainInserted = await db.insert(
+    pkResult = await db.insert(
       tableConf.Schema.tableName,
-      mainRecord as DbRecord
+      mainRecord as DbRecord,
+      pkCol
     );
   }
-  mainInserted = camelcaseObject(mainInserted as Record<string, unknown>);
 
-  // 4. Secondaries
+  const mainPkCamel = camelcaseObject(pkResult);
+
+  // 4. Secondaries: need full record for FK auto-fill
   let secondaryResults: Record<string, Record<string, unknown>[]> | undefined;
   if (secondaries && Object.keys(secondaries).length > 0) {
-    secondaryResults = await processSecondaries(db, tableConf, dbTables, mainInserted, secondaries);
+    // Merge input record + PK for FK auto-fill
+    const mainForFK = { ...camelcaseObject(mainRecord as Record<string, unknown>), ...mainPkCamel };
+    secondaryResults = await processSecondaries(db, tableConf, dbTables, mainForFK, secondaries);
   }
 
   // 5. afterInsert hook
   if (tableConf.afterInsert) {
-    await tableConf.afterInsert(db, request, mainInserted, secondaryResults);
+    const mainForHook = { ...camelcaseObject(mainRecord as Record<string, unknown>), ...mainPkCamel };
+    await tableConf.afterInsert(db, request, mainForHook, secondaryResults);
   }
 
-  // 6. Return
-  const result: InsertResult = { main: mainInserted };
+  // 6. Return PK-only
+  const result: InsertResult = { main: mainPkCamel };
   if (secondaryResults && Object.keys(secondaryResults).length > 0) {
     result.secondaries = secondaryResults;
   }

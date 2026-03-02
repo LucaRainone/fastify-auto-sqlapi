@@ -1,5 +1,4 @@
 import { camelcaseObject, snakecaseRecord } from '../naming.js';
-import { escapeIdent } from '../db.js';
 import { processSecondaries, processDeletions } from './write-helpers.js';
 import { stripTenantColumn, buildTenantWhere, buildTenantJoin } from '../tenant.js';
 import { ConditionBuilder } from 'node-condition-builder';
@@ -36,9 +35,9 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
       // Indirect: verify the record belongs to tenant via subquery
       const scope = tenant.scope as TenantScopeIndirect;
       const tableName = tableConf.Schema.tableName;
-      const tw = buildTenantWhere(scope, tenant.ids, 2);
-      const joinSql = buildTenantJoin(scope, tableName);
-      const checkSql = `SELECT 1 FROM "${escapeIdent(tableName)}" ${joinSql} WHERE "${escapeIdent(tableName)}"."${escapeIdent(pkCol)}" = $1 AND ${tw.sql} LIMIT 1`;
+      const tw = buildTenantWhere(db, scope, tenant.ids, 2);
+      const joinSql = buildTenantJoin(db, scope, tableName);
+      const checkSql = `SELECT 1 FROM ${db.qi(tableName)} ${joinSql} WHERE ${db.qi(tableName)}.${db.qi(pkCol)} = ${db.ph(1)} AND ${tw.sql} LIMIT 1`;
       const checkResult = await db.query(checkSql, [pkValue, ...tw.values]);
       if (checkResult.rows.length === 0) {
         const error = new Error('Record not found') as Error & { statusCode: number };
@@ -53,8 +52,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     await tableConf.beforeUpdate(db, request, updateFields);
   }
 
-  // 3. Update main (or fetch if no fields to update)
-  let mainUpdated: Record<string, unknown>;
+  // 3. Update main
   const hasFieldsToUpdate = Object.keys(updateFields).length > 0;
 
   let extraCondition: ConditionBuilder | undefined;
@@ -69,27 +67,25 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
   }
 
   if (hasFieldsToUpdate) {
-    const rows = await db.update(
+    const affectedRows = await db.update(
       tableConf.Schema.tableName,
       updateFields as DbRecord,
       { [pkCol]: pkValue } as DbRecord,
       extraCondition
     );
 
-    if (rows.length === 0) {
+    if (affectedRows === 0) {
       const error = new Error(`Record not found`) as Error & { statusCode: number };
       error.statusCode = 404;
       throw error;
     }
-
-    mainUpdated = camelcaseObject(rows[0] as Record<string, unknown>);
   } else {
-    // No fields to update: fetch the existing record (for secondaries/deletions)
-    let whereSql = `"${escapeIdent(tableConf.Schema.tableName)}"."${escapeIdent(pkCol)}" = $1`;
+    // No fields to update: verify the record exists (for secondaries/deletions)
+    let whereSql = `${db.qi(tableConf.Schema.tableName)}.${db.qi(pkCol)} = ${db.ph(1)}`;
     const whereValues: unknown[] = [pkValue];
 
     if (extraCondition) {
-      whereSql += ` AND ${extraCondition.build(2, (i) => `$${i}`)}`;
+      whereSql += ` AND ${extraCondition.build(2, db.ph)}`;
       whereValues.push(...extraCondition.getValues());
     }
 
@@ -105,14 +101,17 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
       error.statusCode = 404;
       throw error;
     }
-
-    mainUpdated = camelcaseObject(rows[0]);
   }
+
+  // Build the main response (PK-only)
+  const mainResult = { [pk]: pkValue };
 
   // 4. Secondaries (upsert/insert with FK auto-fill)
   let secondaryResults: Record<string, Record<string, unknown>[]> | undefined;
   if (secondaries && Object.keys(secondaries).length > 0) {
-    secondaryResults = await processSecondaries(db, tableConf, dbTables, mainUpdated, secondaries);
+    // Merge input fields + PK for FK auto-fill
+    const mainForFK = { ...camelcaseObject(snaked as Record<string, unknown>) };
+    secondaryResults = await processSecondaries(db, tableConf, dbTables, mainForFK, secondaries);
   }
 
   // 5. Deletions
@@ -121,8 +120,8 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     deletionResults = await processDeletions(db, tableConf, deletions);
   }
 
-  // 6. Return
-  const result: UpdateResult = { main: mainUpdated };
+  // 6. Return PK-only
+  const result: UpdateResult = { main: mainResult };
   if (secondaryResults && Object.keys(secondaryResults).length > 0) {
     result.secondaries = secondaryResults;
   }
