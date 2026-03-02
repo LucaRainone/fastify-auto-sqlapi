@@ -1,6 +1,6 @@
 import { camelcaseObject, snakecaseRecord } from '../naming.js';
 import { processSecondaries, processDeletions } from './write-helpers.js';
-import { stripTenantColumn, buildTenantWhere, buildTenantJoin } from '../tenant.js';
+import { stripTenantColumn, buildTenantCondition, buildTenantJoin } from '../tenant.js';
 import { ConditionBuilder } from 'node-condition-builder';
 import type {
   UpdateParams,
@@ -35,10 +35,14 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
       // Indirect: verify the record belongs to tenant via subquery
       const scope = tenant.scope as TenantScopeIndirect;
       const tableName = tableConf.Schema.tableName;
-      const tw = buildTenantWhere(db, scope, tenant.ids, 2);
+      const cb = new ConditionBuilder('AND');
+      cb.isEqual(`${db.qi(tableName)}.${db.qi(pkCol)}`, pkValue);
+      cb.append(buildTenantCondition(db, scope, tenant.ids));
+      const checkWhere = cb.build(1, db.ph);
+      const checkValues = cb.getValues();
       const joinSql = buildTenantJoin(db, scope, tableName);
-      const checkSql = `SELECT 1 FROM ${db.qi(tableName)} ${joinSql} WHERE ${db.qi(tableName)}.${db.qi(pkCol)} = ${db.ph(1)} AND ${tw.sql} LIMIT 1`;
-      const checkResult = await db.query(checkSql, [pkValue, ...tw.values]);
+      const checkSql = `SELECT 1 FROM ${db.qi(tableName)} ${joinSql} WHERE ${checkWhere} LIMIT 1`;
+      const checkResult = await db.query(checkSql, checkValues);
       if (checkResult.rows.length === 0) {
         const error = new Error('Record not found') as Error & { statusCode: number };
         error.statusCode = 404;

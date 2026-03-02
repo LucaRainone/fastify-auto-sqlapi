@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
-const { resolveTenant, buildTenantWhere, buildTenantJoin, injectTenantValue, validateTenantFK, stripTenantColumn } =
+const { resolveTenant, buildTenantCondition, buildTenantJoin, injectTenantValue, validateTenantFK, stripTenantColumn } =
   await import(path.join(ROOT, 'dist/lib/tenant.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
@@ -100,15 +100,17 @@ describe('resolveTenant', () => {
   });
 });
 
-// ─── buildTenantWhere ───────────────────────────────────────
+// ─── buildTenantCondition ────────────────────────────────────
 
-describe('buildTenantWhere', () => {
-  it('builds = $N for single tenant ID (direct)', () => {
+describe('buildTenantCondition', () => {
+  it('builds IN ($N) for single tenant ID (direct)', () => {
     const mockPg = createMockPg();
     const db = new QueryClient(mockPg);
     const scope = { column: 'organization_id' };
-    const { sql, values } = buildTenantWhere(db, scope, [42], 3);
-    assert.equal(sql, '"organization_id" = $3');
+    const cb = buildTenantCondition(db, scope, [42]);
+    const sql = cb.build(3, db.ph);
+    const values = cb.getValues();
+    assert.ok(sql.includes('"organization_id" IN ($3)'));
     assert.deepEqual(values, [42]);
   });
 
@@ -116,8 +118,10 @@ describe('buildTenantWhere', () => {
     const mockPg = createMockPg();
     const db = new QueryClient(mockPg);
     const scope = { column: 'organization_id' };
-    const { sql, values } = buildTenantWhere(db, scope, [1, 2, 3], 5);
-    assert.equal(sql, '"organization_id" IN ($5, $6, $7)');
+    const cb = buildTenantCondition(db, scope, [1, 2, 3]);
+    const sql = cb.build(5, db.ph);
+    const values = cb.getValues();
+    assert.ok(sql.includes('"organization_id" IN ($5, $6, $7)'));
     assert.deepEqual(values, [1, 2, 3]);
   });
 
@@ -129,8 +133,10 @@ describe('buildTenantWhere', () => {
       column: 'organization_id',
       through: { schema: throughSchema, localField: 'customer_id', foreignField: 'id' },
     };
-    const { sql, values } = buildTenantWhere(db, scope, [10], 1);
-    assert.equal(sql, '"customer"."organization_id" = $1');
+    const cb = buildTenantCondition(db, scope, [10]);
+    const sql = cb.build(1, db.ph);
+    const values = cb.getValues();
+    assert.ok(sql.includes('"customer"."organization_id" IN ($1)'));
     assert.deepEqual(values, [10]);
   });
 
@@ -142,8 +148,10 @@ describe('buildTenantWhere', () => {
       column: 'organization_id',
       through: { schema: throughSchema, localField: 'customer_id', foreignField: 'id' },
     };
-    const { sql, values } = buildTenantWhere(db, scope, [10, 20], 1);
-    assert.equal(sql, '"customer"."organization_id" IN ($1, $2)');
+    const cb = buildTenantCondition(db, scope, [10, 20]);
+    const sql = cb.build(1, db.ph);
+    const values = cb.getValues();
+    assert.ok(sql.includes('"customer"."organization_id" IN ($1, $2)'));
     assert.deepEqual(values, [10, 20]);
   });
 });
@@ -329,7 +337,7 @@ describe('getEngine with direct tenant', () => {
 
     const sql = mockPg.calls[0].text;
     assert.ok(sql.includes('"id" = $1'));
-    assert.ok(sql.includes('"organization_id" = $2'));
+    assert.ok(sql.includes('"organization_id" IN ($2)'));
     assert.deepEqual(mockPg.calls[0].values, ['1', 42]);
   });
 
@@ -370,7 +378,7 @@ describe('getEngine with indirect tenant', () => {
     const sql = mockPg.calls[0].text;
     assert.ok(sql.includes('INNER JOIN "customer"'));
     assert.ok(sql.includes('"customer_order"."customer_id" = "customer"."id"'));
-    assert.ok(sql.includes('"customer"."organization_id" = $2'));
+    assert.ok(sql.includes('"customer"."organization_id" IN ($2)'));
   });
 });
 
@@ -394,7 +402,7 @@ describe('deleteEngine with direct tenant', () => {
     const sql = mockPg.calls[0].text;
     assert.ok(sql.includes('DELETE FROM "customer"'));
     assert.ok(sql.includes('"id" = $1'));
-    assert.ok(sql.includes('"organization_id" = $2'));
+    assert.ok(sql.includes('"organization_id" IN ($2)'));
     assert.ok(!sql.includes('RETURNING'));
   });
 });
@@ -419,7 +427,7 @@ describe('bulkDeleteEngine with direct tenant', () => {
     const sql = mockPg.calls[0].text;
     assert.ok(sql.includes('DELETE FROM "customer"'));
     assert.ok(sql.includes('"id" IN ($1, $2)'));
-    assert.ok(sql.includes('"organization_id" = $3'));
+    assert.ok(sql.includes('"organization_id" IN ($3)'));
   });
 });
 
@@ -484,7 +492,7 @@ describe('searchEngine with direct tenant', () => {
     await searchEngine(dbTables, { db, tableConf, tenant });
 
     const sql = mockPg.calls[0].text;
-    assert.ok(sql.includes('"organization_id" = $1'));
+    assert.ok(sql.includes('"organization_id" IN ($1)'));
   });
 
   it('no tenant filtering without tenant context', async () => {

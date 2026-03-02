@@ -1,6 +1,7 @@
 import type { QueryClient } from '../db.js';
+import { ConditionBuilder } from 'node-condition-builder';
 import { camelcaseObject } from '../naming.js';
-import { buildTenantWhere, buildTenantJoin } from '../tenant.js';
+import { buildTenantCondition, buildTenantJoin } from '../tenant.js';
 import type {
   DbTables,
   SearchParams,
@@ -147,28 +148,13 @@ async function executeVirtualJoins(
     }
 
     // Build join filters
-    const joinCondition = joinTableConf
+    const cb = joinTableConf
       ? joinTableConf.filters(joinOpts?.filters || {})
-      : undefined;
-
-    const values: unknown[] = [];
-    let where: string;
-
-    if (joinCondition) {
-      const condStr = joinCondition.build(1, db.ph);
-      values.push(...joinCondition.getValues());
-      const inPlaceholders = ids.map((_, i) => db.ph(values.length + i + 1)).join(', ');
-      values.push(...ids);
-      const fkCol = joinSchema.col(joinField);
-      where = condStr
-        ? `${condStr} AND ${db.qi(fkCol)} IN (${inPlaceholders})`
-        : `${db.qi(fkCol)} IN (${inPlaceholders})`;
-    } else {
-      const inPlaceholders = ids.map((_, i) => db.ph(i + 1)).join(', ');
-      values.push(...ids);
-      const fkCol = joinSchema.col(joinField);
-      where = `${db.qi(fkCol)} IN (${inPlaceholders})`;
-    }
+      : new ConditionBuilder('AND');
+    const fkCol = joinSchema.col(joinField);
+    cb.isIn(db.qi(fkCol), ids);
+    const where = cb.build(1, db.ph);
+    const values = cb.getValues();
 
     const columns = selection === '*' ? '*' : selection;
     const rows = await db.select({
@@ -246,27 +232,14 @@ async function executeJoinGroups(
     }
 
     // Build WHERE clause
-    const values: unknown[] = [];
     const joinTableConf = dbTables[joinTableName];
-    const filterCondition = joinTableConf && groupFilters
+    const cb = joinTableConf && groupFilters
       ? joinTableConf.filters(groupFilters)
-      : undefined;
-
-    let where: string;
+      : new ConditionBuilder('AND');
     const fkCol = joinSchema.col(joinField);
-    if (filterCondition) {
-      const condStr = filterCondition.build(1, db.ph);
-      values.push(...filterCondition.getValues());
-      const inPlaceholders = ids.map((_, i) => db.ph(values.length + i + 1)).join(', ');
-      values.push(...ids);
-      where = condStr
-        ? `${condStr} AND ${db.qi(fkCol)} IN (${inPlaceholders})`
-        : `${db.qi(fkCol)} IN (${inPlaceholders})`;
-    } else {
-      const inPlaceholders = ids.map((_, i) => db.ph(i + 1)).join(', ');
-      values.push(...ids);
-      where = `${db.qi(fkCol)} IN (${inPlaceholders})`;
-    }
+    cb.isIn(db.qi(fkCol), ids);
+    const where = cb.build(1, db.ph);
+    const values = cb.getValues();
 
     const groupBy = groupByParts.length > 0 ? `GROUP BY ${groupByParts.join(', ')}` : '';
     const sql = `SELECT ${selectParts.join(', ')} FROM ${db.qi(joinSchema.tableName)} WHERE ${where} ${groupBy}`;
@@ -326,19 +299,18 @@ export async function searchEngine(
 
   // Build main condition
   const condition = tableConf.filters(filters || {});
-  const values = condition.getValues();
-  let where = condition.build(1, db.ph) || '1=1';
 
   // Tenant filtering
   const tenantJoins: string[] = [];
   if (tenant) {
-    const tw = buildTenantWhere(db, tenant.scope, tenant.ids, values.length + 1);
-    where += ` AND ${tw.sql}`;
-    values.push(...tw.values);
+    condition.append(buildTenantCondition(db, tenant.scope, tenant.ids));
     if ('through' in tenant.scope) {
       tenantJoins.push(buildTenantJoin(db, tenant.scope as TenantScopeIndirect, tableConf.Schema.tableName));
     }
   }
+
+  const where = condition.build(1, db.ph);
+  const values = condition.getValues();
 
   // Validate and sanitize orderBy (user input -> SQL identifier)
   const safeOrderBy = orderBy ? validateOrderBy(orderBy, tableConf, db) : undefined;

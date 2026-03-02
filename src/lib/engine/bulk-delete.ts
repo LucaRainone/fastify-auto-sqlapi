@@ -1,4 +1,5 @@
-import { buildTenantWhere, buildTenantJoin } from '../tenant.js';
+import { ConditionBuilder } from 'node-condition-builder';
+import { buildTenantCondition, buildTenantJoin } from '../tenant.js';
 import type { BulkDeleteParams, BulkDeleteResult, TenantScopeIndirect } from '../../types.js';
 
 export async function bulkDeleteEngine(params: BulkDeleteParams): Promise<BulkDeleteResult[]> {
@@ -8,23 +9,34 @@ export async function bulkDeleteEngine(params: BulkDeleteParams): Promise<BulkDe
   const pk = tableConf.primary;
   const pkCol = tableConf.Schema.col(pk);
   const tableName = tableConf.Schema.tableName;
-  const values: unknown[] = [...ids];
-  const idPlaceholders = ids.map((_, i) => db.ph(i + 1)).join(', ');
 
   let where: string;
-  if (tenant) {
-    const tw = buildTenantWhere(db, tenant.scope, tenant.ids, values.length + 1);
-    values.push(...tw.values);
+  let values: unknown[];
 
+  if (tenant) {
     if ('through' in tenant.scope) {
+      // Indirect: DELETE ... WHERE pk IN (SELECT pk FROM main INNER JOIN through ...)
       const scope = tenant.scope as TenantScopeIndirect;
+      const innerCb = new ConditionBuilder('AND');
+      innerCb.isIn(`${db.qi(tableName)}.${db.qi(pkCol)}`, ids);
+      innerCb.append(buildTenantCondition(db, scope, tenant.ids));
+      const innerWhere = innerCb.build(1, db.ph);
+      values = innerCb.getValues();
       const joinSql = buildTenantJoin(db, scope, tableName);
-      where = `${db.qi(pkCol)} IN (SELECT ${db.qi(tableName)}.${db.qi(pkCol)} FROM ${db.qi(tableName)} ${joinSql} WHERE ${db.qi(tableName)}.${db.qi(pkCol)} IN (${idPlaceholders}) AND ${tw.sql})`;
+      where = `${db.qi(pkCol)} IN (SELECT ${db.qi(tableName)}.${db.qi(pkCol)} FROM ${db.qi(tableName)} ${joinSql} WHERE ${innerWhere})`;
     } else {
-      where = `${db.qi(pkCol)} IN (${idPlaceholders}) AND ${tw.sql}`;
+      // Direct: simple AND
+      const cb = new ConditionBuilder('AND');
+      cb.isIn(db.qi(pkCol), ids);
+      cb.append(buildTenantCondition(db, tenant.scope, tenant.ids));
+      where = cb.build(1, db.ph);
+      values = cb.getValues();
     }
   } else {
-    where = `${db.qi(pkCol)} IN (${idPlaceholders})`;
+    const cb = new ConditionBuilder('AND');
+    cb.isIn(db.qi(pkCol), ids);
+    where = cb.build(1, db.ph);
+    values = cb.getValues();
   }
 
   const result = await db.query(

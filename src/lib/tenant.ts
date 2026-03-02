@@ -1,5 +1,6 @@
 import type { FastifyRequest } from 'fastify';
 import type { QueryClient } from './db.js';
+import { ConditionBuilder } from 'node-condition-builder';
 import type {
   ITable,
   SqlApiPluginOptions,
@@ -28,12 +29,11 @@ export async function resolveTenant(
   return { ids, scope: tableConf.tenantScope };
 }
 
-export function buildTenantWhere(
+export function buildTenantCondition(
   db: QueryClient,
   scope: TenantScope,
-  tenantIds: TenantId[],
-  startIndex: number
-): { sql: string; values: TenantId[] } {
+  tenantIds: TenantId[]
+): ConditionBuilder {
   const col = scope.column;
   let qualifier: string;
 
@@ -44,12 +44,9 @@ export function buildTenantWhere(
     qualifier = db.qi(col);
   }
 
-  if (tenantIds.length === 1) {
-    return { sql: `${qualifier} = ${db.ph(startIndex)}`, values: [tenantIds[0]] };
-  }
-
-  const placeholders = tenantIds.map((_, i) => db.ph(startIndex + i)).join(', ');
-  return { sql: `${qualifier} IN (${placeholders})`, values: [...tenantIds] };
+  const cb = new ConditionBuilder('AND');
+  cb.isIn(qualifier, tenantIds);
+  return cb;
 }
 
 export function buildTenantJoin(
@@ -106,15 +103,17 @@ export async function validateTenantFK(
   const foreignField = scope.through.foreignField;
   const tenantCol = scope.column;
 
-  const fkPlaceholders = uniqueFKs.map((_, i) => db.ph(i + 1)).join(', ');
-  const tenantPlaceholders = tenantIds.map((_, i) => db.ph(uniqueFKs.length + i + 1)).join(', ');
+  const cb = new ConditionBuilder('AND');
+  cb.isIn(db.qi(foreignField), uniqueFKs);
+  cb.isNotIn(db.qi(tenantCol), tenantIds);
+  const where = cb.build(1, db.ph);
+  const values = cb.getValues();
 
   const sql =
     `SELECT ${db.qi(foreignField)} FROM ${db.qi(throughTable)} ` +
-    `WHERE ${db.qi(foreignField)} IN (${fkPlaceholders}) ` +
-    `AND ${db.qi(tenantCol)} NOT IN (${tenantPlaceholders})`;
+    `WHERE ${where}`;
 
-  const result = await db.query(sql, [...uniqueFKs, ...tenantIds]);
+  const result = await db.query(sql, values);
 
   if (result.rows.length > 0) {
     const err = new Error('Access denied: records do not belong to tenant') as Error & { statusCode: number };

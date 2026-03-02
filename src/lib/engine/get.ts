@@ -1,23 +1,25 @@
+import { ConditionBuilder } from 'node-condition-builder';
 import { camelcaseObject } from '../naming.js';
-import { buildTenantWhere, buildTenantJoin } from '../tenant.js';
+import { buildTenantCondition, buildTenantJoin } from '../tenant.js';
 import type { GetParams, GetResult, TenantScopeIndirect } from '../../types.js';
 
 export async function getEngine(params: GetParams): Promise<GetResult> {
   const { db, tableConf, id, tenant } = params;
   const pkCol = tableConf.Schema.col(tableConf.primary);
 
-  const values: unknown[] = [id];
-  let where = `${db.qi(pkCol)} = ${db.ph(1)}`;
+  const cb = new ConditionBuilder('AND');
+  cb.isEqual(db.qi(pkCol), id);
   const joins: string[] = [];
 
   if (tenant) {
-    const tw = buildTenantWhere(db, tenant.scope, tenant.ids, values.length + 1);
-    where += ` AND ${tw.sql}`;
-    values.push(...tw.values);
+    cb.append(buildTenantCondition(db, tenant.scope, tenant.ids));
     if ('through' in tenant.scope) {
       joins.push(buildTenantJoin(db, tenant.scope as TenantScopeIndirect, tableConf.Schema.tableName));
     }
   }
+
+  const where = cb.build(1, db.ph);
+  const values = cb.getValues();
 
   const rows = await db.select({
     tableName: tableConf.Schema.tableName,
