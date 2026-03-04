@@ -4,14 +4,15 @@ import { existsSync } from 'node:fs';
 import type { SqlApiConfig } from '../../types.js';
 
 const DEFAULTS: SqlApiConfig = {
-  outputDir: './src/schemas',
+  outputDir: './src/db',
   schema: 'public',
 };
 
 export async function loadConfig(): Promise<SqlApiConfig> {
-  const tsPath = resolve(process.cwd(), 'sqlapi.config.ts');
-  const jsPath = resolve(process.cwd(), 'sqlapi.config.js');
-  const configPath = existsSync(tsPath) ? tsPath : existsSync(jsPath) ? jsPath : null;
+  const candidates = ['sqlapi.config.ts', 'sqlapi.config.mjs', 'sqlapi.config.js'];
+  const configPath = candidates
+    .map((f) => resolve(process.cwd(), f))
+    .find((p) => existsSync(p)) ?? null;
 
   if (!configPath) {
     return { ...DEFAULTS };

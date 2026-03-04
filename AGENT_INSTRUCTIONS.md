@@ -1,10 +1,10 @@
 # fastify-auto-sqlapi — Agent Instructions
 
-You are configuring a Fastify server that uses `fastify-auto-sqlapi` to auto-generate CRUD APIs from PostgreSQL tables. Follow these instructions precisely.
+You are configuring a Fastify server that uses `fastify-auto-sqlapi` to auto-generate CRUD APIs from database tables. Follow these instructions precisely.
 
 ## Overview
 
-The plugin generates REST endpoints (search, get, insert, update, delete, bulk upsert, bulk delete) from database table definitions. No ORM — raw SQL via `pg`. The consumer defines table configurations, and the plugin handles routing, validation, and query execution.
+The plugin generates REST endpoints (search, get, insert, update, delete, bulk upsert, bulk delete) from database table definitions. No ORM — raw SQL. Supports **PostgreSQL**, **MySQL**, and **MariaDB**. The consumer defines table configurations, and the plugin handles routing, validation, and query execution.
 
 ## Setup Workflow
 
@@ -12,7 +12,10 @@ The plugin generates REST endpoints (search, get, insert, update, delete, bulk u
 
 ```bash
 npm install fastify-auto-sqlapi
+# PostgreSQL:
 npm install fastify @fastify/postgres
+# MySQL/MariaDB:
+npm install fastify mysql2
 # Optional (for Swagger UI):
 npm install @fastify/swagger @fastify/swagger-ui
 ```
@@ -22,67 +25,93 @@ npm install @fastify/swagger @fastify/swagger-ui
 Create `sqlapi.config.ts` (or `.js`) in the project root. This config is used **only by the CLI** (`sqlapi-generate-schema` / `sqlapi-generate-tables`), NOT at runtime by the Fastify plugin.
 
 ```typescript
-// sqlapi.config.ts — interface: { outputDir: string; schema?: string }
+// sqlapi.config.ts — interface: { outputDir: string; schema?: string; dialect?: DialectName }
 export default {
-  outputDir: './src/schemas',  // where Schema files will be generated (default: './src/schemas')
-  schema: 'public',            // PostgreSQL schema to introspect (default: 'public')
+  outputDir: './src/db',       // base directory for generated files (default: './src/db')
+  schema: 'public',            // DB schema to introspect (default: 'public', PostgreSQL only)
+  dialect: 'postgres',         // 'postgres' | 'mysql' | 'mariadb' (default: 'postgres')
 };
 ```
 
-That's it — only these two fields exist. **No connection string, no migration path.** If the file is missing, defaults are used.
+That's it — only these three fields exist. **No connection string, no migration path.** If the file is missing, defaults are used. The `dialect` can also be passed via CLI flag `--dialect mysql`.
 
 ### 3. Configure database connection (env vars)
 
-The CLI reads DB connection from environment variables (NOT from the config file):
+The CLI reads DB connection from environment variables (NOT from the config file). `DATABASE_URL` takes priority for all dialects.
 
-- `DATABASE_URL` — full connection string (takes priority), OR:
+**PostgreSQL:**
+- `DATABASE_URL` — full connection string, OR:
 - `POSTGRES_HOST` (default: `127.0.0.1`), `POSTGRES_PORT` (default: `5433`), `POSTGRES_USER` (default: `test`), `POSTGRES_PASSWORD` (default: `test`), `POSTGRES_DB` (default: `testdb`)
 
+**MySQL/MariaDB:**
+- `DATABASE_URL` — full connection string, OR:
+- `MYSQL_HOST` (default: `127.0.0.1`), `MYSQL_PORT` (default: `3306`), `MYSQL_USER` (default: `test`), `MYSQL_PASSWORD` (default: `test`), `MYSQL_DB` (default: `testdb`)
+
+The CLI automatically loads a `.env` file from the current working directory (if it exists). Variables already set in the environment are not overridden.
+
 ```
+# .env
 DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 ```
 
-At runtime, the Fastify plugin uses `@fastify/postgres` which you configure separately (see step 6).
+```json
+"scripts": {
+  "sqlapi:generate-schema": "sqlapi-generate-schema",
+  "sqlapi:generate-tables": "sqlapi-generate-tables --all"
+}
+```
+
+At runtime, the Fastify plugin uses `@fastify/postgres` (for PG) or `mysql2` (for MySQL/MariaDB) which you configure separately (see step 6).
 
 ### 4. Generate Schema files
 
 ```bash
-npx sqlapi-generate-schema
+npx sqlapi-generate-schema                # PostgreSQL (default)
+npx sqlapi-generate-schema --dialect mysql # MySQL/MariaDB
 ```
 
-This introspects the database and generates one `Schema*.ts` file per table in `outputDir`. These files are auto-generated and should not be manually edited. They contain TypeBox field definitions, `col()` for camelCase→snake_case mapping, and validation schemas.
+This introspects the database and generates one `Schema*.ts` file per table in `outputDir/schemas/`. These files are auto-generated and should not be manually edited. They contain TypeBox field definitions, `col()` for camelCase→snake_case mapping, and validation schemas. MySQL/MariaDB requires `mysql2` as a peer dependency.
 
 ### 5. Generate tables template
 
 ```bash
-npx sqlapi-generate-tables
+npx sqlapi-generate-tables customer customer_order   # specific tables (space separated)
+npx sqlapi-generate-tables customer,customer_order    # specific tables (comma separated)
+npx sqlapi-generate-tables --all                      # all tables
 ```
 
-This reads the Schema files and generates a `tables.ts` template with `defineTable()` for each table. The template includes:
+This reads the Schema files from `outputDir/schemas/` and generates one `Table*.ts` file per table plus a `dbTables.ts` index in `outputDir/tables/`:
+
+```
+src/db/
+  schemas/
+    SchemaCustomer.ts        # from generate-schema (do not edit)
+    SchemaCustomerOrder.ts
+  tables/
+    TableCustomer.ts         # generated — skip if already exists
+    TableCustomerOrder.ts
+    dbTables.ts              # always regenerated (import + export map)
+```
+
+Each `Table*.ts` file contains a `defineTable()` call with:
 - Auto-detected primary keys
 - Auto-detected foreign key relations (from field naming convention `*Id`)
 - All optional keys as commented code, ready to uncomment
-- A header comment documenting all available options
+- `export default TableXxx`
 
-**Edit `tables.ts` to customize** — this file is yours to maintain.
+`dbTables.ts` is always regenerated to include all schemas (not just the requested ones). Individual `Table*.ts` files are **never overwritten** — if they already exist, they are skipped. This makes it safe to re-run the command when new tables are added to the database.
+
+**Edit the `Table*.ts` files to customize** — these files are yours to maintain.
 
 ### 6. Create the Fastify server
+
+**PostgreSQL setup:**
 
 ```typescript
 import Fastify from 'fastify';
 import fastifyPostgres from '@fastify/postgres';
-import {
-  fastifyAutoSqlApi,
-  searchRoutes,
-  getRoutes,
-  insertRoutes,
-  updateRoutes,
-  deleteRoutes,
-  bulkUpsertRoutes,
-  bulkDeleteRoutes,
-  setupSwagger,
-} from 'fastify-auto-sqlapi';
-import { dbTables } from './src/schemas/tables.js';
+import { fastifyAutoSqlApi } from 'fastify-auto-sqlapi';
+import { dbTables } from './src/db/tables/dbTables.js';
 
 const app = Fastify();
 
@@ -90,21 +119,56 @@ await app.register(fastifyPostgres, {
   connectionString: 'postgres://user:pass@localhost:5432/mydb',
 });
 
-// Option A: Single plugin (recommended)
-// ONLY DbTables is required. All other options are optional.
 await app.register(fastifyAutoSqlApi, {
   DbTables: dbTables,          // REQUIRED — Record<string, ITable>
+  // dialect: 'postgres',      // optional — default is 'postgres'
   swagger: true,               // optional — true or SwaggerOptions object
-  prefix: '/auto',             // optional — standard Fastify prefix  
+  prefix: '/auto',             // optional — standard Fastify prefix
   onRequests: [],              // optional — global auth hooks (run on every route)
   getTenantId: (request) => request.user?.organizationId ?? null, // optional — multi-tenant
 });
 
-// Option B: Granular composition
+await app.listen({ port: 3000 });
+```
+
+**MySQL/MariaDB setup:**
+
+```typescript
+import Fastify from 'fastify';
+import mysql from 'mysql2/promise';
+import { fastifyAutoSqlApi, mysqlQueryable } from 'fastify-auto-sqlapi';
+import { dbTables } from './src/db/tables/dbTables.js';
+
+const app = Fastify();
+
+const pool = mysql.createPool({
+  host: '127.0.0.1', port: 3306,
+  user: 'root', password: 'pass', database: 'mydb',
+});
+app.decorate('mysql', pool);
+
+await app.register(fastifyAutoSqlApi, {
+  DbTables: dbTables,
+  dialect: 'mysql',            // or 'mariadb' (MariaDB supports RETURNING)
+  swagger: true,
+  prefix: '/auto',
+});
+
+await app.listen({ port: 3000 });
+```
+
+**Granular composition (any dialect):**
+
+```typescript
+import {
+  searchRoutes, getRoutes, insertRoutes, updateRoutes,
+  deleteRoutes, bulkUpsertRoutes, bulkDeleteRoutes, setupSwagger,
+} from 'fastify-auto-sqlapi';
+
 await app.register(async (instance) => {
   await setupSwagger(instance, { swagger: true });
 
-  const opts = { DbTables: dbTables };
+  const opts = { DbTables: dbTables, dialect: 'mysql' };
   await instance.register(searchRoutes, opts);
   await instance.register(getRoutes, opts);
   await instance.register(insertRoutes, opts);
@@ -113,8 +177,6 @@ await app.register(async (instance) => {
   await instance.register(bulkUpsertRoutes, opts);
   await instance.register(bulkDeleteRoutes, opts);
 }, { prefix: '/auto' });
-
-await app.listen({ port: 3000 });
 ```
 
 ### Generated endpoints
@@ -495,7 +557,7 @@ Requires `@fastify/swagger` and `@fastify/swagger-ui` as peer deps. If not insta
 - **All fields Optional in response**: `RETURNING *` may return any subset. Response schemas use `Type.Partial`.
 - **Joins are virtual**: not SQL JOINs. They execute separate `SELECT ... WHERE fk IN (...)` queries.
 - **`excludeFromCreation`**: fields like auto-increment PKs are stripped from INSERT bodies. They still appear in responses.
-- **`upsertMap`**: when present for a schema, INSERT becomes `INSERT ON CONFLICT (...) DO UPDATE`. Applies to both main and secondary tables.
+- **`upsertMap`**: when present for a schema, INSERT becomes upsert. PostgreSQL: `ON CONFLICT (...) DO UPDATE`. MySQL/MariaDB: `ON DUPLICATE KEY UPDATE`. Applies to both main and secondary tables.
 - **Hooks receive snake_case**: `beforeInsert` and `beforeUpdate` receive snake_case records (pre-DB). `afterInsert` receives camelCase (post-DB).
 - **Filters validation**: TypeBox schemas use `additionalProperties: false`. By default Fastify strips unknown fields silently. For 400 errors on unknown filters: `Fastify({ ajv: { customOptions: { removeAdditional: false } } })`.
 - **Tenant filtering**: when `tenantScope` is set on a table and `getTenantId` is provided in plugin options, all CRUD operations are automatically scoped to the tenant. `getTenantId` returning `null`/`undefined` = admin (no filter). Returning an array = multi-tenant user (IN clause).
@@ -532,7 +594,7 @@ const TableCustomer = defineTable({
 ```
 
 Behavior:
-- **Read** (search, get, delete, bulk-delete): adds `AND organization_id = $N` to WHERE
+- **Read** (search, get, delete, bulk-delete): adds `AND organization_id IN ($N)` to WHERE
 - **Insert**: auto-injects `organization_id` if single tenant; validates if already present (403 if mismatch); 400 if multi-tenant without explicit value
 - **Update**: strips `organization_id` from SET (can't change tenant), adds to WHERE condition
 - **Bulk upsert**: auto-injects on all records
@@ -569,7 +631,7 @@ getTenantId: (request) => {
 },
 ```
 
-Uses `IN (...)` instead of `= $N` for all WHERE clauses.
+Uses `IN ($N, $M, ...)` for all WHERE clauses (same as single tenant, just with more values).
 
 ### Admin bypass
 
@@ -734,3 +796,17 @@ await app.register(fastifyAutoSqlApi, { DbTables: dbTables, prefix: '/api' });
 ```
 
 The plugin internally strips `prefix` before passing options to sub-route plugins, so it is applied only once. Without prefix, routes are at root (`/search/customer`, `/rest/customer/:id`, etc.).
+
+### Dialect differences
+
+| | PostgreSQL | MySQL | MariaDB |
+|---|---|---|---|
+| **Identifier quoting** | `"id"` | `` `id` `` | `` `id` `` |
+| **Placeholders** | `$1, $2` | `?, ?` | `?, ?` |
+| **RETURNING** | Yes | No | Yes (10.5+) |
+| **Upsert syntax** | `ON CONFLICT ... DO UPDATE` | `ON DUPLICATE KEY UPDATE` | `ON DUPLICATE KEY UPDATE` |
+| **Auto-increment PK** | Via `RETURNING` | Via `insertId` | Via `RETURNING` |
+| **CLI env vars** | `POSTGRES_*` | `MYSQL_*` | `MYSQL_*` |
+| **CLI introspection** | `pg` | `mysql2` | `mysql2` |
+
+MySQL does not support `RETURNING`, so insert/upsert responses return only the PK (from record or `insertId`), not the full row.

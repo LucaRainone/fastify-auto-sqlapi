@@ -87,7 +87,138 @@ export function detectRelations(schemas: ParsedSchema[]): DetectedRelation[] {
   return relations;
 }
 
-// ─── Code Generation ─────────────────────────────────────────
+// ─── Single Table File Generation ────────────────────────────
+
+export function generateSingleTableFile(schema: ParsedSchema, allSchemas: ParsedSchema[]): string {
+  const relations = detectRelations(allSchemas);
+
+  const relsByParent = new Map<string, DetectedRelation[]>();
+  const relsByChild = new Map<string, DetectedRelation[]>();
+  for (const rel of relations) {
+    const arr = relsByParent.get(rel.parentSchemaName) || [];
+    arr.push(rel);
+    relsByParent.set(rel.parentSchemaName, arr);
+    const childArr = relsByChild.get(rel.childSchemaName) || [];
+    childArr.push(rel);
+    relsByChild.set(rel.childSchemaName, childArr);
+  }
+
+  const { pk, autoIncrement } = detectPrimaryKey(schema);
+  const tableVarName = 'Table' + schema.schemaName.replace(/^Schema/, '');
+  const parentRels = relsByParent.get(schema.schemaName) || [];
+  const childRels = relsByChild.get(schema.schemaName) || [];
+
+  // Collect related schema names for commented imports
+  const relatedSchemas = new Set<string>();
+  for (const rel of parentRels) {
+    if (rel.childSchemaName !== schema.schemaName) relatedSchemas.add(rel.childSchemaName);
+    if (rel.parentSchemaName !== schema.schemaName) relatedSchemas.add(rel.parentSchemaName);
+  }
+  for (const rel of childRels) {
+    if (rel.parentSchemaName !== schema.schemaName) relatedSchemas.add(rel.parentSchemaName);
+    if (rel.childSchemaName !== schema.schemaName) relatedSchemas.add(rel.childSchemaName);
+  }
+
+  const lines: string[] = [];
+
+  // Header comment
+  lines.push(`/** defineTable() docs: https://github.com/nicholasgasior/fastify-auto-sqlapi#definetable */`);
+
+  // Imports
+  lines.push(`import {`);
+  lines.push(`  Type,`);
+  lines.push(`  exportTableInfo,`);
+  lines.push(`  defineTable,`);
+  lines.push(`  buildRelation,`);
+  lines.push(`  buildUpsertRules,`);
+  lines.push(`  buildUpsertRule,`);
+  lines.push(`  ConditionBuilder,`);
+  lines.push(`} from 'fastify-auto-sqlapi';`);
+  lines.push(``);
+  lines.push(`import { ${schema.schemaName} } from '../schemas/${schema.schemaName}.js';`);
+
+  // Commented imports for related schemas
+  for (const relSchema of relatedSchemas) {
+    lines.push(`// import { ${relSchema} } from '../schemas/${relSchema}.js';`);
+  }
+
+  // Table definition
+  lines.push(``);
+  lines.push(`// Fields: ${schema.fields.join(', ')}`);
+  lines.push(`const ${tableVarName} = defineTable({`);
+  lines.push(`  primary: '${pk}',`);
+  lines.push(`  ...exportTableInfo(${schema.schemaName}),`);
+  lines.push(`  defaultOrder: '${pk}',`);
+
+  if (autoIncrement) {
+    lines.push(`  excludeFromCreation: ['${pk}'],`);
+  } else {
+    lines.push(`  // excludeFromCreation: [],`);
+  }
+
+  if (parentRels.length > 0) {
+    lines.push(`  // allowedReadJoins: [`);
+    for (const rel of parentRels) {
+      lines.push(`  //   buildRelation(${rel.parentSchemaName}, '${rel.parentField}', ${rel.childSchemaName}, '${rel.childField}'),`);
+    }
+    lines.push(`  // ],`);
+    lines.push(`  // allowedWriteJoins: [`);
+    for (const rel of parentRels) {
+      lines.push(`  //   buildRelation(${rel.parentSchemaName}, '${rel.parentField}', ${rel.childSchemaName}, '${rel.childField}'),`);
+    }
+    lines.push(`  // ],`);
+  } else {
+    lines.push(`  // allowedReadJoins: [],`);
+    lines.push(`  // allowedWriteJoins: [],`);
+  }
+
+  lines.push(`  // upsertMap: buildUpsertRules(buildUpsertRule(${schema.schemaName}, ['${pk}'])),`);
+  lines.push(`  // beforeInsert: async (db, req, record) => {},`);
+  lines.push(`  // afterInsert: async (db, req, record, secondaryRecords) => {},`);
+  lines.push(`  // beforeUpdate: async (db, req, fields) => {},`);
+  lines.push(`  // onRequests: [],`);
+
+  if (childRels.length > 0) {
+    const rel = childRels[0];
+    lines.push(`  // tenantScope: { column: 'tenant_col', through: { schema: ${rel.parentSchemaName}, localField: '${rel.childField}', foreignField: '${rel.parentField}' } },`);
+  } else {
+    lines.push(`  // tenantScope: { column: 'tenant_col' },`);
+  }
+
+  lines.push(`});`);
+  lines.push(``);
+  lines.push(`export default ${tableVarName};`);
+  lines.push(``);
+
+  return lines.join('\n');
+}
+
+// ─── DbTables Index Generation ──────────────────────────────
+
+export function generateDbTablesIndex(schemas: ParsedSchema[]): string {
+  const lines: string[] = [];
+
+  lines.push(`import type { DbTables } from 'fastify-auto-sqlapi';`);
+  lines.push(``);
+
+  for (const schema of schemas) {
+    const tableVarName = 'Table' + schema.schemaName.replace(/^Schema/, '');
+    lines.push(`import ${tableVarName} from './${tableVarName}.js';`);
+  }
+
+  lines.push(``);
+  lines.push(`export const dbTables: DbTables = {`);
+  for (const schema of schemas) {
+    const tableVarName = 'Table' + schema.schemaName.replace(/^Schema/, '');
+    lines.push(`  ${schema.tableName}: ${tableVarName},`);
+  }
+  lines.push(`};`);
+  lines.push(``);
+
+  return lines.join('\n');
+}
+
+// ─── Code Generation (legacy) ───────────────────────────────
 
 export function generateTablesFile(schemas: ParsedSchema[]): string {
   const relations = detectRelations(schemas);

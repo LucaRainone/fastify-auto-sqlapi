@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import type { ColumnInfo } from '../../types.js';
 
 export function buildMysqlConnectionConfig(): {
@@ -79,11 +80,13 @@ export async function introspectMysqlTables(
   connectionConfig: { host: string; port: number; user: string; password: string; database: string },
   schema: string
 ): Promise<ColumnInfo[]> {
-  // Dynamic import: mysql2 is optional
+  // Dynamic import: mysql2 is optional peer dependency.
+  // Use createRequire from cwd so it works with npm link.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let mysql2: any;
   try {
-    mysql2 = await import('mysql2/promise' as string);
+    const require = createRequire(process.cwd() + '/noop.js');
+    mysql2 = require('mysql2/promise');
   } catch {
     throw new Error('mysql2 is required for MySQL/MariaDB introspection. Install it with: npm install mysql2');
   }

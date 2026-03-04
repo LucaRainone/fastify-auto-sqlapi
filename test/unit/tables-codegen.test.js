@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
-const { parseSchemaFile, detectRelations, generateTablesFile } = await import(
+const { parseSchemaFile, detectRelations, generateTablesFile, generateSingleTableFile, generateDbTablesIndex } = await import(
   path.join(ROOT, 'dist/lib/cli/tables-codegen.js')
 );
 
@@ -182,5 +182,116 @@ describe('generateTablesFile', () => {
     const output = generateTablesFile([customer, order]);
 
     assert.ok(output.includes("// tenantScope: { column: 'tenant_col', through: { schema: SchemaCustomer, localField: 'customerId', foreignField: 'id' } },"));
+  });
+});
+
+// ─── generateSingleTableFile ────────────────────────────────
+
+describe('generateSingleTableFile', () => {
+  it('generates file with import, defineTable, and export default', () => {
+    const customer = parseSchemaFile(customerSchemaContent);
+    const output = generateSingleTableFile(customer, [customer]);
+
+    assert.ok(output.includes("from 'fastify-auto-sqlapi'"));
+    assert.ok(output.includes("import { SchemaCustomer } from '../schemas/SchemaCustomer.js'"));
+    assert.ok(output.includes("const TableCustomer = defineTable({"));
+    assert.ok(output.includes("primary: 'id'"));
+    assert.ok(output.includes("...exportTableInfo(SchemaCustomer)"));
+    assert.ok(output.includes("export default TableCustomer;"));
+  });
+
+  it('includes excludeFromCreation for auto-increment PK', () => {
+    const customer = parseSchemaFile(customerSchemaContent);
+    const output = generateSingleTableFile(customer, [customer]);
+
+    assert.ok(output.includes("excludeFromCreation: ['id']"));
+  });
+
+  it('includes fields comment', () => {
+    const customer = parseSchemaFile(customerSchemaContent);
+    const output = generateSingleTableFile(customer, [customer]);
+
+    assert.ok(output.includes('// Fields: id, name, email'));
+  });
+
+  it('includes header doc link', () => {
+    const customer = parseSchemaFile(customerSchemaContent);
+    const output = generateSingleTableFile(customer, [customer]);
+
+    assert.ok(output.includes('defineTable() docs:'));
+  });
+
+  it('includes commented relation imports for parent table', () => {
+    const customer = parseSchemaFile(customerSchemaContent);
+    const order = parseSchemaFile(orderSchemaContent);
+    const output = generateSingleTableFile(customer, [customer, order]);
+
+    // Customer is parent — relation references SchemaCustomerOrder
+    assert.ok(output.includes("// import { SchemaCustomerOrder } from '../schemas/SchemaCustomerOrder.js'"));
+  });
+
+  it('includes commented relation imports for child table', () => {
+    const customer = parseSchemaFile(customerSchemaContent);
+    const order = parseSchemaFile(orderSchemaContent);
+    const output = generateSingleTableFile(order, [customer, order]);
+
+    // Order is child — relation references SchemaCustomer
+    assert.ok(output.includes("// import { SchemaCustomer } from '../schemas/SchemaCustomer.js'"));
+  });
+
+  it('includes buildRelation comment for parent table with children', () => {
+    const customer = parseSchemaFile(customerSchemaContent);
+    const order = parseSchemaFile(orderSchemaContent);
+    const output = generateSingleTableFile(customer, [customer, order]);
+
+    assert.ok(output.includes("buildRelation(SchemaCustomer, 'id', SchemaCustomerOrder, 'customerId')"));
+  });
+
+  it('suggests direct tenantScope for root table', () => {
+    const customer = parseSchemaFile(customerSchemaContent);
+    const output = generateSingleTableFile(customer, [customer]);
+
+    assert.ok(output.includes("// tenantScope: { column: 'tenant_col' },"));
+  });
+
+  it('suggests indirect tenantScope for child table', () => {
+    const customer = parseSchemaFile(customerSchemaContent);
+    const order = parseSchemaFile(orderSchemaContent);
+    const output = generateSingleTableFile(order, [customer, order]);
+
+    assert.ok(output.includes("// tenantScope: { column: 'tenant_col', through: { schema: SchemaCustomer, localField: 'customerId', foreignField: 'id' } },"));
+  });
+});
+
+// ─── generateDbTablesIndex ──────────────────────────────────
+
+describe('generateDbTablesIndex', () => {
+  it('generates import and export for all tables', () => {
+    const customer = parseSchemaFile(customerSchemaContent);
+    const order = parseSchemaFile(orderSchemaContent);
+    const output = generateDbTablesIndex([customer, order]);
+
+    assert.ok(output.includes("import TableCustomer from './TableCustomer.js'"));
+    assert.ok(output.includes("import TableCustomerOrder from './TableCustomerOrder.js'"));
+    assert.ok(output.includes("export const dbTables: DbTables = {"));
+    assert.ok(output.includes("customer: TableCustomer,"));
+    assert.ok(output.includes("customer_order: TableCustomerOrder,"));
+  });
+
+  it('imports DbTables type from fastify-auto-sqlapi', () => {
+    const customer = parseSchemaFile(customerSchemaContent);
+    const output = generateDbTablesIndex([customer]);
+
+    assert.ok(output.includes("import type { DbTables } from 'fastify-auto-sqlapi'"));
+  });
+
+  it('generates correct output for single table', () => {
+    const customer = parseSchemaFile(customerSchemaContent);
+    const output = generateDbTablesIndex([customer]);
+
+    assert.ok(output.includes("import TableCustomer from './TableCustomer.js'"));
+    assert.ok(output.includes("customer: TableCustomer,"));
+    // Should not include other tables
+    assert.ok(!output.includes('TableCustomerOrder'));
   });
 });
