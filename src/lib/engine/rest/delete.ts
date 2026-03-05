@@ -1,7 +1,7 @@
 import { ConditionBuilder } from 'node-condition-builder';
-import { buildTenantCondition, buildTenantJoin } from '../tenant.js';
-import { primaryAsString } from '../../types.js';
-import type { DeleteParams, DeleteResult, DbRecord, TenantScopeIndirect } from '../../types.js';
+import { buildTenantCondition, buildTenantJoin } from '../../tenant.js';
+import { primaryAsString } from '../../../types.js';
+import type { DeleteParams, DeleteResult, DbRecord, TenantScopeIndirect } from '../../../types.js';
 
 export async function deleteEngine(params: DeleteParams): Promise<DeleteResult> {
   const { db, tableConf, id, tenant } = params;

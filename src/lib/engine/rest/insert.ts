@@ -1,13 +1,13 @@
-import { camelcaseObject, snakecaseRecord } from '../naming.js';
-import { removeExcludedFields, processSecondaries } from './write-helpers.js';
-import { injectTenantValue, validateTenantFK } from '../tenant.js';
-import { primaryAsString } from '../../types.js';
+import { camelcaseObject, snakecaseRecord } from '../../naming.js';
+import { removeExcludedFields, processSecondaries } from '../write-helpers.js';
+import { injectTenantValue, validateTenantFK } from '../../tenant.js';
+import { primaryAsString } from '../../../types.js';
 import type {
   InsertParams,
   InsertResult,
   DbRecord,
   TenantScopeIndirect,
-} from '../../types.js';
+} from '../../../types.js';
 
 export async function insertEngine(params: InsertParams): Promise<InsertResult> {
   const { db, tableConf, dbTables, request, record, secondaries, tenant } = params;

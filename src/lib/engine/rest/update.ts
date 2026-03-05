@@ -1,14 +1,14 @@
-import { camelcaseObject, snakecaseRecord } from '../naming.js';
-import { processSecondaries, processDeletions } from './write-helpers.js';
-import { stripTenantColumn, buildTenantCondition, buildTenantJoin } from '../tenant.js';
+import { camelcaseObject, snakecaseRecord } from '../../naming.js';
+import { processSecondaries, processDeletions } from '../write-helpers.js';
+import { stripTenantColumn, buildTenantCondition, buildTenantJoin } from '../../tenant.js';
 import { ConditionBuilder, type ConditionValue } from 'node-condition-builder';
-import { primaryAsString } from '../../types.js';
+import { primaryAsString } from '../../../types.js';
 import type {
   UpdateParams,
   UpdateResult,
   DbRecord,
   TenantScopeIndirect,
-} from '../../types.js';
+} from '../../../types.js';
 
 export async function updateEngine(params: UpdateParams): Promise<UpdateResult> {
   const { db, tableConf, dbTables, request, record, secondaries, deletions, tenant } = params;

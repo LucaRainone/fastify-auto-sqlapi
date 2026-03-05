@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { bulkDeleteEngine } from '../../lib/engine/bulk-delete.js';
+import { bulkDeleteEngine } from '../../lib/engine/bulk/bulk-delete.js';
 import { resolveTenant } from '../../lib/tenant.js';
 import { BulkDeleteTableBody, BulkDeleteTableResponse } from '../../lib/schema/bulk-delete.js';
 import { primaryAsString } from '../../types.js';

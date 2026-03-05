@@ -1,8 +1,8 @@
-import type { QueryClient } from '../db.js';
+import type { QueryClient } from '../../db.js';
 import { ConditionBuilder, type ConditionValue } from 'node-condition-builder';
-import { camelcaseObject } from '../naming.js';
-import { buildTenantCondition, buildTenantJoin } from '../tenant.js';
-import { primaryAsString } from '../../types.js';
+import { camelcaseObject } from '../../naming.js';
+import { buildTenantCondition, buildTenantJoin } from '../../tenant.js';
+import { primaryAsString } from '../../../types.js';
 import type {
   DbTables,
   FilterRecord,
@@ -14,7 +14,7 @@ import type {
   ITable,
   SchemaDefinition,
   TenantScopeIndirect,
-} from '../../types.js';
+} from '../../../types.js';
 
 function validateSchemaField(field: string, schema: SchemaDefinition): string {
   if (!(field in schema.fields)) {

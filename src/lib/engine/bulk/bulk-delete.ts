@@ -1,7 +1,7 @@
 import { ConditionBuilder } from 'node-condition-builder';
-import { buildTenantCondition, buildTenantJoin } from '../tenant.js';
-import { primaryAsString } from '../../types.js';
-import type { BulkDeleteParams, BulkDeleteResult, TenantScopeIndirect } from '../../types.js';
+import { buildTenantCondition, buildTenantJoin } from '../../tenant.js';
+import { primaryAsString } from '../../../types.js';
+import type { BulkDeleteParams, BulkDeleteResult, TenantScopeIndirect } from '../../../types.js';
 
 export async function bulkDeleteEngine(params: BulkDeleteParams): Promise<BulkDeleteResult[]> {
   const { db, tableConf, ids, tenant } = params;

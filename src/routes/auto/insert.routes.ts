@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { insertEngine } from '../../lib/engine/insert.js';
+import { insertEngine } from '../../lib/engine/rest/insert.js';
 import { resolveTenant } from '../../lib/tenant.js';
 import { InsertTableBody, InsertTableResponse } from '../../lib/schema/insert.js';
 import type { SqlApiPluginOptions } from '../../types.js';

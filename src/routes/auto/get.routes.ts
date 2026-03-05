@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { Type } from '@sinclair/typebox';
-import { getEngine } from '../../lib/engine/get.js';
+import { getEngine } from '../../lib/engine/rest/get.js';
 import { resolveTenant } from '../../lib/tenant.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 

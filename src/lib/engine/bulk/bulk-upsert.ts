@@ -1,13 +1,13 @@
-import { camelcaseObject, snakecaseRecord } from '../naming.js';
-import { removeExcludedFields, processSecondaries, processDeletions } from './write-helpers.js';
-import { injectTenantValue, validateTenantFK } from '../tenant.js';
-import { primaryAsString } from '../../types.js';
+import { camelcaseObject, snakecaseRecord } from '../../naming.js';
+import { removeExcludedFields, processSecondaries, processDeletions } from '../write-helpers.js';
+import { injectTenantValue, validateTenantFK } from '../../tenant.js';
+import { primaryAsString } from '../../../types.js';
 import type {
   BulkUpsertParams,
   BulkUpsertResult,
   DbRecord,
   TenantScopeIndirect,
-} from '../../types.js';
+} from '../../../types.js';
 
 export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUpsertResult[]> {
   const { db, tableConf, dbTables, request, items, tenant } = params;

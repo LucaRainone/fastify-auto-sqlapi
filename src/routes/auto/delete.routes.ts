@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { Type } from '@sinclair/typebox';
-import { deleteEngine } from '../../lib/engine/delete.js';
+import { deleteEngine } from '../../lib/engine/rest/delete.js';
 import { resolveTenant } from '../../lib/tenant.js';
 import { primaryAsString } from '../../types.js';
 import type { SqlApiPluginOptions } from '../../types.js';

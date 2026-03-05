@@ -1,8 +1,8 @@
 import { ConditionBuilder } from 'node-condition-builder';
-import { camelcaseObject } from '../naming.js';
-import { buildTenantCondition, buildTenantJoin } from '../tenant.js';
-import { primaryAsString } from '../../types.js';
-import type { GetParams, GetResult, TenantScopeIndirect } from '../../types.js';
+import { camelcaseObject } from '../../naming.js';
+import { buildTenantCondition, buildTenantJoin } from '../../tenant.js';
+import { primaryAsString } from '../../../types.js';
+import type { GetParams, GetResult, TenantScopeIndirect } from '../../../types.js';
 
 export async function getEngine(params: GetParams): Promise<GetResult> {
   const { db, tableConf, id, tenant } = params;

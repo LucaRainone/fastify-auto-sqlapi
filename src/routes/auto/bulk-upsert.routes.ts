@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { bulkUpsertEngine } from '../../lib/engine/bulk-upsert.js';
+import { bulkUpsertEngine } from '../../lib/engine/bulk/bulk-upsert.js';
 import { resolveTenant } from '../../lib/tenant.js';
 import { BulkUpsertTableBody, BulkUpsertTableResponse } from '../../lib/schema/bulk-upsert.js';
 import type { SqlApiPluginOptions, BulkUpsertItem } from '../../types.js';

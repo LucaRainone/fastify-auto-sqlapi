@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { updateEngine } from '../../lib/engine/update.js';
+import { updateEngine } from '../../lib/engine/rest/update.js';
 import { resolveTenant } from '../../lib/tenant.js';
 import { UpdateTableBody, UpdateTableResponse } from '../../lib/schema/update.js';
 import type { SqlApiPluginOptions } from '../../types.js';

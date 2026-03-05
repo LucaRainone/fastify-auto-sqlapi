@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { searchEngine } from '../../lib/engine/search.js';
+import { searchEngine } from '../../lib/engine/search/search.js';
 import { resolveTenant } from '../../lib/tenant.js';
 import { SearchTableBodyPost, SearchTableQueryString, SearchTableResponse } from '../../lib/schema/search.js';
 import type { SqlApiPluginOptions } from '../../types.js';
