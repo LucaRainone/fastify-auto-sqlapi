@@ -53,7 +53,7 @@ export default async function updateRoutes(
           deletions: body.deletions,
           tenant,
         });
-
+console.log(result)
         reply.send(result);
       },
     });

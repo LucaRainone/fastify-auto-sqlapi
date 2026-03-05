@@ -1,6 +1,17 @@
 import { Type, type TObject, type TSchema } from '@sinclair/typebox';
-import type { DbTables } from '../../types.js';
+import { primaryAsString } from '../../types.js';
+import type { DbTables, ITable, SchemaDefinition } from '../../types.js';
 import { findSecondaryTableConf } from '../engine/write-helpers.js';
+
+function pkSchema(tableConf: ITable | undefined, schema: SchemaDefinition, fallback: string): Record<string, TSchema> {
+  const pk = tableConf?.primary || fallback;
+  const fields = Array.isArray(pk) ? pk : [pk];
+  const result: Record<string, TSchema> = {};
+  for (const f of fields) {
+    result[f] = schema.fields[f] || Type.Any();
+  }
+  return result;
+}
 
 export function UpdateTableBody(dbTables: DbTables, tableName: string): TObject {
   const tableConf = dbTables[tableName];
@@ -9,7 +20,7 @@ export function UpdateTableBody(dbTables: DbTables, tableName: string): TObject 
   // Main: PK required, all other fields optional
   const mainFields: Record<string, TSchema> = {};
   for (const [key, value] of Object.entries(schema.fields) as [string, TSchema][]) {
-    mainFields[key] = key === tableConf.primary ? value : Type.Optional(value);
+    mainFields[key] = key === primaryAsString(tableConf.primary) ? value : Type.Optional(value);
   }
 
   const bodyProperties: Record<string, TSchema> = {
@@ -59,26 +70,21 @@ export function UpdateTableBody(dbTables: DbTables, tableName: string): TObject 
 
 export function UpdateTableResponse(dbTables: DbTables, tableName: string): TObject {
   const tableConf = dbTables[tableName];
-  const pkField = tableConf.primary;
-  const pkType = tableConf.Schema.fields[pkField];
 
   // Main: PK-only response
   const responseProperties: Record<string, TSchema> = {
-    main: Type.Object({ [pkField]: pkType }),
+    main: Type.Object(pkSchema(tableConf, tableConf.Schema, primaryAsString(tableConf.primary))),
   };
 
   if (tableConf.allowedWriteJoins?.length) {
     const secondaryProperties: Record<string, TSchema> = {};
     const deletionProperties: Record<string, TSchema> = {};
 
-    for (const [joinSchema] of tableConf.allowedWriteJoins) {
-      const secondaryTableConf = Object.values(dbTables).find(
-        (c) => c.Schema.tableName === joinSchema.tableName
+    for (const [joinSchema, joinField] of tableConf.allowedWriteJoins) {
+      const secondaryTableConf = findSecondaryTableConf(dbTables, joinSchema.tableName);
+      secondaryProperties[joinSchema.tableName] = Type.Array(
+        Type.Object(pkSchema(secondaryTableConf, joinSchema, joinField))
       );
-      const secPkField = secondaryTableConf?.primary || 'id';
-      const secPkType = joinSchema.fields[secPkField] || Type.Any();
-      const pkOnlySchema = Type.Object({ [secPkField]: secPkType });
-      secondaryProperties[joinSchema.tableName] = Type.Array(pkOnlySchema);
       deletionProperties[joinSchema.tableName] = Type.Array(
         Type.Partial(Type.Object(joinSchema.fields))
       );

@@ -110,7 +110,7 @@ export type ExtendedConditionFn = (condition: ConditionBuilder, filters: FilterR
 export type TableFilterFn = (filters: FilterRecord) => ConditionBuilder;
 
 export interface ITable<F extends Record<string, TSchema> = Record<string, TSchema>> {
-  primary: string & keyof F;
+  primary: (string & keyof F) | (string & keyof F)[];
   Schema: SchemaDefinition<F>;
   filters: TableFilterFn;
   extraFilters: Record<string, TSchema>;
@@ -129,6 +129,15 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type DbTables = Record<string, ITable<any>>;
+
+// Primary key helpers
+export function primaryAsString(pk: string | string[]): string {
+  return Array.isArray(pk) ? pk[0] : pk;
+}
+
+export function primaryAsCols(pk: string | string[], colFn: (f: string) => string): string | string[] {
+  return Array.isArray(pk) ? pk.map(colFn) : colFn(pk);
+}
 
 // ─── Swagger ─────────────────────────────────────────────────
 

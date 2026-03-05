@@ -136,12 +136,15 @@ async function main(): Promise<void> {
     }
   }
 
-  // Always regenerate dbTables.ts (covers ALL schemas, not just targets)
+  // Generate dbTables.ts only if it does not exist
   const dbTablesFile = path.join(tablesDir, 'dbTables.ts');
-  const dbTablesExisted = fs.existsSync(dbTablesFile);
-  const dbTablesContent = generateDbTablesIndex(allSchemas);
-  fs.writeFileSync(dbTablesFile, dbTablesContent);
-  displayAsTableRow('dbTables.ts', dbTablesExisted ? 'updated' : 'created', 60, CONSOLE_COLORS.green);
+  if (fs.existsSync(dbTablesFile)) {
+    displayAsTableRow('dbTables.ts', 'skipped (already exists)', 60, CONSOLE_COLORS.gray);
+  } else {
+    const dbTablesContent = generateDbTablesIndex(allSchemas);
+    fs.writeFileSync(dbTablesFile, dbTablesContent);
+    displayAsTableRow('dbTables.ts', 'created', 60, CONSOLE_COLORS.green);
+  }
 
   console.log('');
   display(

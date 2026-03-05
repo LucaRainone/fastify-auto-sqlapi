@@ -57,8 +57,10 @@ export async function processSecondaries(
     const [joinSchema, joinField, mainField] = joinDef;
     const joinCol = joinSchema.col(joinField);
     const secondaryTableConf = findSecondaryTableConf(dbTables, joinTableName);
-    const secondaryPkField = secondaryTableConf?.primary || 'id';
-    const secondaryPkCol = joinSchema.col(secondaryPkField);
+    const secondaryPk = secondaryTableConf?.primary || joinField;
+    const secondaryPkCol = Array.isArray(secondaryPk)
+      ? secondaryPk.map((f) => joinSchema.col(f))
+      : joinSchema.col(secondaryPk);
 
     const preparedRecords = records.map((rec) => {
       let prepared = snakecaseRecord(rec);

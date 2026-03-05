@@ -1,6 +1,7 @@
 import { camelcaseObject, snakecaseRecord } from '../naming.js';
 import { removeExcludedFields, processSecondaries, processDeletions } from './write-helpers.js';
 import { injectTenantValue, validateTenantFK } from '../tenant.js';
+import { primaryAsString } from '../../types.js';
 import type {
   BulkUpsertParams,
   BulkUpsertResult,
@@ -12,7 +13,7 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
   const { db, tableConf, dbTables, request, items, tenant } = params;
   if (!items.length) return [];
 
-  const pk = tableConf.primary;
+  const pk = primaryAsString(tableConf.primary);
   const pkCol = tableConf.Schema.col(pk);
 
   // 1. Prepare all main records

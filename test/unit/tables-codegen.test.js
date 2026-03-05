@@ -120,8 +120,8 @@ describe('generateTablesFile', () => {
     const order = parseSchemaFile(orderSchemaContent);
     const output = generateTablesFile([customer, order]);
 
-    assert.ok(output.includes("import { SchemaCustomer } from './SchemaCustomer.js'"));
-    assert.ok(output.includes("import { SchemaCustomerOrder } from './SchemaCustomerOrder.js'"));
+    assert.ok(output.includes("import {SchemaCustomer} from './SchemaCustomer'"));
+    assert.ok(output.includes("import {SchemaCustomerOrder} from './SchemaCustomerOrder'"));
     assert.ok(output.includes("const TableCustomer = defineTable({"));
     assert.ok(output.includes("const TableCustomerOrder = defineTable({"));
     assert.ok(output.includes("primary: 'id'"));
@@ -145,12 +145,11 @@ describe('generateTablesFile', () => {
     assert.ok(output.includes("excludeFromCreation: ['id']"));
   });
 
-  it('includes defineTable reference in header comment', () => {
+  it('imports from fastify-auto-sqlapi', () => {
     const customer = parseSchemaFile(customerSchemaContent);
     const output = generateTablesFile([customer]);
 
-    assert.ok(output.includes('defineTable() keys:'));
-    assert.ok(output.includes('extraFilters + extendedCondition:'));
+    assert.ok(output.includes("import {defineTable, exportTableInfo, Type} from 'fastify-auto-sqlapi'"));
   });
 
   it('lists fields in comment per table', () => {
@@ -158,15 +157,6 @@ describe('generateTablesFile', () => {
     const output = generateTablesFile([customer]);
 
     assert.ok(output.includes('// Fields: id, name, email'));
-  });
-
-  it('includes tenantScope reference in header comment', () => {
-    const customer = parseSchemaFile(customerSchemaContent);
-    const output = generateTablesFile([customer]);
-
-    assert.ok(output.includes("tenantScope?"));
-    assert.ok(output.includes("tenantScope (direct"));
-    assert.ok(output.includes("tenantScope (indirect"));
   });
 
   it('suggests direct tenantScope for root tables', () => {
@@ -188,16 +178,15 @@ describe('generateTablesFile', () => {
 // ─── generateSingleTableFile ────────────────────────────────
 
 describe('generateSingleTableFile', () => {
-  it('generates file with import, defineTable, and export default', () => {
+  it('generates file with named export and Schema alias', () => {
     const customer = parseSchemaFile(customerSchemaContent);
     const output = generateSingleTableFile(customer, [customer]);
 
     assert.ok(output.includes("from 'fastify-auto-sqlapi'"));
-    assert.ok(output.includes("import { SchemaCustomer } from '../schemas/SchemaCustomer.js'"));
-    assert.ok(output.includes("const TableCustomer = defineTable({"));
+    assert.ok(output.includes("import {SchemaCustomer as Schema} from '../schemas/SchemaCustomer'"));
+    assert.ok(output.includes("export const TableCustomer = defineTable({"));
     assert.ok(output.includes("primary: 'id'"));
-    assert.ok(output.includes("...exportTableInfo(SchemaCustomer)"));
-    assert.ok(output.includes("export default TableCustomer;"));
+    assert.ok(output.includes("...exportTableInfo(Schema)"));
   });
 
   it('includes excludeFromCreation for auto-increment PK', () => {
@@ -214,11 +203,12 @@ describe('generateSingleTableFile', () => {
     assert.ok(output.includes('// Fields: id, name, email'));
   });
 
-  it('includes header doc link', () => {
+  it('includes commented extraFiltersValidation example', () => {
     const customer = parseSchemaFile(customerSchemaContent);
     const output = generateSingleTableFile(customer, [customer]);
 
-    assert.ok(output.includes('defineTable() docs:'));
+    assert.ok(output.includes('extraFiltersValidation'));
+    assert.ok(output.includes('Type.Object'));
   });
 
   it('includes commented relation imports for parent table', () => {
@@ -226,8 +216,7 @@ describe('generateSingleTableFile', () => {
     const order = parseSchemaFile(orderSchemaContent);
     const output = generateSingleTableFile(customer, [customer, order]);
 
-    // Customer is parent — relation references SchemaCustomerOrder
-    assert.ok(output.includes("// import { SchemaCustomerOrder } from '../schemas/SchemaCustomerOrder.js'"));
+    assert.ok(output.includes("// import {SchemaCustomerOrder} from '../schemas/SchemaCustomerOrder'"));
   });
 
   it('includes commented relation imports for child table', () => {
@@ -235,8 +224,7 @@ describe('generateSingleTableFile', () => {
     const order = parseSchemaFile(orderSchemaContent);
     const output = generateSingleTableFile(order, [customer, order]);
 
-    // Order is child — relation references SchemaCustomer
-    assert.ok(output.includes("// import { SchemaCustomer } from '../schemas/SchemaCustomer.js'"));
+    assert.ok(output.includes("// import {SchemaCustomer} from '../schemas/SchemaCustomer'"));
   });
 
   it('includes buildRelation comment for parent table with children', () => {
@@ -271,8 +259,8 @@ describe('generateDbTablesIndex', () => {
     const order = parseSchemaFile(orderSchemaContent);
     const output = generateDbTablesIndex([customer, order]);
 
-    assert.ok(output.includes("import TableCustomer from './TableCustomer.js'"));
-    assert.ok(output.includes("import TableCustomerOrder from './TableCustomerOrder.js'"));
+    assert.ok(output.includes("import {TableCustomer} from './TableCustomer'"));
+    assert.ok(output.includes("import {TableCustomerOrder} from './TableCustomerOrder'"));
     assert.ok(output.includes("export const dbTables: DbTables = {"));
     assert.ok(output.includes("customer: TableCustomer,"));
     assert.ok(output.includes("customer_order: TableCustomerOrder,"));
@@ -289,9 +277,8 @@ describe('generateDbTablesIndex', () => {
     const customer = parseSchemaFile(customerSchemaContent);
     const output = generateDbTablesIndex([customer]);
 
-    assert.ok(output.includes("import TableCustomer from './TableCustomer.js'"));
+    assert.ok(output.includes("import {TableCustomer} from './TableCustomer'"));
     assert.ok(output.includes("customer: TableCustomer,"));
-    // Should not include other tables
     assert.ok(!output.includes('TableCustomerOrder'));
   });
 });

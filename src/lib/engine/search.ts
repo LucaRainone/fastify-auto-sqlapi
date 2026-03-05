@@ -2,6 +2,7 @@ import type { QueryClient } from '../db.js';
 import { ConditionBuilder, type ConditionValue } from 'node-condition-builder';
 import { camelcaseObject } from '../naming.js';
 import { buildTenantCondition, buildTenantJoin } from '../tenant.js';
+import { primaryAsString } from '../../types.js';
 import type {
   DbTables,
   FilterRecord,
@@ -49,7 +50,7 @@ async function executeMainQuery(
   extraJoins: string[] = []
 ): Promise<Record<string, unknown>[]> {
   const tableName = tableConf.Schema.tableName;
-  const order = orderBy || tableConf.defaultOrder || tableConf.primary;
+  const order = orderBy || tableConf.defaultOrder || primaryAsString(tableConf.primary);
 
   const limit = paginator
     ? `${paginator.itemsPerPage} OFFSET ${(paginator.page - 1) * paginator.itemsPerPage}`

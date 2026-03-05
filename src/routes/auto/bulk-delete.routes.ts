@@ -3,6 +3,7 @@ import { getDb } from './route-helpers.js';
 import { bulkDeleteEngine } from '../../lib/engine/bulk-delete.js';
 import { resolveTenant } from '../../lib/tenant.js';
 import { BulkDeleteTableBody, BulkDeleteTableResponse } from '../../lib/schema/bulk-delete.js';
+import { primaryAsString } from '../../types.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
 export default async function bulkDeleteRoutes(
@@ -30,7 +31,7 @@ export default async function bulkDeleteRoutes(
         const db = getDb(fastify, options.dialect);
         const tenant = await resolveTenant(options, tableConf, request);
         const items = request.body as Record<string, unknown>[];
-        const ids = items.map((item) => item[tableConf.primary] as string | number);
+        const ids = items.map((item) => item[primaryAsString(tableConf.primary)] as string | number);
 
         const result = await bulkDeleteEngine({ db, tableConf, ids, tenant });
 

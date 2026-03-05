@@ -1,12 +1,13 @@
 import { ConditionBuilder } from 'node-condition-builder';
 import { buildTenantCondition, buildTenantJoin } from '../tenant.js';
+import { primaryAsString } from '../../types.js';
 import type { BulkDeleteParams, BulkDeleteResult, TenantScopeIndirect } from '../../types.js';
 
 export async function bulkDeleteEngine(params: BulkDeleteParams): Promise<BulkDeleteResult[]> {
   const { db, tableConf, ids, tenant } = params;
   if (!ids.length) return [];
 
-  const pk = tableConf.primary;
+  const pk = primaryAsString(tableConf.primary);
   const pkCol = tableConf.Schema.col(pk);
   const tableName = tableConf.Schema.tableName;
 

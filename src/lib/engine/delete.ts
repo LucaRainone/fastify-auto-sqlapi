@@ -1,10 +1,11 @@
 import { ConditionBuilder } from 'node-condition-builder';
 import { buildTenantCondition, buildTenantJoin } from '../tenant.js';
+import { primaryAsString } from '../../types.js';
 import type { DeleteParams, DeleteResult, DbRecord, TenantScopeIndirect } from '../../types.js';
 
 export async function deleteEngine(params: DeleteParams): Promise<DeleteResult> {
   const { db, tableConf, id, tenant } = params;
-  const pk = tableConf.primary;
+  const pk = primaryAsString(tableConf.primary);
   const pkCol = tableConf.Schema.col(pk);
   const tableName = tableConf.Schema.tableName;
 

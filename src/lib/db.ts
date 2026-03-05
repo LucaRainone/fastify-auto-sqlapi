@@ -12,7 +12,7 @@ export const escapeIdent = (f: string) => f.replace(/"/g, '""');
 export class QueryClient {
   private client: Queryable;
   private dialect: SqlDialect;
-  private debug = false;
+  private debug = true;
 
   constructor(client: Queryable, dialect?: SqlDialect) {
     this.client = client;
@@ -117,17 +117,34 @@ export class QueryClient {
       .join(', ');
   }
 
+  #quotedPkCols(pkCol: string | string[]): string {
+    const cols = Array.isArray(pkCol) ? pkCol : [pkCol];
+    return cols.map((c) => this.dialect.qi(c)).join(', ');
+  }
+
+  #mysqlPkResult(pkCol: string | string[], record: DbRecord, insertId?: number): Record<string, unknown> {
+    const cols = Array.isArray(pkCol) ? pkCol : [pkCol];
+    const result: Record<string, unknown> = {};
+    for (const col of cols) {
+      if (col in record && record[col] != null) {
+        result[col] = record[col];
+      }
+    }
+    if (Object.keys(result).length > 0) return result;
+    if (!Array.isArray(pkCol)) return { [pkCol]: insertId };
+    return result;
+  }
+
   async insert(
     table: string,
     record: DbRecord,
-    pkCol: string
+    pkCol: string | string[]
   ): Promise<Record<string, unknown>> {
     const values: unknown[] = [];
     const { fields, placeholders } = this.#params(record, values);
     if (!fields.length) throw new Error('Cannot execute empty insert');
 
-    const quotedPk = this.dialect.qi(pkCol);
-    const returning = this.dialect.returningPk(quotedPk);
+    const returning = this.dialect.returningPk(this.#quotedPkCols(pkCol));
 
     const result = await this.query(
       `INSERT INTO ${this.dialect.qi(table)} (${this.#q(fields)})
@@ -139,18 +156,14 @@ export class QueryClient {
       return result.rows[0] as Record<string, unknown>;
     }
 
-    // MySQL: PK from record or auto-increment insertId
-    if (pkCol in record && record[pkCol] != null) {
-      return { [pkCol]: record[pkCol] };
-    }
-    return { [pkCol]: result.insertId };
+    return this.#mysqlPkResult(pkCol, record, result.insertId);
   }
 
   async insertOrUpdate(
     table: string,
     record: DbRecord,
     conflictKeys: string[],
-    pkCol: string
+    pkCol: string | string[]
   ): Promise<Record<string, unknown>> {
     const values: unknown[] = [];
     const { fields, placeholders } = this.#params(record, values);
@@ -158,8 +171,7 @@ export class QueryClient {
 
     const updateSet = this.#upsertUpdateSet(fields, conflictKeys);
     const upsertClause = this.dialect.upsertSql(this.#q(conflictKeys), updateSet);
-    const quotedPk = this.dialect.qi(pkCol);
-    const returning = this.dialect.returningPk(quotedPk);
+    const returning = this.dialect.returningPk(this.#quotedPkCols(pkCol));
 
     const result = await this.query(
       `INSERT INTO ${this.dialect.qi(table)} (${this.#q(fields)})
@@ -172,24 +184,20 @@ export class QueryClient {
       return result.rows[0] as Record<string, unknown>;
     }
 
-    if (pkCol in record && record[pkCol] != null) {
-      return { [pkCol]: record[pkCol] };
-    }
-    return { [pkCol]: result.insertId };
+    return this.#mysqlPkResult(pkCol, record, result.insertId);
   }
 
   async bulkInsert(
     table: string,
     records: DbRecord[],
-    pkCol: string,
+    pkCol: string | string[],
     chunkSize = DEFAULT_CHUNK_SIZE
   ): Promise<Record<string, unknown>[]> {
     if (!records.length) return [];
 
     const fields = Object.keys(records[0]);
     const results: Record<string, unknown>[] = [];
-    const quotedPk = this.dialect.qi(pkCol);
-    const returning = this.dialect.returningPk(quotedPk);
+    const returning = this.dialect.returningPk(this.#quotedPkCols(pkCol));
 
     for (let i = 0; i < records.length; i += chunkSize) {
       const chunk = records.slice(i, i + chunkSize);
@@ -202,17 +210,8 @@ export class QueryClient {
       if (this.dialect.supportsReturning) {
         results.push(...(result.rows as Record<string, unknown>[]));
       } else {
-        // MySQL: use PK from records or auto-increment
-        const hasPkInRecords = pkCol in chunk[0] && chunk[0][pkCol] != null;
-        if (hasPkInRecords) {
-          for (const rec of chunk) {
-            results.push({ [pkCol]: rec[pkCol] });
-          }
-        } else {
-          const baseId = result.insertId ?? 0;
-          for (let j = 0; j < chunk.length; j++) {
-            results.push({ [pkCol]: baseId + j });
-          }
+        for (const rec of chunk) {
+          results.push(this.#mysqlPkResult(pkCol, rec, result.insertId));
         }
       }
     }
@@ -224,7 +223,7 @@ export class QueryClient {
     table: string,
     records: DbRecord[],
     conflictKeys: string[],
-    pkCol: string,
+    pkCol: string | string[],
     chunkSize = DEFAULT_CHUNK_SIZE
   ): Promise<Record<string, unknown>[]> {
     if (!records.length) return [];
@@ -232,8 +231,7 @@ export class QueryClient {
     const fields = Object.keys(records[0]);
     const updateSet = this.#upsertUpdateSet(fields, conflictKeys);
     const upsertClause = this.dialect.upsertSql(this.#q(conflictKeys), updateSet);
-    const quotedPk = this.dialect.qi(pkCol);
-    const returning = this.dialect.returningPk(quotedPk);
+    const returning = this.dialect.returningPk(this.#quotedPkCols(pkCol));
     const results: Record<string, unknown>[] = [];
 
     for (let i = 0; i < records.length; i += chunkSize) {
@@ -249,16 +247,8 @@ export class QueryClient {
       if (this.dialect.supportsReturning) {
         results.push(...(result.rows as Record<string, unknown>[]));
       } else {
-        const hasPkInRecords = pkCol in chunk[0] && chunk[0][pkCol] != null;
-        if (hasPkInRecords) {
-          for (const rec of chunk) {
-            results.push({ [pkCol]: rec[pkCol] });
-          }
-        } else {
-          const baseId = result.insertId ?? 0;
-          for (let j = 0; j < chunk.length; j++) {
-            results.push({ [pkCol]: baseId + j });
-          }
+        for (const rec of chunk) {
+          results.push(this.#mysqlPkResult(pkCol, rec, result.insertId));
         }
       }
     }

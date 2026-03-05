@@ -1,5 +1,17 @@
 import { Type, type TObject, type TSchema } from '@sinclair/typebox';
-import type { DbTables } from '../../types.js';
+import { primaryAsString } from '../../types.js';
+import type { DbTables, ITable, SchemaDefinition } from '../../types.js';
+import { findSecondaryTableConf } from '../engine/write-helpers.js';
+
+function pkSchema(tableConf: ITable | undefined, schema: SchemaDefinition, fallback: string): Record<string, TSchema> {
+  const pk = tableConf?.primary || fallback;
+  const fields = Array.isArray(pk) ? pk : [pk];
+  const result: Record<string, TSchema> = {};
+  for (const f of fields) {
+    result[f] = schema.fields[f] || Type.Any();
+  }
+  return result;
+}
 
 export function InsertTableBody(dbTables: DbTables, tableName: string): TObject {
   const tableConf = dbTables[tableName];
@@ -55,26 +67,20 @@ export function InsertTableBody(dbTables: DbTables, tableName: string): TObject 
 
 export function InsertTableResponse(dbTables: DbTables, tableName: string): TObject {
   const tableConf = dbTables[tableName];
-  const pkField = tableConf.primary;
-  const pkType = tableConf.Schema.fields[pkField];
 
   // Main: PK-only response
   const responseProperties: Record<string, TSchema> = {
-    main: Type.Object({ [pkField]: pkType }),
+    main: Type.Object(pkSchema(tableConf, tableConf.Schema, primaryAsString(tableConf.primary))),
   };
 
   // Secondaries response: PK-only
   if (tableConf.allowedWriteJoins?.length) {
     const secondaryProperties: Record<string, TSchema> = {};
 
-    for (const [joinSchema] of tableConf.allowedWriteJoins) {
-      const secondaryTableConf = Object.values(dbTables).find(
-        (c) => c.Schema.tableName === joinSchema.tableName
-      );
-      const secPkField = secondaryTableConf?.primary || 'id';
-      const secPkType = joinSchema.fields[secPkField] || Type.Any();
+    for (const [joinSchema, joinField] of tableConf.allowedWriteJoins) {
+      const secondaryTableConf = findSecondaryTableConf(dbTables, joinSchema.tableName);
       secondaryProperties[joinSchema.tableName] = Type.Array(
-        Type.Object({ [secPkField]: secPkType })
+        Type.Object(pkSchema(secondaryTableConf, joinSchema, joinField))
       );
     }
 

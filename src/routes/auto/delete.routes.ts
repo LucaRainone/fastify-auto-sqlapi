@@ -3,6 +3,7 @@ import { Type } from '@sinclair/typebox';
 import { getDb } from './route-helpers.js';
 import { deleteEngine } from '../../lib/engine/delete.js';
 import { resolveTenant } from '../../lib/tenant.js';
+import { primaryAsString } from '../../types.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
 export default async function deleteRoutes(
@@ -12,7 +13,7 @@ export default async function deleteRoutes(
   const { DbTables } = options;
 
   for (const [tableName, tableConf] of Object.entries(DbTables)) {
-    const pkField = tableConf.primary;
+    const pkField = primaryAsString(tableConf.primary);
     const pkType = tableConf.Schema.fields[pkField];
     const responseSchema = Type.Object({
       main: Type.Object({ [pkField]: pkType }),

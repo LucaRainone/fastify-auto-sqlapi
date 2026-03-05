@@ -1,6 +1,7 @@
 import { camelcaseObject, snakecaseRecord } from '../naming.js';
 import { removeExcludedFields, processSecondaries } from './write-helpers.js';
 import { injectTenantValue, validateTenantFK } from '../tenant.js';
+import { primaryAsString } from '../../types.js';
 import type {
   InsertParams,
   InsertResult,
@@ -11,7 +12,7 @@ import type {
 export async function insertEngine(params: InsertParams): Promise<InsertResult> {
   const { db, tableConf, dbTables, request, record, secondaries, tenant } = params;
 
-  const pk = tableConf.primary;
+  const pk = primaryAsString(tableConf.primary);
   const pkCol = tableConf.Schema.col(pk);
 
   // 1. Prepare main record

@@ -2,6 +2,7 @@ import { camelcaseObject, snakecaseRecord } from '../naming.js';
 import { processSecondaries, processDeletions } from './write-helpers.js';
 import { stripTenantColumn, buildTenantCondition, buildTenantJoin } from '../tenant.js';
 import { ConditionBuilder, type ConditionValue } from 'node-condition-builder';
+import { primaryAsString } from '../../types.js';
 import type {
   UpdateParams,
   UpdateResult,
@@ -13,7 +14,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
   const { db, tableConf, dbTables, request, record, secondaries, deletions, tenant } = params;
 
   // 1. Prepare: extract PK, snakecase, build update fields
-  const pk = tableConf.primary;
+  const pk = primaryAsString(tableConf.primary);
   const pkCol = tableConf.Schema.col(pk);
   const snaked = snakecaseRecord(record);
   const pkValue = snaked[pkCol];

@@ -90,18 +90,19 @@ src/db/
   tables/
     TableCustomer.ts         # generated — skip if already exists
     TableCustomerOrder.ts
-    dbTables.ts              # always regenerated (import + export map)
+    dbTables.ts              # generated — skip if already exists
 ```
 
 Each `Table*.ts` file contains a `defineTable()` call with:
 - Auto-detected primary keys
 - Auto-detected foreign key relations (from field naming convention `*Id`)
+- Commented example of `extraFiltersValidation` + `extendedCondition`
 - All optional keys as commented code, ready to uncomment
-- `export default TableXxx`
+- `export const TableXxx` (named export)
 
-`dbTables.ts` is always regenerated to include all schemas (not just the requested ones). Individual `Table*.ts` files are **never overwritten** — if they already exist, they are skipped. This makes it safe to re-run the command when new tables are added to the database.
+**No files are ever overwritten** — if they already exist, they are skipped. This makes it safe to re-run the command when new tables are added to the database. Import paths are generated without extensions (the consumer's tsconfig decides resolution).
 
-**Edit the `Table*.ts` files to customize** — these files are yours to maintain.
+**Edit the `Table*.ts` and `dbTables.ts` files to customize** — these files are yours to maintain.
 
 ### 6. Create the Fastify server
 
@@ -202,24 +203,21 @@ Without prefix, routes are at root: `/search/customer`, `/rest/customer/:id`, et
 ## defineTable() — Complete Reference
 
 ```typescript
-import {
-  Type,
-  exportTableInfo,
-  defineTable,
-  buildRelation,
-  buildUpsertRules,
-  buildUpsertRule,
-  ConditionBuilder,
-} from 'fastify-auto-sqlapi';
-import type { DbTables } from 'fastify-auto-sqlapi';
+import {defineTable, exportTableInfo, Type} from 'fastify-auto-sqlapi';
+// Import additional utilities only when needed:
+// import {buildRelation, buildUpsertRules, buildUpsertRule, ConditionBuilder} from 'fastify-auto-sqlapi';
+// import type {DbTables} from 'fastify-auto-sqlapi';
 ```
 
 ### Minimal table
 
 ```typescript
-const TableCustomer = defineTable({
+import {defineTable, exportTableInfo} from 'fastify-auto-sqlapi';
+import {SchemaCustomer as Schema} from '../schemas/SchemaCustomer';
+
+export const TableCustomer = defineTable({
   primary: 'id',
-  ...exportTableInfo(SchemaCustomer),
+  ...exportTableInfo(Schema),
 });
 ```
 
@@ -230,10 +228,10 @@ const TableCustomer = defineTable({
 ### All keys
 
 ```typescript
-const TableCustomer = defineTable({
+export const TableCustomer = defineTable({
   // REQUIRED
   primary: 'id',                          // PK field name (camelCase)
-  ...exportTableInfo(SchemaCustomer),     // Schema + auto-filter builder
+  ...exportTableInfo(Schema),             // Schema + auto-filter builder
 
   // OPTIONAL
   defaultOrder: 'name',                   // ORDER BY default (supports multi: 'name ASC, id DESC')
@@ -302,18 +300,24 @@ The join works as: `SELECT {selection} FROM {joinTable} WHERE {joinField} IN ({m
 For filters that don't map to real columns (e.g. full-text search `q`):
 
 ```typescript
-const TableCustomer = defineTable({
+import {defineTable, exportTableInfo, Type, ConditionBuilder} from 'fastify-auto-sqlapi';
+import {SchemaCustomer as Schema} from '../schemas/SchemaCustomer';
+
+const extraFiltersValidation = Type.Object({
+  q: Type.String(),
+});
+
+export const TableCustomer = defineTable({
   primary: 'id',
   ...exportTableInfo(
-    SchemaCustomer,
-    // Extra filter fields (appear in Swagger, not auto-applied)
-    { q: Type.Optional(Type.String()) },
-    // Custom condition builder
+    Schema,
+    extraFiltersValidation,
+    // `filters` is auto-typed with keys from Schema.fields + extraFiltersValidation
     (condition, filters) => {
       if (filters.q) {
         const or = new ConditionBuilder('OR');
-        or.isILike('name', `%${filters.q}%`);
-        or.isILike('email', `%${filters.q}%`);
+        or.isILike(Schema.col('name'), `%${filters.q}%`);
+        or.isILike(Schema.col('email'), `%${filters.q}%`);
         condition.append(or);
       }
     }
@@ -321,7 +325,7 @@ const TableCustomer = defineTable({
 });
 ```
 
-`extraFilters` fields are NOT auto-applied as `WHERE col = value`. They are handled exclusively by the `extendedCondition` callback.
+`extraFilters` accepts either a `Type.Object({...})` or a plain `Record<string, TSchema>`. Extra filter fields appear in Swagger but are NOT auto-applied as `WHERE col = value` — they are handled exclusively by the `extendedCondition` callback. The `filters` parameter in the callback is fully typed with autocomplete for all schema fields + extra filter keys.
 
 ---
 
@@ -694,12 +698,14 @@ const TableCustomer = defineTable({
 ### Full-text search filter
 
 ```typescript
-...exportTableInfo(SchemaCustomer, { q: Type.Optional(Type.String()) }, (condition, filters) => {
+const extraFilters = Type.Object({ q: Type.String() });
+
+...exportTableInfo(Schema, extraFilters, (condition, filters) => {
   if (filters.q) {
     const or = new ConditionBuilder('OR');
-    or.isILike('name', `%${filters.q}%`);
-    or.isILike('email', `%${filters.q}%`);
-    or.isILike('phone_number', `%${filters.q}%`);
+    or.isILike(Schema.col('name'), `%${filters.q}%`);
+    or.isILike(Schema.col('email'), `%${filters.q}%`);
+    or.isILike(Schema.col('phoneNumber'), `%${filters.q}%`);
     condition.append(or);
   }
 }),
@@ -708,16 +714,18 @@ const TableCustomer = defineTable({
 ### Date range filter
 
 ```typescript
-...exportTableInfo(SchemaOrder,
-  { dateFrom: Type.Optional(Type.String()), dateTo: Type.Optional(Type.String()) },
-  (condition, filters) => {
-    if (filters.dateFrom && filters.dateTo) {
-      condition.isBetween('order_date', filters.dateFrom, filters.dateTo);
-    } else if (filters.dateFrom) {
-      condition.isGreater('order_date', filters.dateFrom);
-    }
+const extraFilters = Type.Object({
+  dateFrom: Type.String(),
+  dateTo: Type.String(),
+});
+
+...exportTableInfo(Schema, extraFilters, (condition, filters) => {
+  if (filters.dateFrom && filters.dateTo) {
+    condition.isBetween(Schema.col('orderDate'), filters.dateFrom, filters.dateTo);
+  } else if (filters.dateFrom) {
+    condition.isGreater(Schema.col('orderDate'), filters.dateFrom);
   }
-),
+}),
 ```
 
 ### Multi-tenant from JWT/header
