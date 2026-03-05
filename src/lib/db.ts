@@ -12,7 +12,7 @@ export const escapeIdent = (f: string) => f.replace(/"/g, '""');
 export class QueryClient {
   private client: Queryable;
   private dialect: SqlDialect;
-  private debug = true;
+  private debug = false;
 
   constructor(client: Queryable, dialect?: SqlDialect) {
     this.client = client;

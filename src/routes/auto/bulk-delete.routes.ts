@@ -1,5 +1,4 @@
 import type { FastifyInstance } from 'fastify';
-import { getDb } from './route-helpers.js';
 import { bulkDeleteEngine } from '../../lib/engine/bulk-delete.js';
 import { resolveTenant } from '../../lib/tenant.js';
 import { BulkDeleteTableBody, BulkDeleteTableResponse } from '../../lib/schema/bulk-delete.js';
@@ -28,7 +27,7 @@ export default async function bulkDeleteRoutes(
       },
       onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
       handler: async (request, reply) => {
-        const db = getDb(fastify, options.dialect);
+        const db = fastify.db;
         const tenant = await resolveTenant(options, tableConf, request);
         const items = request.body as Record<string, unknown>[];
         const ids = items.map((item) => item[primaryAsString(tableConf.primary)] as string | number);

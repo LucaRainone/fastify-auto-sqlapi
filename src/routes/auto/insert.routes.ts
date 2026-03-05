@@ -1,5 +1,4 @@
 import type { FastifyInstance } from 'fastify';
-import { getDb } from './route-helpers.js';
 import { insertEngine } from '../../lib/engine/insert.js';
 import { resolveTenant } from '../../lib/tenant.js';
 import { InsertTableBody, InsertTableResponse } from '../../lib/schema/insert.js';
@@ -35,7 +34,7 @@ export default async function insertRoutes(
       },
       onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
       handler: async (request, reply) => {
-        const db = getDb(fastify, options.dialect);
+        const db = fastify.db;
         const tenant = await resolveTenant(options, tableConf, request);
         const body = request.body as {
           main: Record<string, unknown>;

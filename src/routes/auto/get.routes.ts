@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify';
 import { Type } from '@sinclair/typebox';
-import { getDb } from './route-helpers.js';
 import { getEngine } from '../../lib/engine/get.js';
 import { resolveTenant } from '../../lib/tenant.js';
 import type { SqlApiPluginOptions } from '../../types.js';
@@ -28,7 +27,7 @@ export default async function getRoutes(
       },
       onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
       handler: async (request, reply) => {
-        const db = getDb(fastify, options.dialect);
+        const db = fastify.db;
         const tenant = await resolveTenant(options, tableConf, request);
         const { id } = request.params as { id: string };
 

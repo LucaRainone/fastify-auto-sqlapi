@@ -1,5 +1,4 @@
 import type { FastifyInstance } from 'fastify';
-import { getDb } from './route-helpers.js';
 import { updateEngine } from '../../lib/engine/update.js';
 import { resolveTenant } from '../../lib/tenant.js';
 import { UpdateTableBody, UpdateTableResponse } from '../../lib/schema/update.js';
@@ -35,7 +34,7 @@ export default async function updateRoutes(
       },
       onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
       handler: async (request, reply) => {
-        const db = getDb(fastify, options.dialect);
+        const db = fastify.db;
         const tenant = await resolveTenant(options, tableConf, request);
         const body = request.body as {
           main: Record<string, unknown>;
@@ -53,7 +52,6 @@ export default async function updateRoutes(
           deletions: body.deletions,
           tenant,
         });
-console.log(result)
         reply.send(result);
       },
     });

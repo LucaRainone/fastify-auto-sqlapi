@@ -158,6 +158,7 @@ export interface SqlApiPluginOptions {
   dialect?: DialectName;
   getTenantId?: (request: FastifyRequest) => TenantId | TenantId[] | null | undefined
     | Promise<TenantId | TenantId[] | null | undefined>;
+  debug?: boolean;
 }
 
 // ─── Search Types ────────────────────────────────────────────
