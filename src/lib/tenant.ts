@@ -1,6 +1,6 @@
 import type { FastifyRequest } from 'fastify';
 import type { QueryClient } from './db.js';
-import { ConditionBuilder } from 'node-condition-builder';
+import { ConditionBuilder, type ConditionValue } from 'node-condition-builder';
 import type {
   ITable,
   SqlApiPluginOptions,
@@ -104,7 +104,7 @@ export async function validateTenantFK(
   const tenantCol = scope.column;
 
   const cb = new ConditionBuilder('AND');
-  cb.isIn(db.qi(foreignField), uniqueFKs);
+  cb.isIn(db.qi(foreignField), uniqueFKs as ConditionValue[]);
   cb.isNotIn(db.qi(tenantCol), tenantIds);
   const where = cb.build(1, db.ph);
   const values = cb.getValues();

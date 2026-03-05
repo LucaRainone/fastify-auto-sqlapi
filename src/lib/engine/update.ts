@@ -1,7 +1,7 @@
 import { camelcaseObject, snakecaseRecord } from '../naming.js';
 import { processSecondaries, processDeletions } from './write-helpers.js';
 import { stripTenantColumn, buildTenantCondition, buildTenantJoin } from '../tenant.js';
-import { ConditionBuilder } from 'node-condition-builder';
+import { ConditionBuilder, type ConditionValue } from 'node-condition-builder';
 import type {
   UpdateParams,
   UpdateResult,
@@ -36,7 +36,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
       const scope = tenant.scope as TenantScopeIndirect;
       const tableName = tableConf.Schema.tableName;
       const cb = new ConditionBuilder('AND');
-      cb.isEqual(`${db.qi(tableName)}.${db.qi(pkCol)}`, pkValue);
+      cb.isEqual(`${db.qi(tableName)}.${db.qi(pkCol)}`, pkValue as ConditionValue);
       cb.append(buildTenantCondition(db, scope, tenant.ids));
       const checkWhere = cb.build(1, db.ph);
       const checkValues = cb.getValues();

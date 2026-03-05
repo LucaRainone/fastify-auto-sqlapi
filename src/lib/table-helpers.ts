@@ -1,19 +1,27 @@
-import { ConditionBuilder } from 'node-condition-builder';
-import type { TSchema } from '@sinclair/typebox';
+import { ConditionBuilder, type ConditionValueOrUndefined } from 'node-condition-builder';
+import type { TSchema, TObject } from '@sinclair/typebox';
 import type {
   SchemaDefinition,
   JoinDefinition,
-  ExtendedConditionFn,
   TableFilterFn,
   ITable,
 } from '../types.js';
 
-export function exportTableInfo<F extends Record<string, TSchema>>(
+// Extract properties from TObject or use the Record directly
+type ExtraProps<EF> = EF extends TObject<infer P> ? P : EF extends Record<string, TSchema> ? EF : Record<string, never>;
+
+export function exportTableInfo<
+  F extends Record<string, TSchema>,
+  EF extends TObject | Record<string, TSchema> = Record<never, TSchema>,
+>(
   Schema: SchemaDefinition<F>,
-  extraFilters: Record<string, TSchema> = {},
-  extendedCondition?: ExtendedConditionFn
+  extraFilters: EF = {} as EF,
+  extendedCondition?: (
+    condition: ConditionBuilder,
+    filters: { [K in keyof F | keyof ExtraProps<EF>]?: ConditionValueOrUndefined }
+  ) => void
 ): { Schema: SchemaDefinition<F>; filters: TableFilterFn; extraFilters: Record<string, TSchema> } {
-  const filters: TableFilterFn = (filterValues: Record<string, unknown>) => {
+  const filters: TableFilterFn = (filterValues) => {
     const condition = new ConditionBuilder('AND');
 
     // Only auto-match real schema fields (DB columns)
@@ -31,7 +39,13 @@ export function exportTableInfo<F extends Record<string, TSchema>>(
     return condition;
   };
 
-  return { Schema, filters, extraFilters };
+  // Extract properties from TObject or use as-is
+  const efRecord: Record<string, TSchema> =
+    (extraFilters && typeof extraFilters === 'object' && 'properties' in extraFilters)
+      ? (extraFilters as TObject).properties
+      : extraFilters as Record<string, TSchema>;
+
+  return { Schema, filters, extraFilters: efRecord };
 }
 
 export function defineTable<F extends Record<string, TSchema>>(

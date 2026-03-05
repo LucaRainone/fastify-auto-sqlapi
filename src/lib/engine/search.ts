@@ -1,9 +1,10 @@
 import type { QueryClient } from '../db.js';
-import { ConditionBuilder } from 'node-condition-builder';
+import { ConditionBuilder, type ConditionValue } from 'node-condition-builder';
 import { camelcaseObject } from '../naming.js';
 import { buildTenantCondition, buildTenantJoin } from '../tenant.js';
 import type {
   DbTables,
+  FilterRecord,
   SearchParams,
   SearchResult,
   PaginationResult,
@@ -129,7 +130,7 @@ async function executeVirtualJoins(
   dbTables: DbTables,
   tableConf: ITable,
   mainResults: Record<string, unknown>[],
-  joins: Record<string, { filters?: Record<string, unknown> }>
+  joins: Record<string, { filters?: FilterRecord }>
 ): Promise<Record<string, Record<string, unknown>[]>> {
   const result: Record<string, Record<string, unknown>[]> = {};
 
@@ -272,22 +273,22 @@ async function executeJoinGroups(
 function collectIds(
   mainResults: Record<string, unknown>[],
   mainField: string | string[]
-): unknown[] {
+): ConditionValue[] {
   if (Array.isArray(mainField)) {
     // Composite key: collect tuples
     const seen = new Set<string>();
-    const ids: unknown[] = [];
+    const ids: ConditionValue[] = [];
     for (const r of mainResults) {
       const key = mainField.map((f) => r[f]).join('|');
       if (!seen.has(key) && mainField.every((f) => r[f] != null)) {
         seen.add(key);
-        ids.push(...mainField.map((f) => r[f]));
+        ids.push(...mainField.map((f) => r[f] as ConditionValue));
       }
     }
     return ids;
   }
 
-  const unique = [...new Set(mainResults.map((r) => r[mainField]).filter((v) => v != null))];
+  const unique = [...new Set(mainResults.map((r) => r[mainField]).filter((v) => v != null))] as ConditionValue[];
   return unique;
 }
 

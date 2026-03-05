@@ -1,4 +1,4 @@
-import type { Expression, ConditionBuilder } from 'node-condition-builder';
+import type { Expression, ConditionBuilder, ConditionValueOrUndefined } from 'node-condition-builder';
 import type { TSchema, TObject } from '@sinclair/typebox';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { QueryClient } from './lib/db.js';
@@ -105,8 +105,9 @@ export type JoinDefinition = [SchemaDefinition, string, string | string[], strin
 
 // ─── Table Configuration ─────────────────────────────────────
 
-export type ExtendedConditionFn = (condition: ConditionBuilder, filters: Record<string, unknown>) => void;
-export type TableFilterFn = (filters: Record<string, unknown>) => ConditionBuilder;
+export type FilterRecord = Record<string, ConditionValueOrUndefined>;
+export type ExtendedConditionFn = (condition: ConditionBuilder, filters: FilterRecord) => void;
+export type TableFilterFn = (filters: FilterRecord) => ConditionBuilder;
 
 export interface ITable<F extends Record<string, TSchema> = Record<string, TSchema>> {
   primary: string & keyof F;
@@ -167,14 +168,14 @@ export interface AggregationRequest {
 
 export interface JoinGroupRequest {
   aggregations: AggregationRequest;
-  filters?: Record<string, unknown>;
+  filters?: FilterRecord;
 }
 
 export interface SearchParams {
   db: QueryClient;
   tableConf: ITable;
-  filters?: Record<string, unknown>;
-  joins?: Record<string, { filters?: Record<string, unknown> }>;
+  filters?: FilterRecord;
+  joins?: Record<string, { filters?: FilterRecord }>;
   joinGroups?: Record<string, JoinGroupRequest>;
   orderBy?: string;
   paginator?: Paginator;

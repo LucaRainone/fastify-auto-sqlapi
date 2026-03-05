@@ -89,6 +89,7 @@ export type {
   PaginationResult,
   TableFilterFn,
   ExtendedConditionFn,
+  FilterRecord,
   AggregationRequest,
   JoinGroupRequest,
   GetParams,
