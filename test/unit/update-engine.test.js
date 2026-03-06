@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
-const { updateEngine } = await import(path.join(ROOT, 'dist/lib/engine/update.js'));
+const { updateEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/update.js'));
 const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
@@ -172,6 +172,72 @@ describe('updateEngine - main update', () => {
     assert.equal(result.main.id, 1);
     assert.equal(result.secondaries, undefined);
     assert.equal(result.deletions, undefined);
+  });
+});
+
+describe('updateEngine - composite PK secondaries', () => {
+  it('inserts secondary with composite PK and returns both PK fields', async () => {
+    const agentFields = {
+      id: Type.Number(),
+      name: Type.String(),
+    };
+    const linkFields = {
+      agentId: Type.Number(),
+      teamId: Type.Number(),
+    };
+    const agentSchema = createMockSchema('agent', agentFields);
+    const linkSchema = createMockSchema('agent_team_link', linkFields);
+    const agentInfo = exportTableInfo(agentSchema);
+    const linkInfo = exportTableInfo(linkSchema);
+
+    const DbTables = {
+      agent: {
+        primary: 'id',
+        ...agentInfo,
+        defaultOrder: 'id',
+        allowedWriteJoins: [
+          buildRelation(agentSchema, 'id', linkSchema, 'agentId'),
+        ],
+      },
+      agent_team_link: {
+        primary: ['agentId', 'teamId'],
+        ...linkInfo,
+        defaultOrder: 'agentId',
+      },
+    };
+
+    const mockPg = createMockPg([
+      // Main update
+      { rows: [], affectedRows: 1 },
+      // Bulk insert link (composite PK returned)
+      { rows: [{ agent_id: 14, team_id: 2 }], affectedRows: 1 },
+    ]);
+    const db = new QueryClient(mockPg);
+
+    const result = await updateEngine({
+      db,
+      tableConf: DbTables.agent,
+      dbTables: DbTables,
+      request: mockRequest,
+      record: { id: 14, name: 'Updated' },
+      secondaries: {
+        agent_team_link: [{ teamId: 2 }],
+      },
+    });
+
+    // Secondary insert should use composite PK columns in RETURNING
+    const bulkCall = mockPg.calls[1];
+    assert.ok(bulkCall.text.includes('INSERT INTO "agent_team_link"'));
+    assert.ok(bulkCall.text.includes('RETURNING "agent_id", "team_id"'));
+
+    // FK auto-fill: agent_id should be 14
+    assert.ok(bulkCall.values.includes(14));
+
+    // Result should contain both PK fields (camelCase)
+    assert.ok(result.secondaries);
+    assert.equal(result.secondaries.agent_team_link.length, 1);
+    assert.equal(result.secondaries.agent_team_link[0].agentId, 14);
+    assert.equal(result.secondaries.agent_team_link[0].teamId, 2);
   });
 });
 

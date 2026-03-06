@@ -11,11 +11,11 @@ const { resolveTenant, buildTenantCondition, buildTenantJoin, injectTenantValue,
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
-const { getEngine } = await import(path.join(ROOT, 'dist/lib/engine/get.js'));
-const { deleteEngine } = await import(path.join(ROOT, 'dist/lib/engine/delete.js'));
-const { bulkDeleteEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk-delete.js'));
-const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/insert.js'));
-const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search.js'));
+const { getEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/get.js'));
+const { deleteEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/delete.js'));
+const { bulkDeleteEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk/bulk-delete.js'));
+const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/insert.js'));
+const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
 const { Type } = await import('@sinclair/typebox');
 
 function createMockSchema(tableName, fields) {

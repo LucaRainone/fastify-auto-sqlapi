@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
-const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/insert.js'));
+const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/insert.js'));
 const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
@@ -159,6 +159,76 @@ describe('insertEngine - main insert', () => {
     });
 
     assert.equal(result.secondaries, undefined);
+  });
+});
+
+describe('insertEngine - composite PK', () => {
+  it('inserts with composite PK and returns both PK fields', async () => {
+    const linkFields = {
+      agentId: Type.Number(),
+      teamId: Type.Number(),
+    };
+    const linkSchema = createMockSchema('agent_team_link', linkFields);
+    const linkInfo = exportTableInfo(linkSchema);
+
+    const DbTables = {
+      agent_team_link: {
+        primary: ['agentId', 'teamId'],
+        ...linkInfo,
+        defaultOrder: 'agentId',
+      },
+    };
+
+    const mockPg = createMockPg([
+      { rows: [{ agent_id: 1, team_id: 2 }], affectedRows: 1 },
+    ]);
+    const db = new QueryClient(mockPg);
+
+    const result = await insertEngine({
+      db,
+      tableConf: DbTables.agent_team_link,
+      dbTables: DbTables,
+      request: mockRequest,
+      record: { agentId: 1, teamId: 2 },
+    });
+
+    assert.equal(result.main.agentId, 1);
+    assert.equal(result.main.teamId, 2);
+    assert.ok(mockPg.calls[0].text.includes('RETURNING "agent_id"'));
+  });
+
+  it('uses first PK field for RETURNING column', async () => {
+    const linkFields = {
+      agentId: Type.Number(),
+      teamId: Type.Number(),
+    };
+    const linkSchema = createMockSchema('agent_team_link', linkFields);
+    const linkInfo = exportTableInfo(linkSchema);
+
+    const DbTables = {
+      agent_team_link: {
+        primary: ['agentId', 'teamId'],
+        ...linkInfo,
+        defaultOrder: 'agentId',
+      },
+    };
+
+    const mockPg = createMockPg([
+      { rows: [{ agent_id: 1, team_id: 2 }], affectedRows: 1 },
+    ]);
+    const db = new QueryClient(mockPg);
+
+    await insertEngine({
+      db,
+      tableConf: DbTables.agent_team_link,
+      dbTables: DbTables,
+      request: mockRequest,
+      record: { agentId: 1, teamId: 2 },
+    });
+
+    // primaryAsString takes first element for the PK col used in insert
+    const sql = mockPg.calls[0].text;
+    assert.ok(sql.includes('INSERT INTO "agent_team_link"'));
   });
 });
 

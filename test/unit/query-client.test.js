@@ -52,6 +52,30 @@ describe('QueryClient.insert', () => {
   });
 });
 
+describe('QueryClient.insert - composite PK', () => {
+  it('RETURNING lists all composite PK columns', async () => {
+    const mock = createMockClient();
+    const db = new QueryClient(mock);
+
+    await db.insert('agent_team_link', { agent_id: 1, team_id: 2 }, ['agent_id', 'team_id']);
+
+    assert.ok(mock.calls[0].text.includes('RETURNING "agent_id", "team_id"'));
+  });
+
+  it('returns composite PK result from RETURNING', async () => {
+    const mock = {
+      query(text, values) {
+        return Promise.resolve({ rows: [{ agent_id: 1, team_id: 2 }], affectedRows: 1 });
+      },
+    };
+    const db = new QueryClient(mock);
+
+    const result = await db.insert('agent_team_link', { agent_id: 1, team_id: 2 }, ['agent_id', 'team_id']);
+
+    assert.deepEqual(result, { agent_id: 1, team_id: 2 });
+  });
+});
+
 describe('QueryClient.insertOrUpdate', () => {
   it('uses EXCLUDED for SET clause', async () => {
     const mock = createMockClient();
@@ -102,6 +126,20 @@ describe('QueryClient.bulkInsert', () => {
     await db.bulkInsert('t', records, 'id', 2);
 
     assert.equal(mock.calls.length, 3); // 2+2+1
+  });
+});
+
+describe('QueryClient.bulkInsert - composite PK', () => {
+  it('RETURNING lists all composite PK columns', async () => {
+    const mock = createMockClient();
+    const db = new QueryClient(mock);
+
+    await db.bulkInsert('agent_team_link', [
+      { agent_id: 1, team_id: 2 },
+      { agent_id: 3, team_id: 4 },
+    ], ['agent_id', 'team_id']);
+
+    assert.ok(mock.calls[0].text.includes('RETURNING "agent_id", "team_id"'));
   });
 });
 

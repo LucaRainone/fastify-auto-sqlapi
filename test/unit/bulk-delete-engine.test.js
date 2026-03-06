@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
-const { bulkDeleteEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk-delete.js'));
+const { bulkDeleteEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk/bulk-delete.js'));
 const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
