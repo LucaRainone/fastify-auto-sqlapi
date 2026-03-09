@@ -46,9 +46,9 @@ export default async function searchRoutes(
           joins: body.joins,
           joinGroups: body.joinGroups,
           orderBy: query.orderBy,
-          paginator: query.page
+          paginator: (query.page || query.itemsPerPage)
             ? {
-                page: query.page,
+                page: query.page || 1,
                 itemsPerPage: query.itemsPerPage || 500,
               }
             : undefined,
