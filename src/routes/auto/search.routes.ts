@@ -43,6 +43,7 @@ export default async function searchRoutes(
           db,
           tableConf,
           filters: body.filters,
+          joinFilters: body.joinFilters,
           joins: body.joins,
           joinGroups: body.joinGroups,
           orderBy: query.orderBy,

@@ -185,6 +185,7 @@ export interface SearchParams {
   db: QueryClient;
   tableConf: ITable;
   filters?: FilterRecord;
+  joinFilters?: Record<string, FilterRecord>;
   joins?: Record<string, { filters?: FilterRecord }>;
   joinGroups?: Record<string, JoinGroupRequest>;
   orderBy?: string;

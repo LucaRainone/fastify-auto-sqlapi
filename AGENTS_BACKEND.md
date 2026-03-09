@@ -232,7 +232,7 @@ export const TableCustomer = defineTable({
   distinctResults: true,                  // Use SELECT DISTINCT
 
   // JOINS — relations to other tables
-  allowedReadJoins: [                     // Available for search queries
+  allowedReadJoins: [                     // Available for search queries (joins, joinFilters, joinGroups)
     buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId'),
     buildRelation(SchemaCustomer, 'id', SchemaAddress, 'customerId', 'id, city, zip'),
   ],

@@ -319,6 +319,118 @@ describe('searchEngine - virtual joins', () => {
   });
 });
 
+describe('searchEngine - joinFilters (EXISTS)', () => {
+  it('adds EXISTS subquery to main WHERE', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      joinFilters: {
+        customer_order: { status: 'pending' },
+      },
+    });
+
+    const sql = mockPg.calls[0].text;
+    assert.ok(sql.includes('EXISTS'));
+    assert.ok(sql.includes('SELECT 1 FROM "customer_order"'));
+    assert.ok(sql.includes('"customer_id" = "customer"."id"'));
+    assert.ok(mockPg.calls[0].values.includes('pending'));
+  });
+
+  it('combines main filters with joinFilters', async () => {
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 0 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      filters: { name: 'Mario' },
+      joinFilters: {
+        customer_order: { status: 'pending' },
+      },
+    });
+
+    const sql = mockPg.calls[0].text;
+    assert.ok(sql.includes('name'));
+    assert.ok(sql.includes('EXISTS'));
+    assert.ok(mockPg.calls[0].values.includes('Mario'));
+    assert.ok(mockPg.calls[0].values.includes('pending'));
+  });
+
+  it('parameter indices are correct with main filters + joinFilters', async () => {
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 0 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      filters: { name: 'Mario', email: 'test@test.it' },
+      joinFilters: {
+        customer_order: { status: 'pending', total: 100 },
+      },
+    });
+
+    const values = mockPg.calls[0].values;
+    // Main filters first, then joinFilter values
+    assert.equal(values.length, 4);
+    assert.ok(values.includes('Mario'));
+    assert.ok(values.includes('test@test.it'));
+    assert.ok(values.includes('pending'));
+    assert.ok(values.includes(100));
+  });
+
+  it('ignores joinFilters for unknown join tables', async () => {
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 0 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      joinFilters: {
+        nonexistent_table: { foo: 'bar' },
+      },
+    });
+
+    const sql = mockPg.calls[0].text;
+    assert.ok(!sql.includes('EXISTS'));
+  });
+
+  it('works with pagination and joinFilters', async () => {
+    const mockPg = createMockPg([
+      // Main query
+      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
+      // COUNT query
+      { rows: [{ total: '1' }], affectedRows: 1 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    const result = await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      joinFilters: {
+        customer_order: { status: 'pending' },
+      },
+      paginator: { page: 1, itemsPerPage: 10 },
+    });
+
+    // Both main and COUNT queries should include EXISTS
+    assert.ok(mockPg.calls[0].text.includes('EXISTS'));
+    assert.ok(mockPg.calls[1].text.includes('EXISTS'));
+    assert.ok(result.pagination);
+    assert.equal(result.pagination.total, 1);
+  });
+});
+
 describe('searchEngine - joinGroups', () => {
   it('executes GROUP BY aggregation', async () => {
     const mockPg = createMockPg([

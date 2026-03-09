@@ -293,11 +293,47 @@ function collectIds(
   return unique;
 }
 
+function buildJoinFiltersExists(
+  db: QueryClient,
+  dbTables: DbTables,
+  tableConf: ITable,
+  joinFilters: Record<string, FilterRecord>,
+  currentWhere: string,
+  currentValues: unknown[]
+): { where: string; values: unknown[] } {
+  let where = currentWhere;
+  const values = [...currentValues];
+
+  for (const [joinTableName, filterValues] of Object.entries(joinFilters)) {
+    const joinDef = findJoinDefinition(tableConf, joinTableName);
+    if (!joinDef) continue;
+
+    const [joinSchema, joinField, mainField] = joinDef;
+    const joinTableConf = dbTables[joinTableName];
+    if (!joinTableConf) continue;
+
+    const filterCondition = joinTableConf.filters(filterValues);
+    const startIdx = values.length + 1;
+    const filterWhere = filterCondition.build(startIdx, db.ph);
+    const filterVals = filterCondition.getValues();
+
+    const fkCol = db.qi(joinSchema.col(joinField));
+    const mainColName = Array.isArray(mainField) ? mainField[0] : mainField;
+    const mainCol = db.qi(tableConf.Schema.col(mainColName));
+    const mainTable = db.qi(tableConf.Schema.tableName);
+
+    where += ` AND EXISTS (SELECT 1 FROM ${db.qi(joinSchema.tableName)} WHERE ${fkCol} = ${mainTable}.${mainCol} AND ${filterWhere})`;
+    values.push(...filterVals);
+  }
+
+  return { where, values };
+}
+
 export async function searchEngine(
   dbTables: DbTables,
   params: SearchParams
 ): Promise<SearchResult> {
-  const { db, tableConf, filters, joins, joinGroups, orderBy, paginator, computeMin, computeMax, computeSum, computeAvg, tenant } = params;
+  const { db, tableConf, filters, joinFilters, joins, joinGroups, orderBy, paginator, computeMin, computeMax, computeSum, computeAvg, tenant } = params;
 
   // Build main condition
   const condition = tableConf.filters(filters || {});
@@ -311,8 +347,13 @@ export async function searchEngine(
     }
   }
 
-  const where = condition.build(1, db.ph);
-  const values = condition.getValues();
+  let where = condition.build(1, db.ph);
+  let values: unknown[] = [...condition.getValues()];
+
+  // Join filters: add EXISTS subqueries
+  if (joinFilters && Object.keys(joinFilters).length > 0) {
+    ({ where, values } = buildJoinFiltersExists(db, dbTables, tableConf, joinFilters, where, values));
+  }
 
   // Validate and sanitize orderBy (user input -> SQL identifier)
   const safeOrderBy = orderBy ? validateOrderBy(orderBy, tableConf, db) : undefined;

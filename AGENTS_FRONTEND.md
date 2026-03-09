@@ -33,7 +33,7 @@ Without prefix, routes are at root: `/search/customer`, `/rest/customer/:id`, et
 ```
 
 - `orderBy` — SQL ORDER BY clause (default: `defaultOrder` from table config)
-- `page` + `itemsPerPage` — pagination (when `page` is present, response includes `pagination` object; `itemsPerPage` defaults to 500)
+- `page` + `itemsPerPage` — pagination (when either is present, response includes `pagination` object; `page` defaults to 1, `itemsPerPage` defaults to 500)
 - `computeMin`, `computeMax`, `computeSum`, `computeAvg` — aggregate a column, returned in `pagination.computed`
 
 ### Body (all fields optional, empty `{}` returns all records)
@@ -41,6 +41,9 @@ Without prefix, routes are at root: `/search/customer`, `/rest/customer/:id`, et
 ```json
 {
   "filters": { "name": "Mario", "q": "search term" },
+  "joinFilters": {
+    "customer_label_link": { "labelId": 1 }
+  },
   "joins": {
     "customer_order": { "filters": { "status": "pending" } }
   },
@@ -62,6 +65,31 @@ Without prefix, routes are at root: `/search/customer`, `/rest/customer/:id`, et
 ### Filters
 
 Pass any schema field as a key in `filters`. The plugin auto-applies `WHERE col = value` for each. Extra filters (defined via `extraFiltersValidation` in the table config) are also accepted but handled by custom logic.
+
+### Join Filters (filter main by related table)
+
+`joinFilters` restrict **main table results** based on conditions on a related table. Only tables listed in `allowedReadJoins` are available. Uses `EXISTS` subquery — no duplicate rows, works correctly with pagination.
+
+```json
+{
+  "filters": { "name": "Mario" },
+  "joinFilters": {
+    "customer_label_link": { "labelId": 1 }
+  }
+}
+```
+
+SQL generated:
+```sql
+SELECT * FROM "customer"
+WHERE "name" = $1
+  AND EXISTS (SELECT 1 FROM "customer_label_link"
+    WHERE "customer_id" = "customer"."id" AND "label_id" = $2)
+```
+
+`joinFilters` support the same filter fields as the related table (schema fields + extra filters defined via `extendedCondition`). Can be combined with `filters`, `joins`, `joinGroups`, and pagination.
+
+**Key difference from `joins`**: `joinFilters` filter which main records are returned. `joins` fetch related data for the returned main records. They can be used together.
 
 ### Joins
 
@@ -109,13 +137,14 @@ If not specified, the table's `defaultOrder` is used.
 
 ### Pagination
 
-Add `page` to the query string to enable pagination:
+Add `page` or `itemsPerPage` to the query string to enable pagination:
 
 ```
 ?page=1&itemsPerPage=20
+?itemsPerPage=10          # page defaults to 1
 ```
 
-When `page` is present, the response includes a `pagination` object with total count, total pages, and the paginator values. `itemsPerPage` defaults to 500 if not specified.
+When either is present, the response includes a `pagination` object with total count, total pages, and the paginator values. `page` defaults to 1, `itemsPerPage` defaults to 500.
 
 ### Computed values (aggregations on main table)
 
@@ -123,7 +152,7 @@ When `page` is present, the response includes a `pagination` object with total c
 ?computeMin=id&computeMax=id&computeSum=total&computeAvg=total
 ```
 
-These compute aggregates on the main table's result set (respecting filters). Results appear in `pagination.computed`. Requires `page` to be set.
+These compute aggregates on the main table's result set (respecting filters). Results appear in `pagination.computed`. Requires pagination to be active (`page` or `itemsPerPage` set).
 
 ### Response
 

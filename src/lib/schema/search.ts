@@ -22,6 +22,7 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
 
   // Joins & JoinGroups from allowedReadJoins
   const joinProperties: Record<string, ReturnType<typeof Type.Object>> = {};
+  const joinFilterProperties: Record<string, ReturnType<typeof Type.Partial>> = {};
   const joinGroupProperties: Record<string, ReturnType<typeof Type.Object>> = {};
 
   if (tableConf.allowedReadJoins) {
@@ -36,6 +37,8 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
       joinProperties[joinTableName] = Type.Object({
         filters: Type.Optional(Type.Partial(Type.Object(joinFilterFields))),
       });
+
+      joinFilterProperties[joinTableName] = Type.Partial(Type.Object(joinFilterFields));
 
       joinGroupProperties[joinTableName] = Type.Object({
         aggregations: Type.Object({
@@ -55,6 +58,7 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
   };
 
   if (Object.keys(joinProperties).length > 0) {
+    bodyProperties.joinFilters = Type.Optional(Type.Partial(Type.Object(joinFilterProperties)));
     bodyProperties.joins = Type.Optional(Type.Partial(Type.Object(joinProperties)));
     bodyProperties.joinGroups = Type.Optional(Type.Partial(Type.Object(joinGroupProperties)));
   }
