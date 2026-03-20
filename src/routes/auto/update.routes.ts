@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { UpdateTableBody, UpdateTableResponse } from '../../lib/schema/update.js';
+import { mergeOnRequests, buildWriteDescription } from './route-helpers.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
 export default async function updateRoutes(
@@ -12,14 +13,6 @@ export default async function updateRoutes(
     const bodySchema = UpdateTableBody(DbTables, tableName);
     const responseSchema = UpdateTableResponse(DbTables, tableName);
 
-    const joinList = tableConf.allowedWriteJoins
-      ?.map(([joinSchema]) => joinSchema.tableName)
-      .join(', ');
-    const description = [
-      `Update a record in ${tableName}`,
-      joinList && `Available secondaries/deletions: ${joinList}`,
-    ].filter(Boolean).join('. ');
-
     fastify.route({
       method: 'PUT',
       url: `/rest/${tableConf.Schema.tableName}`,
@@ -28,9 +21,9 @@ export default async function updateRoutes(
         response: { 200: responseSchema },
         tags: [`SqlAPI-${tableName}`],
         summary: `Update ${tableName}`,
-        description,
+        description: buildWriteDescription('Update a record in', tableName, tableConf),
       },
-      onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
+      onRequest: mergeOnRequests(options, tableConf),
       handler: async (request, reply) => {
         const body = request.body as {
           main: Record<string, unknown>;

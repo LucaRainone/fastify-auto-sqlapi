@@ -1,6 +1,6 @@
 import type { FastifyRequest } from 'fastify';
 import type { QueryClient } from './db.js';
-import { ConditionBuilder, type ConditionValue } from 'node-condition-builder';
+import { ConditionBuilder, type ConditionValue, type ConditionValueOrUndefined } from 'node-condition-builder';
 import type {
   ITable,
   SqlApiPluginOptions,
@@ -120,6 +120,40 @@ export async function validateTenantFK(
     err.statusCode = 403;
     throw err;
   }
+}
+
+/**
+ * Build WHERE clause for DELETE with tenant filtering.
+ * Handles both direct (simple AND) and indirect (subquery via JOIN) scopes.
+ */
+export function buildTenantDeleteWhere(
+  db: QueryClient,
+  tableName: string,
+  pkCol: string,
+  pkValue: ConditionValueOrUndefined | ConditionValue[],
+  tenant: TenantContext
+): { where: string; values: unknown[] } {
+  if (isIndirect(tenant.scope)) {
+    const innerCb = new ConditionBuilder('AND');
+    innerCb.isIn(`${db.qi(tableName)}.${db.qi(pkCol)}`, (Array.isArray(pkValue) ? pkValue : [pkValue]) as ConditionValue[]);
+    innerCb.append(buildTenantCondition(db, tenant.scope, tenant.ids));
+    const innerWhere = innerCb.build(1, db.ph);
+    const values = innerCb.getValues();
+    const joinSql = buildTenantJoin(db, tenant.scope, tableName);
+    const where = `${db.qi(pkCol)} IN (SELECT ${db.qi(tableName)}.${db.qi(pkCol)} FROM ${db.qi(tableName)} ${joinSql} WHERE ${innerWhere})`;
+    return { where, values };
+  }
+
+  const cb = new ConditionBuilder('AND');
+  if (Array.isArray(pkValue)) {
+    cb.isIn(db.qi(pkCol), pkValue);
+  } else {
+    cb.isEqual(db.qi(pkCol), pkValue);
+  }
+  cb.append(buildTenantCondition(db, tenant.scope, tenant.ids));
+  const where = cb.build(1, db.ph);
+  const values = cb.getValues();
+  return { where, values };
 }
 
 export function stripTenantColumn(

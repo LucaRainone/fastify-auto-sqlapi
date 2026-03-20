@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { BulkUpsertTableBody, BulkUpsertTableResponse } from '../../lib/schema/bulk-upsert.js';
+import { mergeOnRequests, buildWriteDescription } from './route-helpers.js';
 import type { SqlApiPluginOptions, BulkUpsertItem } from '../../types.js';
 
 export default async function bulkUpsertRoutes(
@@ -12,14 +13,6 @@ export default async function bulkUpsertRoutes(
     const bodySchema = BulkUpsertTableBody(DbTables, tableName);
     const responseSchema = BulkUpsertTableResponse(DbTables, tableName);
 
-    const joinList = tableConf.allowedWriteJoins
-      ?.map(([joinSchema]) => joinSchema.tableName)
-      .join(', ');
-    const description = [
-      `Bulk upsert records in ${tableName}`,
-      joinList && `Available secondaries/deletions: ${joinList}`,
-    ].filter(Boolean).join('. ');
-
     fastify.route({
       method: 'PUT',
       url: `/bulk/${tableConf.Schema.tableName}`,
@@ -28,9 +21,9 @@ export default async function bulkUpsertRoutes(
         response: { 200: responseSchema },
         tags: [`SqlAPI-${tableName}`],
         summary: `Bulk upsert ${tableName}`,
-        description,
+        description: buildWriteDescription('Bulk upsert records in', tableName, tableConf),
       },
-      onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
+      onRequest: mergeOnRequests(options, tableConf),
       handler: async (request, reply) => {
         const items = request.body as BulkUpsertItem[];
         reply.send(await fastify.sqlApi.bulkUpsert(tableName, items, request));

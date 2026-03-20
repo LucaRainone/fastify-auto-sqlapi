@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { SearchTableBodyPost, SearchTableQueryString, SearchTableResponse } from '../../lib/schema/search.js';
+import { mergeOnRequests } from './route-helpers.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
 export default async function searchRoutes(
@@ -29,7 +30,7 @@ export default async function searchRoutes(
         summary: `Search ${tableName}`,
         description,
       },
-      onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
+      onRequest: mergeOnRequests(options, tableConf),
       handler: async (request, reply) => {
         const body = request.body as Record<string, any>;
         const query = request.query as Record<string, any>;

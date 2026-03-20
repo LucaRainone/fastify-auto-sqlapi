@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { Type } from '@sinclair/typebox';
+import { mergeOnRequests } from './route-helpers.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
 export default async function getRoutes(
@@ -23,7 +24,7 @@ export default async function getRoutes(
         summary: `Get ${tableName}`,
         description: `Get a record from ${tableName} by primary key`,
       },
-      onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
+      onRequest: mergeOnRequests(options, tableConf),
       handler: async (request, reply) => {
         const { id } = request.params as { id: string };
         reply.send(await fastify.sqlApi.get(tableName, id, request));

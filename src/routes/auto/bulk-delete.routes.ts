@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { BulkDeleteTableBody, BulkDeleteTableResponse } from '../../lib/schema/bulk-delete.js';
 import { primaryAsString } from '../../types.js';
+import { mergeOnRequests } from './route-helpers.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
 export default async function bulkDeleteRoutes(
@@ -23,7 +24,7 @@ export default async function bulkDeleteRoutes(
         summary: `Bulk delete ${tableName}`,
         description: `Delete multiple records from ${tableName} by primary key`,
       },
-      onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
+      onRequest: mergeOnRequests(options, tableConf),
       handler: async (request, reply) => {
         const items = request.body as Record<string, unknown>[];
         const ids = items.map((item) => item[primaryAsString(tableConf.primary)] as string | number);

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { Type } from '@sinclair/typebox';
 import { primaryAsString } from '../../types.js';
+import { mergeOnRequests } from './route-helpers.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
 export default async function deleteRoutes(
@@ -26,7 +27,7 @@ export default async function deleteRoutes(
         summary: `Delete ${tableName}`,
         description: `Delete a record from ${tableName} by primary key`,
       },
-      onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
+      onRequest: mergeOnRequests(options, tableConf),
       handler: async (request, reply) => {
         const { id } = request.params as { id: string };
         reply.send(await fastify.sqlApi.delete(tableName, id, request));
