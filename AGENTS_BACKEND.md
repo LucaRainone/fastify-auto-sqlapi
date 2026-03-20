@@ -177,6 +177,8 @@ await app.register(async (instance) => {
 }, { prefix: '/auto' });
 ```
 
+**Note**: After registering the plugin, `app.sqlApi` is available for custom routes — see [SqlApi](#sqlapi--programmatic-high-level-api).
+
 ---
 
 ## defineTable() — Complete Reference
@@ -340,6 +342,85 @@ cb.append(otherConditionBuilder);        // nest conditions
 ```
 
 All values are parameterized (`$1, $2, ...`), never interpolated.
+
+---
+
+## SqlApi — Programmatic High-Level API
+
+Use `SqlApi` to perform CRUD operations from custom routes with the same capabilities as the auto-generated endpoints. The internal auto-generated routes also use `SqlApi`, guaranteeing a single code path.
+
+### Using `app.sqlApi` (recommended)
+
+After registering the plugin, `app.sqlApi` is available everywhere — no extra configuration needed:
+
+```typescript
+await app.register(fastifyAutoSqlApi, {
+  DbTables: dbTables,
+  dialect: 'mysql',
+  swagger: true,
+  prefix: '/auto',
+});
+
+// app.sqlApi is available in any route — even outside the plugin scope
+app.get('/billing/:customerId', async (request) => {
+  const customerId = Number(request.params.customerId);
+  return app.sqlApi.search('subscription', {
+    filters: { customerId, status: 'active' },
+    joinFilters: { customer_order: { status: 'pending' } },
+    paginator: { page: 1, itemsPerPage: 50 },
+  }, request);
+});
+```
+
+`app.sqlApi` inherits all configuration from the plugin registration (dialect, DbTables, tenant, debug). No need to pass them again.
+
+### Using `createSqlApi` (standalone — for background jobs or without the plugin)
+
+When you need a `SqlApi` instance without registering the full plugin (e.g. background jobs, scripts, tests):
+
+```typescript
+import { createSqlApi, mysqlQueryable } from 'fastify-auto-sqlapi';
+
+// Option 1: pass a raw pool — SqlApi creates the QueryClient internally
+const sqlApi = createSqlApi(mysqlQueryable(pool), dbTables, { dialect: 'mysql' });
+
+// Option 2: pass a pre-built QueryClient
+import { createQueryClient } from 'fastify-auto-sqlapi';
+const db = createQueryClient(mysqlQueryable(pool), 'mysql');
+const sqlApi = createSqlApi(db, dbTables, { dialect: 'mysql' });
+```
+
+**Important**: when using `createSqlApi` standalone, always pass `dialect` in the options. It configures both the QueryClient (identifier quoting, placeholders) and the ConditionBuilder (used by filters). Without it, defaults to PostgreSQL syntax.
+
+### Available methods
+
+```typescript
+// Search — full filter, join, pagination, aggregation support
+sqlApi.search(tableName, {
+  filters?, joinFilters?, joins?, joinGroups?,
+  orderBy?, paginator?, computeMin?, computeMax?, computeSum?, computeAvg?,
+}, request?): Promise<SearchResult>
+
+// Get single record by PK
+sqlApi.get(tableName, id, request?): Promise<GetResult>
+
+// Insert — with optional secondaries, hooks, tenant
+sqlApi.insert(tableName, { record, secondaries? }, request?): Promise<InsertResult>
+
+// Update — with optional secondaries, deletions, hooks, tenant
+sqlApi.update(tableName, { record, secondaries?, deletions? }, request?): Promise<UpdateResult>
+
+// Delete by PK
+sqlApi.delete(tableName, id, request?): Promise<DeleteResult>
+
+// Bulk upsert
+sqlApi.bulkUpsert(tableName, items, request?): Promise<BulkUpsertResult[]>
+
+// Bulk delete
+sqlApi.bulkDelete(tableName, ids, request?): Promise<BulkDeleteResult[]>
+```
+
+The `request` parameter is optional. Pass it when you need tenant resolution or hooks (which receive `req`). Without it, tenant filtering is skipped and hooks receive `undefined` as the request.
 
 ---
 

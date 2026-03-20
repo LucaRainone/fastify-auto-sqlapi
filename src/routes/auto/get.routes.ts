@@ -1,7 +1,5 @@
 import type { FastifyInstance } from 'fastify';
 import { Type } from '@sinclair/typebox';
-import { getEngine } from '../../lib/engine/rest/get.js';
-import { resolveTenant } from '../../lib/tenant.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
 export default async function getRoutes(
@@ -27,13 +25,8 @@ export default async function getRoutes(
       },
       onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
       handler: async (request, reply) => {
-        const db = fastify.db;
-        const tenant = await resolveTenant(options, tableConf, request);
         const { id } = request.params as { id: string };
-
-        const result = await getEngine({ db, tableConf, id, tenant });
-
-        reply.send(result);
+        reply.send(await fastify.sqlApi.get(tableName, id, request));
       },
     });
   }

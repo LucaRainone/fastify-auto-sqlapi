@@ -1,9 +1,11 @@
 import type { FastifyInstance } from 'fastify';
+import fp from 'fastify-plugin';
 import { ConditionBuilder } from 'node-condition-builder';
 import { getDialect } from '../../lib/dialect.js';
-import { createQueryClient, type QueryClient } from '../../lib/db.js';
+import { createQueryClient } from '../../lib/db.js';
 import { pgQueryable } from '../../lib/adapters/pg-adapter.js';
 import { mysqlQueryable } from '../../lib/adapters/mysql-adapter.js';
+import { createSqlApi, type SqlApi } from '../../lib/sql-api.js';
 import { setupSwagger } from '../../lib/setup-swagger.js';
 import searchRoutes from './search.routes.js';
 import getRoutes from './get.routes.js';
@@ -16,11 +18,11 @@ import type { SqlApiPluginOptions } from '../../types.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
-    db: QueryClient;
+    sqlApi: SqlApi;
   }
 }
 
-export default async function fastifyAutoSqlApi(
+export default fp(async function fastifyAutoSqlApi(
   fastify: FastifyInstance,
   options: SqlApiPluginOptions
 ): Promise<void> {
@@ -28,36 +30,45 @@ export default async function fastifyAutoSqlApi(
   const dialect = getDialect(options.dialect || 'postgres');
   ConditionBuilder.DIALECT = dialect.cbDialect;
 
-  // Lazy-init QueryClient on first access, cached for all subsequent requests.
-  // Encapsulated: only visible inside this plugin and its sub-routes.
-  let cachedDb: QueryClient | undefined;
-  fastify.decorate('db', {
+  // Lazy-init QueryClient (internal closure — not decorated on fastify)
+  let cachedDb: ReturnType<typeof createQueryClient> | undefined;
+  function getDb() {
+    if (!cachedDb) {
+      const pool = (options.dialect === 'mysql' || options.dialect === 'mariadb')
+        ? mysqlQueryable((fastify as any).mysql)
+        : pgQueryable((fastify as any).pg);
+      cachedDb = createQueryClient(pool, options.dialect);
+      if (options.debug) cachedDb.setDebug(true);
+    }
+    return cachedDb;
+  }
+
+  // SqlApi: exposed to parent scope via fp
+  let cachedSqlApi: SqlApi | undefined;
+  fastify.decorate('sqlApi', {
     getter() {
-      if (!cachedDb) {
-        const pool = (options.dialect === 'mysql' || options.dialect === 'mariadb')
-          ? mysqlQueryable((fastify as any).mysql)
-          : pgQueryable((fastify as any).pg);
-        cachedDb = createQueryClient(pool, options.dialect);
-        console.log({options})
-        if (options.debug) cachedDb.setDebug(true);
+      if (!cachedSqlApi) {
+        cachedSqlApi = createSqlApi(getDb(), options.DbTables, {
+          getTenantId: options.getTenantId,
+        });
       }
-      return cachedDb;
+      return cachedSqlApi;
     },
   });
 
-  if (options.swagger) {
-    await setupSwagger(fastify, options);
-  }
+  // Routes in a child scope — prefix applies here, not at fp level
+  const { prefix, ...routeOptions } = options;
+  await fastify.register(async (instance) => {
+    if (options.swagger) {
+      await setupSwagger(instance, options);
+    }
 
-  // Strip prefix to avoid double-prefixing: Fastify already applied
-  // it when the consumer registered this plugin.
-  const { prefix: _prefix, ...routeOptions } = options;
-
-  await fastify.register(searchRoutes, routeOptions);
-  await fastify.register(getRoutes, routeOptions);
-  await fastify.register(insertRoutes, routeOptions);
-  await fastify.register(updateRoutes, routeOptions);
-  await fastify.register(deleteRoutes, routeOptions);
-  await fastify.register(bulkUpsertRoutes, routeOptions);
-  await fastify.register(bulkDeleteRoutes, routeOptions);
-}
+    await instance.register(searchRoutes, routeOptions);
+    await instance.register(getRoutes, routeOptions);
+    await instance.register(insertRoutes, routeOptions);
+    await instance.register(updateRoutes, routeOptions);
+    await instance.register(deleteRoutes, routeOptions);
+    await instance.register(bulkUpsertRoutes, routeOptions);
+    await instance.register(bulkDeleteRoutes, routeOptions);
+  }, { prefix });
+}, { name: 'fastify-auto-sqlapi' });

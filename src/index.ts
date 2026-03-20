@@ -23,6 +23,10 @@ export { exportTableInfo, defineTable, buildRelation, buildUpsertRule, buildUpse
 // Tenant
 export { resolveTenant } from './lib/tenant.js';
 
+// SqlApi — programmatic high-level API
+export { SqlApi, createSqlApi } from './lib/sql-api.js';
+export type { SqlApiOptions, SqlApiSearchParams, SqlApiInsertParams, SqlApiUpdateParams } from './lib/sql-api.js';
+
 
 // Plugin
 export { default as fastifyAutoSqlApi } from './routes/auto/plugin.js';

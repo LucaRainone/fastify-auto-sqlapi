@@ -1,6 +1,4 @@
 import type { FastifyInstance } from 'fastify';
-import { searchEngine } from '../../lib/engine/search/search.js';
-import { resolveTenant } from '../../lib/tenant.js';
 import { SearchTableBodyPost, SearchTableQueryString, SearchTableResponse } from '../../lib/schema/search.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
@@ -33,15 +31,10 @@ export default async function searchRoutes(
       },
       onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
       handler: async (request, reply) => {
-        const db = fastify.db;
-        const tenant = await resolveTenant(options, tableConf, request);
-
         const body = request.body as Record<string, any>;
         const query = request.query as Record<string, any>;
 
-        const result = await searchEngine(DbTables, {
-          db,
-          tableConf,
+        const result = await fastify.sqlApi.search(tableName, {
           filters: body.filters,
           joinFilters: body.joinFilters,
           joins: body.joins,
@@ -57,8 +50,7 @@ export default async function searchRoutes(
           computeMax: query.computeMax,
           computeSum: query.computeSum,
           computeAvg: query.computeAvg,
-          tenant,
-        });
+        }, request);
 
         reply.send({ table: tableConf.Schema.tableName, ...result });
       },

@@ -1,6 +1,4 @@
 import type { FastifyInstance } from 'fastify';
-import { updateEngine } from '../../lib/engine/rest/update.js';
-import { resolveTenant } from '../../lib/tenant.js';
 import { UpdateTableBody, UpdateTableResponse } from '../../lib/schema/update.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
@@ -34,24 +32,18 @@ export default async function updateRoutes(
       },
       onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
       handler: async (request, reply) => {
-        const db = fastify.db;
-        const tenant = await resolveTenant(options, tableConf, request);
         const body = request.body as {
           main: Record<string, unknown>;
           secondaries?: Record<string, Record<string, unknown>[]>;
           deletions?: Record<string, Record<string, unknown>[]>;
         };
 
-        const result = await updateEngine({
-          db,
-          tableConf,
-          dbTables: DbTables,
-          request,
+        const result = await fastify.sqlApi.update(tableName, {
           record: body.main,
           secondaries: body.secondaries,
           deletions: body.deletions,
-          tenant,
-        });
+        }, request);
+
         reply.send(result);
       },
     });

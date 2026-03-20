@@ -8,7 +8,7 @@ The plugin generates REST endpoints (search, get, insert, update, delete, bulk u
 
 ## Documentation
 
-- **[AGENTS_BACKEND.md](./AGENTS_BACKEND.md)** — Setup workflow, CLI, schema/table generation, `defineTable()` complete reference, `buildRelation`, `extraFilters` + `extendedCondition`, ConditionBuilder API, QueryClient API, Swagger, multi-tenant configuration, hooks, key conventions, common backend patterns, FAQ/gotchas, dialect differences.
+- **[AGENTS_BACKEND.md](./AGENTS_BACKEND.md)** — Setup workflow, CLI, schema/table generation, `defineTable()` complete reference, `buildRelation`, `extraFilters` + `extendedCondition`, **SqlApi** (programmatic high-level API for custom routes), ConditionBuilder API, QueryClient API, Swagger, multi-tenant configuration, hooks, key conventions, common backend patterns, FAQ/gotchas, dialect differences.
 
 - **[AGENTS_FRONTEND.md](./AGENTS_FRONTEND.md)** — Generated endpoints overview, search (POST with body filters + query params for ordering/pagination/aggregation), joinFilters (EXISTS-based filtering by related tables), GET, INSERT (with secondaries), UPDATE (with secondaries + deletions), DELETE, bulk upsert, bulk delete, response shapes (PK-only), joins usage, joinGroups/aggregations, pagination, computed values.
 

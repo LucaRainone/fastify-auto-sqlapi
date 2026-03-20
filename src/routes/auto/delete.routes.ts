@@ -1,7 +1,5 @@
 import type { FastifyInstance } from 'fastify';
 import { Type } from '@sinclair/typebox';
-import { deleteEngine } from '../../lib/engine/rest/delete.js';
-import { resolveTenant } from '../../lib/tenant.js';
 import { primaryAsString } from '../../types.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
@@ -30,13 +28,8 @@ export default async function deleteRoutes(
       },
       onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
       handler: async (request, reply) => {
-        const db = fastify.db;
-        const tenant = await resolveTenant(options, tableConf, request);
         const { id } = request.params as { id: string };
-
-        const result = await deleteEngine({ db, tableConf, id, tenant });
-
-        reply.send(result);
+        reply.send(await fastify.sqlApi.delete(tableName, id, request));
       },
     });
   }
