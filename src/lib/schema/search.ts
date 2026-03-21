@@ -53,8 +53,16 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
     }
   }
 
+  // Conditions: advanced filters with ConditionBuilder methods
+  const conditionItemSchema = Type.Object({
+    field: Type.String(),
+    method: Type.String(),
+    params: Type.Optional(Type.Array(Type.Any())),
+  });
+
   const bodyProperties: Record<string, unknown> = {
     filters: filtersSchema,
+    conditions: Type.Optional(Type.Array(conditionItemSchema)),
   };
 
   if (Object.keys(joinProperties).length > 0) {

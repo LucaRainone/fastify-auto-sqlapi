@@ -14,6 +14,7 @@ import type {
   DbTables,
   Queryable,
   FilterRecord,
+  SearchCondition,
   Paginator,
   JoinGroupRequest,
   SearchResult,
@@ -33,6 +34,7 @@ import type {
 
 export interface SqlApiSearchParams {
   filters?: FilterRecord;
+  conditions?: SearchCondition[];
   joinFilters?: Record<string, FilterRecord>;
   joins?: Record<string, { filters?: FilterRecord }>;
   joinGroups?: Record<string, JoinGroupRequest>;
@@ -112,6 +114,7 @@ export class SqlApi {
       db: this.db,
       tableConf,
       filters: params.filters,
+      conditions: params.conditions,
       joinFilters: params.joinFilters,
       joins: params.joins,
       joinGroups: params.joinGroups,

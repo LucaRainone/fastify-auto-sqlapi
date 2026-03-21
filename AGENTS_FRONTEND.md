@@ -41,6 +41,9 @@ Without prefix, routes are at root: `/search/customer`, `/rest/customer/:id`, et
 ```json
 {
   "filters": { "name": "Mario", "q": "search term" },
+  "conditions": [
+    { "field": "createdAt", "method": "isGreater", "params": ["2024-01-01"] }
+  ],
   "joinFilters": {
     "customer_label_link": { "labelId": 1 }
   },
@@ -65,6 +68,44 @@ Without prefix, routes are at root: `/search/customer`, `/rest/customer/:id`, et
 ### Filters
 
 Pass any schema field as a key in `filters`. The plugin auto-applies `WHERE col = value` for each. Extra filters (defined via `extraFiltersValidation` in the table config) are also accepted but handled by custom logic.
+
+### Conditions (advanced filters)
+
+`conditions` allows using any ConditionBuilder method for advanced comparisons. Each condition specifies a `field`, a `method`, and `params` (values after the field).
+
+```json
+{
+  "filters": { "status": "active" },
+  "conditions": [
+    { "field": "total", "method": "isGreater", "params": [100] },
+    { "field": "total", "method": "isLess", "params": [500] },
+    { "field": "name", "method": "isILike", "params": ["%mario%"] },
+    { "field": "createdAt", "method": "isBetween", "params": ["2024-01-01", "2024-12-31"] },
+    { "field": "status", "method": "isIn", "params": [["active", "pending"]] },
+    { "field": "deletedAt", "method": "isNull", "params": [] }
+  ]
+}
+```
+
+**Available methods** (mapped to ConditionBuilder):
+
+| Method | SQL | params |
+|---|---|---|
+| `isEqual`, `isNotEqual` | `= $1` / `!= $1` | `[value]` |
+| `isGreater`, `isGreaterOrEqual` | `> $1` / `>= $1` | `[value]` |
+| `isLess`, `isLessOrEqual` | `< $1` / `<= $1` | `[value]` |
+| `isLike`, `isNotLike` | `LIKE $1` | `["%pattern%"]` |
+| `isILike`, `isNotILike` | `ILIKE $1` | `["%pattern%"]` |
+| `isIn`, `isNotIn` | `IN (...)` | `[[val1, val2]]` |
+| `isBetween`, `isNotBetween` | `BETWEEN $1 AND $2` | `[from, to]` |
+| `isNull`, `isNotNull` | `IS NULL` / `IS NOT NULL` | `[]` |
+
+Also available: `isNotGreater`, `isNotGreaterOrEqual`, `isNotLess`, `isNotLessOrEqual`.
+
+- **Multiple conditions on the same field** — it's an array, so `total > 100 AND total < 500` is natural
+- **Combinable** with `filters` (equality), `joinFilters` (EXISTS), pagination, etc.
+- **Field validation** — field names are validated against the table schema (400 if unknown)
+- **Method validation** — only whitelisted methods are allowed (`raw`, `append` etc. are blocked)
 
 ### Join Filters (filter main by related table)
 

@@ -107,6 +107,8 @@ export type {
   BulkUpsertResult,
   BulkDeleteParams,
   BulkDeleteResult,
+  ConditionMethod,
+  SearchCondition,
   UpdateParams,
   UpdateResult,
   TenantId,

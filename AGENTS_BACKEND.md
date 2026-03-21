@@ -326,20 +326,28 @@ export const TableCustomer = defineTable({
 
 ## ConditionBuilder API
 
-Used in `extendedCondition` callbacks and hooks:
+Used in `extendedCondition` callbacks, hooks, and exposed via the `conditions` field in the search API (see [AGENTS_FRONTEND.md](./AGENTS_FRONTEND.md#conditions-advanced-filters)).
 
 ```typescript
 const cb = new ConditionBuilder('AND');  // or 'OR'
 cb.isEqual('column', value);
+cb.isNotEqual('column', value);
+cb.isGreater('column', value);
+cb.isGreaterOrEqual('column', value);
+cb.isLess('column', value);
+cb.isLessOrEqual('column', value);
 cb.isLike('column', '%value%');
 cb.isILike('column', '%value%');         // case-insensitive LIKE
 cb.isBetween('column', from, to);
 cb.isIn('column', [val1, val2]);
-cb.isNull('column');
-cb.isGreater('column', value);
-cb.raw('column::text = $1', [value]);    // raw SQL with params
-cb.append(otherConditionBuilder);        // nest conditions
+cb.isNotIn('column', [val1, val2]);
+cb.isNull('column', true);
+cb.isNotNull('column', true);
+cb.raw('column::text = $1', [value]);    // raw SQL with params (backend only, NOT exposed in API)
+cb.append(otherConditionBuilder);        // nest conditions (backend only, NOT exposed in API)
 ```
+
+All field-based methods (except `raw` and `append`) are available in the search API `conditions` array. New methods added to ConditionBuilder are automatically available after adding them to the whitelist.
 
 All values are parameterized (`$1, $2, ...`), never interpolated.
 

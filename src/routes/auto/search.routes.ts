@@ -37,6 +37,7 @@ export default async function searchRoutes(
 
         const result = await fastify.sqlApi.search(tableName, {
           filters: body.filters,
+          conditions: body.conditions,
           joinFilters: body.joinFilters,
           joins: body.joins,
           joinGroups: body.joinGroups,
