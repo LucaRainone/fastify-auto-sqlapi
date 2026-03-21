@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyError } from 'fastify';
 import fp from 'fastify-plugin';
 import { ConditionBuilder } from 'node-condition-builder';
 import { getDialect } from '../../lib/dialect.js';
@@ -59,6 +59,29 @@ export default fp(async function fastifyAutoSqlApi(
   // Routes in a child scope — prefix applies here, not at fp level
   const { prefix, ...routeOptions } = options;
   await fastify.register(async (instance) => {
+    // Structured validation errors with field-level detail
+    instance.setErrorHandler((error: FastifyError, request, reply) => {
+      if (error.validation) {
+        const fields = error.validation.map((v) => ({
+          path: `${error.validationContext}${v.instancePath || ''}`.replace(/\//g, '.').replace(/^\./, ''),
+          message: v.message || 'invalid',
+          code: v.keyword || 'unknown',
+        }));
+        return reply.status(400).send({
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'Validation failed',
+          fields,
+        });
+      }
+      const statusCode = error.statusCode || 500;
+      reply.status(statusCode).send({
+        statusCode,
+        error: error.name || 'Error',
+        message: error.message,
+      });
+    });
+
     if (options.swagger) {
       await setupSwagger(instance, options);
     }
