@@ -49,6 +49,14 @@
   },
   "author": "Luca Rainone",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LucaRainone/fastify-auto-sqlapi.git"
+  },
+  "bugs": {
+    "url": "https://github.com/LucaRainone/fastify-auto-sqlapi/issues"
+  },
+  "homepage": "https://github.com/LucaRainone/fastify-auto-sqlapi#readme",
   "dependencies": {
     "@sinclair/typebox": "^0.34.14",
     "node-condition-builder": "^1.0.6"
