@@ -1,4 +1,5 @@
 import { Type, type TObject, type TSchema } from '@sinclair/typebox';
+import { ALLOWED_METHODS } from '../condition-methods.js';
 import type { DbTables } from '../../types.js';
 
 const JoinGroupResultItem = Type.Object({
@@ -54,9 +55,10 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
   }
 
   // Conditions: advanced filters with ConditionBuilder methods
+  const methodEnum = Type.Union(ALLOWED_METHODS.map((m) => Type.Literal(m)));
   const conditionItemSchema = Type.Object({
     field: Type.String(),
-    method: Type.String(),
+    method: methodEnum,
     params: Type.Optional(Type.Array(Type.Any())),
   });
 

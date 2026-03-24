@@ -297,19 +297,9 @@ function collectIds(
 
 // ─── Conditions (advanced filters) ──────────────────────────
 
-const SINGLE_VALUE_METHODS = new Set<string>([
-  'isEqual', 'isNotEqual',
-  'isGreater', 'isNotGreater', 'isGreaterOrEqual', 'isNotGreaterOrEqual',
-  'isLess', 'isNotLess', 'isLessOrEqual', 'isNotLessOrEqual',
-  'isLike', 'isNotLike', 'isILike', 'isNotILike',
-]);
-const BETWEEN_METHODS = new Set<string>(['isBetween', 'isNotBetween']);
-const IN_METHODS = new Set<string>(['isIn', 'isNotIn']);
-const NULL_METHODS = new Set<string>(['isNull', 'isNotNull']);
-
-const ALLOWED_METHODS = new Set<string>([
-  ...SINGLE_VALUE_METHODS, ...BETWEEN_METHODS, ...IN_METHODS, ...NULL_METHODS,
-]);
+import {
+  ALLOWED_SET, SINGLE_VALUE_SET, BETWEEN_SET, IN_SET, NULL_SET,
+} from '../../condition-methods.js';
 
 function applyConditions(
   condition: ConditionBuilder,
@@ -319,7 +309,7 @@ function applyConditions(
 ): void {
   for (const c of conditions) {
     // Validate method — whitelist only, blocks prototype poisoning
-    if (!ALLOWED_METHODS.has(c.method)) {
+    if (!ALLOWED_SET.has(c.method)) {
       const err = new Error(`Invalid condition method: ${c.method}`) as Error & { statusCode: number };
       err.statusCode = 400;
       throw err;
@@ -327,13 +317,13 @@ function applyConditions(
 
     const col = db.qi(validateSchemaField(c.field, schema));
 
-    if (SINGLE_VALUE_METHODS.has(c.method)) {
+    if (SINGLE_VALUE_SET.has(c.method)) {
       (condition[c.method as keyof ConditionBuilder] as Function)(col, c.params[0]);
-    } else if (BETWEEN_METHODS.has(c.method)) {
+    } else if (BETWEEN_SET.has(c.method)) {
       (condition[c.method as keyof ConditionBuilder] as Function)(col, c.params[0], c.params[1]);
-    } else if (IN_METHODS.has(c.method)) {
+    } else if (IN_SET.has(c.method)) {
       (condition[c.method as keyof ConditionBuilder] as Function)(col, c.params[0]);
-    } else if (NULL_METHODS.has(c.method)) {
+    } else if (NULL_SET.has(c.method)) {
       (condition[c.method as keyof ConditionBuilder] as Function)(col, true);
     }
   }
