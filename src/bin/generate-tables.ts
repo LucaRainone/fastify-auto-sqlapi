@@ -2,39 +2,85 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { loadConfig } from '../lib/cli/config.js';
-import { parseSchemaFile, generateTablesFile } from '../lib/cli/tables-codegen.js';
+import { parseSchemaFile, generateSingleTableFile, generateDbTablesIndex } from '../lib/cli/tables-codegen.js';
 import type { ParsedSchema } from '../lib/cli/tables-codegen.js';
-import { CONSOLE_COLORS, display, displayAsTableRow, error } from './utils.js';
+import { loadEnvFile, CONSOLE_COLORS, display, displayAsTableRow, error } from './utils.js';
 
-function parseCliArgs(): { output?: string } {
+loadEnvFile();
+
+function printHelp(): void {
+  console.log('');
+  display('Usage:', CONSOLE_COLORS.yellow);
+  console.log('  sqlapi-generate-tables <table1> [table2 ...]   Generate specific tables (comma or space separated)');
+  console.log('  sqlapi-generate-tables --all                   Generate all tables');
+  console.log('');
+  display('Options:', CONSOLE_COLORS.yellow);
+  console.log('  --all                Generate Table*.ts for all schemas found');
+  console.log('  --output <dir>       Output directory (default: from sqlapi.config)');
+  console.log('');
+  display('Examples:', CONSOLE_COLORS.yellow);
+  console.log('  sqlapi-generate-tables customer customer_order');
+  console.log('  sqlapi-generate-tables customer,customer_order');
+  console.log('  sqlapi-generate-tables --all');
+  console.log('');
+  display('Table*.ts files are only created if they do not already exist.', CONSOLE_COLORS.magenta);
+  display('dbTables.ts is always regenerated to include all schemas.', CONSOLE_COLORS.magenta);
+}
+
+function parseCliArgs(): { output?: string; all: boolean; tables: string[] } {
   const args = process.argv.slice(2);
-  const result: { output?: string } = {};
+  const result: { output?: string; all: boolean; tables: string[] } = { all: false, tables: [] };
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--output' && i + 1 < args.length) {
       result.output = args[++i];
+    } else if (args[i] === '--all') {
+      result.all = true;
+    } else if (!args[i].startsWith('--')) {
+      // Split by comma to support both "a b" and "a,b" and "a, b"
+      for (const part of args[i].split(',')) {
+        const trimmed = part.trim();
+        if (trimmed) result.tables.push(trimmed);
+      }
     }
   }
   return result;
 }
 
 async function main(): Promise<void> {
+  const cliArgs = parseCliArgs();
+
+  if (!cliArgs.all && cliArgs.tables.length === 0) {
+    display(
+      '++++++ fastify-auto-sqlapi: generate tables template ++++++',
+      CONSOLE_COLORS.yellow
+    );
+    printHelp();
+    process.exit(1);
+  }
+
   display(
     '++++++ fastify-auto-sqlapi: generating tables template ++++++',
     CONSOLE_COLORS.yellow
   );
 
-  const cliArgs = parseCliArgs();
   const config = await loadConfig();
   const outputDir = path.resolve(process.cwd(), cliArgs.output || config.outputDir);
+  const schemasDir = path.join(outputDir, 'schemas');
+  const tablesDir = path.join(outputDir, 'tables');
 
-  if (!fs.existsSync(outputDir)) {
-    error(`Output directory not found: ${outputDir}`);
+  if (!fs.existsSync(schemasDir)) {
+    error(`Schemas directory not found: ${schemasDir}`);
     display('Run sqlapi-generate-schema first.', CONSOLE_COLORS.magenta);
     process.exit(1);
   }
 
+  if (!fs.existsSync(tablesDir)) {
+    fs.mkdirSync(tablesDir, { recursive: true });
+    display(`Created directory: ${tablesDir}`, CONSOLE_COLORS.green);
+  }
+
   const schemaFiles = fs
-    .readdirSync(outputDir)
+    .readdirSync(schemasDir)
     .filter((f) => f.startsWith('Schema') && f.endsWith('.ts'))
     .sort();
 
@@ -44,40 +90,65 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const schemas: ParsedSchema[] = [];
+  // Parse all schemas (needed for relation detection even when generating a subset)
+  const allSchemas: ParsedSchema[] = [];
   for (const file of schemaFiles) {
-    const content = fs.readFileSync(path.join(outputDir, file), 'utf-8');
+    const content = fs.readFileSync(path.join(schemasDir, file), 'utf-8');
     const parsed = parseSchemaFile(content);
     if (parsed) {
-      schemas.push(parsed);
-      displayAsTableRow(file, `${parsed.fields.length} fields`, 60, CONSOLE_COLORS.green);
-    } else {
-      displayAsTableRow(file, 'skipped (parse error)', 60, CONSOLE_COLORS.red);
+      allSchemas.push(parsed);
     }
   }
 
-  if (schemas.length === 0) {
+  if (allSchemas.length === 0) {
     error('No valid schemas parsed.');
     process.exit(1);
   }
 
-  const outputFile = path.join(outputDir, 'tables.ts');
-  const force = process.argv.includes('--force');
+  // Determine which schemas to generate Table files for
+  let targetSchemas: ParsedSchema[];
+  if (cliArgs.all) {
+    targetSchemas = allSchemas;
+  } else {
+    const requestedSet = new Set(cliArgs.tables);
+    targetSchemas = allSchemas.filter((s) => requestedSet.has(s.tableName));
 
-  if (fs.existsSync(outputFile) && !force) {
-    console.log('');
-    error(`${outputFile} already exists. Use --force to overwrite.`);
-    process.exit(1);
+    const foundNames = new Set(targetSchemas.map((s) => s.tableName));
+    for (const name of requestedSet) {
+      if (!foundNames.has(name)) {
+        error(`Table "${name}" not found. Available: ${allSchemas.map((s) => s.tableName).join(', ')}`);
+        process.exit(1);
+      }
+    }
   }
 
-  const content = generateTablesFile(schemas);
-  fs.writeFileSync(outputFile, content);
+  // Generate individual Table*.ts files (skip if already exists)
+  for (const schema of targetSchemas) {
+    const tableVarName = 'Table' + schema.schemaName.replace(/^Schema/, '');
+    const tableFile = path.join(tablesDir, `${tableVarName}.ts`);
+
+    if (fs.existsSync(tableFile)) {
+      displayAsTableRow(`${tableVarName}.ts`, 'skipped (already exists)', 60, CONSOLE_COLORS.gray);
+    } else {
+      const content = generateSingleTableFile(schema, allSchemas);
+      fs.writeFileSync(tableFile, content);
+      displayAsTableRow(`${tableVarName}.ts`, 'created', 60, CONSOLE_COLORS.green);
+    }
+  }
+
+  // Generate dbTables.ts only if it does not exist
+  const dbTablesFile = path.join(tablesDir, 'dbTables.ts');
+  if (fs.existsSync(dbTablesFile)) {
+    displayAsTableRow('dbTables.ts', 'skipped (already exists)', 60, CONSOLE_COLORS.gray);
+  } else {
+    const dbTablesContent = generateDbTablesIndex(allSchemas);
+    fs.writeFileSync(dbTablesFile, dbTablesContent);
+    displayAsTableRow('dbTables.ts', 'created', 60, CONSOLE_COLORS.green);
+  }
 
   console.log('');
-  displayAsTableRow(outputFile, force ? 'overwritten' : 'created', 90, CONSOLE_COLORS.green);
-  console.log('');
   display(
-    'Edit the generated file to customize your table configuration.',
+    'Edit the generated Table*.ts files to customize your table configuration.',
     CONSOLE_COLORS.magenta
   );
 }

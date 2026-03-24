@@ -1,14 +1,17 @@
-import type { QueryResult, QueryResultRow } from 'pg';
-import type { Expression, ConditionBuilder } from 'node-condition-builder';
+import type { Expression, ConditionBuilder, ConditionValueOrUndefined } from 'node-condition-builder';
 import type { TSchema, TObject } from '@sinclair/typebox';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { QueryClient } from './lib/db.js';
+import type { DialectName } from './lib/dialect.js';
+
+export type { DialectName } from './lib/dialect.js';
 
 // ─── CLI / Schema Generation ────────────────────────────────
 
 export interface SqlApiConfig {
   outputDir: string;
   schema?: string;
+  dialect?: DialectName;
 }
 
 export interface ColumnInfo {
@@ -28,11 +31,17 @@ export interface TableMap {
 
 // ─── Database ────────────────────────────────────────────────
 
+export interface SqlResult<T = Record<string, unknown>> {
+  rows: T[];
+  affectedRows: number;
+  insertId?: number;
+}
+
 export interface Queryable {
-  query<T extends QueryResultRow = QueryResultRow>(
+  query<T = Record<string, unknown>>(
     text: string,
     values?: unknown[]
-  ): Promise<QueryResult<T>>;
+  ): Promise<SqlResult<T>>;
 }
 
 export type DbRecordValue =
@@ -96,11 +105,12 @@ export type JoinDefinition = [SchemaDefinition, string, string | string[], strin
 
 // ─── Table Configuration ─────────────────────────────────────
 
-export type ExtendedConditionFn = (condition: ConditionBuilder, filters: Record<string, unknown>) => void;
-export type TableFilterFn = (filters: Record<string, unknown>) => ConditionBuilder;
+export type FilterRecord = Record<string, ConditionValueOrUndefined>;
+export type ExtendedConditionFn = (condition: ConditionBuilder, filters: FilterRecord) => void;
+export type TableFilterFn = (filters: FilterRecord) => ConditionBuilder;
 
 export interface ITable<F extends Record<string, TSchema> = Record<string, TSchema>> {
-  primary: string & keyof F;
+  primary: (string & keyof F) | (string & keyof F)[];
   Schema: SchemaDefinition<F>;
   filters: TableFilterFn;
   extraFilters: Record<string, TSchema>;
@@ -120,6 +130,15 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type DbTables = Record<string, ITable<any>>;
 
+// Primary key helpers
+export function primaryAsString(pk: string | string[]): string {
+  return Array.isArray(pk) ? pk[0] : pk;
+}
+
+export function primaryAsCols(pk: string | string[], colFn: (f: string) => string): string | string[] {
+  return Array.isArray(pk) ? pk.map(colFn) : colFn(pk);
+}
+
 // ─── Swagger ─────────────────────────────────────────────────
 
 export interface SwaggerOptions {
@@ -136,9 +155,45 @@ export interface SqlApiPluginOptions {
   onRequests?: ((request: FastifyRequest, reply: FastifyReply) => Promise<void | FastifyReply>)[];
   prefix?: string;
   swagger?: boolean | SwaggerOptions;
+  dialect?: DialectName;
   getTenantId?: (request: FastifyRequest) => TenantId | TenantId[] | null | undefined
     | Promise<TenantId | TenantId[] | null | undefined>;
+  debug?: boolean;
 }
+
+// ─── Conditions (advanced filters) ───────────────────────────
+
+import type { ConditionBuilder as CB } from 'node-condition-builder';
+
+// Methods that accept (field, value)
+type SingleValueMethods =
+  | 'isEqual' | 'isNotEqual'
+  | 'isGreater' | 'isNotGreater' | 'isGreaterOrEqual' | 'isNotGreaterOrEqual'
+  | 'isLess' | 'isNotLess' | 'isLessOrEqual' | 'isNotLessOrEqual'
+  | 'isLike' | 'isNotLike' | 'isILike' | 'isNotILike';
+
+// Methods that accept (field, from, to)
+type BetweenMethods = 'isBetween' | 'isNotBetween';
+
+// Methods that accept (field, values[])
+type InMethods = 'isIn' | 'isNotIn';
+
+// Methods that accept (field) only
+type NullMethods = 'isNull' | 'isNotNull';
+
+export type ConditionMethod = SingleValueMethods | BetweenMethods | InMethods | NullMethods;
+
+// Params type per method category
+type ConditionParams<M extends ConditionMethod> =
+  M extends SingleValueMethods ? [value: Parameters<CB[M]>[1]] :
+  M extends BetweenMethods ? [from: Parameters<CB[M]>[1], to: Parameters<CB[M]>[2]] :
+  M extends InMethods ? [values: Parameters<CB[M]>[1]] :
+  M extends NullMethods ? [] :
+  never;
+
+export type SearchCondition<F extends string = string> = {
+  [M in ConditionMethod]: { field: F; method: M; params: ConditionParams<M> }
+}[ConditionMethod];
 
 // ─── Search Types ────────────────────────────────────────────
 
@@ -157,14 +212,16 @@ export interface AggregationRequest {
 
 export interface JoinGroupRequest {
   aggregations: AggregationRequest;
-  filters?: Record<string, unknown>;
+  filters?: FilterRecord;
 }
 
 export interface SearchParams {
   db: QueryClient;
   tableConf: ITable;
-  filters?: Record<string, unknown>;
-  joins?: Record<string, { filters?: Record<string, unknown> }>;
+  filters?: FilterRecord;
+  conditions?: SearchCondition[];
+  joinFilters?: Record<string, FilterRecord>;
+  joins?: Record<string, { filters?: FilterRecord }>;
   joinGroups?: Record<string, JoinGroupRequest>;
   orderBy?: string;
   paginator?: Paginator;

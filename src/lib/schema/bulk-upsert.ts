@@ -1,12 +1,13 @@
 import { Type, type TSchema } from '@sinclair/typebox';
+import { primaryAsString } from '../../types.js';
 import type { DbTables } from '../../types.js';
 import { findSecondaryTableConf } from '../engine/write-helpers.js';
+import { pkSchema, buildSecondaryFields } from './helpers.js';
 
 export function BulkUpsertTableBody(dbTables: DbTables, tableName: string) {
   const tableConf = dbTables[tableName];
   const schema = tableConf.Schema;
 
-  // Main: all fields optional (upsert decides insert vs update)
   const mainSchema = Type.Partial(Type.Object(schema.fields));
 
   const itemProperties: Record<string, TSchema> = {
@@ -18,25 +19,11 @@ export function BulkUpsertTableBody(dbTables: DbTables, tableName: string) {
     const deletionProperties: Record<string, TSchema> = {};
 
     for (const [joinSchema, joinField] of tableConf.allowedWriteJoins) {
-      const joinTableName = joinSchema.tableName;
-      const secondaryTableConf = findSecondaryTableConf(dbTables, joinTableName);
+      const secondaryTableConf = findSecondaryTableConf(dbTables, joinSchema.tableName);
+      const joinFields = buildSecondaryFields(joinSchema, joinField, secondaryTableConf);
+      secondaryProperties[joinSchema.tableName] = Type.Array(Type.Object(joinFields));
 
-      // Secondaries: FK + excludeFromCreation optional
-      const joinFields: Record<string, TSchema> = { ...joinSchema.fields };
-      if (joinField in joinFields) {
-        joinFields[joinField] = Type.Optional(joinFields[joinField]);
-      }
-      if (secondaryTableConf?.excludeFromCreation) {
-        for (const field of secondaryTableConf.excludeFromCreation) {
-          if (field in joinFields) {
-            joinFields[field] = Type.Optional(joinFields[field]);
-          }
-        }
-      }
-      secondaryProperties[joinTableName] = Type.Array(Type.Object(joinFields));
-
-      // Deletions: partial fields
-      deletionProperties[joinTableName] = Type.Array(
+      deletionProperties[joinSchema.tableName] = Type.Array(
         Type.Partial(Type.Object(joinSchema.fields))
       );
     }
@@ -56,17 +43,21 @@ export function BulkUpsertTableResponse(dbTables: DbTables, tableName: string) {
   const tableConf = dbTables[tableName];
 
   const responseProperties: Record<string, TSchema> = {
-    main: Type.Partial(Type.Object(tableConf.Schema.fields)),
+    main: Type.Object(pkSchema(tableConf, tableConf.Schema, primaryAsString(tableConf.primary))),
   };
 
   if (tableConf.allowedWriteJoins?.length) {
     const secondaryProperties: Record<string, TSchema> = {};
     const deletionProperties: Record<string, TSchema> = {};
 
-    for (const [joinSchema] of tableConf.allowedWriteJoins) {
-      const partial = Type.Partial(Type.Object(joinSchema.fields));
-      secondaryProperties[joinSchema.tableName] = Type.Array(partial);
-      deletionProperties[joinSchema.tableName] = Type.Array(partial);
+    for (const [joinSchema, joinField] of tableConf.allowedWriteJoins) {
+      const secondaryTableConf = findSecondaryTableConf(dbTables, joinSchema.tableName);
+      secondaryProperties[joinSchema.tableName] = Type.Array(
+        Type.Object(pkSchema(secondaryTableConf, joinSchema, joinField))
+      );
+      deletionProperties[joinSchema.tableName] = Type.Array(
+        Type.Partial(Type.Object(joinSchema.fields))
+      );
     }
 
     responseProperties.secondaries = Type.Optional(

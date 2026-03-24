@@ -1,17 +1,22 @@
-import { escapeIdent, type QueryClient } from '../db.js';
-import { camelcaseObject } from '../naming.js';
-import { buildTenantWhere, buildTenantJoin } from '../tenant.js';
+import type { QueryClient } from '../../db.js';
+import { ConditionBuilder, type ConditionValue } from 'node-condition-builder';
+import { camelcaseObject } from '../../naming.js';
+import { buildTenantCondition, buildTenantJoin } from '../../tenant.js';
+import { primaryAsString } from '../../../types.js';
 import type {
   DbTables,
+  FilterRecord,
   SearchParams,
   SearchResult,
+  SearchCondition,
+  ConditionMethod,
   PaginationResult,
   JoinDefinition,
   JoinGroupRequest,
   ITable,
   SchemaDefinition,
   TenantScopeIndirect,
-} from '../../types.js';
+} from '../../../types.js';
 
 function validateSchemaField(field: string, schema: SchemaDefinition): string {
   if (!(field in schema.fields)) {
@@ -22,7 +27,7 @@ function validateSchemaField(field: string, schema: SchemaDefinition): string {
   return schema.col(field);
 }
 
-function validateOrderBy(orderBy: string, tableConf: ITable): string {
+function validateOrderBy(orderBy: string, tableConf: ITable, db: QueryClient): string {
   return orderBy.split(',').map((part) => {
     const trimmed = part.trim();
     const match = trimmed.match(/^(\w+)(?:\s+(ASC|DESC))?$/i);
@@ -33,7 +38,7 @@ function validateOrderBy(orderBy: string, tableConf: ITable): string {
     }
     const [, field, dir] = match;
     const col = validateSchemaField(field, tableConf.Schema);
-    return `"${col}" ${(dir || 'ASC').toUpperCase()}`;
+    return `${db.qi(col)} ${(dir || 'ASC').toUpperCase()}`;
   }).join(', ');
 }
 
@@ -47,7 +52,7 @@ async function executeMainQuery(
   extraJoins: string[] = []
 ): Promise<Record<string, unknown>[]> {
   const tableName = tableConf.Schema.tableName;
-  const order = orderBy || tableConf.defaultOrder || tableConf.primary;
+  const order = orderBy || tableConf.defaultOrder || primaryAsString(tableConf.primary);
 
   const limit = paginator
     ? `${paginator.itemsPerPage} OFFSET ${(paginator.page - 1) * paginator.itemsPerPage}`
@@ -82,7 +87,7 @@ async function buildPagination(
   const joinClause = extraJoins.length > 0 ? ' ' + extraJoins.join(' ') : '';
 
   const countResult = await db.query<{ total: string }>(
-    `SELECT COUNT(*) as total FROM "${escapeIdent(tableName)}"${joinClause} WHERE ${where}`,
+    `SELECT COUNT(*) as total FROM ${db.qi(tableName)}${joinClause} WHERE ${where}`,
     values
   );
   const total = parseInt(countResult.rows[0].total, 10);
@@ -99,7 +104,7 @@ async function buildPagination(
     if (field) {
       const col = validateSchemaField(field, tableConf.Schema);
       const result = await db.query<{ value: unknown }>(
-        `SELECT ${fn}("${escapeIdent(col)}") as value FROM "${escapeIdent(tableName)}"${joinClause} WHERE ${where}`,
+        `SELECT ${fn}(${db.qi(col)}) as value FROM ${db.qi(tableName)}${joinClause} WHERE ${where}`,
         values
       );
       computed[key] = { [field]: result.rows[0].value };
@@ -128,7 +133,7 @@ async function executeVirtualJoins(
   dbTables: DbTables,
   tableConf: ITable,
   mainResults: Record<string, unknown>[],
-  joins: Record<string, { filters?: Record<string, unknown> }>
+  joins: Record<string, { filters?: FilterRecord }>
 ): Promise<Record<string, Record<string, unknown>[]>> {
   const result: Record<string, Record<string, unknown>[]> = {};
 
@@ -147,28 +152,13 @@ async function executeVirtualJoins(
     }
 
     // Build join filters
-    const joinCondition = joinTableConf
+    const cb = joinTableConf
       ? joinTableConf.filters(joinOpts?.filters || {})
-      : undefined;
-
-    const values: unknown[] = [];
-    let where: string;
-
-    if (joinCondition) {
-      const condStr = joinCondition.build(1, (i) => `$${i}`);
-      values.push(...joinCondition.getValues());
-      const inPlaceholders = ids.map((_, i) => `$${values.length + i + 1}`).join(', ');
-      values.push(...ids);
-      const fkCol = escapeIdent(joinSchema.col(joinField));
-      where = condStr
-        ? `${condStr} AND "${fkCol}" IN (${inPlaceholders})`
-        : `"${fkCol}" IN (${inPlaceholders})`;
-    } else {
-      const inPlaceholders = ids.map((_, i) => `$${i + 1}`).join(', ');
-      values.push(...ids);
-      const fkCol = escapeIdent(joinSchema.col(joinField));
-      where = `"${fkCol}" IN (${inPlaceholders})`;
-    }
+      : new ConditionBuilder('AND');
+    const fkCol = joinSchema.col(joinField);
+    cb.isIn(db.qi(fkCol), ids);
+    const where = cb.build(1, db.ph);
+    const values = cb.getValues();
 
     const columns = selection === '*' ? '*' : selection;
     const rows = await db.select({
@@ -210,33 +200,33 @@ async function executeJoinGroups(
     const groupByParts: string[] = [];
 
     if (aggregations.by) {
-      const byCol = escapeIdent(validateSchemaField(aggregations.by, joinSchema));
-      selectParts.push(`"${byCol}" as "by"`);
-      groupByParts.push(`"${byCol}"`);
+      const byCol = validateSchemaField(aggregations.by, joinSchema);
+      selectParts.push(`${db.qi(byCol)} as "by"`);
+      groupByParts.push(db.qi(byCol));
     }
 
     if (aggregations.distinctCount) {
       for (const f of aggregations.distinctCount) {
-        const col = escapeIdent(validateSchemaField(f, joinSchema));
-        selectParts.push(`COUNT(DISTINCT "${col}") as "distinctCount_${f}"`);
+        const col = validateSchemaField(f, joinSchema);
+        selectParts.push(`COUNT(DISTINCT ${db.qi(col)}) as "distinctCount_${f}"`);
       }
     }
     if (aggregations.min) {
       for (const f of aggregations.min) {
-        const col = escapeIdent(validateSchemaField(f, joinSchema));
-        selectParts.push(`MIN("${col}") as "min_${f}"`);
+        const col = validateSchemaField(f, joinSchema);
+        selectParts.push(`MIN(${db.qi(col)}) as "min_${f}"`);
       }
     }
     if (aggregations.max) {
       for (const f of aggregations.max) {
-        const col = escapeIdent(validateSchemaField(f, joinSchema));
-        selectParts.push(`MAX("${col}") as "max_${f}"`);
+        const col = validateSchemaField(f, joinSchema);
+        selectParts.push(`MAX(${db.qi(col)}) as "max_${f}"`);
       }
     }
     if (aggregations.sum) {
       for (const f of aggregations.sum) {
-        const col = escapeIdent(validateSchemaField(f, joinSchema));
-        selectParts.push(`SUM("${col}") as "sum_${f}"`);
+        const col = validateSchemaField(f, joinSchema);
+        selectParts.push(`SUM(${db.qi(col)}) as "sum_${f}"`);
       }
     }
 
@@ -246,30 +236,17 @@ async function executeJoinGroups(
     }
 
     // Build WHERE clause
-    const values: unknown[] = [];
     const joinTableConf = dbTables[joinTableName];
-    const filterCondition = joinTableConf && groupFilters
+    const cb = joinTableConf && groupFilters
       ? joinTableConf.filters(groupFilters)
-      : undefined;
-
-    let where: string;
-    const fkCol = escapeIdent(joinSchema.col(joinField));
-    if (filterCondition) {
-      const condStr = filterCondition.build(1, (i) => `$${i}`);
-      values.push(...filterCondition.getValues());
-      const inPlaceholders = ids.map((_, i) => `$${values.length + i + 1}`).join(', ');
-      values.push(...ids);
-      where = condStr
-        ? `${condStr} AND "${fkCol}" IN (${inPlaceholders})`
-        : `"${fkCol}" IN (${inPlaceholders})`;
-    } else {
-      const inPlaceholders = ids.map((_, i) => `$${i + 1}`).join(', ');
-      values.push(...ids);
-      where = `"${fkCol}" IN (${inPlaceholders})`;
-    }
+      : new ConditionBuilder('AND');
+    const fkCol = joinSchema.col(joinField);
+    cb.isIn(db.qi(fkCol), ids);
+    const where = cb.build(1, db.ph);
+    const values = cb.getValues();
 
     const groupBy = groupByParts.length > 0 ? `GROUP BY ${groupByParts.join(', ')}` : '';
-    const sql = `SELECT ${selectParts.join(', ')} FROM "${escapeIdent(joinSchema.tableName)}" WHERE ${where} ${groupBy}`;
+    const sql = `SELECT ${selectParts.join(', ')} FROM ${db.qi(joinSchema.tableName)} WHERE ${where} ${groupBy}`;
 
     const queryResult = await db.query(sql, values);
     const rows = queryResult.rows;
@@ -299,49 +276,130 @@ async function executeJoinGroups(
 function collectIds(
   mainResults: Record<string, unknown>[],
   mainField: string | string[]
-): unknown[] {
+): ConditionValue[] {
   if (Array.isArray(mainField)) {
     // Composite key: collect tuples
     const seen = new Set<string>();
-    const ids: unknown[] = [];
+    const ids: ConditionValue[] = [];
     for (const r of mainResults) {
       const key = mainField.map((f) => r[f]).join('|');
       if (!seen.has(key) && mainField.every((f) => r[f] != null)) {
         seen.add(key);
-        ids.push(...mainField.map((f) => r[f]));
+        ids.push(...mainField.map((f) => r[f] as ConditionValue));
       }
     }
     return ids;
   }
 
-  const unique = [...new Set(mainResults.map((r) => r[mainField]).filter((v) => v != null))];
+  const unique = [...new Set(mainResults.map((r) => r[mainField]).filter((v) => v != null))] as ConditionValue[];
   return unique;
+}
+
+// ─── Conditions (advanced filters) ──────────────────────────
+
+import {
+  ALLOWED_SET, SINGLE_VALUE_SET, BETWEEN_SET, IN_SET, NULL_SET,
+} from '../../condition-methods.js';
+
+function applyConditions(
+  condition: ConditionBuilder,
+  conditions: SearchCondition[],
+  schema: SchemaDefinition,
+  db: QueryClient
+): void {
+  for (const c of conditions) {
+    // Validate method — whitelist only, blocks prototype poisoning
+    if (!ALLOWED_SET.has(c.method)) {
+      const err = new Error(`Invalid condition method: ${c.method}`) as Error & { statusCode: number };
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const col = db.qi(validateSchemaField(c.field, schema));
+
+    if (SINGLE_VALUE_SET.has(c.method)) {
+      (condition[c.method as keyof ConditionBuilder] as Function)(col, c.params[0]);
+    } else if (BETWEEN_SET.has(c.method)) {
+      (condition[c.method as keyof ConditionBuilder] as Function)(col, c.params[0], c.params[1]);
+    } else if (IN_SET.has(c.method)) {
+      (condition[c.method as keyof ConditionBuilder] as Function)(col, c.params[0]);
+    } else if (NULL_SET.has(c.method)) {
+      (condition[c.method as keyof ConditionBuilder] as Function)(col, true);
+    }
+  }
+}
+
+// ─── Join filters (EXISTS subquery) ─────────────────────────
+
+function buildJoinFiltersExists(
+  db: QueryClient,
+  dbTables: DbTables,
+  tableConf: ITable,
+  joinFilters: Record<string, FilterRecord>,
+  currentWhere: string,
+  currentValues: unknown[]
+): { where: string; values: unknown[] } {
+  let where = currentWhere;
+  const values = [...currentValues];
+
+  for (const [joinTableName, filterValues] of Object.entries(joinFilters)) {
+    const joinDef = findJoinDefinition(tableConf, joinTableName);
+    if (!joinDef) continue;
+
+    const [joinSchema, joinField, mainField] = joinDef;
+    const joinTableConf = dbTables[joinTableName];
+    if (!joinTableConf) continue;
+
+    const filterCondition = joinTableConf.filters(filterValues);
+    const startIdx = values.length + 1;
+    const filterWhere = filterCondition.build(startIdx, db.ph);
+    const filterVals = filterCondition.getValues();
+
+    const fkCol = db.qi(joinSchema.col(joinField));
+    const mainColName = Array.isArray(mainField) ? mainField[0] : mainField;
+    const mainCol = db.qi(tableConf.Schema.col(mainColName));
+    const mainTable = db.qi(tableConf.Schema.tableName);
+
+    where += ` AND EXISTS (SELECT 1 FROM ${db.qi(joinSchema.tableName)} WHERE ${fkCol} = ${mainTable}.${mainCol} AND ${filterWhere})`;
+    values.push(...filterVals);
+  }
+
+  return { where, values };
 }
 
 export async function searchEngine(
   dbTables: DbTables,
   params: SearchParams
 ): Promise<SearchResult> {
-  const { db, tableConf, filters, joins, joinGroups, orderBy, paginator, computeMin, computeMax, computeSum, computeAvg, tenant } = params;
+  const { db, tableConf, filters, conditions, joinFilters, joins, joinGroups, orderBy, paginator, computeMin, computeMax, computeSum, computeAvg, tenant } = params;
 
   // Build main condition
   const condition = tableConf.filters(filters || {});
-  const values = condition.getValues();
-  let where = condition.build(1, (i) => `$${i}`) || '1=1';
+
+  // Advanced conditions
+  if (conditions?.length) {
+    applyConditions(condition, conditions, tableConf.Schema, db);
+  }
 
   // Tenant filtering
   const tenantJoins: string[] = [];
   if (tenant) {
-    const tw = buildTenantWhere(tenant.scope, tenant.ids, values.length + 1);
-    where += ` AND ${tw.sql}`;
-    values.push(...tw.values);
+    condition.append(buildTenantCondition(db, tenant.scope, tenant.ids));
     if ('through' in tenant.scope) {
-      tenantJoins.push(buildTenantJoin(tenant.scope as TenantScopeIndirect, tableConf.Schema.tableName));
+      tenantJoins.push(buildTenantJoin(db, tenant.scope as TenantScopeIndirect, tableConf.Schema.tableName));
     }
   }
 
-  // Validate and sanitize orderBy (user input → SQL identifier)
-  const safeOrderBy = orderBy ? validateOrderBy(orderBy, tableConf) : undefined;
+  let where = condition.build(1, db.ph);
+  let values: unknown[] = [...condition.getValues()];
+
+  // Join filters: add EXISTS subqueries
+  if (joinFilters && Object.keys(joinFilters).length > 0) {
+    ({ where, values } = buildJoinFiltersExists(db, dbTables, tableConf, joinFilters, where, values));
+  }
+
+  // Validate and sanitize orderBy (user input -> SQL identifier)
+  const safeOrderBy = orderBy ? validateOrderBy(orderBy, tableConf, db) : undefined;
 
   // Main query
   const main = await executeMainQuery(db, tableConf, where, values, safeOrderBy, paginator, tenantJoins);

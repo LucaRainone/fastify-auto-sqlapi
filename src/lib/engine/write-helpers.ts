@@ -57,6 +57,10 @@ export async function processSecondaries(
     const [joinSchema, joinField, mainField] = joinDef;
     const joinCol = joinSchema.col(joinField);
     const secondaryTableConf = findSecondaryTableConf(dbTables, joinTableName);
+    const secondaryPk = secondaryTableConf?.primary || joinField;
+    const secondaryPkCol = Array.isArray(secondaryPk)
+      ? secondaryPk.map((f) => joinSchema.col(f))
+      : joinSchema.col(secondaryPk);
 
     const preparedRecords = records.map((rec) => {
       let prepared = snakecaseRecord(rec);
@@ -76,23 +80,25 @@ export async function processSecondaries(
     });
 
     const secondaryUpsertKeys = tableConf.upsertMap?.get(joinSchema);
-    let insertedRows: Record<string, unknown>[];
+    let pkRows: Record<string, unknown>[];
 
     if (secondaryUpsertKeys) {
       const conflictCols = secondaryUpsertKeys.map((k) => joinSchema.col(k));
-      insertedRows = await db.bulkInsertOrUpdate(
+      pkRows = await db.bulkInsertOrUpdate(
         joinSchema.tableName,
         preparedRecords as DbRecord[],
-        conflictCols
+        conflictCols,
+        secondaryPkCol
       );
     } else {
-      insertedRows = await db.bulkInsert(
+      pkRows = await db.bulkInsert(
         joinSchema.tableName,
-        preparedRecords as DbRecord[]
+        preparedRecords as DbRecord[],
+        secondaryPkCol
       );
     }
 
-    results[joinTableName] = insertedRows.map((r) =>
+    results[joinTableName] = pkRows.map((r) =>
       camelcaseObject(r as Record<string, unknown>)
     );
   }
@@ -118,8 +124,10 @@ export async function processDeletions(
 
     for (const rec of records) {
       const snaked = snakecaseRecord(rec) as DbRecord;
-      const rows = await db.delete(joinSchema.tableName, snaked);
-      deletedRows.push(...rows.map((r) => camelcaseObject(r as Record<string, unknown>)));
+      const affectedRows = await db.delete(joinSchema.tableName, snaked);
+      if (affectedRows > 0) {
+        deletedRows.push(camelcaseObject(snaked as Record<string, unknown>));
+      }
     }
 
     results[joinTableName] = deletedRows;

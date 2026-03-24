@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
-const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/insert.js'));
+const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/insert.js'));
 const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
@@ -29,7 +29,7 @@ function createMockPg(responses = []) {
     calls,
     query(text, values) {
       calls.push({ text: text.replace(/\s+/g, ' ').trim(), values });
-      const response = responses[callIndex] || { rows: [], rowCount: 0 };
+      const response = responses[callIndex] || { rows: [], affectedRows: 0 };
       callIndex++;
       return Promise.resolve(response);
     },
@@ -85,9 +85,9 @@ function createTestDbTables(mockPg, opts = {}) {
 }
 
 describe('insertEngine - main insert', () => {
-  it('inserts main record with snake_case fields', async () => {
+  it('inserts main record and returns PK-only', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it', created_at: '2024-01-01' }], rowCount: 1 },
+      { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -100,14 +100,14 @@ describe('insertEngine - main insert', () => {
     });
 
     assert.equal(result.main.id, 1);
-    assert.equal(result.main.name, 'Mario');
+    assert.equal(result.main.name, undefined);
     assert.ok(mockPg.calls[0].text.includes('INSERT INTO "customer"'));
-    assert.ok(mockPg.calls[0].text.includes('RETURNING *'));
+    assert.ok(mockPg.calls[0].text.includes('RETURNING "id"'));
   });
 
-  it('returns camelCase result', async () => {
+  it('returns camelCase PK result', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it', created_at: '2024-01-01' }], rowCount: 1 },
+      { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -119,13 +119,14 @@ describe('insertEngine - main insert', () => {
       record: { name: 'Mario', email: 'mario@test.it' },
     });
 
-    assert.equal(result.main.createdAt, '2024-01-01');
-    assert.equal(result.main.created_at, undefined);
+    assert.equal(result.main.id, 1);
+    // PK-only: no other fields
+    assert.equal(result.main.email, undefined);
   });
 
   it('removes excludeFromCreation fields', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it', created_at: '2024-01-01' }], rowCount: 1 },
+      { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg, {
       excludeFromCreation: ['createdAt'],
@@ -145,7 +146,7 @@ describe('insertEngine - main insert', () => {
 
   it('does not include secondaries in result when not requested', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it', created_at: '2024-01-01' }], rowCount: 1 },
+      { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -161,11 +162,81 @@ describe('insertEngine - main insert', () => {
   });
 });
 
+describe('insertEngine - composite PK', () => {
+  it('inserts with composite PK and returns both PK fields', async () => {
+    const linkFields = {
+      agentId: Type.Number(),
+      teamId: Type.Number(),
+    };
+    const linkSchema = createMockSchema('agent_team_link', linkFields);
+    const linkInfo = exportTableInfo(linkSchema);
+
+    const DbTables = {
+      agent_team_link: {
+        primary: ['agentId', 'teamId'],
+        ...linkInfo,
+        defaultOrder: 'agentId',
+      },
+    };
+
+    const mockPg = createMockPg([
+      { rows: [{ agent_id: 1, team_id: 2 }], affectedRows: 1 },
+    ]);
+    const db = new QueryClient(mockPg);
+
+    const result = await insertEngine({
+      db,
+      tableConf: DbTables.agent_team_link,
+      dbTables: DbTables,
+      request: mockRequest,
+      record: { agentId: 1, teamId: 2 },
+    });
+
+    assert.equal(result.main.agentId, 1);
+    assert.equal(result.main.teamId, 2);
+    assert.ok(mockPg.calls[0].text.includes('RETURNING "agent_id"'));
+  });
+
+  it('uses first PK field for RETURNING column', async () => {
+    const linkFields = {
+      agentId: Type.Number(),
+      teamId: Type.Number(),
+    };
+    const linkSchema = createMockSchema('agent_team_link', linkFields);
+    const linkInfo = exportTableInfo(linkSchema);
+
+    const DbTables = {
+      agent_team_link: {
+        primary: ['agentId', 'teamId'],
+        ...linkInfo,
+        defaultOrder: 'agentId',
+      },
+    };
+
+    const mockPg = createMockPg([
+      { rows: [{ agent_id: 1, team_id: 2 }], affectedRows: 1 },
+    ]);
+    const db = new QueryClient(mockPg);
+
+    await insertEngine({
+      db,
+      tableConf: DbTables.agent_team_link,
+      dbTables: DbTables,
+      request: mockRequest,
+      record: { agentId: 1, teamId: 2 },
+    });
+
+    // primaryAsString takes first element for the PK col used in insert
+    const sql = mockPg.calls[0].text;
+    assert.ok(sql.includes('INSERT INTO "agent_team_link"'));
+  });
+});
+
 describe('insertEngine - hooks', () => {
   it('calls beforeInsert hook', async () => {
     let hookCalled = false;
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it', created_at: '2024-01-01' }], rowCount: 1 },
+      { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg, {
       beforeInsert: async (_db, _req, record) => {
@@ -185,13 +256,13 @@ describe('insertEngine - hooks', () => {
     assert.ok(hookCalled, 'beforeInsert should have been called');
   });
 
-  it('calls afterInsert hook with secondaryRecords', async () => {
+  it('calls afterInsert hook with merged record', async () => {
     let hookArgs = null;
     const mockPg = createMockPg([
-      // Main insert
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it', created_at: '2024-01-01' }], rowCount: 1 },
-      // Bulk insert secondaries
-      { rows: [{ id: 10, customer_id: 1, total: 100, status: 'pending' }], rowCount: 1 },
+      // Main insert (PK-only)
+      { rows: [{ id: 1 }], affectedRows: 1 },
+      // Bulk insert secondaries (PK-only)
+      { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg, {
       afterInsert: async (_db, _req, record, secondaryRecords) => {
@@ -211,7 +282,9 @@ describe('insertEngine - hooks', () => {
     });
 
     assert.ok(hookArgs, 'afterInsert should have been called');
+    // afterInsert receives merged record (input + PK)
     assert.equal(hookArgs.record.id, 1);
+    assert.equal(hookArgs.record.name, 'Mario');
     assert.ok(hookArgs.secondaryRecords.customer_order);
     assert.equal(hookArgs.secondaryRecords.customer_order.length, 1);
   });
@@ -220,13 +293,13 @@ describe('insertEngine - hooks', () => {
 describe('insertEngine - secondaries', () => {
   it('inserts secondary records with FK auto-fill', async () => {
     const mockPg = createMockPg([
-      // Main insert
-      { rows: [{ id: 42, name: 'Mario', email: 'mario@test.it', created_at: '2024-01-01' }], rowCount: 1 },
-      // Bulk insert orders
+      // Main insert (PK-only)
+      { rows: [{ id: 42 }], affectedRows: 1 },
+      // Bulk insert orders (PK-only)
       { rows: [
-        { id: 10, customer_id: 42, total: 100, status: 'pending' },
-        { id: 11, customer_id: 42, total: 200, status: 'completed' },
-      ], rowCount: 2 },
+        { id: 10 },
+        { id: 11 },
+      ], affectedRows: 2 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -250,15 +323,15 @@ describe('insertEngine - secondaries', () => {
     // FK auto-fill: customer_id should be 42
     assert.ok(bulkCall.values.includes(42));
 
-    // Verify result
+    // Verify result (PK-only for secondaries)
     assert.ok(result.secondaries);
     assert.equal(result.secondaries.customer_order.length, 2);
-    assert.equal(result.secondaries.customer_order[0].customerId, 42);
+    assert.equal(result.secondaries.customer_order[0].id, 10);
   });
 
   it('ignores secondaries not in allowedWriteJoins', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it', created_at: '2024-01-01' }], rowCount: 1 },
+      { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg, {
       allowedWriteJoins: [], // no write joins allowed
@@ -282,8 +355,8 @@ describe('insertEngine - secondaries', () => {
 
   it('removes excludeFromCreation from secondary records', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it', created_at: '2024-01-01' }], rowCount: 1 },
-      { rows: [{ id: 10, customer_id: 1, total: 100, status: 'pending' }], rowCount: 1 },
+      { rows: [{ id: 1 }], affectedRows: 1 },
+      { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg, {
       secondaryExclude: ['id'],
@@ -301,15 +374,16 @@ describe('insertEngine - secondaries', () => {
     });
 
     const bulkCall = mockPg.calls[1];
-    // id should NOT be in the insert
-    assert.ok(!bulkCall.text.includes('"id"'));
+    // id should NOT be in the INSERT columns (but RETURNING "id" is fine)
+    const insertCols = bulkCall.text.split('VALUES')[0];
+    assert.ok(!insertCols.includes('"id"'));
   });
 });
 
 describe('insertEngine - upsert', () => {
   it('uses insertOrUpdate for main when upsertMap matches', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it', created_at: '2024-01-01' }], rowCount: 1 },
+      { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
     const { DbTables, db, customerSchema } = createTestDbTables(mockPg);
 
@@ -329,8 +403,8 @@ describe('insertEngine - upsert', () => {
 
   it('uses bulkInsertOrUpdate for secondaries when upsertMap matches', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it', created_at: '2024-01-01' }], rowCount: 1 },
-      { rows: [{ id: 10, customer_id: 1, total: 100, status: 'pending' }], rowCount: 1 },
+      { rows: [{ id: 1 }], affectedRows: 1 },
+      { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
     const { DbTables, db, orderSchema } = createTestDbTables(mockPg);
 

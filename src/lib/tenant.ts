@@ -1,6 +1,6 @@
 import type { FastifyRequest } from 'fastify';
-import { escapeIdent } from './db.js';
 import type { QueryClient } from './db.js';
+import { ConditionBuilder, type ConditionValue, type ConditionValueOrUndefined } from 'node-condition-builder';
 import type {
   ITable,
   SqlApiPluginOptions,
@@ -29,39 +29,36 @@ export async function resolveTenant(
   return { ids, scope: tableConf.tenantScope };
 }
 
-export function buildTenantWhere(
+export function buildTenantCondition(
+  db: QueryClient,
   scope: TenantScope,
-  tenantIds: TenantId[],
-  startIndex: number
-): { sql: string; values: TenantId[] } {
-  const col = escapeIdent(scope.column);
+  tenantIds: TenantId[]
+): ConditionBuilder {
+  const col = scope.column;
   let qualifier: string;
 
   if (isIndirect(scope)) {
-    const throughTable = escapeIdent(scope.through.schema.tableName);
-    qualifier = `"${throughTable}"."${col}"`;
+    const throughTable = scope.through.schema.tableName;
+    qualifier = `${db.qi(throughTable)}.${db.qi(col)}`;
   } else {
-    qualifier = `"${col}"`;
+    qualifier = db.qi(col);
   }
 
-  if (tenantIds.length === 1) {
-    return { sql: `${qualifier} = $${startIndex}`, values: [tenantIds[0]] };
-  }
-
-  const placeholders = tenantIds.map((_, i) => `$${startIndex + i}`).join(', ');
-  return { sql: `${qualifier} IN (${placeholders})`, values: [...tenantIds] };
+  const cb = new ConditionBuilder('AND');
+  cb.isIn(qualifier, tenantIds);
+  return cb;
 }
 
 export function buildTenantJoin(
+  db: QueryClient,
   scope: TenantScopeIndirect,
   mainTableName: string
 ): string {
-  const throughTable = escapeIdent(scope.through.schema.tableName);
-  const localField = escapeIdent(scope.through.localField);
-  const foreignField = escapeIdent(scope.through.foreignField);
-  const mainTable = escapeIdent(mainTableName);
+  const throughTable = scope.through.schema.tableName;
+  const localField = scope.through.localField;
+  const foreignField = scope.through.foreignField;
 
-  return `INNER JOIN "${throughTable}" ON "${mainTable}"."${localField}" = "${throughTable}"."${foreignField}"`;
+  return `INNER JOIN ${db.qi(throughTable)} ON ${db.qi(mainTableName)}.${db.qi(localField)} = ${db.qi(throughTable)}.${db.qi(foreignField)}`;
 }
 
 export function injectTenantValue(
@@ -102,25 +99,61 @@ export async function validateTenantFK(
   const uniqueFKs = [...new Set(fkValues.filter((v) => v != null))];
   if (!uniqueFKs.length) return;
 
-  const throughTable = escapeIdent(scope.through.schema.tableName);
-  const foreignField = escapeIdent(scope.through.foreignField);
-  const tenantCol = escapeIdent(scope.column);
+  const throughTable = scope.through.schema.tableName;
+  const foreignField = scope.through.foreignField;
+  const tenantCol = scope.column;
 
-  const fkPlaceholders = uniqueFKs.map((_, i) => `$${i + 1}`).join(', ');
-  const tenantPlaceholders = tenantIds.map((_, i) => `$${uniqueFKs.length + i + 1}`).join(', ');
+  const cb = new ConditionBuilder('AND');
+  cb.isIn(db.qi(foreignField), uniqueFKs as ConditionValue[]);
+  cb.isNotIn(db.qi(tenantCol), tenantIds);
+  const where = cb.build(1, db.ph);
+  const values = cb.getValues();
 
   const sql =
-    `SELECT "${foreignField}" FROM "${throughTable}" ` +
-    `WHERE "${foreignField}" IN (${fkPlaceholders}) ` +
-    `AND "${tenantCol}" NOT IN (${tenantPlaceholders})`;
+    `SELECT ${db.qi(foreignField)} FROM ${db.qi(throughTable)} ` +
+    `WHERE ${where}`;
 
-  const result = await db.query(sql, [...uniqueFKs, ...tenantIds]);
+  const result = await db.query(sql, values);
 
   if (result.rows.length > 0) {
     const err = new Error('Access denied: records do not belong to tenant') as Error & { statusCode: number };
     err.statusCode = 403;
     throw err;
   }
+}
+
+/**
+ * Build WHERE clause for DELETE with tenant filtering.
+ * Handles both direct (simple AND) and indirect (subquery via JOIN) scopes.
+ */
+export function buildTenantDeleteWhere(
+  db: QueryClient,
+  tableName: string,
+  pkCol: string,
+  pkValue: ConditionValueOrUndefined | ConditionValue[],
+  tenant: TenantContext
+): { where: string; values: unknown[] } {
+  if (isIndirect(tenant.scope)) {
+    const innerCb = new ConditionBuilder('AND');
+    innerCb.isIn(`${db.qi(tableName)}.${db.qi(pkCol)}`, (Array.isArray(pkValue) ? pkValue : [pkValue]) as ConditionValue[]);
+    innerCb.append(buildTenantCondition(db, tenant.scope, tenant.ids));
+    const innerWhere = innerCb.build(1, db.ph);
+    const values = innerCb.getValues();
+    const joinSql = buildTenantJoin(db, tenant.scope, tableName);
+    const where = `${db.qi(pkCol)} IN (SELECT ${db.qi(tableName)}.${db.qi(pkCol)} FROM ${db.qi(tableName)} ${joinSql} WHERE ${innerWhere})`;
+    return { where, values };
+  }
+
+  const cb = new ConditionBuilder('AND');
+  if (Array.isArray(pkValue)) {
+    cb.isIn(db.qi(pkCol), pkValue);
+  } else {
+    cb.isEqual(db.qi(pkCol), pkValue);
+  }
+  cb.append(buildTenantCondition(db, tenant.scope, tenant.ids));
+  const where = cb.build(1, db.ph);
+  const values = cb.getValues();
+  return { where, values };
 }
 
 export function stripTenantColumn(

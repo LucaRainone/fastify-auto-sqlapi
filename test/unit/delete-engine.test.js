@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
-const { deleteEngine } = await import(path.join(ROOT, 'dist/lib/engine/delete.js'));
+const { deleteEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/delete.js'));
 const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
@@ -29,7 +29,7 @@ function createMockPg(responses = []) {
     calls,
     query(text, values) {
       calls.push({ text: text.replace(/\s+/g, ' ').trim(), values });
-      const response = responses[callIndex] || { rows: [], rowCount: 0 };
+      const response = responses[callIndex] || { rows: [], affectedRows: 0 };
       callIndex++;
       return Promise.resolve(response);
     },
@@ -56,24 +56,24 @@ function createTestTableConf(mockPg) {
 }
 
 describe('deleteEngine', () => {
-  it('deletes record by PK and returns camelCase result', async () => {
+  it('deletes record by PK and returns PK-only', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], rowCount: 1 },
+      { rows: [], affectedRows: 1 },
     ]);
     const { tableConf, db } = createTestTableConf(mockPg);
 
     const result = await deleteEngine({ db, tableConf, id: '1' });
 
-    assert.equal(result.main.id, 1);
-    assert.equal(result.main.name, 'Mario');
+    assert.equal(result.main.id, '1');
+    assert.equal(result.main.name, undefined);
     assert.ok(mockPg.calls[0].text.includes('DELETE FROM "customer"'));
     assert.ok(mockPg.calls[0].text.includes('WHERE'));
-    assert.ok(mockPg.calls[0].text.includes('RETURNING *'));
+    assert.ok(!mockPg.calls[0].text.includes('RETURNING'));
   });
 
   it('uses correct PK column in WHERE', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 42, name: 'Luigi', email: 'luigi@test.it' }], rowCount: 1 },
+      { rows: [], affectedRows: 1 },
     ]);
     const { tableConf, db } = createTestTableConf(mockPg);
 
@@ -85,7 +85,7 @@ describe('deleteEngine', () => {
 
   it('throws 404 when record not found', async () => {
     const mockPg = createMockPg([
-      { rows: [], rowCount: 0 },
+      { rows: [], affectedRows: 0 },
     ]);
     const { tableConf, db } = createTestTableConf(mockPg);
 
@@ -97,7 +97,7 @@ describe('deleteEngine', () => {
 
   it('executes exactly one query', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], rowCount: 1 },
+      { rows: [], affectedRows: 1 },
     ]);
     const { tableConf, db } = createTestTableConf(mockPg);
 

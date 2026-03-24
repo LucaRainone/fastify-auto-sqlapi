@@ -1,3 +1,33 @@
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+/**
+ * Load .env file from cwd if it exists.
+ * Does not override already-set environment variables.
+ */
+export function loadEnvFile(): void {
+  const envPath = resolve(process.cwd(), '.env');
+  if (!existsSync(envPath)) return;
+
+  const content = readFileSync(envPath, 'utf-8');
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIndex = trimmed.indexOf('=');
+    if (eqIndex === -1) continue;
+    const key = trimmed.slice(0, eqIndex).trim();
+    let value = trimmed.slice(eqIndex + 1).trim();
+    // Strip surrounding quotes
+    if ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (!(key in process.env)) {
+      process.env[key] = value;
+    }
+  }
+}
+
 export const CONSOLE_COLORS = {
   black: 30,
   gray: 90,

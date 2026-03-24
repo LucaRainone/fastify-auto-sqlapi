@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
-const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search.js'));
+const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
 const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
@@ -29,7 +29,7 @@ function createMockPg(responses = []) {
     calls,
     query(text, values) {
       calls.push({ text: text.replace(/\s+/g, ' ').trim(), values });
-      const response = responses[callIndex] || { rows: [], rowCount: 0 };
+      const response = responses[callIndex] || { rows: [], affectedRows: 0 };
       callIndex++;
       return Promise.resolve(response);
     },
@@ -79,7 +79,7 @@ function createTestDbTables(mockPg) {
 describe('searchEngine - main query', () => {
   it('executes SELECT on main table', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], rowCount: 1 },
+      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -97,7 +97,7 @@ describe('searchEngine - main query', () => {
 
   it('applies filters to WHERE clause', async () => {
     const mockPg = createMockPg([
-      { rows: [], rowCount: 0 },
+      { rows: [], affectedRows: 0 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -113,7 +113,7 @@ describe('searchEngine - main query', () => {
 
   it('applies custom orderBy', async () => {
     const mockPg = createMockPg([
-      { rows: [], rowCount: 0 },
+      { rows: [], affectedRows: 0 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -128,7 +128,7 @@ describe('searchEngine - main query', () => {
 
   it('applies multi-field orderBy', async () => {
     const mockPg = createMockPg([
-      { rows: [], rowCount: 0 },
+      { rows: [], affectedRows: 0 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -171,7 +171,7 @@ describe('searchEngine - main query', () => {
 
   it('returns no joins, joinGroups, pagination when not requested', async () => {
     const mockPg = createMockPg([
-      { rows: [], rowCount: 0 },
+      { rows: [], affectedRows: 0 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -190,9 +190,9 @@ describe('searchEngine - pagination', () => {
   it('adds LIMIT/OFFSET and returns pagination', async () => {
     const mockPg = createMockPg([
       // Main query
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], rowCount: 1 },
+      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], affectedRows: 1 },
       // COUNT
-      { rows: [{ total: '25' }], rowCount: 1 },
+      { rows: [{ total: '25' }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -217,13 +217,13 @@ describe('searchEngine - pagination', () => {
   it('computes MIN/MAX/SUM/AVG when requested', async () => {
     const mockPg = createMockPg([
       // Main query
-      { rows: [{ id: 1, name: 'A', email: 'a@t.it' }], rowCount: 1 },
+      { rows: [{ id: 1, name: 'A', email: 'a@t.it' }], affectedRows: 1 },
       // COUNT
-      { rows: [{ total: '5' }], rowCount: 1 },
+      { rows: [{ total: '5' }], affectedRows: 1 },
       // MIN
-      { rows: [{ value: 10 }], rowCount: 1 },
+      { rows: [{ value: 10 }], affectedRows: 1 },
       // MAX
-      { rows: [{ value: 100 }], rowCount: 1 },
+      { rows: [{ value: 100 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -246,7 +246,7 @@ describe('searchEngine - pagination', () => {
 describe('searchEngine - no pagination', () => {
   it('does not add LIMIT/OFFSET without paginator', async () => {
     const mockPg = createMockPg([
-      { rows: [], rowCount: 0 },
+      { rows: [], affectedRows: 0 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -264,9 +264,9 @@ describe('searchEngine - virtual joins', () => {
   it('executes SELECT IN for join table', async () => {
     const mockPg = createMockPg([
       // Main query: customer results
-      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }, { id: 2, name: 'Luigi', email: 'l@t.it' }], rowCount: 2 },
+      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }, { id: 2, name: 'Luigi', email: 'l@t.it' }], affectedRows: 2 },
       // Join query: orders
-      { rows: [{ id: 10, customer_id: 1, total: 50, status: 'pending' }], rowCount: 1 },
+      { rows: [{ id: 10, customer_id: 1, total: 50, status: 'pending' }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -287,7 +287,7 @@ describe('searchEngine - virtual joins', () => {
   it('returns empty array when main results have no matching IDs', async () => {
     const mockPg = createMockPg([
       // Main query: empty
-      { rows: [], rowCount: 0 },
+      { rows: [], affectedRows: 0 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -303,8 +303,8 @@ describe('searchEngine - virtual joins', () => {
 
   it('applies join filters', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], rowCount: 1 },
-      { rows: [], rowCount: 0 },
+      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
+      { rows: [], affectedRows: 0 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -319,13 +319,394 @@ describe('searchEngine - virtual joins', () => {
   });
 });
 
+describe('searchEngine - joinFilters (EXISTS)', () => {
+  it('adds EXISTS subquery to main WHERE', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      joinFilters: {
+        customer_order: { status: 'pending' },
+      },
+    });
+
+    const sql = mockPg.calls[0].text;
+    assert.ok(sql.includes('EXISTS'));
+    assert.ok(sql.includes('SELECT 1 FROM "customer_order"'));
+    assert.ok(sql.includes('"customer_id" = "customer"."id"'));
+    assert.ok(mockPg.calls[0].values.includes('pending'));
+  });
+
+  it('combines main filters with joinFilters', async () => {
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 0 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      filters: { name: 'Mario' },
+      joinFilters: {
+        customer_order: { status: 'pending' },
+      },
+    });
+
+    const sql = mockPg.calls[0].text;
+    assert.ok(sql.includes('name'));
+    assert.ok(sql.includes('EXISTS'));
+    assert.ok(mockPg.calls[0].values.includes('Mario'));
+    assert.ok(mockPg.calls[0].values.includes('pending'));
+  });
+
+  it('parameter indices are correct with main filters + joinFilters', async () => {
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 0 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      filters: { name: 'Mario', email: 'test@test.it' },
+      joinFilters: {
+        customer_order: { status: 'pending', total: 100 },
+      },
+    });
+
+    const values = mockPg.calls[0].values;
+    // Main filters first, then joinFilter values
+    assert.equal(values.length, 4);
+    assert.ok(values.includes('Mario'));
+    assert.ok(values.includes('test@test.it'));
+    assert.ok(values.includes('pending'));
+    assert.ok(values.includes(100));
+  });
+
+  it('ignores joinFilters for unknown join tables', async () => {
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 0 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      joinFilters: {
+        nonexistent_table: { foo: 'bar' },
+      },
+    });
+
+    const sql = mockPg.calls[0].text;
+    assert.ok(!sql.includes('EXISTS'));
+  });
+
+  it('works with pagination and joinFilters', async () => {
+    const mockPg = createMockPg([
+      // Main query
+      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
+      // COUNT query
+      { rows: [{ total: '1' }], affectedRows: 1 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    const result = await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      joinFilters: {
+        customer_order: { status: 'pending' },
+      },
+      paginator: { page: 1, itemsPerPage: 10 },
+    });
+
+    // Both main and COUNT queries should include EXISTS
+    assert.ok(mockPg.calls[0].text.includes('EXISTS'));
+    assert.ok(mockPg.calls[1].text.includes('EXISTS'));
+    assert.ok(result.pagination);
+    assert.equal(result.pagination.total, 1);
+  });
+});
+
+describe('searchEngine - conditions (advanced filters)', () => {
+  it('applies isGreater condition', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      conditions: [
+        { field: 'id', method: 'isGreater', params: [5] },
+      ],
+    });
+
+    const sql = mockPg.calls[0].text;
+    assert.ok(sql.includes('>'));
+    assert.ok(mockPg.calls[0].values.includes(5));
+  });
+
+  it('applies multiple conditions on same field', async () => {
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 0 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      conditions: [
+        { field: 'id', method: 'isGreater', params: [1] },
+        { field: 'id', method: 'isLess', params: [100] },
+      ],
+    });
+
+    assert.ok(mockPg.calls[0].values.includes(1));
+    assert.ok(mockPg.calls[0].values.includes(100));
+  });
+
+  it('applies isILike condition', async () => {
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 0 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      conditions: [
+        { field: 'name', method: 'isILike', params: ['%mario%'] },
+      ],
+    });
+
+    assert.ok(mockPg.calls[0].values.includes('%mario%'));
+  });
+
+  it('applies isNull condition', async () => {
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 0 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      conditions: [
+        { field: 'email', method: 'isNull', params: [] },
+      ],
+    });
+
+    const sql = mockPg.calls[0].text;
+    assert.ok(sql.includes('IS NULL'));
+  });
+
+  it('applies isIn condition', async () => {
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 0 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      conditions: [
+        { field: 'id', method: 'isIn', params: [[1, 2, 3]] },
+      ],
+    });
+
+    const sql = mockPg.calls[0].text;
+    assert.ok(sql.includes('IN'));
+  });
+
+  it('applies isBetween condition', async () => {
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 0 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      conditions: [
+        { field: 'id', method: 'isBetween', params: [10, 50] },
+      ],
+    });
+
+    assert.ok(mockPg.calls[0].values.includes(10));
+    assert.ok(mockPg.calls[0].values.includes(50));
+  });
+
+  it('combines filters and conditions', async () => {
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 0 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      filters: { name: 'Mario' },
+      conditions: [
+        { field: 'id', method: 'isGreater', params: [5] },
+      ],
+    });
+
+    assert.ok(mockPg.calls[0].values.includes('Mario'));
+    assert.ok(mockPg.calls[0].values.includes(5));
+  });
+
+  it('rejects unknown method (prototype poisoning)', async () => {
+    const mockPg = createMockPg([]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await assert.rejects(
+      () => searchEngine(DbTables, {
+        db,
+        tableConf: DbTables.customer,
+        conditions: [
+          { field: 'id', method: 'constructor', params: [] },
+        ],
+      }),
+      (err) => err.statusCode === 400 && err.message.includes('Invalid condition method')
+    );
+  });
+
+  it('rejects raw method', async () => {
+    const mockPg = createMockPg([]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await assert.rejects(
+      () => searchEngine(DbTables, {
+        db,
+        tableConf: DbTables.customer,
+        conditions: [
+          { field: 'id', method: 'raw', params: ['1=1; DROP TABLE--', []] },
+        ],
+      }),
+      (err) => err.statusCode === 400
+    );
+  });
+
+  it('rejects unknown field', async () => {
+    const mockPg = createMockPg([]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await assert.rejects(
+      () => searchEngine(DbTables, {
+        db,
+        tableConf: DbTables.customer,
+        conditions: [
+          { field: 'nonExistent', method: 'isEqual', params: [1] },
+        ],
+      }),
+      (err) => err.statusCode === 400 && err.message.includes('Unknown field')
+    );
+  });
+
+  it('isBetween with undefined "from" becomes <= "to"', async () => {
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 0 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      conditions: [
+        { field: 'id', method: 'isBetween', params: [undefined, 100] },
+      ],
+    });
+
+    const sql = mockPg.calls[0].text;
+    assert.ok(sql.includes('<='), `expected <= in: ${sql}`);
+    assert.ok(mockPg.calls[0].values.includes(100));
+    assert.ok(!mockPg.calls[0].values.includes(undefined));
+  });
+
+  it('isBetween with undefined "to" becomes >= "from"', async () => {
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 0 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      conditions: [
+        { field: 'id', method: 'isBetween', params: [50, undefined] },
+      ],
+    });
+
+    const sql = mockPg.calls[0].text;
+    assert.ok(sql.includes('>='), `expected >= in: ${sql}`);
+    assert.ok(mockPg.calls[0].values.includes(50));
+  });
+
+  it('isBetween with both undefined is a noop', async () => {
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 0 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      conditions: [
+        { field: 'id', method: 'isBetween', params: [undefined, undefined] },
+      ],
+    });
+
+    // No values should be added — condition is TRUE (noop)
+    assert.equal(mockPg.calls[0].values.length, 0);
+  });
+
+  it('isEqual with undefined is a noop', async () => {
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 0 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      conditions: [
+        { field: 'name', method: 'isEqual', params: [undefined] },
+      ],
+    });
+
+    assert.equal(mockPg.calls[0].values.length, 0);
+  });
+
+  it('isIn with undefined is a noop', async () => {
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 0 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      conditions: [
+        { field: 'id', method: 'isIn', params: [undefined] },
+      ],
+    });
+
+    assert.equal(mockPg.calls[0].values.length, 0);
+  });
+});
+
 describe('searchEngine - joinGroups', () => {
   it('executes GROUP BY aggregation', async () => {
     const mockPg = createMockPg([
       // Main
-      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], rowCount: 1 },
+      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
       // JoinGroup aggregation
-      { rows: [{ sum_total: 150 }], rowCount: 1 },
+      { rows: [{ sum_total: 150 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -347,8 +728,8 @@ describe('searchEngine - joinGroups', () => {
 
   it('includes GROUP BY when "by" is specified', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], rowCount: 1 },
-      { rows: [{ by: 'pending', sum_total: 100 }], rowCount: 1 },
+      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
+      { rows: [{ by: 'pending', sum_total: 100 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 

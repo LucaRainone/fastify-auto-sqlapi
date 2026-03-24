@@ -1,7 +1,5 @@
-import pg from 'pg';
+import { createRequire } from 'node:module';
 import type { ColumnInfo } from '../../types.js';
-
-const { Client } = pg;
 
 export function buildConnectionString(): string {
   if (process.env.DATABASE_URL) {
@@ -21,12 +19,22 @@ export async function introspectTables(
   connectionString: string,
   schema: string
 ): Promise<ColumnInfo[]> {
-  const client = new Client({ connectionString });
+  // Dynamic require from cwd so it works with npm link
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let pg: any;
+  try {
+    const require = createRequire(process.cwd() + '/noop.js');
+    pg = require('pg');
+  } catch {
+    throw new Error('pg is required for PostgreSQL introspection. Install it with: npm install pg');
+  }
+
+  const client = new pg.Client({ connectionString });
 
   try {
     await client.connect();
 
-    const result = await client.query<ColumnInfo>(
+    const result = await client.query(
       `SELECT table_name, column_name, udt_name, column_default, is_nullable
        FROM information_schema.columns
        WHERE table_schema = $1
@@ -34,7 +42,7 @@ export async function introspectTables(
       [schema]
     );
 
-    return result.rows;
+    return result.rows as ColumnInfo[];
   } finally {
     await client.end();
   }

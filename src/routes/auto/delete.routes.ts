@@ -1,8 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { Type } from '@sinclair/typebox';
-import { QueryClient } from '../../lib/db.js';
-import { deleteEngine } from '../../lib/engine/delete.js';
-import { resolveTenant } from '../../lib/tenant.js';
+import { primaryAsString } from '../../types.js';
+import { mergeOnRequests } from './route-helpers.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
 export default async function deleteRoutes(
@@ -12,8 +11,10 @@ export default async function deleteRoutes(
   const { DbTables } = options;
 
   for (const [tableName, tableConf] of Object.entries(DbTables)) {
+    const pkField = primaryAsString(tableConf.primary);
+    const pkType = tableConf.Schema.fields[pkField];
     const responseSchema = Type.Object({
-      main: Type.Partial(Type.Object(tableConf.Schema.fields)),
+      main: Type.Object({ [pkField]: pkType }),
     });
 
     fastify.route({
@@ -26,15 +27,10 @@ export default async function deleteRoutes(
         summary: `Delete ${tableName}`,
         description: `Delete a record from ${tableName} by primary key`,
       },
-      onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
+      onRequest: mergeOnRequests(options, tableConf),
       handler: async (request, reply) => {
-        const db = new QueryClient((fastify as any).pg);
-        const tenant = await resolveTenant(options, tableConf, request);
         const { id } = request.params as { id: string };
-
-        const result = await deleteEngine({ db, tableConf, id, tenant });
-
-        reply.send(result);
+        reply.send(await fastify.sqlApi.delete(tableName, id, request));
       },
     });
   }

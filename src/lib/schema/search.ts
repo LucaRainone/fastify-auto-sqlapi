@@ -1,4 +1,5 @@
 import { Type, type TObject, type TSchema } from '@sinclair/typebox';
+import { ALLOWED_METHODS } from '../condition-methods.js';
 import type { DbTables } from '../../types.js';
 
 const JoinGroupResultItem = Type.Object({
@@ -22,6 +23,7 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
 
   // Joins & JoinGroups from allowedReadJoins
   const joinProperties: Record<string, ReturnType<typeof Type.Object>> = {};
+  const joinFilterProperties: Record<string, ReturnType<typeof Type.Partial>> = {};
   const joinGroupProperties: Record<string, ReturnType<typeof Type.Object>> = {};
 
   if (tableConf.allowedReadJoins) {
@@ -37,6 +39,8 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
         filters: Type.Optional(Type.Partial(Type.Object(joinFilterFields))),
       });
 
+      joinFilterProperties[joinTableName] = Type.Partial(Type.Object(joinFilterFields));
+
       joinGroupProperties[joinTableName] = Type.Object({
         aggregations: Type.Object({
           by: Type.Optional(Type.String()),
@@ -50,11 +54,21 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
     }
   }
 
+  // Conditions: advanced filters with ConditionBuilder methods
+  const methodEnum = Type.Union(ALLOWED_METHODS.map((m) => Type.Literal(m)));
+  const conditionItemSchema = Type.Object({
+    field: Type.String(),
+    method: methodEnum,
+    params: Type.Optional(Type.Array(Type.Any())),
+  });
+
   const bodyProperties: Record<string, unknown> = {
     filters: filtersSchema,
+    conditions: Type.Optional(Type.Array(conditionItemSchema)),
   };
 
   if (Object.keys(joinProperties).length > 0) {
+    bodyProperties.joinFilters = Type.Optional(Type.Partial(Type.Object(joinFilterProperties)));
     bodyProperties.joins = Type.Optional(Type.Partial(Type.Object(joinProperties)));
     bodyProperties.joinGroups = Type.Optional(Type.Partial(Type.Object(joinGroupProperties)));
   }

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
-const { bulkUpsertEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk-upsert.js'));
+const { bulkUpsertEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk/bulk-upsert.js'));
 const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
@@ -29,7 +29,7 @@ function createMockPg(responses = []) {
     calls,
     query(text, values) {
       calls.push({ text: text.replace(/\s+/g, ' ').trim(), values });
-      const response = responses[callIndex] || { rows: [], rowCount: 0 };
+      const response = responses[callIndex] || { rows: [], affectedRows: 0 };
       callIndex++;
       return Promise.resolve(response);
     },
@@ -81,13 +81,13 @@ function createTestDbTables(mockPg, opts = {}) {
 }
 
 describe('bulkUpsertEngine - bulk insert (no upsertMap)', () => {
-  it('inserts all mains in a single bulkInsert query', async () => {
+  it('inserts all mains in a single bulkInsert query, returns PK-only', async () => {
     const mockPg = createMockPg([
-      // Single bulk insert for both mains
+      // Single bulk insert for both mains (PK-only)
       { rows: [
-        { id: 1, name: 'Mario', email: 'mario@test.it' },
-        { id: 2, name: 'Luigi', email: 'luigi@test.it' },
-      ], rowCount: 2 },
+        { id: 1 },
+        { id: 2 },
+      ], affectedRows: 2 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -103,16 +103,17 @@ describe('bulkUpsertEngine - bulk insert (no upsertMap)', () => {
     });
 
     assert.equal(results.length, 2);
-    assert.equal(results[0].main.name, 'Mario');
-    assert.equal(results[1].main.name, 'Luigi');
+    assert.equal(results[0].main.id, 1);
+    assert.equal(results[0].main.name, undefined);
+    assert.equal(results[1].main.id, 2);
     // Only 1 SQL call for both mains
     assert.equal(mockPg.calls.length, 1);
     assert.ok(mockPg.calls[0].text.includes('INSERT INTO "customer"'));
   });
 
-  it('returns camelCase results without secondaries/deletions', async () => {
+  it('returns PK-only results without secondaries/deletions', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], rowCount: 1 },
+      { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -134,9 +135,9 @@ describe('bulkUpsertEngine - bulk upsert with upsertMap', () => {
   it('uses bulkInsertOrUpdate with ON CONFLICT', async () => {
     const mockPg = createMockPg([
       { rows: [
-        { id: 1, name: 'Mario', email: 'mario@test.it' },
-        { id: 2, name: 'Luigi', email: 'luigi@test.it' },
-      ], rowCount: 2 },
+        { id: 1 },
+        { id: 2 },
+      ], affectedRows: 2 },
     ]);
     const { DbTables, db, customerSchema } = createTestDbTables(mockPg);
     DbTables.customer.upsertMap = new Map([[customerSchema, ['email']]]);
@@ -161,15 +162,15 @@ describe('bulkUpsertEngine - bulk upsert with upsertMap', () => {
 describe('bulkUpsertEngine - with secondaries', () => {
   it('processes secondaries with FK auto-fill per item after bulk main', async () => {
     const mockPg = createMockPg([
-      // Bulk insert mains
+      // Bulk insert mains (PK-only)
       { rows: [
-        { id: 10, name: 'Mario', email: 'mario@test.it' },
-        { id: 20, name: 'Luigi', email: 'luigi@test.it' },
-      ], rowCount: 2 },
-      // Item 1: secondary bulk insert
-      { rows: [{ id: 100, customer_id: 10, total: 50, status: 'pending' }], rowCount: 1 },
-      // Item 2: secondary bulk insert
-      { rows: [{ id: 101, customer_id: 20, total: 75, status: 'new' }], rowCount: 1 },
+        { id: 10 },
+        { id: 20 },
+      ], affectedRows: 2 },
+      // Item 1: secondary bulk insert (PK-only)
+      { rows: [{ id: 100 }], affectedRows: 1 },
+      // Item 2: secondary bulk insert (PK-only)
+      { rows: [{ id: 101 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -204,10 +205,10 @@ describe('bulkUpsertEngine - with secondaries', () => {
 describe('bulkUpsertEngine - with deletions', () => {
   it('processes deletions per item', async () => {
     const mockPg = createMockPg([
-      // Bulk insert mains
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], rowCount: 1 },
-      // Deletion
-      { rows: [{ id: 5, customer_id: 1, total: 50, status: 'old' }], rowCount: 1 },
+      // Bulk insert mains (PK-only)
+      { rows: [{ id: 1 }], affectedRows: 1 },
+      // Deletion (affectedRows)
+      { rows: [], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -235,9 +236,9 @@ describe('bulkUpsertEngine - hooks', () => {
     const hookCalls = [];
     const mockPg = createMockPg([
       { rows: [
-        { id: 1, name: 'Mario', email: 'mario@test.it' },
-        { id: 2, name: 'Luigi', email: 'luigi@test.it' },
-      ], rowCount: 2 },
+        { id: 1 },
+        { id: 2 },
+      ], affectedRows: 2 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
     DbTables.customer.beforeInsert = async (_db, _req, record) => {
@@ -262,7 +263,7 @@ describe('bulkUpsertEngine - hooks', () => {
 
   it('beforeInsert can mutate records before bulk insert', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it', status: 'active' }], rowCount: 1 },
+      { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
     DbTables.customer.beforeInsert = async (_db, _req, record) => {
@@ -281,15 +282,15 @@ describe('bulkUpsertEngine - hooks', () => {
     assert.ok(mockPg.calls[0].values.includes('active'));
   });
 
-  it('calls afterInsert for each item with secondaryRecords', async () => {
+  it('calls afterInsert for each item with merged record', async () => {
     const hookCalls = [];
     const mockPg = createMockPg([
       { rows: [
-        { id: 10, name: 'Mario', email: 'mario@test.it' },
-        { id: 20, name: 'Luigi', email: 'luigi@test.it' },
-      ], rowCount: 2 },
-      // Item 1: secondary
-      { rows: [{ id: 100, customer_id: 10, total: 50, status: 'pending' }], rowCount: 1 },
+        { id: 10 },
+        { id: 20 },
+      ], affectedRows: 2 },
+      // Item 1: secondary (PK-only)
+      { rows: [{ id: 100 }], affectedRows: 1 },
       // Item 2: no secondaries
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
@@ -312,11 +313,12 @@ describe('bulkUpsertEngine - hooks', () => {
     });
 
     assert.equal(hookCalls.length, 2);
-    // Item 1: has secondaries
+    // Item 1: has secondaries, merged record has PK + input
     assert.equal(hookCalls[0].record.id, 10);
+    assert.equal(hookCalls[0].record.name, 'Mario');
     assert.ok(hookCalls[0].secondaryRecords);
     assert.equal(hookCalls[0].secondaryRecords.customer_order.length, 1);
-    // Item 2: no secondaries
+    // Item 2: no secondaries, merged record
     assert.equal(hookCalls[1].record.id, 20);
     assert.equal(hookCalls[1].secondaryRecords, undefined);
   });
@@ -325,15 +327,15 @@ describe('bulkUpsertEngine - hooks', () => {
 describe('bulkUpsertEngine - mixed items', () => {
   it('handles items with and without secondaries/deletions', async () => {
     const mockPg = createMockPg([
-      // Bulk insert both mains
+      // Bulk insert both mains (PK-only)
       { rows: [
-        { id: 1, name: 'Mario', email: 'mario@test.it' },
-        { id: 2, name: 'Luigi', email: 'luigi@test.it' },
-      ], rowCount: 2 },
-      // Item 2: secondary
-      { rows: [{ id: 100, customer_id: 2, total: 99, status: 'new' }], rowCount: 1 },
-      // Item 2: deletion
-      { rows: [{ id: 50, customer_id: 2, total: 10, status: 'old' }], rowCount: 1 },
+        { id: 1 },
+        { id: 2 },
+      ], affectedRows: 2 },
+      // Item 2: secondary (PK-only)
+      { rows: [{ id: 100 }], affectedRows: 1 },
+      // Item 2: deletion (affectedRows)
+      { rows: [], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 

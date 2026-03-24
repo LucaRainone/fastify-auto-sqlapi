@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
-const { updateEngine } = await import(path.join(ROOT, 'dist/lib/engine/update.js'));
+const { updateEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/update.js'));
 const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
@@ -29,7 +29,7 @@ function createMockPg(responses = []) {
     calls,
     query(text, values) {
       calls.push({ text: text.replace(/\s+/g, ' ').trim(), values });
-      const response = responses[callIndex] || { rows: [], rowCount: 0 };
+      const response = responses[callIndex] || { rows: [], affectedRows: 0 };
       callIndex++;
       return Promise.resolve(response);
     },
@@ -80,9 +80,9 @@ function createTestDbTables(mockPg, opts = {}) {
 }
 
 describe('updateEngine - main update', () => {
-  it('updates main record by PK', async () => {
+  it('updates main record by PK and returns PK-only', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario Updated', email: 'mario@test.it' }], rowCount: 1 },
+      { rows: [], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -95,15 +95,15 @@ describe('updateEngine - main update', () => {
     });
 
     assert.equal(result.main.id, 1);
-    assert.equal(result.main.name, 'Mario Updated');
+    assert.equal(result.main.name, undefined);
     assert.ok(mockPg.calls[0].text.includes('UPDATE "customer"'));
     assert.ok(mockPg.calls[0].text.includes('WHERE'));
-    assert.ok(mockPg.calls[0].text.includes('RETURNING *'));
+    assert.ok(!mockPg.calls[0].text.includes('RETURNING'));
   });
 
   it('does not include PK in SET clause', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Updated', email: 'new@test.it' }], rowCount: 1 },
+      { rows: [], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -139,7 +139,7 @@ describe('updateEngine - main update', () => {
 
   it('throws 404 when record not found', async () => {
     const mockPg = createMockPg([
-      { rows: [], rowCount: 0 },
+      { rows: [], affectedRows: 0 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -155,9 +155,9 @@ describe('updateEngine - main update', () => {
     );
   });
 
-  it('returns camelCase result', async () => {
+  it('returns PK-only result', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], rowCount: 1 },
+      { rows: [], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -175,11 +175,77 @@ describe('updateEngine - main update', () => {
   });
 });
 
+describe('updateEngine - composite PK secondaries', () => {
+  it('inserts secondary with composite PK and returns both PK fields', async () => {
+    const agentFields = {
+      id: Type.Number(),
+      name: Type.String(),
+    };
+    const linkFields = {
+      agentId: Type.Number(),
+      teamId: Type.Number(),
+    };
+    const agentSchema = createMockSchema('agent', agentFields);
+    const linkSchema = createMockSchema('agent_team_link', linkFields);
+    const agentInfo = exportTableInfo(agentSchema);
+    const linkInfo = exportTableInfo(linkSchema);
+
+    const DbTables = {
+      agent: {
+        primary: 'id',
+        ...agentInfo,
+        defaultOrder: 'id',
+        allowedWriteJoins: [
+          buildRelation(agentSchema, 'id', linkSchema, 'agentId'),
+        ],
+      },
+      agent_team_link: {
+        primary: ['agentId', 'teamId'],
+        ...linkInfo,
+        defaultOrder: 'agentId',
+      },
+    };
+
+    const mockPg = createMockPg([
+      // Main update
+      { rows: [], affectedRows: 1 },
+      // Bulk insert link (composite PK returned)
+      { rows: [{ agent_id: 14, team_id: 2 }], affectedRows: 1 },
+    ]);
+    const db = new QueryClient(mockPg);
+
+    const result = await updateEngine({
+      db,
+      tableConf: DbTables.agent,
+      dbTables: DbTables,
+      request: mockRequest,
+      record: { id: 14, name: 'Updated' },
+      secondaries: {
+        agent_team_link: [{ teamId: 2 }],
+      },
+    });
+
+    // Secondary insert should use composite PK columns in RETURNING
+    const bulkCall = mockPg.calls[1];
+    assert.ok(bulkCall.text.includes('INSERT INTO "agent_team_link"'));
+    assert.ok(bulkCall.text.includes('RETURNING "agent_id", "team_id"'));
+
+    // FK auto-fill: agent_id should be 14
+    assert.ok(bulkCall.values.includes(14));
+
+    // Result should contain both PK fields (camelCase)
+    assert.ok(result.secondaries);
+    assert.equal(result.secondaries.agent_team_link.length, 1);
+    assert.equal(result.secondaries.agent_team_link[0].agentId, 14);
+    assert.equal(result.secondaries.agent_team_link[0].teamId, 2);
+  });
+});
+
 describe('updateEngine - beforeUpdate hook', () => {
   it('calls beforeUpdate with update fields', async () => {
     let hookFields = null;
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Updated', email: 'mario@test.it' }], rowCount: 1 },
+      { rows: [], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg, {
       beforeUpdate: async (_db, _req, fields) => {
@@ -206,9 +272,9 @@ describe('updateEngine - secondaries', () => {
   it('inserts secondary records with FK auto-fill', async () => {
     const mockPg = createMockPg([
       // Main update
-      { rows: [{ id: 42, name: 'Mario', email: 'mario@test.it' }], rowCount: 1 },
-      // Bulk insert orders
-      { rows: [{ id: 10, customer_id: 42, total: 100, status: 'pending' }], rowCount: 1 },
+      { rows: [], affectedRows: 1 },
+      // Bulk insert orders (PK-only)
+      { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -235,9 +301,9 @@ describe('updateEngine - deletions', () => {
   it('deletes secondary records', async () => {
     const mockPg = createMockPg([
       // Main update
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], rowCount: 1 },
-      // Delete order
-      { rows: [{ id: 5, customer_id: 1, total: 50, status: 'cancelled' }], rowCount: 1 },
+      { rows: [], affectedRows: 1 },
+      // Delete order (affectedRows)
+      { rows: [], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
@@ -261,7 +327,7 @@ describe('updateEngine - deletions', () => {
 
   it('ignores deletions not in allowedWriteJoins', async () => {
     const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], rowCount: 1 },
+      { rows: [], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg, {
       allowedWriteJoins: [],
@@ -285,11 +351,11 @@ describe('updateEngine - deletions', () => {
   it('handles secondaries + deletions together', async () => {
     const mockPg = createMockPg([
       // Main update
-      { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], rowCount: 1 },
-      // Bulk insert (secondary)
-      { rows: [{ id: 20, customer_id: 1, total: 200, status: 'new' }], rowCount: 1 },
-      // Delete
-      { rows: [{ id: 5, customer_id: 1, total: 50, status: 'old' }], rowCount: 1 },
+      { rows: [], affectedRows: 1 },
+      // Bulk insert (secondary, PK-only)
+      { rows: [{ id: 20 }], affectedRows: 1 },
+      // Delete (affectedRows)
+      { rows: [], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 

@@ -1,8 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { Type } from '@sinclair/typebox';
-import { QueryClient } from '../../lib/db.js';
-import { getEngine } from '../../lib/engine/get.js';
-import { resolveTenant } from '../../lib/tenant.js';
+import { mergeOnRequests } from './route-helpers.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
 export default async function getRoutes(
@@ -26,15 +24,10 @@ export default async function getRoutes(
         summary: `Get ${tableName}`,
         description: `Get a record from ${tableName} by primary key`,
       },
-      onRequest: [...(options.onRequests || []), ...(tableConf.onRequests || [])],
+      onRequest: mergeOnRequests(options, tableConf),
       handler: async (request, reply) => {
-        const db = new QueryClient((fastify as any).pg);
-        const tenant = await resolveTenant(options, tableConf, request);
         const { id } = request.params as { id: string };
-
-        const result = await getEngine({ db, tableConf, id, tenant });
-
-        reply.send(result);
+        reply.send(await fastify.sqlApi.get(tableName, id, request));
       },
     });
   }
