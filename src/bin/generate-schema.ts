@@ -36,10 +36,11 @@ async function main(): Promise<void> {
   const dialect = (cliArgs.dialect || config.dialect || 'postgres') as DialectName;
   const schema = config.schema || (dialect === 'postgres' ? 'public' : config.schema || 'public');
   const outputDir = path.resolve(process.cwd(), cliArgs.output || config.outputDir);
+  const schemasDir = path.join(outputDir, 'schemas');
 
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
-    display(`Created directory: ${outputDir}`, CONSOLE_COLORS.green);
+  if (!fs.existsSync(schemasDir)) {
+    fs.mkdirSync(schemasDir, { recursive: true });
+    display(`Created directory: ${schemasDir}`, CONSOLE_COLORS.green);
   }
 
   let rows: ColumnInfo[];
@@ -85,7 +86,7 @@ async function main(): Promise<void> {
 
   for (const schemaName of Object.keys(tableMap)) {
     const { name: tableName, fields } = tableMap[schemaName];
-    const filename = path.join(outputDir, `${schemaName}.ts`);
+    const filename = path.join(schemasDir, `${schemaName}.ts`);
     generatedFiles.add(`${schemaName}.ts`);
 
     const content = generateSchemaFile(schemaName, tableName, fields);
@@ -115,10 +116,10 @@ async function main(): Promise<void> {
 
   // Remove orphan Schema*.ts files (only when generating all tables)
   if (!tableNames) {
-    const existingFiles = fs.readdirSync(outputDir);
+    const existingFiles = fs.readdirSync(schemasDir);
     for (const file of existingFiles) {
       if (file.startsWith('Schema') && file.endsWith('.ts') && !generatedFiles.has(file)) {
-        const filePath = path.join(outputDir, file);
+        const filePath = path.join(schemasDir, file);
         fs.unlinkSync(filePath);
         displayAsTableRow(filePath, 'removed', 90, CONSOLE_COLORS.red);
         somethingTouched = true;
