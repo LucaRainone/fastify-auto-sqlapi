@@ -172,6 +172,28 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
   }
 
   lines.push(`  // upsertMap: buildUpsertRules(buildUpsertRule(Schema, ['${pk}'])),`);
+
+  // schemaOverrides: suggest email format if email field exists, otherwise minLength on first string field
+  const emailField = schema.fields.find(f => f.toLowerCase().includes('email'));
+  if (emailField) {
+    lines.push(`  // schemaOverrides: { ${emailField}: Type.String({ format: 'email' }) },`);
+  } else {
+    const stringField = schema.fields.find(f => f !== pk && schema.fieldTypes[f]?.includes('String'));
+    if (stringField) {
+      lines.push(`  // schemaOverrides: { ${stringField}: Type.String({ minLength: 1 }) },`);
+    } else {
+      lines.push(`  // schemaOverrides: {},`);
+    }
+  }
+
+  // validate: use first non-PK field for example
+  const exampleField = schema.fields.find(f => f !== pk) || schema.fields[0];
+  lines.push(`  validate: async (db, req, main, secondaries) => {`);
+  lines.push(`    const errors = [];`);
+  lines.push(`    // if (!main.${exampleField}) errors.push(['${exampleField}', 'required']);`);
+  lines.push(`    return errors;`);
+  lines.push(`  },`);
+
   lines.push(`  // beforeInsert: async (db, req, record) => {},`);
   lines.push(`  // beforeUpdate: async (db, req, fields) => {},`);
 
@@ -273,6 +295,15 @@ export function generateTablesFile(schemas: ParsedSchema[]): string {
     }
 
     lines.push(`  // upsertMap: buildUpsertRules(buildUpsertRule(${schema.schemaName}, ['${pk}'])),`);
+    lines.push(`  // schemaOverrides: {},`);
+
+    const exampleFieldLegacy = schema.fields.find(f => f !== pk) || schema.fields[0];
+    lines.push(`  validate: async (db, req, main, secondaries) => {`);
+    lines.push(`    const errors = [];`);
+    lines.push(`    // if (!main.${exampleFieldLegacy}) errors.push(['${exampleFieldLegacy}', 'required']);`);
+    lines.push(`    return errors;`);
+    lines.push(`  },`);
+
     lines.push(`  // beforeInsert: async (db, req, record) => {},`);
     lines.push(`  // beforeUpdate: async (db, req, fields) => {},`);
 

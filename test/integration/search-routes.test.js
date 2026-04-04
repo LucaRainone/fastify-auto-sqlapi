@@ -8,8 +8,7 @@ import fastifyPostgres from '@fastify/postgres';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
-const { searchRoutes } = await import(path.join(ROOT, 'dist/index.js'));
-const { exportTableInfo, buildRelation, toUnderscore, Type, QueryClient } =
+const { fastifyAutoSqlApi, exportTableInfo, buildRelation, toUnderscore, Type, QueryClient } =
   await import(path.join(ROOT, 'dist/index.js'));
 
 const connectionString = 'postgres://test:test@127.0.0.1:5433/testdb';
@@ -63,7 +62,7 @@ describe('search routes integration', () => {
   before(async () => {
     app = Fastify();
     await app.register(fastifyPostgres, { connectionString });
-    await app.register(searchRoutes, { DbTables, prefix: '/auto' });
+    await app.register(fastifyAutoSqlApi, { DbTables, prefix: '/auto' });
 
     // Seed data
     const client = await app.pg.connect();

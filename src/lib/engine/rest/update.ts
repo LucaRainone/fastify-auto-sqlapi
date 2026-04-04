@@ -1,6 +1,7 @@
 import { camelcaseObject, snakecaseRecord } from '../../naming.js';
 import { processSecondaries, processDeletions } from '../write-helpers.js';
 import { stripTenantColumn, buildTenantCondition, buildTenantJoin } from '../../tenant.js';
+import { runValidation } from '../validate.js';
 import { ConditionBuilder, type ConditionValue } from 'node-condition-builder';
 import { primaryAsString } from '../../../types.js';
 import type {
@@ -52,12 +53,15 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     }
   }
 
-  // 2. beforeUpdate hook
+  // 2. Custom validation (receives original camelCase record)
+  await runValidation(db, request, tableConf, record, secondaries);
+
+  // 3. beforeUpdate hook
   if (tableConf.beforeUpdate) {
     await tableConf.beforeUpdate(db, request, updateFields);
   }
 
-  // 3. Update main
+  // 4. Update main
   const hasFieldsToUpdate = Object.keys(updateFields).length > 0;
 
   let extraCondition: ConditionBuilder | undefined;
@@ -111,7 +115,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
   // Build the main response (PK-only)
   const mainResult = { [pk]: pkValue };
 
-  // 4. Secondaries (upsert/insert with FK auto-fill)
+  // 5. Secondaries (upsert/insert with FK auto-fill)
   let secondaryResults: Record<string, Record<string, unknown>[]> | undefined;
   if (secondaries && Object.keys(secondaries).length > 0) {
     // Merge input fields + PK for FK auto-fill
@@ -119,13 +123,13 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     secondaryResults = await processSecondaries(db, tableConf, dbTables, mainForFK, secondaries);
   }
 
-  // 5. Deletions
+  // 6. Deletions
   let deletionResults: Record<string, Record<string, unknown>[]> | undefined;
   if (deletions && Object.keys(deletions).length > 0) {
     deletionResults = await processDeletions(db, tableConf, deletions);
   }
 
-  // 6. Return PK-only
+  // 7. Return PK-only
   const result: UpdateResult = { main: mainResult };
   if (secondaryResults && Object.keys(secondaryResults).length > 0) {
     result.secondaries = secondaryResults;

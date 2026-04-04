@@ -2,14 +2,14 @@ import { Type, type TObject, type TSchema } from '@sinclair/typebox';
 import { primaryAsString } from '../../types.js';
 import type { DbTables } from '../../types.js';
 import { findSecondaryTableConf } from '../engine/write-helpers.js';
-import { pkSchema, buildSecondaryFields } from './helpers.js';
+import { pkSchema, buildSecondaryFields, applySchemaOverrides } from './helpers.js';
 
 export function InsertTableBody(dbTables: DbTables, tableName: string): TObject {
   const tableConf = dbTables[tableName];
   const schema = tableConf.Schema;
 
   // Main: full validation, but excludeFromCreation fields become Optional
-  const mainFields: Record<string, TSchema> = { ...schema.fields };
+  const mainFields: Record<string, TSchema> = applySchemaOverrides({ ...schema.fields }, tableConf);
   if (tableConf.excludeFromCreation) {
     for (const field of tableConf.excludeFromCreation) {
       mainFields[field] = Type.Optional(mainFields[field]);

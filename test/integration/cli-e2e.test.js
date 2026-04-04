@@ -35,9 +35,10 @@ describe('CLI generate-schema', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sqlapi-test-'));
     outputDir = path.join(tmpDir, 'schemas');
 
+    // CLI appends /schemas/ to outputDir, so point config at tmpDir
     fs.writeFileSync(
       path.join(tmpDir, 'sqlapi.config.js'),
-      `export default { outputDir: ${JSON.stringify(outputDir)}, schema: 'public' };\n`
+      `export default { outputDir: ${JSON.stringify(tmpDir)}, schema: 'public' };\n`
     );
   });
 

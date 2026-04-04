@@ -65,8 +65,8 @@ async function main(): Promise<void> {
 
   const config = await loadConfig();
   const outputDir = path.resolve(process.cwd(), cliArgs.output || config.outputDir);
-  const schemasDir = path.join(outputDir, 'schemas');
-  const tablesDir = path.join(outputDir, 'tables');
+  const schemasDir = outputDir;
+  const tablesDir = outputDir;
 
   if (!fs.existsSync(schemasDir)) {
     error(`Schemas directory not found: ${schemasDir}`);
