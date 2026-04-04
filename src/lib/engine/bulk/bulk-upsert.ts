@@ -39,15 +39,12 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
     }
   }
 
-  // 2. Custom validation: validateBulk replaces per-item validate
+  // 2. Custom validation (receives original camelCase records)
   if (tableConf.validateBulk) {
-    await runBulkValidation(db, request, tableConf, items.map((item, i) => ({
-      main: preparedMains[i],
-      secondaries: item.secondaries,
-    })));
+    await runBulkValidation(db, request, tableConf, items);
   } else {
     for (let i = 0; i < items.length; i++) {
-      await runValidation(db, request, tableConf, preparedMains[i], items[i].secondaries);
+      await runValidation(db, request, tableConf, items[i].main, items[i].secondaries);
     }
   }
 

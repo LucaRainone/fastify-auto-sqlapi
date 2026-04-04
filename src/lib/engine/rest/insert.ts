@@ -33,8 +33,8 @@ export async function insertEngine(params: InsertParams): Promise<InsertResult> 
     }
   }
 
-  // 2. Custom validation
-  await runValidation(db, request, tableConf, mainRecord, secondaries);
+  // 2. Custom validation (receives original camelCase record)
+  await runValidation(db, request, tableConf, record, secondaries);
 
   // 3. beforeInsert hook
   if (tableConf.beforeInsert) {

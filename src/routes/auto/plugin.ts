@@ -64,7 +64,7 @@ export default fp(async function fastifyAutoSqlApi(
       // Schema validation errors (Ajv)
       if (error.validation) {
         const fields = error.validation.map((v) => ({
-          path: `${error.validationContext}${v.instancePath || ''}`.replace(/\//g, '.').replace(/^\./, ''),
+          path: (v.instancePath || '').replace(/\//g, '.').replace(/^\./, ''),
           message: v.message || 'invalid',
           code: v.keyword || 'unknown',
         }));

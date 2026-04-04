@@ -1,5 +1,5 @@
 import type { Expression, ConditionBuilder, ConditionValueOrUndefined } from 'node-condition-builder';
-import type { TSchema, TObject } from '@sinclair/typebox';
+import type { TSchema, TObject, Static } from '@sinclair/typebox';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { QueryClient } from './lib/db.js';
 import type { DialectName } from './lib/dialect.js';
@@ -115,22 +115,22 @@ export type ValidationError =
   | [field: string, code: string]
   | [field: string, code: string, message: string];
 
-export type ValidatorFn = (
+export type ValidatorFn<F extends Record<string, TSchema> = Record<string, TSchema>> = (
   db: QueryClient,
   req: FastifyRequest,
-  main: Record<string, unknown>,
+  main: { [K in keyof F]?: Static<F[K]> },
   secondaries?: Record<string, Record<string, unknown>[]>
 ) => Promise<ValidationError[]> | ValidationError[];
 
-export interface BulkValidatorItem {
-  main: Record<string, unknown>;
+export interface BulkValidatorItem<F extends Record<string, TSchema> = Record<string, TSchema>> {
+  main: { [K in keyof F]?: Static<F[K]> };
   secondaries?: Record<string, Record<string, unknown>[]>;
 }
 
-export type BulkValidatorFn = (
+export type BulkValidatorFn<F extends Record<string, TSchema> = Record<string, TSchema>> = (
   db: QueryClient,
   req: FastifyRequest,
-  items: BulkValidatorItem[]
+  items: BulkValidatorItem<F>[]
 ) => Promise<ValidationError[]> | ValidationError[];
 
 // ─── Table Configuration ─────────────────────────────────────
@@ -147,8 +147,8 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
   allowedReadJoins?: JoinDefinition[];
   allowedWriteJoins?: JoinDefinition[];
   upsertMap?: Map<SchemaDefinition, string[]>;
-  validate?: ValidatorFn;
-  validateBulk?: BulkValidatorFn;
+  validate?: ValidatorFn<F>;
+  validateBulk?: BulkValidatorFn<F>;
   beforeInsert?: (db: QueryClient, req: FastifyRequest, record: Record<string, unknown>) => Promise<void>;
   beforeUpdate?: (db: QueryClient, req: FastifyRequest, fields: Record<string, unknown>, secondaryFieldsFetcher?: unknown) => void | Promise<void>;
   afterInsert?: (db: QueryClient, req: FastifyRequest, record: Record<string, unknown>, secondaryRecords?: unknown) => Promise<void>;

@@ -53,8 +53,8 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     }
   }
 
-  // 2. Custom validation
-  await runValidation(db, request, tableConf, snaked, secondaries);
+  // 2. Custom validation (receives original camelCase record)
+  await runValidation(db, request, tableConf, record, secondaries);
 
   // 3. beforeUpdate hook
   if (tableConf.beforeUpdate) {

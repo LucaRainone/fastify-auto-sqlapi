@@ -191,6 +191,37 @@ describe('validate - insertEngine', () => {
     assert.equal(receivedSecondaries.session_period.length, 1);
   });
 
+  it('receives camelCase record in validate (not snake_case)', async () => {
+    let receivedMain = null;
+    const mockPg = createMockPg([]);
+    const { DbTables, db } = createTestDbTables(mockPg, {
+      validate: (_db, _req, main) => {
+        receivedMain = main;
+        return [['test', 'stop']];
+      },
+    });
+
+    await assert.rejects(
+      () => insertEngine({
+        db,
+        tableConf: DbTables.session,
+        dbTables: DbTables,
+        request: mockRequest,
+        // Pass camelCase field names
+        record: { name: 'S1' },
+        secondaries: {
+          session_period: [{ startDate: '2024-01-01', endDate: '2024-01-10' }],
+        },
+      }),
+    );
+
+    // validate receives camelCase (original record), not snake_case
+    assert.ok(receivedMain);
+    assert.equal(receivedMain.name, 'S1');
+    // Fields should be camelCase, not snake_case
+    assert.equal(receivedMain.start_date, undefined);
+  });
+
   it('runs validate before beforeInsert', async () => {
     const order = [];
     const mockPg = createMockPg([
