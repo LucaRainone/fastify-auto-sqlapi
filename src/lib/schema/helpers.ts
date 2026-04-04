@@ -1,5 +1,5 @@
 import { Type, type TSchema } from '@sinclair/typebox';
-import type { ITable, SchemaDefinition } from '../../types.js';
+import type { ITable, SchemaDefinition, DbTables } from '../../types.js';
 
 /**
  * Build a PK-only schema for response shapes (single or composite PK).
@@ -40,4 +40,22 @@ export function buildSecondaryFields(
   }
 
   return fields;
+}
+
+/**
+ * Apply schemaOverrides to a fields record.
+ * Replaces matching field schemas with the override.
+ */
+export function applySchemaOverrides(
+  fields: Record<string, TSchema>,
+  tableConf: ITable
+): Record<string, TSchema> {
+  if (!tableConf.schemaOverrides) return fields;
+  const result = { ...fields };
+  for (const [field, schema] of Object.entries(tableConf.schemaOverrides)) {
+    if (field in result && schema) {
+      result[field] = schema;
+    }
+  }
+  return result;
 }

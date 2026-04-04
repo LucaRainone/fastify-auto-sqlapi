@@ -2,15 +2,16 @@ import { Type, type TObject, type TSchema } from '@sinclair/typebox';
 import { primaryAsString } from '../../types.js';
 import type { DbTables } from '../../types.js';
 import { findSecondaryTableConf } from '../engine/write-helpers.js';
-import { pkSchema, buildSecondaryFields } from './helpers.js';
+import { pkSchema, buildSecondaryFields, applySchemaOverrides } from './helpers.js';
 
 export function UpdateTableBody(dbTables: DbTables, tableName: string): TObject {
   const tableConf = dbTables[tableName];
   const schema = tableConf.Schema;
 
-  // Main: PK required, all other fields optional
+  // Main: PK required, all other fields optional (overrides applied before Optional wrap)
+  const baseFields = applySchemaOverrides({ ...schema.fields }, tableConf);
   const mainFields: Record<string, TSchema> = {};
-  for (const [key, value] of Object.entries(schema.fields) as [string, TSchema][]) {
+  for (const [key, value] of Object.entries(baseFields) as [string, TSchema][]) {
     mainFields[key] = key === primaryAsString(tableConf.primary) ? value : Type.Optional(value);
   }
 

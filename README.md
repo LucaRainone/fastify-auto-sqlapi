@@ -156,6 +156,11 @@ const TableCustomer = defineTable({
     buildUpsertRule(SchemaCustomer, ['id']),
   ),
 
+  // Schema overrides (tighten generated schema without editing Schema files)
+  schemaOverrides: {
+    email: Type.String({ format: 'email' }),
+  },
+
   // Multi-tenant isolation
   tenantScope: { column: 'organization_id' },
 

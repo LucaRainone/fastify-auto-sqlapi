@@ -147,6 +147,7 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
   allowedReadJoins?: JoinDefinition[];
   allowedWriteJoins?: JoinDefinition[];
   upsertMap?: Map<SchemaDefinition, string[]>;
+  schemaOverrides?: Partial<Record<string & keyof F, TSchema>>;
   validate?: ValidatorFn<F>;
   validateBulk?: BulkValidatorFn<F>;
   beforeInsert?: (db: QueryClient, req: FastifyRequest, record: Record<string, unknown>) => Promise<void>;

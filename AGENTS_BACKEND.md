@@ -256,6 +256,12 @@ export const TableCustomer = defineTable({
   //   through: { schema: SchemaCustomer, localField: 'customerId', foreignField: 'id' },
   // },
 
+  // SCHEMA OVERRIDES — tighten auto-generated schema validation without editing Schema files
+  schemaOverrides: {
+    email: Type.String({ format: 'email' }),
+    name: Type.String({ minLength: 1, maxLength: 100 }),
+  },
+
   // VALIDATION — structured field-level validation (runs after schema, before hooks)
   validate: async (db, req, main, secondaries) => {
     // Return ValidationError[] — tuple: [field, code] or [field, code, message]
@@ -588,6 +594,7 @@ Tables without `tenantScope` are unaffected — no filtering regardless of `getT
 - **All fields Optional in response**: `RETURNING *` may return any subset. Response schemas use `Type.Partial`.
 - **`excludeFromCreation`**: **IMPORTANT** — auto-increment PKs (e.g. `id` serial/auto_increment) MUST be listed here, otherwise INSERT will try to send them and fail. The CLI auto-detects this and adds it by default. Also useful for `createdAt`/`updatedAt` columns managed by DB defaults or hooks.
 - **`upsertMap`**: when present for a schema, INSERT becomes upsert. PostgreSQL: `ON CONFLICT (...) DO UPDATE`. MySQL/MariaDB: `ON DUPLICATE KEY UPDATE`. Applies to both main and secondary tables.
+- **`schemaOverrides`**: override auto-generated schema fields with stricter TypeBox types (e.g. `{ email: Type.String({ format: 'email' }) }`). Overrides are merged into the body schema for insert, update, and bulk-upsert. The original Schema file is never modified. In updates, overridden fields are still wrapped in Optional (validates only when present). Overrides appear in Swagger.
 - **Validation receives camelCase**: `validate` receives the original camelCase record (as sent by the client) and secondaries. Field names match the schema definition, with full TypeScript inference (`main.startDate`, not `main.start_date`). It returns `ValidationError[]` — tuples of `[field, code]` or `[field, code, message]`. If any errors are returned, the request is rejected with 400 before hooks or SQL execute.
 - **`validateBulk` replaces `validate` in bulk**: when `validateBulk` is defined, it is called once with all items and per-item `validate` is skipped. This allows optimized batch queries instead of N individual checks. When only `validate` is defined, it runs per-item as fallback.
 - **Hooks receive snake_case, validate receives camelCase**: `validate(db, req, main, secondaries)` gets camelCase (pre-conversion). `beforeInsert(db, req, record)` and `beforeUpdate(db, req, fields)` get snake_case (post-conversion). `afterInsert` receives camelCase (post-DB).
@@ -824,4 +831,3 @@ The plugin internally strips `prefix` before passing options to sub-route plugin
 | **CLI env vars** | `POSTGRES_*` | `MYSQL_*` | `MYSQL_*` |
 | **CLI introspection** | `pg` | `mysql2` | `mysql2` |
 
-MySQL does not support `RETURNING`, so insert/upsert responses return only the PK (from record or `insertId`), not the full row.
