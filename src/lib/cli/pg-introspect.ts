@@ -26,7 +26,13 @@ export async function introspectTables(
     const require = createRequire(process.cwd() + '/noop.js');
     pg = require('pg');
   } catch {
-    throw new Error('pg is required for PostgreSQL introspection. Install it with: npm install pg');
+    try {
+      // Fallback: resolve from the package's own node_modules
+      const require = createRequire(import.meta.url);
+      pg = require('pg');
+    } catch {
+      throw new Error('pg is required for PostgreSQL introspection. Install it with: npm install pg');
+    }
   }
 
   const client = new pg.Client({ connectionString });

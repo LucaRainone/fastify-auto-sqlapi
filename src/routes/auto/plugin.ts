@@ -61,6 +61,7 @@ export default fp(async function fastifyAutoSqlApi(
   await fastify.register(async (instance) => {
     // Structured validation errors with field-level detail
     instance.setErrorHandler((error: FastifyError, request, reply) => {
+      // Schema validation errors (Ajv)
       if (error.validation) {
         const fields = error.validation.map((v) => ({
           path: `${error.validationContext}${v.instancePath || ''}`.replace(/\//g, '.').replace(/^\./, ''),
@@ -74,6 +75,18 @@ export default fp(async function fastifyAutoSqlApi(
           fields,
         });
       }
+
+      // Custom validation errors (validate / validateBulk)
+      const validationErrors = (error as any).validationErrors;
+      if (validationErrors) {
+        return reply.status(400).send({
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'Validation failed',
+          fields: validationErrors,
+        });
+      }
+
       const statusCode = error.statusCode || 500;
       reply.status(statusCode).send({
         statusCode,

@@ -359,6 +359,54 @@ Each object must contain the PK field. All deletions execute as a single `DELETE
 
 ---
 
+## Validation Errors
+
+Insert, update, and bulk-upsert endpoints may return **structured field-level validation errors** (400). Two sources:
+
+1. **Schema validation** (TypeBox/Ajv) — type mismatches, missing required fields
+2. **Custom validation** (`validate` / `validateBulk` on the table) — business rules, cross-entity checks
+
+Both return the same response format:
+
+```json
+{
+  "statusCode": 400,
+  "error": "Bad Request",
+  "message": "Validation failed",
+  "fields": [
+    { "path": "body.main.name", "code": "required", "message": "must have required property 'name'" },
+    { "path": "session_period[1].startDate", "code": "overlap", "message": "overlaps with another period" }
+  ]
+}
+```
+
+Each entry in `fields`:
+- `path` — the field path (e.g. `body.main.name` for schema errors, `name` or `session_period[1].startDate` for custom validation)
+- `code` — machine-readable error code (e.g. `required`, `type`, `overlap`, `unique`)
+- `message` — human-readable description
+
+### Handling validation errors in the frontend
+
+```typescript
+const response = await fetch('/api/rest/session', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ main: { name: '' }, secondaries: { session_period: periods } }),
+});
+
+if (!response.ok) {
+  const error = await response.json();
+  if (error.fields) {
+    // Field-level errors — display inline on the form
+    for (const { path, message } of error.fields) {
+      setFieldError(path, message);
+    }
+  }
+}
+```
+
+---
+
 ## Response Conventions
 
 - **PK-only responses**: Insert, update, delete, bulk operations return only the primary key fields, not the full record. This is by design for performance and consistency.

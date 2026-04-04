@@ -256,7 +256,27 @@ export const TableCustomer = defineTable({
   //   through: { schema: SchemaCustomer, localField: 'customerId', foreignField: 'id' },
   // },
 
-  // HOOKS
+  // VALIDATION — structured field-level validation (runs after schema, before hooks)
+  validate: async (db, req, main, secondaries) => {
+    // Return ValidationError[] — tuple: [field, code] or [field, code, message]
+    // message defaults to code if omitted
+    const errors = [];
+    if (main.name === '') {
+      errors.push(['name', 'required', 'cannot be empty']);
+    }
+    // Cross-entity: validate secondaries (e.g. date overlap in periods)
+    if (secondaries?.customer_order) {
+      // ... check overlaps, business rules across related records
+    }
+    return errors;
+  },
+  validateBulk: async (db, req, items) => {
+    // Called once with ALL items in bulk-upsert. Use for cross-item validation.
+    // items: Array<{ main, secondaries? }>
+    return []; // ValidationError[]
+  },
+
+  // HOOKS — side effects (runs after validation)
   beforeInsert: async (db, req, record) => {
     // Mutate record before INSERT. record is snake_case.
     record.created_by = req.user.id;
@@ -568,6 +588,8 @@ Tables without `tenantScope` are unaffected — no filtering regardless of `getT
 - **All fields Optional in response**: `RETURNING *` may return any subset. Response schemas use `Type.Partial`.
 - **`excludeFromCreation`**: **IMPORTANT** — auto-increment PKs (e.g. `id` serial/auto_increment) MUST be listed here, otherwise INSERT will try to send them and fail. The CLI auto-detects this and adds it by default. Also useful for `createdAt`/`updatedAt` columns managed by DB defaults or hooks.
 - **`upsertMap`**: when present for a schema, INSERT becomes upsert. PostgreSQL: `ON CONFLICT (...) DO UPDATE`. MySQL/MariaDB: `ON DUPLICATE KEY UPDATE`. Applies to both main and secondary tables.
+- **Validation runs before hooks**: `validate` receives the snake_case main record and the original secondaries. It returns `ValidationError[]` — tuples of `[field, code]` or `[field, code, message]`. If any errors are returned, the request is rejected with 400 and a structured response (with `path`, `code`, `message`) before hooks or SQL execute.
+- **`validateBulk` replaces `validate` in bulk**: when `validateBulk` is defined, it is called once with all items and per-item `validate` is skipped. This allows optimized batch queries instead of N individual checks. When only `validate` is defined, it runs per-item as fallback.
 - **Hooks receive snake_case**: `beforeInsert` and `beforeUpdate` receive snake_case records (pre-DB). `afterInsert` receives camelCase (post-DB).
 - **Filters validation**: TypeBox schemas use `additionalProperties: false`. By default Fastify strips unknown fields silently. For 400 errors on unknown filters: `Fastify({ ajv: { customOptions: { removeAdditional: false } } })`.
 - **Tenant filtering**: when `tenantScope` is set on a table and `getTenantId` is provided in plugin options, all CRUD operations are automatically scoped to the tenant. `getTenantId` returning `null`/`undefined` = admin (no filter). Returning an array = multi-tenant user (IN clause).
@@ -596,6 +618,70 @@ const TableAdmin = defineTable({
   onRequests: [async (req, reply) => {
     if (req.user.role !== 'admin') return reply.status(403).send({ error: 'Forbidden' });
   }],
+});
+```
+
+### Custom validation (field-level, cross-entity)
+
+```typescript
+import type { ValidationError } from 'fastify-auto-sqlapi';
+
+const TableSession = defineTable({
+  primary: 'id',
+  ...exportTableInfo(SchemaSession),
+  allowedWriteJoins: [
+    buildRelation(SchemaSession, 'id', SchemaPeriod, 'sessionId'),
+  ],
+  validate: async (db, req, main, secondaries) => {
+    // ValidationError is a tuple: [field, code] or [field, code, message]
+    // message defaults to code if omitted
+    const errors: ValidationError[] = [];
+
+    // Simple field validation
+    if (!main.name) {
+      errors.push(['name', 'required']);  // message defaults to 'required'
+    }
+
+    // Async validation (uniqueness check)
+    if (main.code) {
+      const existing = await db.query('SELECT 1 FROM session WHERE code = $1 AND id != $2', [main.code, main.id ?? 0]);
+      if (existing.rows.length) {
+        errors.push(['code', 'unique', 'already exists']);
+      }
+    }
+
+    // Cross-entity: validate periods don't overlap
+    const periods = secondaries?.session_period;
+    if (periods?.length) {
+      for (let i = 0; i < periods.length; i++) {
+        for (let j = i + 1; j < periods.length; j++) {
+          if (periods[i].startDate < periods[j].endDate && periods[j].startDate < periods[i].endDate) {
+            errors.push([`session_period[${j}].startDate`, 'overlap', 'overlaps with another period']);
+          }
+        }
+      }
+    }
+
+    return errors;
+  },
+});
+```
+
+`validate` runs on insert, update, and each item in bulk-upsert (when `validateBulk` is not defined). When `validateBulk` is defined, it **replaces** per-item `validate` in bulk operations — use it for optimized batch queries and cross-item validation:
+
+```typescript
+const TableSession = defineTable({
+  // ...
+  validateBulk: async (db, req, items) => {
+    // items: Array<{ main, secondaries? }>
+    // Check for duplicate codes across all items in the batch
+    const codes = items.map(i => i.main.code).filter(Boolean);
+    const unique = new Set(codes);
+    if (unique.size !== codes.length) {
+      return [['code', 'batch_unique', 'duplicate codes in batch']];
+    }
+    return [];
+  },
 });
 ```
 

@@ -103,6 +103,36 @@ export interface TenantContext {
 // [joinSchema, joinField, mainField, selection]
 export type JoinDefinition = [SchemaDefinition, string, string | string[], string];
 
+// ─── Validation ─────────────────────────────────────────────
+
+/**
+ * Validation error tuple: [field, code] or [field, code, message].
+ * - field: the field path (e.g. 'name', 'session_period[1].startDate')
+ * - code: machine-readable error code (e.g. 'required', 'overlap', 'unique')
+ * - message: human-readable description (defaults to code if omitted)
+ */
+export type ValidationError =
+  | [field: string, code: string]
+  | [field: string, code: string, message: string];
+
+export type ValidatorFn = (
+  db: QueryClient,
+  req: FastifyRequest,
+  main: Record<string, unknown>,
+  secondaries?: Record<string, Record<string, unknown>[]>
+) => Promise<ValidationError[]> | ValidationError[];
+
+export interface BulkValidatorItem {
+  main: Record<string, unknown>;
+  secondaries?: Record<string, Record<string, unknown>[]>;
+}
+
+export type BulkValidatorFn = (
+  db: QueryClient,
+  req: FastifyRequest,
+  items: BulkValidatorItem[]
+) => Promise<ValidationError[]> | ValidationError[];
+
 // ─── Table Configuration ─────────────────────────────────────
 
 export type FilterRecord = Record<string, ConditionValueOrUndefined>;
@@ -117,6 +147,8 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
   allowedReadJoins?: JoinDefinition[];
   allowedWriteJoins?: JoinDefinition[];
   upsertMap?: Map<SchemaDefinition, string[]>;
+  validate?: ValidatorFn;
+  validateBulk?: BulkValidatorFn;
   beforeInsert?: (db: QueryClient, req: FastifyRequest, record: Record<string, unknown>) => Promise<void>;
   beforeUpdate?: (db: QueryClient, req: FastifyRequest, fields: Record<string, unknown>, secondaryFieldsFetcher?: unknown) => void | Promise<void>;
   afterInsert?: (db: QueryClient, req: FastifyRequest, record: Record<string, unknown>, secondaryRecords?: unknown) => Promise<void>;

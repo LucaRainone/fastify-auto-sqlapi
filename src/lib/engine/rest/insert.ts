@@ -1,6 +1,7 @@
 import { camelcaseObject, snakecaseRecord } from '../../naming.js';
 import { removeExcludedFields, processSecondaries } from '../write-helpers.js';
 import { injectTenantValue, validateTenantFK } from '../../tenant.js';
+import { runValidation } from '../validate.js';
 import { primaryAsString } from '../../../types.js';
 import type {
   InsertParams,
@@ -32,12 +33,15 @@ export async function insertEngine(params: InsertParams): Promise<InsertResult> 
     }
   }
 
-  // 2. beforeInsert hook
+  // 2. Custom validation
+  await runValidation(db, request, tableConf, mainRecord, secondaries);
+
+  // 3. beforeInsert hook
   if (tableConf.beforeInsert) {
     await tableConf.beforeInsert(db, request, mainRecord);
   }
 
-  // 3. Insert main → returns PK-only
+  // 4. Insert main → returns PK-only
   let pkResult: Record<string, unknown>;
   const upsertKeys = tableConf.upsertMap?.get(tableConf.Schema);
   if (upsertKeys) {
@@ -58,7 +62,7 @@ export async function insertEngine(params: InsertParams): Promise<InsertResult> 
 
   const mainPkCamel = camelcaseObject(pkResult);
 
-  // 4. Secondaries: need full record for FK auto-fill
+  // 5. Secondaries: need full record for FK auto-fill
   let secondaryResults: Record<string, Record<string, unknown>[]> | undefined;
   if (secondaries && Object.keys(secondaries).length > 0) {
     // Merge input record + PK for FK auto-fill
@@ -66,13 +70,13 @@ export async function insertEngine(params: InsertParams): Promise<InsertResult> 
     secondaryResults = await processSecondaries(db, tableConf, dbTables, mainForFK, secondaries);
   }
 
-  // 5. afterInsert hook
+  // 6. afterInsert hook
   if (tableConf.afterInsert) {
     const mainForHook = { ...camelcaseObject(mainRecord as Record<string, unknown>), ...mainPkCamel };
     await tableConf.afterInsert(db, request, mainForHook, secondaryResults);
   }
 
-  // 6. Return PK-only
+  // 7. Return PK-only
   const result: InsertResult = { main: mainPkCamel };
   if (secondaryResults && Object.keys(secondaryResults).length > 0) {
     result.secondaries = secondaryResults;

@@ -116,4 +116,8 @@ export type {
   TenantScopeDirect,
   TenantScopeIndirect,
   TenantContext,
+  ValidationError,
+  ValidatorFn,
+  BulkValidatorItem,
+  BulkValidatorFn,
 } from './types.js';

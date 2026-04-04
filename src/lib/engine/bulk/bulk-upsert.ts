@@ -1,6 +1,7 @@
 import { camelcaseObject, snakecaseRecord } from '../../naming.js';
 import { removeExcludedFields, processSecondaries, processDeletions } from '../write-helpers.js';
 import { injectTenantValue, validateTenantFK } from '../../tenant.js';
+import { runValidation, runBulkValidation } from '../validate.js';
 import { primaryAsString } from '../../../types.js';
 import type {
   BulkUpsertParams,
@@ -38,14 +39,26 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
     }
   }
 
-  // 2. beforeInsert hook per record
+  // 2. Custom validation: validateBulk replaces per-item validate
+  if (tableConf.validateBulk) {
+    await runBulkValidation(db, request, tableConf, items.map((item, i) => ({
+      main: preparedMains[i],
+      secondaries: item.secondaries,
+    })));
+  } else {
+    for (let i = 0; i < items.length; i++) {
+      await runValidation(db, request, tableConf, preparedMains[i], items[i].secondaries);
+    }
+  }
+
+  // 3. beforeInsert hook per record
   if (tableConf.beforeInsert) {
     for (const rec of preparedMains) {
       await tableConf.beforeInsert(db, request, rec);
     }
   }
 
-  // 3. Bulk upsert all mains in one query → returns PK-only
+  // 4. Bulk upsert all mains in one query → returns PK-only
   const upsertKeys = tableConf.upsertMap?.get(tableConf.Schema);
   let pkRows: Record<string, unknown>[];
   if (upsertKeys) {
@@ -66,7 +79,7 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
 
   const pksCamel = pkRows.map((r) => camelcaseObject(r as Record<string, unknown>));
 
-  // 4. Process secondaries and deletions per item
+  // 5. Process secondaries and deletions per item
   const results: BulkUpsertResult[] = [];
 
   for (let i = 0; i < items.length; i++) {
@@ -87,7 +100,7 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
       if (Object.keys(del).length > 0) result.deletions = del;
     }
 
-    // 5. afterInsert hook per item
+    // 6. afterInsert hook per item
     if (tableConf.afterInsert) {
       await tableConf.afterInsert(db, request, mainForFK, result.secondaries);
     }

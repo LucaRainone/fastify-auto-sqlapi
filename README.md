@@ -12,6 +12,7 @@ Point it at your database, and get a full REST API with search, pagination, join
 - **Virtual joins** — fetch related records without complex SQL
 - **Bulk operations** — batch insert/upsert/delete in single queries
 - **Multi-tenant** — automatic row-level isolation, zero code in handlers
+- **Validation** — structured field-level validation with cross-entity support
 - **Hooks** — `beforeInsert`, `beforeUpdate`, `afterInsert` for custom logic
 - **Swagger UI** — optional, auto-configured from your schemas
 - **Composable** — register all routes or pick only what you need
@@ -158,7 +159,19 @@ const TableCustomer = defineTable({
   // Multi-tenant isolation
   tenantScope: { column: 'organization_id' },
 
-  // Hooks
+  // Validation (runs after schema validation, before hooks)
+  validate: async (db, req, main, secondaries) => {
+    // Return ValidationError[] — tuple: [field, code] or [field, code, message]
+    // message defaults to code if omitted
+    if (!main.name) return [['name', 'required']];
+    return [];
+  },
+  validateBulk: async (db, req, items) => {
+    // Bulk-upsert only. Called once with all items for cross-item validation.
+    return [];
+  },
+
+  // Hooks (runs after validation)
   beforeInsert: async (db, req, record) => { /* record is snake_case */ },
   beforeUpdate: async (db, req, fields) => { /* fields is snake_case */ },
   afterInsert: async (db, req, record, secondaryRecords) => { /* record is camelCase */ },

@@ -7,7 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
 const { introspectTables } = await import(
-  path.join(ROOT, 'dist/lib/pg-introspect.js')
+  path.join(ROOT, 'dist/lib/cli/pg-introspect.js')
 );
 
 const connectionString = 'postgres://test:test@127.0.0.1:5433/testdb';
