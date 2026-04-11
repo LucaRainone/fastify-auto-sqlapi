@@ -21,15 +21,16 @@ npm install @fastify/swagger @fastify/swagger-ui
 Create `sqlapi.config.ts` (or `.js`) in the project root. This config is used **only by the CLI** (`sqlapi-generate-schema` / `sqlapi-generate-tables`), NOT at runtime by the Fastify plugin.
 
 ```typescript
-// sqlapi.config.ts — interface: { outputDir: string; schema?: string; dialect?: DialectName }
+// sqlapi.config.ts — interface: { outputDir: string; schema?: string; dialect?: DialectName; envFile?: string }
 export default {
   outputDir: './src/db',       // base directory for generated files (default: './src/db')
   schema: 'public',            // DB schema to introspect (default: 'public', PostgreSQL only)
   dialect: 'postgres',         // 'postgres' | 'mysql' | 'mariadb' (default: 'postgres')
+  // envFile: '../../.env',    // path to .env file, relative to cwd (default: '.env')
 };
 ```
 
-That's it — only these three fields exist. **No connection string, no migration path.** If the file is missing, defaults are used. The `dialect` can also be passed via CLI flag `--dialect mysql`.
+That's it — only these four fields exist. **No connection string, no migration path.** If the file is missing, defaults are used. The `dialect` can also be passed via CLI flag `--dialect mysql`. The `envFile` is useful in monorepo setups where the `.env` lives at the repo root.
 
 ### 3. Configure database connection (env vars)
 
@@ -590,7 +591,7 @@ Tables without `tenantScope` are unaffected — no filtering regardless of `getT
 
 ## Key Conventions
 
-- **camelCase in API, snake_case in DB**: all request/response fields are camelCase. The plugin converts automatically via `col()`.
+- **camelCase in API, any case in DB**: all request/response fields are camelCase. The plugin converts via `col()` and `colMap`. For snake_case DB columns (default), conversion is automatic. For camelCase DB columns (e.g. betterauth), the CLI generates a `colMap` that preserves the original column names — no conversion needed. Manual schemas without `colMap` fall back to `toUnderscore()`.
 - **All fields Optional in response**: `RETURNING *` may return any subset. Response schemas use `Type.Partial`.
 - **`excludeFromCreation`**: **IMPORTANT** — auto-increment PKs (e.g. `id` serial/auto_increment) MUST be listed here, otherwise INSERT will try to send them and fail. The CLI auto-detects this and adds it by default. Also useful for `createdAt`/`updatedAt` columns managed by DB defaults or hooks.
 - **`upsertMap`**: when present for a schema, INSERT becomes upsert. PostgreSQL: `ON CONFLICT (...) DO UPDATE`. MySQL/MariaDB: `ON DUPLICATE KEY UPDATE`. Applies to both main and secondary tables.

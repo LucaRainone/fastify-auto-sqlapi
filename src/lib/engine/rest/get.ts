@@ -36,5 +36,5 @@ export async function getEngine(params: GetParams): Promise<GetResult> {
     throw err;
   }
 
-  return { main: camelcaseObject(rows[0] as Record<string, unknown>) };
+  return { main: camelcaseObject(rows[0] as Record<string, unknown>, tableConf.Schema) };
 }

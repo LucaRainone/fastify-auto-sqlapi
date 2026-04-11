@@ -68,7 +68,7 @@ async function executeMainQuery(
     joins: extraJoins.length > 0 ? extraJoins : undefined,
   });
 
-  return rows.map((r) => camelcaseObject(r as Record<string, unknown>));
+  return rows.map((r) => camelcaseObject(r as Record<string, unknown>, tableConf.Schema));
 }
 
 async function buildPagination(
@@ -168,7 +168,7 @@ async function executeVirtualJoins(
       values,
     });
 
-    result[joinTableName] = rows.map((r) => camelcaseObject(r as Record<string, unknown>));
+    result[joinTableName] = rows.map((r) => camelcaseObject(r as Record<string, unknown>, joinSchema));
   }
 
   return result;

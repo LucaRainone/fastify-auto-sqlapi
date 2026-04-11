@@ -5,8 +5,8 @@ import { resolve } from 'node:path';
  * Load .env file from cwd if it exists.
  * Does not override already-set environment variables.
  */
-export function loadEnvFile(): void {
-  const envPath = resolve(process.cwd(), '.env');
+export function loadEnvFile(envFile?: string): void {
+  const envPath = resolve(process.cwd(), envFile || '.env');
   if (!existsSync(envPath)) return;
 
   const content = readFileSync(envPath, 'utf-8');

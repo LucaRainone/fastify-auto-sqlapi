@@ -15,9 +15,10 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
   const { db, tableConf, dbTables, request, record, secondaries, deletions, tenant } = params;
 
   // 1. Prepare: extract PK, snakecase, build update fields
+  const schema = tableConf.Schema;
   const pk = primaryAsString(tableConf.primary);
-  const pkCol = tableConf.Schema.col(pk);
-  const snaked = snakecaseRecord(record);
+  const pkCol = schema.col(pk);
+  const snaked = snakecaseRecord(record, schema);
   const pkValue = snaked[pkCol];
 
   if (pkValue == null) {
@@ -36,7 +37,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     if ('through' in tenant.scope) {
       // Indirect: verify the record belongs to tenant via subquery
       const scope = tenant.scope as TenantScopeIndirect;
-      const tableName = tableConf.Schema.tableName;
+      const tableName = schema.tableName;
       const cb = new ConditionBuilder('AND');
       cb.isEqual(`${db.qi(tableName)}.${db.qi(pkCol)}`, pkValue as ConditionValue);
       cb.append(buildTenantCondition(db, scope, tenant.ids));
@@ -77,7 +78,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
 
   if (hasFieldsToUpdate) {
     const affectedRows = await db.update(
-      tableConf.Schema.tableName,
+      schema.tableName,
       updateFields as DbRecord,
       { [pkCol]: pkValue } as DbRecord,
       extraCondition
@@ -90,7 +91,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     }
   } else {
     // No fields to update: verify the record exists (for secondaries/deletions)
-    let whereSql = `${db.qi(tableConf.Schema.tableName)}.${db.qi(pkCol)} = ${db.ph(1)}`;
+    let whereSql = `${db.qi(schema.tableName)}.${db.qi(pkCol)} = ${db.ph(1)}`;
     const whereValues: unknown[] = [pkValue];
 
     if (extraCondition) {
@@ -99,7 +100,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     }
 
     const rows = await db.select<Record<string, unknown>>({
-      tableName: tableConf.Schema.tableName,
+      tableName: schema.tableName,
       where: whereSql,
       values: whereValues,
       limit: '1',
@@ -119,7 +120,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
   let secondaryResults: Record<string, Record<string, unknown>[]> | undefined;
   if (secondaries && Object.keys(secondaries).length > 0) {
     // Merge input fields + PK for FK auto-fill
-    const mainForFK = { ...camelcaseObject(snaked as Record<string, unknown>) };
+    const mainForFK = { ...camelcaseObject(snaked as Record<string, unknown>, schema) };
     secondaryResults = await processSecondaries(db, tableConf, dbTables, mainForFK, secondaries);
   }
 

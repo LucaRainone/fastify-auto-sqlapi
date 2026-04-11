@@ -8,8 +8,6 @@ import { buildTableMap, generateSchemaFile } from '../lib/cli/schema-codegen.js'
 import { loadEnvFile, CONSOLE_COLORS, display, displayAsTableRow, error } from './utils.js';
 import type { ColumnInfo, DialectName } from '../types.js';
 
-loadEnvFile();
-
 function parseCliArgs(): { output?: string; tables?: string[]; dialect?: string } {
   const args = process.argv.slice(2);
   const result: { output?: string; tables?: string[]; dialect?: string } = {};
@@ -33,6 +31,7 @@ async function main(): Promise<void> {
 
   const cliArgs = parseCliArgs();
   const config = await loadConfig();
+  loadEnvFile(config.envFile);
   const dialect = (cliArgs.dialect || config.dialect || 'postgres') as DialectName;
   const schema = config.schema || (dialect === 'postgres' ? 'public' : config.schema || 'public');
   const outputDir = path.resolve(process.cwd(), cliArgs.output || config.outputDir);
@@ -85,11 +84,11 @@ async function main(): Promise<void> {
   const generatedFiles = new Set<string>();
 
   for (const schemaName of Object.keys(tableMap)) {
-    const { name: tableName, fields } = tableMap[schemaName];
+    const { name: tableName, fields, colMap } = tableMap[schemaName];
     const filename = path.join(schemasDir, `${schemaName}.ts`);
     generatedFiles.add(`${schemaName}.ts`);
 
-    const content = generateSchemaFile(schemaName, tableName, fields);
+    const content = generateSchemaFile(schemaName, tableName, fields, colMap);
 
     let status = 'created';
     let color: number = CONSOLE_COLORS.green;

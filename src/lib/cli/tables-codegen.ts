@@ -123,6 +123,7 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
 
   // Imports
   lines.push(`import {defineTable, exportTableInfo, Type} from 'fastify-auto-sqlapi';`);
+  lines.push(`import type {ValidationError} from 'fastify-auto-sqlapi';`);
   lines.push(`import {${schema.schemaName} as Schema} from '../schemas/${schema.schemaName}';`);
 
   // Commented imports for related schemas
@@ -189,7 +190,7 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
   // validate: use first non-PK field for example
   const exampleField = schema.fields.find(f => f !== pk) || schema.fields[0];
   lines.push(`  validate: async (db, req, main, secondaries) => {`);
-  lines.push(`    const errors = [];`);
+  lines.push(`    const errors: ValidationError[] = [];`);
   lines.push(`    // if (!main.${exampleField}) errors.push(['${exampleField}', 'required']);`);
   lines.push(`    return errors;`);
   lines.push(`  },`);
@@ -256,7 +257,7 @@ export function generateTablesFile(schemas: ParsedSchema[]): string {
 
   // Imports
   lines.push(`import {defineTable, exportTableInfo, Type} from 'fastify-auto-sqlapi';`);
-  lines.push(`import type { DbTables } from 'fastify-auto-sqlapi';`);
+  lines.push(`import type { DbTables, ValidationError } from 'fastify-auto-sqlapi';`);
   lines.push(``);
 
   // Schema imports
@@ -299,7 +300,7 @@ export function generateTablesFile(schemas: ParsedSchema[]): string {
 
     const exampleFieldLegacy = schema.fields.find(f => f !== pk) || schema.fields[0];
     lines.push(`  validate: async (db, req, main, secondaries) => {`);
-    lines.push(`    const errors = [];`);
+    lines.push(`    const errors: ValidationError[] = [];`);
     lines.push(`    // if (!main.${exampleFieldLegacy}) errors.push(['${exampleFieldLegacy}', 'required']);`);
     lines.push(`    return errors;`);
     lines.push(`  },`);

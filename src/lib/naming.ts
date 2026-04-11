@@ -1,6 +1,8 @@
+import type { SchemaDefinition } from '../types.js';
+
 export function toCamelCase(str: string): string {
-  return str.toLowerCase().replace(/([-_][a-z])/g, (group) =>
-    group.toUpperCase().replace('-', '').replace('_', '')
+  return str.replace(/([-_])([a-zA-Z])/g, (_, _sep, char) =>
+    char.toUpperCase()
   );
 }
 
@@ -12,19 +14,53 @@ export function toUnderscore(str: string): string {
     .join('_');
 }
 
-export function camelcaseObject<T extends Record<string, unknown>>(
-  obj: T
+// Reverse colMap cache: colMap object → { column: field }
+const reverseCache = new WeakMap<Record<string, string>, Record<string, string>>();
+
+function getReverseMap(colMap: Record<string, string>): Record<string, string> {
+  let reverse = reverseCache.get(colMap);
+  if (!reverse) {
+    reverse = {};
+    for (const [field, col] of Object.entries(colMap)) {
+      reverse[col] = field;
+    }
+    reverseCache.set(colMap, reverse);
+  }
+  return reverse;
+}
+
+/**
+ * Convert API record (camelCase keys) to DB record (actual column names).
+ * Uses schema.colMap when available, falls back to toUnderscore.
+ */
+export function snakecaseRecord(
+  obj: Record<string, unknown>,
+  schema?: SchemaDefinition
 ): Record<string, unknown> {
+  const mapFn = schema?.colMap
+    ? (k: string) => schema.colMap![k] ?? k
+    : (k: string) => toUnderscore(k);
   return Object.fromEntries(
-    Object.entries(obj).map(([k, v]) => [toCamelCase(k), v])
+    Object.entries(obj).map(([k, v]) => [mapFn(k), v])
   );
 }
 
-export function snakecaseRecord(
-  obj: Record<string, unknown>
+/**
+ * Convert DB row (actual column names) to API record (camelCase field names).
+ * Uses schema.colMap when available, falls back to toCamelCase.
+ */
+export function camelcaseObject<T extends Record<string, unknown>>(
+  obj: T,
+  schema?: SchemaDefinition
 ): Record<string, unknown> {
+  if (schema?.colMap) {
+    const reverse = getReverseMap(schema.colMap);
+    return Object.fromEntries(
+      Object.entries(obj).map(([k, v]) => [reverse[k] ?? k, v])
+    );
+  }
   return Object.fromEntries(
-    Object.entries(obj).map(([k, v]) => [toUnderscore(k), v])
+    Object.entries(obj).map(([k, v]) => [toCamelCase(k), v])
   );
 }
 

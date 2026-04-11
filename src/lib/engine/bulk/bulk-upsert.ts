@@ -14,12 +14,13 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
   const { db, tableConf, dbTables, request, items, tenant } = params;
   if (!items.length) return [];
 
+  const schema = tableConf.Schema;
   const pk = primaryAsString(tableConf.primary);
-  const pkCol = tableConf.Schema.col(pk);
+  const pkCol = schema.col(pk);
 
   // 1. Prepare all main records
   const preparedMains = items.map((item) => {
-    let rec = snakecaseRecord(item.main);
+    let rec = snakecaseRecord(item.main, schema);
     rec = removeExcludedFields(rec, tableConf);
     return rec as DbRecord;
   });
@@ -56,25 +57,25 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
   }
 
   // 4. Bulk upsert all mains in one query → returns PK-only
-  const upsertKeys = tableConf.upsertMap?.get(tableConf.Schema);
+  const upsertKeys = tableConf.upsertMap?.get(schema);
   let pkRows: Record<string, unknown>[];
   if (upsertKeys) {
-    const conflictCols = upsertKeys.map((k) => tableConf.Schema.col(k));
+    const conflictCols = upsertKeys.map((k) => schema.col(k));
     pkRows = await db.bulkInsertOrUpdate(
-      tableConf.Schema.tableName,
+      schema.tableName,
       preparedMains,
       conflictCols,
       pkCol
     );
   } else {
     pkRows = await db.bulkInsert(
-      tableConf.Schema.tableName,
+      schema.tableName,
       preparedMains,
       pkCol
     );
   }
 
-  const pksCamel = pkRows.map((r) => camelcaseObject(r as Record<string, unknown>));
+  const pksCamel = pkRows.map((r) => camelcaseObject(r as Record<string, unknown>, schema));
 
   // 5. Process secondaries and deletions per item
   const results: BulkUpsertResult[] = [];
@@ -85,7 +86,7 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
     const result: BulkUpsertResult = { main: mainPk };
 
     // For FK auto-fill in secondaries, merge input record + PK
-    const mainForFK = { ...camelcaseObject(preparedMains[i] as Record<string, unknown>), ...mainPk };
+    const mainForFK = { ...camelcaseObject(preparedMains[i] as Record<string, unknown>, schema), ...mainPk };
 
     if (item.secondaries && Object.keys(item.secondaries).length > 0) {
       const sec = await processSecondaries(db, tableConf, dbTables, mainForFK, item.secondaries);

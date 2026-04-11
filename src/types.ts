@@ -12,6 +12,7 @@ export interface SqlApiConfig {
   outputDir: string;
   schema?: string;
   dialect?: DialectName;
+  envFile?: string;
 }
 
 export interface ColumnInfo {
@@ -26,6 +27,7 @@ export interface TableMap {
   [schemaName: string]: {
     name: string;
     fields: Record<string, string>;
+    colMap: Record<string, string>;
   };
 }
 
@@ -68,6 +70,7 @@ export interface SelectOptions {
 
 export interface SchemaDefinition<T = Record<string, TSchema>> {
   col(field: string): string;
+  colMap?: Record<string, string>;
   fields: T;
   validation: TObject;
   tableName: string;

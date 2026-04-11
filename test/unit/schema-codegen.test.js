@@ -90,9 +90,9 @@ describe('generateSchemaFile', () => {
     const content = generateSchemaFile('SchemaCustomer', 'customer', {
       id: 'Type.Integer()',
       name: 'Type.Optional(Type.String())',
-    });
+    }, { id: 'id', name: 'name' });
 
-    assert.ok(content.includes('import { Type, toUnderscore }'));
+    assert.ok(content.includes('import { Type }'));
     assert.ok(content.includes('import type { Static }'));
     assert.ok(content.includes('id: Type.Integer()'));
     assert.ok(content.includes('name: Type.Optional(Type.String())'));

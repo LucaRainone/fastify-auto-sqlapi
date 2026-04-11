@@ -63,7 +63,7 @@ export async function processSecondaries(
       : joinSchema.col(secondaryPk);
 
     const preparedRecords = records.map((rec) => {
-      let prepared = snakecaseRecord(rec);
+      let prepared = snakecaseRecord(rec, joinSchema);
 
       // Auto-fill FK from main record
       const mainValue = Array.isArray(mainField)
@@ -99,7 +99,7 @@ export async function processSecondaries(
     }
 
     results[joinTableName] = pkRows.map((r) =>
-      camelcaseObject(r as Record<string, unknown>)
+      camelcaseObject(r as Record<string, unknown>, joinSchema)
     );
   }
 
@@ -123,10 +123,10 @@ export async function processDeletions(
     const deletedRows: Record<string, unknown>[] = [];
 
     for (const rec of records) {
-      const snaked = snakecaseRecord(rec) as DbRecord;
+      const snaked = snakecaseRecord(rec, joinSchema) as DbRecord;
       const affectedRows = await db.delete(joinSchema.tableName, snaked);
       if (affectedRows > 0) {
-        deletedRows.push(camelcaseObject(snaked as Record<string, unknown>));
+        deletedRows.push(camelcaseObject(snaked as Record<string, unknown>, joinSchema));
       }
     }
 
