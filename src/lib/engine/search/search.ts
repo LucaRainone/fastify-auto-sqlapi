@@ -160,7 +160,14 @@ async function executeVirtualJoins(
     const where = cb.build(1, db.ph);
     const values = cb.getValues();
 
-    const columns = selection === '*' ? '*' : selection;
+    // selection is a comma-separated list of field names (camelCase API names).
+    // Resolve each to its DB column via schema.col() and quote it.
+    const columns = selection === '*'
+      ? '*'
+      : selection.split(',').map((c) => {
+          const field = c.trim();
+          return db.qi(joinSchema.col(field));
+        }).join(', ');
     const rows = await db.select({
       tableName: joinSchema.tableName,
       columns,
