@@ -449,6 +449,23 @@ import {
   ALLOWED_SET, SINGLE_VALUE_SET, BETWEEN_SET, IN_SET, NULL_SET,
 } from '../../condition-methods.js';
 
+function dispatchConditionMethod(
+  cb: ConditionBuilder,
+  method: string,
+  colOrExpr: string,
+  params: unknown[]
+): void {
+  if (SINGLE_VALUE_SET.has(method)) {
+    (cb[method as keyof ConditionBuilder] as Function)(colOrExpr, params[0]);
+  } else if (BETWEEN_SET.has(method)) {
+    (cb[method as keyof ConditionBuilder] as Function)(colOrExpr, params[0], params[1]);
+  } else if (IN_SET.has(method)) {
+    (cb[method as keyof ConditionBuilder] as Function)(colOrExpr, params[0]);
+  } else if (NULL_SET.has(method)) {
+    (cb[method as keyof ConditionBuilder] as Function)(colOrExpr, true);
+  }
+}
+
 function applyConditions(
   condition: ConditionBuilder,
   conditions: SearchCondition[],
@@ -456,6 +473,9 @@ function applyConditions(
   db: QueryClient
 ): void {
   for (const c of conditions) {
+    // Skip dot-notation fields — those become aggregation conditions processed later
+    if (c.field.includes('.')) continue;
+
     // Validate method — whitelist only, blocks prototype poisoning
     if (!ALLOWED_SET.has(c.method)) {
       const err = new Error(`Invalid condition method: ${c.method}`) as Error & { statusCode: number };
@@ -464,17 +484,65 @@ function applyConditions(
     }
 
     const col = db.qi(validateSchemaField(c.field, schema));
-
-    if (SINGLE_VALUE_SET.has(c.method)) {
-      (condition[c.method as keyof ConditionBuilder] as Function)(col, c.params[0]);
-    } else if (BETWEEN_SET.has(c.method)) {
-      (condition[c.method as keyof ConditionBuilder] as Function)(col, c.params[0], c.params[1]);
-    } else if (IN_SET.has(c.method)) {
-      (condition[c.method as keyof ConditionBuilder] as Function)(col, c.params[0]);
-    } else if (NULL_SET.has(c.method)) {
-      (condition[c.method as keyof ConditionBuilder] as Function)(col, true);
-    }
+    dispatchConditionMethod(condition, c.method, col, c.params as unknown[]);
   }
+}
+
+/**
+ * Append aggregation-based conditions (HAVING-style) to the main WHERE clause.
+ * For each condition with a dotted field like `session.count.id`, builds a
+ * correlated scalar subquery (reusing buildAggOrderExpr) and uses it as the
+ * left-hand side of a ConditionBuilder method.
+ *
+ * Runs after the base WHERE / joinFilters are built so placeholder offsets
+ * are correct.
+ */
+function appendAggConditions(
+  currentWhere: string,
+  currentValues: unknown[],
+  conditions: SearchCondition[],
+  db: QueryClient,
+  dbTables: DbTables,
+  tableConf: ITable,
+  joinGroups: Record<string, JoinGroupRequest> | undefined
+): { where: string; values: unknown[] } {
+  let where = currentWhere;
+  let values = [...currentValues];
+
+  for (const c of conditions) {
+    if (!c.field.includes('.')) continue;
+
+    if (!ALLOWED_SET.has(c.method)) {
+      const err = new Error(`Invalid condition method: ${c.method}`) as Error & { statusCode: number };
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const parts = c.field.split('.');
+    if (parts.length !== 3) {
+      const err = new Error(`Invalid dotted field in condition: ${c.field} (expected <joinTable>.<fn>.<field>)`) as Error & { statusCode: number };
+      err.statusCode = 400;
+      throw err;
+    }
+    const [joinTableName, fn, field] = parts;
+
+    // Build the scalar subquery; values for its filters are appended to the main values array.
+    const { expr, values: exprValues } = buildAggOrderExpr(
+      db, dbTables, tableConf, joinTableName, fn, field, joinGroups, values.length + 1
+    );
+    values = [...values, ...exprValues];
+
+    // Use a temporary ConditionBuilder to generate "<expr> <op> <placeholder>" with
+    // the correct placeholder offset, then merge it back into the main values.
+    const tmpCb = new ConditionBuilder('AND');
+    dispatchConditionMethod(tmpCb, c.method, expr, c.params as unknown[]);
+    const startIdx = values.length + 1;
+    const clause = tmpCb.build(startIdx, db.ph);
+    where += ` AND ${clause}`;
+    values.push(...tmpCb.getValues());
+  }
+
+  return { where, values };
 }
 
 // ─── Join filters (EXISTS subquery) ─────────────────────────
@@ -544,6 +612,15 @@ export async function searchEngine(
   // Join filters: add EXISTS subqueries
   if (joinFilters && Object.keys(joinFilters).length > 0) {
     ({ where, values } = buildJoinFiltersExists(db, dbTables, tableConf, joinFilters, where, values));
+  }
+
+  // Aggregation conditions (HAVING-style): dotted fields in `conditions` are
+  // translated into scalar subqueries using the joinGroup aggregation.
+  if (conditions?.length) {
+    const hasAggConditions = conditions.some((c) => c.field.includes('.'));
+    if (hasAggConditions) {
+      ({ where, values } = appendAggConditions(where, values, conditions, db, dbTables, tableConf, joinGroups));
+    }
   }
 
   // Validate and sanitize orderBy (user input -> SQL identifier)

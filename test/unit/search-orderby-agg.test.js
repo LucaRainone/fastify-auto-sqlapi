@@ -408,6 +408,166 @@ describe('orderBy - aggregation on joinGroup', () => {
   });
 });
 
+describe('conditions - aggregation on joinGroup (HAVING-style)', () => {
+  it('translates dotted field condition into scalar subquery', async () => {
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 0 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.user,
+      conditions: [
+        { field: 'session.count.id', method: 'isEqual', params: [4] },
+      ],
+      joinGroups: {
+        session: { aggregations: { count: ['id'] } },
+      },
+    });
+
+    const sql = mockPg.calls[0].text;
+    assert.ok(sql.includes('COUNT("session"."id")'), `main SQL should contain COUNT subquery, got: ${sql}`);
+    assert.ok(sql.includes('"session"."user_id" = "user"."id"'), 'correlation present');
+    assert.ok(sql.match(/=\s*\$\d+/), 'equality operator with placeholder');
+    // values: [4] (no joinGroup filters, no plain WHERE)
+    assert.deepEqual(mockPg.calls[0].values, [4]);
+  });
+
+  it('combines plain conditions and aggregation conditions', async () => {
+    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.user,
+      conditions: [
+        { field: 'name', method: 'isILike', params: ['%mario%'] },
+        { field: 'session.count.id', method: 'isGreater', params: [2] },
+      ],
+    // Declare the joinGroup so the dotted condition is allowed
+      joinGroups: {
+        session: { aggregations: { count: ['id'] } },
+      },
+    });
+
+    const sql = mockPg.calls[0].text;
+    const values = mockPg.calls[0].values;
+    // Plain condition bound first (WHERE), then agg subquery values, then operand
+    assert.ok(sql.includes('ILIKE'), 'plain ILIKE present');
+    assert.ok(sql.includes('COUNT("session"."id")'), 'agg subquery present');
+    assert.deepEqual(values, ['%mario%', 2]);
+  });
+
+  it('respects joinGroup filters in subquery when conditions reference them', async () => {
+    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.user,
+      conditions: [
+        { field: 'session.count.id', method: 'isGreaterOrEqual', params: [4] },
+      ],
+      joinGroups: {
+        session: {
+          aggregations: { count: ['id'] },
+          filters: { status: 'active' },
+        },
+      },
+    });
+
+    const sql = mockPg.calls[0].text;
+    const values = mockPg.calls[0].values;
+    // Subquery contains the status filter, and values include 'active' before the 4
+    assert.ok(sql.includes('status = $1'), `status filter with $1 present, got: ${sql}`);
+    assert.deepEqual(values, ['active', 4]);
+  });
+
+  it('supports isBetween on aggregation', async () => {
+    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.user,
+      conditions: [
+        { field: 'session.sum.duration', method: 'isBetween', params: [100, 500] },
+      ],
+      joinGroups: {
+        session: { aggregations: { sum: ['duration'] } },
+      },
+    });
+
+    const sql = mockPg.calls[0].text;
+    assert.ok(sql.includes('BETWEEN'), 'BETWEEN present');
+    assert.deepEqual(mockPg.calls[0].values, [100, 500]);
+  });
+
+  it('supports isIn on aggregation', async () => {
+    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.user,
+      conditions: [
+        { field: 'session.count.id', method: 'isIn', params: [[1, 3, 5]] },
+      ],
+      joinGroups: {
+        session: { aggregations: { count: ['id'] } },
+      },
+    });
+
+    const sql = mockPg.calls[0].text;
+    assert.ok(sql.includes('IN ('), 'IN operator present');
+    assert.deepEqual(mockPg.calls[0].values, [1, 3, 5]);
+  });
+
+  it('rejects aggregation condition when joinGroup not declared', async () => {
+    const mockPg = createMockPg([]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await assert.rejects(
+      () => searchEngine(DbTables, {
+        db,
+        tableConf: DbTables.user,
+        conditions: [
+          { field: 'session.count.id', method: 'isEqual', params: [4] },
+        ],
+      }),
+      (err) => {
+        assert.equal(err.statusCode, 400);
+        assert.match(err.message, /undeclared joinGroup/);
+        return true;
+      }
+    );
+  });
+
+  it('rejects invalid method on aggregation condition', async () => {
+    const mockPg = createMockPg([]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await assert.rejects(
+      () => searchEngine(DbTables, {
+        db,
+        tableConf: DbTables.user,
+        conditions: [
+          { field: 'session.count.id', method: 'raw', params: [] },
+        ],
+        joinGroups: {
+          session: { aggregations: { count: ['id'] } },
+        },
+      }),
+      (err) => {
+        assert.equal(err.statusCode, 400);
+        assert.match(err.message, /Invalid condition method/);
+        return true;
+      }
+    );
+  });
+});
+
 describe('executeJoinGroups - avg and count', () => {
   it('handles avg aggregation', async () => {
     const mockPg = createMockPg([

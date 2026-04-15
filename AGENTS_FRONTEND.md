@@ -107,6 +107,40 @@ Also available: `isNotGreater`, `isNotGreaterOrEqual`, `isNotLess`, `isNotLessOr
 - **Field validation** — field names are validated against the table schema (400 if unknown)
 - **Method validation** — only whitelisted methods are allowed (`raw`, `append` etc. are blocked)
 
+#### Conditions on joinGroup aggregations (HAVING-style)
+
+You can filter main rows based on the value of a joinGroup aggregation using the same dot notation as `orderBy`: `<joinTable>.<fn>.<field>`.
+
+Example: "users with at least 4 sessions":
+
+```json
+{
+  "conditions": [
+    { "field": "session.count.id", "method": "isGreaterOrEqual", "params": [4] }
+  ],
+  "joinGroups": {
+    "session": { "aggregations": { "count": ["id"] } }
+  }
+}
+```
+
+Generated SQL:
+```sql
+SELECT * FROM "user"
+WHERE COALESCE((
+  SELECT COUNT("session"."id")
+  FROM "session"
+  WHERE "session"."user_id" = "user"."id"
+), 0) >= $1
+```
+
+**Rules:**
+- Same declaration requirement as orderBy: the joinGroup must be declared in `joinGroups.<table>.aggregations.<fn>` with the referenced field.
+- The joinGroup's own `filters` are applied inside the correlated subquery (consistent with the breakdown). Example: filter customers whose SUM of *completed* orders > 1000 by declaring `joinGroups.order.filters: { status: 'completed' }`.
+- All ConditionBuilder methods work: `isEqual`, `isGreater`, `isLess`, `isBetween`, `isIn`, `isNull`, `isNotNull`, etc.
+- Can be combined with plain-field conditions and with aggregation `orderBy` in the same request.
+- Respects `aggregations.by` rules: allowed when `by` equals the correlation FK, otherwise 400.
+
 ### Join Filters (filter main by related table)
 
 `joinFilters` restrict **main table results** based on conditions on a related table. Only tables listed in `allowedReadJoins` are available. Uses `EXISTS` subquery — no duplicate rows, works correctly with pagination.

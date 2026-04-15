@@ -308,6 +308,121 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
     assert.match(body.message, /non-FK column/);
   });
 
+  it('filters main rows via aggregation condition (HAVING-style)', async () => {
+    // Mario has 2 orders, Luigi 1, Anna 0 → filter: count >= 2 should return only Mario
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auto/search/customer',
+      payload: {
+        conditions: [
+          { field: 'customer_order.count.id', method: 'isGreaterOrEqual', params: [2] },
+        ],
+        joinGroups: {
+          customer_order: { aggregations: { count: ['id'] } },
+        },
+      },
+    });
+
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.payload);
+    assert.equal(body.main.length, 1);
+    assert.equal(body.main[0].name, 'Mario Rossi');
+  });
+
+  it('combines aggregation condition with plain filter', async () => {
+    // Name LIKE 'M%' AND has at least 1 order → Mario only
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auto/search/customer',
+      payload: {
+        conditions: [
+          { field: 'name', method: 'isLike', params: ['M%'] },
+          { field: 'customer_order.sum.total', method: 'isGreater', params: [0] },
+        ],
+        joinGroups: {
+          customer_order: { aggregations: { sum: ['total'] } },
+        },
+      },
+    });
+
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.payload);
+    assert.equal(body.main.length, 1);
+    assert.equal(body.main[0].name, 'Mario Rossi');
+  });
+
+  it('aggregation condition respects joinGroup filters', async () => {
+    // Add pending order to Luigi (should be excluded by filter)
+    await seedRows(db, 'customer_order', [
+      { customer_id: luigiId, total: 500, status: 'pending' },
+    ]);
+
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auto/search/customer',
+        payload: {
+          // Customers with completed sum > 100 → Mario (300) only
+          conditions: [
+            { field: 'customer_order.sum.total', method: 'isGreater', params: [100] },
+          ],
+          joinGroups: {
+            customer_order: {
+              aggregations: { sum: ['total'] },
+              filters: { status: 'completed' },
+            },
+          },
+        },
+      });
+
+      assert.equal(res.statusCode, 200);
+      const body = JSON.parse(res.payload);
+      assert.equal(body.main.length, 1);
+      assert.equal(body.main[0].name, 'Mario Rossi');
+    } finally {
+      await db.delete('customer_order', { total: 500 });
+    }
+  });
+
+  it('combines aggregation condition with aggregation orderBy', async () => {
+    // Filter: at least 1 order. Order: sum DESC.
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
+      payload: {
+        conditions: [
+          { field: 'customer_order.count.id', method: 'isGreater', params: [0] },
+        ],
+        joinGroups: {
+          customer_order: { aggregations: { sum: ['total'], count: ['id'] } },
+        },
+      },
+    });
+
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.payload);
+    // Mario (300) and Luigi (50), Anna excluded (no orders)
+    assert.equal(body.main.length, 2);
+    assert.equal(body.main[0].name, 'Mario Rossi');
+    assert.equal(body.main[1].name, 'Luigi Verdi');
+  });
+
+  it('rejects aggregation condition when joinGroup not declared', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auto/search/customer',
+      payload: {
+        conditions: [
+          { field: 'customer_order.count.id', method: 'isEqual', params: [2] },
+        ],
+      },
+    });
+
+    assert.equal(res.statusCode, 400);
+    const body = JSON.parse(res.payload);
+    assert.match(body.message, /undeclared joinGroup/);
+  });
+
   it('accepts orderBy when joinGroup uses by on the correlation FK', async () => {
     // by: 'customerId' is the FK of the correlation (customer_order.customer_id = customer.id).
     // The main ordering is still well-defined (1 group per customer), and the response
