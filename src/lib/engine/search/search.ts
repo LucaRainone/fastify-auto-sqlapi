@@ -27,19 +27,148 @@ function validateSchemaField(field: string, schema: SchemaDefinition): string {
   return schema.col(field);
 }
 
-function validateOrderBy(orderBy: string, tableConf: ITable, db: QueryClient): string {
-  return orderBy.split(',').map((part) => {
+const AGG_FN_SQL: Record<string, string> = {
+  sum: 'SUM',
+  min: 'MIN',
+  max: 'MAX',
+  avg: 'AVG',
+  count: 'COUNT',
+  distinctCount: 'COUNT DISTINCT', // marker, handled specially
+};
+
+function buildAggOrderExpr(
+  db: QueryClient,
+  dbTables: DbTables,
+  tableConf: ITable,
+  joinTableName: string,
+  fn: string,
+  field: string,
+  joinGroups: Record<string, JoinGroupRequest> | undefined,
+  startIdx: number
+): { expr: string; values: unknown[] } {
+  const err400 = (msg: string): never => {
+    const e = new Error(msg) as Error & { statusCode: number };
+    e.statusCode = 400;
+    throw e;
+  };
+
+  // Whitelist fn
+  if (!(fn in AGG_FN_SQL)) {
+    err400(`Invalid aggregation function: ${fn}`);
+  }
+
+  // Require joinGroups declaration for the referenced table + fn + field
+  const groupReq = joinGroups?.[joinTableName];
+  if (!groupReq) {
+    err400(`orderBy references undeclared joinGroup: ${joinTableName}`);
+  }
+  const declaredFields = (groupReq!.aggregations as Record<string, unknown>)[fn];
+  if (!Array.isArray(declaredFields) || !declaredFields.includes(field)) {
+    err400(`orderBy references undeclared aggregation: ${joinTableName}.${fn}.${field}`);
+  }
+
+  // Resolve join definition
+  const joinDef = tableConf.allowedReadJoins?.find(
+    ([js]) => js.tableName === joinTableName
+  );
+  if (!joinDef) {
+    err400(`Unknown join table in orderBy: ${joinTableName}`);
+  }
+  const [joinSchema, joinField, mainField] = joinDef!;
+
+  // If joinGroup has `by`, only accept it when `by` is the correlation FK (joinField).
+  // In that case each main row corresponds to exactly one group, so the scalar
+  // subquery is semantically equivalent to no-by. Any other `by` produces multiple
+  // groups per main row → not a single scalar, reject.
+  if (groupReq!.aggregations.by && groupReq!.aggregations.by !== joinField) {
+    err400(`Cannot order by aggregation on joinGroup with 'by' clause on non-FK column: ${joinTableName} (grouped by '${groupReq!.aggregations.by}', correlation FK is '${joinField}')`);
+  }
+
+  // Validate field exists on join schema
+  const fieldCol = validateSchemaField(field, joinSchema);
+
+  // Build correlation: joinTable.fk = mainTable.main_pk
+  const mainColName = Array.isArray(mainField) ? mainField[0] : mainField;
+  const mainCol = db.qi(tableConf.Schema.col(mainColName));
+  const mainTable = db.qi(tableConf.Schema.tableName);
+  const joinTable = db.qi(joinSchema.tableName);
+  const fkCol = db.qi(joinSchema.col(joinField));
+
+  // Rebuild joinGroup filters with correct placeholder offset
+  let filterWhere = '';
+  let filterVals: unknown[] = [];
+  const joinTableConf = dbTables[joinTableName];
+  if (groupReq!.filters && joinTableConf) {
+    const cb = joinTableConf.filters(groupReq!.filters);
+    const built = cb.build(startIdx, db.ph);
+    if (built) {
+      filterWhere = ` AND ${built}`;
+      filterVals = cb.getValues();
+    }
+  }
+
+  // Generate SQL expression
+  const qField = db.qi(fieldCol);
+  const fnSql = AGG_FN_SQL[fn];
+  const aggExpr = fnSql === 'COUNT DISTINCT'
+    ? `COUNT(DISTINCT ${joinTable}.${qField})`
+    : `${fnSql}(${joinTable}.${qField})`;
+
+  // COALESCE with 0 so main rows without matching joined records get a sortable
+  // numeric value instead of NULL. Works on all dialects (PG/MySQL/MariaDB) and
+  // keeps "no data" at the bottom on DESC (top-N queries), and at the top on ASC.
+  const expr = `COALESCE((SELECT ${aggExpr} FROM ${joinTable} WHERE ${joinTable}.${fkCol} = ${mainTable}.${mainCol}${filterWhere}), 0)`;
+
+  return { expr, values: filterVals };
+}
+
+function validateOrderBy(
+  orderBy: string,
+  tableConf: ITable,
+  db: QueryClient,
+  dbTables: DbTables,
+  joinGroups: Record<string, JoinGroupRequest> | undefined,
+  startIdx: number
+): { sql: string; values: unknown[] } {
+  const parts = orderBy.split(',');
+  const outParts: string[] = [];
+  const outValues: unknown[] = [];
+  let currentIdx = startIdx;
+
+  for (const part of parts) {
     const trimmed = part.trim();
-    const match = trimmed.match(/^(\w+)(?:\s+(ASC|DESC))?$/i);
-    if (!match) {
+
+    // Dotted notation: <joinTable>.<fn>.<field> [ASC|DESC]
+    const dottedMatch = trimmed.match(/^(\w+)\.(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i);
+    if (dottedMatch) {
+      if (tableConf.distinctResults) {
+        const err = new Error('Cannot combine distinctResults with aggregation orderBy') as Error & { statusCode: number };
+        err.statusCode = 400;
+        throw err;
+      }
+      const [, joinTableName, fn, field, dir] = dottedMatch;
+      const { expr, values } = buildAggOrderExpr(
+        db, dbTables, tableConf, joinTableName, fn, field, joinGroups, currentIdx
+      );
+      outParts.push(`${expr} ${(dir || 'ASC').toUpperCase()}`);
+      outValues.push(...values);
+      currentIdx += values.length;
+      continue;
+    }
+
+    // Plain field: <field> [ASC|DESC]
+    const plainMatch = trimmed.match(/^(\w+)(?:\s+(ASC|DESC))?$/i);
+    if (!plainMatch) {
       const err = new Error(`Invalid orderBy: ${trimmed}`) as Error & { statusCode: number };
       err.statusCode = 400;
       throw err;
     }
-    const [, field, dir] = match;
+    const [, field, dir] = plainMatch;
     const col = validateSchemaField(field, tableConf.Schema);
-    return `${db.qi(col)} ${(dir || 'ASC').toUpperCase()}`;
-  }).join(', ');
+    outParts.push(`${db.qi(col)} ${(dir || 'ASC').toUpperCase()}`);
+  }
+
+  return { sql: outParts.join(', '), values: outValues };
 }
 
 async function executeMainQuery(
@@ -236,6 +365,18 @@ async function executeJoinGroups(
         selectParts.push(`SUM(${db.qi(col)}) as "sum_${f}"`);
       }
     }
+    if (aggregations.avg) {
+      for (const f of aggregations.avg) {
+        const col = validateSchemaField(f, joinSchema);
+        selectParts.push(`AVG(${db.qi(col)}) as "avg_${f}"`);
+      }
+    }
+    if (aggregations.count) {
+      for (const f of aggregations.count) {
+        const col = validateSchemaField(f, joinSchema);
+        selectParts.push(`COUNT(${db.qi(col)}) as "count_${f}"`);
+      }
+    }
 
     if (selectParts.length === 0) {
       result[joinTableName] = {};
@@ -406,12 +547,21 @@ export async function searchEngine(
   }
 
   // Validate and sanitize orderBy (user input -> SQL identifier)
-  const safeOrderBy = orderBy ? validateOrderBy(orderBy, tableConf, db) : undefined;
+  // Note: orderBy aggregation values are kept separate from WHERE values,
+  // so that buildPagination (which doesn't use ORDER BY) only binds WHERE params.
+  let safeOrderBy: string | undefined;
+  let orderByValues: unknown[] = [];
+  if (orderBy) {
+    const obResult = validateOrderBy(orderBy, tableConf, db, dbTables, joinGroups, values.length + 1);
+    safeOrderBy = obResult.sql;
+    orderByValues = obResult.values;
+  }
 
-  // Main query
-  const main = await executeMainQuery(db, tableConf, where, values, safeOrderBy, paginator, tenantJoins);
+  // Main query: bind WHERE values + orderBy aggregation values
+  const mainValues = [...values, ...orderByValues];
+  const main = await executeMainQuery(db, tableConf, where, mainValues, safeOrderBy, paginator, tenantJoins);
 
-  // Pagination
+  // Pagination: bind only WHERE values (COUNT/compute queries don't use ORDER BY)
   let pagination: PaginationResult | undefined;
   if (paginator) {
     pagination = await buildPagination(db, tableConf, where, values, paginator, tenantJoins, computeMin, computeMax, computeSum, computeAvg);

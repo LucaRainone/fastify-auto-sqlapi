@@ -244,6 +244,8 @@ export interface AggregationRequest {
   min?: string[];
   max?: string[];
   sum?: string[];
+  avg?: string[];
+  count?: string[];
 }
 
 export interface JoinGroupRequest {

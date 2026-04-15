@@ -1,17 +1,15 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import Fastify from 'fastify';
-import fastifyPostgres from '@fastify/postgres';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dirname, '../..');
-
-const { fastifyAutoSqlApi, exportTableInfo, buildRelation, toUnderscore, Type, QueryClient } =
-  await import(path.join(ROOT, 'dist/index.js'));
-
-const connectionString = 'postgres://test:test@127.0.0.1:5433/testdb';
+import {
+  DIALECT,
+  createTestApp,
+  cleanTables,
+  seedRows,
+  exportTableInfo,
+  buildRelation,
+  toUnderscore,
+  Type,
+} from './_helpers.js';
 
 function createSchema(tableName, fields) {
   return {
@@ -56,36 +54,29 @@ const DbTables = {
   },
 };
 
-describe('search routes integration', () => {
+describe(`[${DIALECT}] search routes integration`, () => {
   let app;
+  let db;
+  let customerIds;
 
   before(async () => {
-    app = Fastify();
-    await app.register(fastifyPostgres, { connectionString });
-    await app.register(fastifyAutoSqlApi, { DbTables, prefix: '/auto' });
+    ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
 
-    // Seed data
-    const client = await app.pg.connect();
-    try {
-      await client.query('DELETE FROM customer_order');
-      await client.query('DELETE FROM customer');
-      await client.query(`
-        INSERT INTO customer (id, name, email, is_active) VALUES
-          (1, 'Mario Rossi', 'mario@test.it', true),
-          (2, 'Luigi Verdi', 'luigi@test.it', true),
-          (3, 'Anna Bianchi', 'anna@test.it', false)
-      `);
-      await client.query(`
-        INSERT INTO customer_order (customer_id, total, status, order_date) VALUES
-          (1, 100.50, 'completed', '2024-01-15'),
-          (1, 200.00, 'pending', '2024-02-20'),
-          (2, 50.00, 'completed', '2024-01-10')
-      `);
-    } finally {
-      client.release();
-    }
+    await cleanTables(db, ['customer_order', 'customer']);
 
-    await app.ready();
+    // Seed using QueryClient so auto-increment IDs are returned portably
+    const customers = await seedRows(db, 'customer', [
+      { name: 'Mario Rossi', email: 'mario@test.it', is_active: true },
+      { name: 'Luigi Verdi', email: 'luigi@test.it', is_active: true },
+      { name: 'Anna Bianchi', email: 'anna@test.it', is_active: false },
+    ]);
+    customerIds = customers.map((c) => c.id);
+
+    await seedRows(db, 'customer_order', [
+      { customer_id: customerIds[0], total: 100.50, status: 'completed' },
+      { customer_id: customerIds[0], total: 200.00, status: 'pending' },
+      { customer_id: customerIds[1], total: 50.00, status: 'completed' },
+    ]);
   });
 
   after(async () => {
@@ -115,7 +106,7 @@ describe('search routes integration', () => {
     assert.equal(res.statusCode, 200);
     const body = JSON.parse(res.payload);
     assert.equal(body.main.length, 2);
-    assert.ok(body.main.every((r) => r.isActive === true));
+    assert.ok(body.main.every((r) => r.isActive === true || r.isActive === 1));
   });
 
   it('filters by name', async () => {

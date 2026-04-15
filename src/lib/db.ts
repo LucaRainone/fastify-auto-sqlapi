@@ -210,8 +210,12 @@ export class QueryClient {
       if (this.dialect.supportsReturning) {
         results.push(...(result.rows as Record<string, unknown>[]));
       } else {
-        for (const rec of chunk) {
-          results.push(this.#mysqlPkResult(pkCol, rec, result.insertId));
+        // MySQL: insertId is the FIRST generated ID of the multi-row insert.
+        // Subsequent rows follow sequentially assuming auto_increment_increment=1 (default).
+        const firstId = result.insertId;
+        for (let j = 0; j < chunk.length; j++) {
+          const id = typeof firstId === 'number' ? firstId + j : undefined;
+          results.push(this.#mysqlPkResult(pkCol, chunk[j], id));
         }
       }
     }
@@ -247,8 +251,10 @@ export class QueryClient {
       if (this.dialect.supportsReturning) {
         results.push(...(result.rows as Record<string, unknown>[]));
       } else {
-        for (const rec of chunk) {
-          results.push(this.#mysqlPkResult(pkCol, rec, result.insertId));
+        const firstId = result.insertId;
+        for (let j = 0; j < chunk.length; j++) {
+          const id = typeof firstId === 'number' ? firstId + j : undefined;
+          results.push(this.#mysqlPkResult(pkCol, chunk[j], id));
         }
       }
     }

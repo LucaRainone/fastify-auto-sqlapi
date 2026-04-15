@@ -48,6 +48,8 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
           min: Type.Optional(Type.Array(Type.String())),
           max: Type.Optional(Type.Array(Type.String())),
           sum: Type.Optional(Type.Array(Type.String())),
+          avg: Type.Optional(Type.Array(Type.String())),
+          count: Type.Optional(Type.Array(Type.String())),
         }),
         filters: Type.Optional(Type.Partial(Type.Object(joinFilterFields))),
       });

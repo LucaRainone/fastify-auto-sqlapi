@@ -5,40 +5,53 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { DIALECT } from './_helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 const CLI_PATH = path.join(ROOT, 'dist/bin/generate-schema.js');
 
-const TEST_ENV = {
-  ...process.env,
-  POSTGRES_HOST: '127.0.0.1',
-  POSTGRES_PORT: '5433',
-  POSTGRES_USER: 'test',
-  POSTGRES_PASSWORD: 'test',
-  POSTGRES_DB: 'testdb',
-};
+// Dialect-specific env and config
+const DIALECT_ENV = DIALECT === 'postgres'
+  ? {
+      POSTGRES_HOST: '127.0.0.1',
+      POSTGRES_PORT: '5433',
+      POSTGRES_USER: 'test',
+      POSTGRES_PASSWORD: 'test',
+      POSTGRES_DB: 'testdb',
+    }
+  : {
+      MYSQL_HOST: '127.0.0.1',
+      MYSQL_PORT: '3307',
+      MYSQL_USER: 'test',
+      MYSQL_PASSWORD: 'test',
+      MYSQL_DB: 'testdb',
+    };
 
-function runCli(cwd) {
-  return execFileSync('node', [CLI_PATH], {
+const TEST_ENV = { ...process.env, ...DIALECT_ENV };
+
+const CONFIG_SCHEMA = DIALECT === 'postgres' ? 'public' : 'testdb';
+
+function runCli(cwd, extraArgs = []) {
+  return execFileSync('node', [CLI_PATH, ...extraArgs], {
     cwd,
     env: TEST_ENV,
     encoding: 'utf-8',
   });
 }
 
-describe('CLI generate-schema', () => {
+describe(`[${DIALECT}] CLI generate-schema`, () => {
   let tmpDir;
   let outputDir;
 
   before(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sqlapi-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `sqlapi-test-${DIALECT}-`));
     outputDir = path.join(tmpDir, 'schemas');
 
     // CLI appends /schemas/ to outputDir, so point config at tmpDir
     fs.writeFileSync(
       path.join(tmpDir, 'sqlapi.config.js'),
-      `export default { outputDir: ${JSON.stringify(tmpDir)}, schema: 'public' };\n`
+      `export default { outputDir: ${JSON.stringify(tmpDir)}, schema: '${CONFIG_SCHEMA}', dialect: '${DIALECT}' };\n`
     );
   });
 

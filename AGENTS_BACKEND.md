@@ -431,6 +431,8 @@ const sqlApi = createSqlApi(db, dbTables, { dialect: 'mysql' });
 
 ```typescript
 // Search — full filter, join, pagination, aggregation support
+// orderBy supports dot notation for joinGroup aggregations: "session.sum.duration DESC"
+// (requires the joinGroup to be declared in the same request, see AGENTS_FRONTEND.md)
 sqlApi.search(tableName, {
   filters?, joinFilters?, joins?, joinGroups?,
   orderBy?, paginator?, computeMin?, computeMax?, computeSum?, computeAvg?,

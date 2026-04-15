@@ -1,31 +1,41 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import path from 'node:path';
-import pg from 'pg';
-import { fileURLToPath } from 'node:url';
+import {
+  DIALECT,
+  createQueryClient,
+  pgQueryable,
+  mysqlQueryable,
+  PG_CONNECTION_STRING,
+  MYSQL_CONFIG,
+} from './_helpers.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dirname, '../..');
-
-const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
-const { pgQueryable } = await import(path.join(ROOT, 'dist/lib/adapters/pg-adapter.js'));
-
-const connectionString = 'postgres://test:test@127.0.0.1:5433/testdb';
-
-describe('QueryClient: single operations', () => {
-  let pool, client, db;
+describe(`[${DIALECT}] QueryClient: single operations`, () => {
+  let pool;
+  let client;
+  let db;
 
   before(async () => {
-    pool = new pg.Pool({ connectionString });
-    client = await pool.connect();
-    db = new QueryClient(pgQueryable(client));
-    await client.query('DELETE FROM customer_order');
-    await client.query('DELETE FROM product');
-    await client.query('DELETE FROM customer');
+    if (DIALECT === 'postgres') {
+      const pg = (await import('pg')).default;
+      pool = new pg.Pool({ connectionString: PG_CONNECTION_STRING });
+      client = await pool.connect();
+      db = createQueryClient(pgQueryable(client), DIALECT);
+    } else {
+      const mysql = (await import('mysql2/promise')).default;
+      pool = mysql.createPool(MYSQL_CONFIG);
+      client = pool;
+      db = createQueryClient(mysqlQueryable(pool), DIALECT);
+    }
+    // Clean — respect FK order
+    await db.query(`DELETE FROM ${db.qi('customer_order')}`);
+    await db.query(`DELETE FROM ${db.qi('product')}`);
+    await db.query(`DELETE FROM ${db.qi('customer')}`);
   });
 
   after(async () => {
-    client.release();
+    if (DIALECT === 'postgres') {
+      client.release();
+    }
     await pool.end();
   });
 
@@ -45,12 +55,11 @@ describe('QueryClient: single operations', () => {
     const affectedRows = await db.update('customer', { name: 'B' }, { id: ins.id });
     assert.equal(affectedRows, 1);
 
-    // Verify the update
-    const check = await db.query('SELECT name FROM customer WHERE id = $1', [ins.id]);
+    const check = await db.query(`SELECT ${db.qi('name')} FROM ${db.qi('customer')} WHERE ${db.qi('id')} = ${db.ph(1)}`, [ins.id]);
     assert.equal(check.rows[0].name, 'B');
   });
 
-  it('insertOrUpdate uses EXCLUDED', async () => {
+  it('insertOrUpdate uses upsert path', async () => {
     const ins = await db.insert('product', {
       name: 'Widget',
       price: 10,
@@ -65,8 +74,10 @@ describe('QueryClient: single operations', () => {
     );
     assert.equal(ups.id, ins.id);
 
-    // Verify the update
-    const check = await db.query('SELECT name, price FROM product WHERE id = $1', [ins.id]);
+    const check = await db.query(
+      `SELECT ${db.qi('name')}, ${db.qi('price')} FROM ${db.qi('product')} WHERE ${db.qi('id')} = ${db.ph(1)}`,
+      [ins.id]
+    );
     assert.equal(check.rows[0].name, 'Widget Pro');
     assert.equal(parseFloat(check.rows[0].price), 25);
   });
@@ -76,7 +87,10 @@ describe('QueryClient: single operations', () => {
     const affectedRows = await db.delete('customer', { id: ins.id });
     assert.equal(affectedRows, 1);
 
-    const check = await db.query('SELECT * FROM customer WHERE id = $1', [ins.id]);
+    const check = await db.query(
+      `SELECT * FROM ${db.qi('customer')} WHERE ${db.qi('id')} = ${db.ph(1)}`,
+      [ins.id]
+    );
     assert.equal(check.rows.length, 0);
   });
 
@@ -96,34 +110,49 @@ describe('QueryClient: single operations', () => {
   });
 
   it('expression injects raw SQL', async () => {
+    const nowFn = DIALECT === 'postgres' ? 'NOW()' : 'NOW()';
     const row = await db.insert('product', {
       name: 'Expr Test',
       price: 5,
       is_available: true,
-      created_at: db.expression('NOW()'),
+      created_at: db.expression(nowFn),
     }, 'id');
     assert.ok(row.id);
 
-    // Verify expression was applied
-    const check = await db.query('SELECT created_at FROM product WHERE id = $1', [row.id]);
+    const check = await db.query(
+      `SELECT ${db.qi('created_at')} FROM ${db.qi('product')} WHERE ${db.qi('id')} = ${db.ph(1)}`,
+      [row.id]
+    );
     assert.ok(check.rows[0].created_at);
   });
 });
 
-describe('QueryClient: bulk operations', () => {
-  let pool, client, db;
+describe(`[${DIALECT}] QueryClient: bulk operations`, () => {
+  let pool;
+  let client;
+  let db;
 
   before(async () => {
-    pool = new pg.Pool({ connectionString });
-    client = await pool.connect();
-    db = new QueryClient(pgQueryable(client));
-    await client.query('DELETE FROM customer_order');
-    await client.query('DELETE FROM product');
-    await client.query('DELETE FROM customer');
+    if (DIALECT === 'postgres') {
+      const pg = (await import('pg')).default;
+      pool = new pg.Pool({ connectionString: PG_CONNECTION_STRING });
+      client = await pool.connect();
+      db = createQueryClient(pgQueryable(client), DIALECT);
+    } else {
+      const mysql = (await import('mysql2/promise')).default;
+      pool = mysql.createPool(MYSQL_CONFIG);
+      client = pool;
+      db = createQueryClient(mysqlQueryable(pool), DIALECT);
+    }
+    await db.query(`DELETE FROM ${db.qi('customer_order')}`);
+    await db.query(`DELETE FROM ${db.qi('product')}`);
+    await db.query(`DELETE FROM ${db.qi('customer')}`);
   });
 
   after(async () => {
-    client.release();
+    if (DIALECT === 'postgres') {
+      client.release();
+    }
     await pool.end();
   });
 
@@ -151,13 +180,11 @@ describe('QueryClient: bulk operations', () => {
   });
 
   it('bulkInsertOrUpdate updates existing rows', async () => {
-    // First insert
     const inserted = await db.bulkInsert('product', [
       { name: 'Upsert1', price: 10, is_available: true },
       { name: 'Upsert2', price: 20, is_available: true },
     ], 'id');
 
-    // Upsert with updated prices
     const upserted = await db.bulkInsertOrUpdate(
       'product',
       [
@@ -172,8 +199,10 @@ describe('QueryClient: bulk operations', () => {
     assert.equal(upserted[0].id, inserted[0].id);
     assert.equal(upserted[1].id, inserted[1].id);
 
-    // Verify updates
-    const check = await db.query('SELECT name, price, is_available FROM product WHERE id = $1', [inserted[0].id]);
+    const check = await db.query(
+      `SELECT ${db.qi('name')}, ${db.qi('price')} FROM ${db.qi('product')} WHERE ${db.qi('id')} = ${db.ph(1)}`,
+      [inserted[0].id]
+    );
     assert.equal(check.rows[0].name, 'Upsert1 Updated');
     assert.equal(parseFloat(check.rows[0].price), 99);
   });

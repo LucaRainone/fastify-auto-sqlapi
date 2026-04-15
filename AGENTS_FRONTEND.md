@@ -151,6 +151,8 @@ The join executes as a separate query: `SELECT ... FROM {joinTable} WHERE {fk} I
         "sum": ["total"],
         "min": ["total"],
         "max": ["total"],
+        "avg": ["total"],
+        "count": ["id"],
         "distinctCount": ["status"]
       },
       "filters": { "status": "active" }
@@ -160,7 +162,8 @@ The join executes as a separate query: `SELECT ... FROM {joinTable} WHERE {fk} I
 ```
 
 - `by` — GROUP BY field
-- `sum`, `min`, `max` — aggregate functions on specified columns
+- `sum`, `min`, `max`, `avg` — aggregate functions on specified columns
+- `count` — COUNT(col)
 - `distinctCount` — COUNT(DISTINCT col)
 - `filters` — optional, narrow rows before aggregation
 
@@ -175,6 +178,46 @@ Use the `orderBy` query parameter:
 ```
 
 If not specified, the table's `defaultOrder` is used.
+
+#### Ordering by joinGroup aggregations
+
+You can order the main results by an aggregation computed on a joined table using dot notation: `<joinTable>.<fn>.<field>`.
+
+Supported functions: `sum`, `min`, `max`, `avg`, `count`, `distinctCount`.
+
+Example: get users ordered by total session duration DESC.
+
+```
+POST /auto/search/user?orderBy=session.sum.duration%20DESC
+```
+```json
+{
+  "joinGroups": {
+    "session": {
+      "aggregations": { "sum": ["duration"] }
+    }
+  }
+}
+```
+
+Generated SQL (simplified):
+```sql
+SELECT * FROM "user"
+ORDER BY (
+  SELECT SUM("session"."duration")
+  FROM "session"
+  WHERE "session"."user_id" = "user"."id"
+) DESC
+```
+
+**Rules:**
+- The joinGroup **must be declared in the request body** (`joinGroups.<table>.aggregations.<fn>` must include the field). The engine refuses undeclared references with 400.
+- If the joinGroup declares `aggregations.filters`, those filters are applied inside the correlated subquery — consistent with the breakdown.
+- **`aggregations.by`**: allowed **only** when `by` is the same field used for the join correlation (e.g. `by: "userId"` when joining user→session via userId). In that case each main row maps to exactly one group, so the ordering is well-defined *and* the response contains the per-row breakdown you can render next to each row. Using `by` on any other column is rejected with 400 (the result would be bucketed per group, not per row).
+- **Not allowed** when the main table has `distinctResults: true`. 400 error.
+- Can be combined with plain field ordering: `?orderBy=session.sum.duration DESC, name ASC`.
+- The joinGroup breakdown is still returned in the response (`joinGroups.session.sum.duration` etc.) as before — you get both ordered main results and the aggregated summary.
+- **No-data rows**: rows with no matching joined records are coalesced to `0` via `COALESCE(..., 0)`. Practically: on DESC they appear last, on ASC they appear first. This is universal across PostgreSQL, MySQL, and MariaDB.
 
 ### Pagination
 
