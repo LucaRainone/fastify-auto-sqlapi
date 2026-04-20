@@ -1,8 +1,8 @@
 # fastify-auto-sqlapi
 
-Automatic CRUD API generation from PostgreSQL tables for [Fastify](https://fastify.dev/). No ORM, no magic — just raw SQL via `pg`, with TypeBox validation and Swagger docs out of the box.
+Automatic CRUD API generation from PostgreSQL, MySQL, and MariaDB tables for [Fastify](https://fastify.dev/). No ORM, no magic — just raw SQL, with TypeBox validation and Swagger docs out of the box.
 
-Point it at your database, and get a full REST API with search, pagination, joins, bulk operations, multi-tenant isolation, and hooks.
+Point it at your database, and get a full REST API with search, advanced conditions, pagination, joins, aggregations, bulk operations, multi-tenant isolation, validation, and hooks.
 
 ## Features
 
@@ -219,36 +219,79 @@ const TableCustomer = defineTable({
 ```typescript
 await app.register(fastifyAutoSqlApi, {
   DbTables: dbTables,           // Required — your table definitions
+  dialect: 'postgres',          // Optional — 'postgres' | 'mysql' | 'mariadb' (default: 'postgres')
   prefix: '/api',               // Optional — URL prefix for all routes
   swagger: true,                // Optional — enable Swagger UI (or pass SwaggerOptions)
   onRequests: [authMiddleware],  // Optional — global hooks applied to every route
   getTenantId: (req) => id,     // Optional — multi-tenant function
+  debug: true,                  // Optional — log all SQL queries and params
 });
 ```
 
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
 | `DbTables` | `Record<string, ITable>` | Yes | Table configurations |
+| `dialect` | `'postgres' \| 'mysql' \| 'mariadb'` | No | DB dialect (default: `'postgres'`) |
 | `prefix` | `string` | No | URL prefix (e.g. `/api`) |
 | `swagger` | `boolean \| SwaggerOptions` | No | Enable Swagger UI |
 | `onRequests` | `Function[]` | No | Global auth/middleware hooks |
 | `getTenantId` | `(req) => id \| null` | No | Tenant resolver for multi-tenant |
+| `debug` | `boolean` | No | Log all SQL queries to console |
+
+For MySQL/MariaDB, register `mysql2/promise` pool instead of `@fastify/postgres` and pass `dialect: 'mysql'` or `'mariadb'`.
 
 ## API Reference
 
 ### POST /search/{table}
 
-Search with filters, pagination, ordering, joins, and aggregations.
+Search with filters, advanced conditions, pagination, ordering, joins, and aggregations.
 
 **Request body** (all fields optional):
 
 ```json
 {
   "filters": { "name": "Mario" },
-  "joins": { "order": {} },
-  "paginator": { "page": 1, "itemsPerPage": 20 }
+  "conditions": [
+    { "field": "total", "method": "isGreater", "params": [100] },
+    { "field": "createdAt", "method": "isBetween", "params": ["2024-01-01", "2024-12-31"] }
+  ],
+  "joinFilters": {
+    "order": {
+      "filters": { "status": "completed" },
+      "conditions": [{ "field": "total", "method": "isGreater", "params": [50] }]
+    }
+  },
+  "joins": {
+    "order": {
+      "filters": { "status": "completed" },
+      "conditions": [{ "field": "total", "method": "isGreater", "params": [50] }]
+    }
+  },
+  "joinGroups": {
+    "order": {
+      "aggregations": {
+        "by": "status",
+        "sum": ["total"],
+        "min": ["total"],
+        "max": ["total"],
+        "avg": ["total"],
+        "count": ["id"],
+        "distinctCount": ["status"]
+      },
+      "filters": { "status": "completed" },
+      "conditions": [{ "field": "total", "method": "isGreater", "params": [0] }]
+    }
+  }
 }
 ```
+
+- **`filters`** — equality-based, flat key/value. Supports schema fields + `extraFilters`.
+- **`conditions`** — array of `{ field, method, params }`. Methods: `isEqual`, `isNotEqual`, `isGreater`, `isGreaterOrEqual`, `isLess`, `isLessOrEqual`, `isLike`, `isILike`, `isIn`, `isNotIn`, `isBetween`, `isNotBetween`, `isNull`, `isNotNull`.
+- **`joinFilters`** — EXISTS-based filtering: "main rows where at least one related row matches". Accepts `{ filters, conditions }` (both optional). Only tables in `allowedReadJoins`.
+- **`joins`** — fetch related records (virtual join via separate query). Accepts `{ filters, conditions }`.
+- **`joinGroups`** — aggregations on related tables. Supports `sum`, `min`, `max`, `avg`, `count`, `distinctCount`, and optional `by` for GROUP BY. Accepts `{ filters, conditions }` inside the subquery.
+
+**Dot-notation in `conditions` and `orderBy`** — use `<joinTable>.<fn>.<field>` to filter/order the main rows by an aggregation value (HAVING-style). Example: `orderBy=order.sum.total DESC` or `conditions: [{ field: 'order.count.id', method: 'isGreaterOrEqual', params: [4] }]`. The joinGroup must be declared in the body.
 
 **Querystring** (optional): `orderBy`, `page`, `itemsPerPage`, `computeMin`, `computeMax`, `computeSum`, `computeAvg`
 
@@ -259,11 +302,23 @@ Search with filters, pagination, ordering, joins, and aggregations.
   "table": "customer",
   "main": [{ "id": 1, "name": "Mario", "email": "m@test.it" }],
   "joins": { "order": [{ "id": 10, "customerId": 1, "total": 50 }] },
-  "pagination": { "total": 25, "pages": 3, "paginator": { "page": 1, "itemsPerPage": 20 } }
+  "joinGroups": {
+    "order": {
+      "sum": { "total": 300 },
+      "count": { "id": 2 },
+      "rows": [{ "by": "completed", "sum_total": 300, "count_id": 2 }]
+    }
+  },
+  "pagination": {
+    "total": 25,
+    "pages": 3,
+    "computed": { "min": { "id": 1 }, "max": { "id": 100 } },
+    "paginator": { "page": 1, "itemsPerPage": 20 }
+  }
 }
 ```
 
-`joins`, `joinGroups`, and `pagination` only appear when requested. A simple `{}` body returns `{ table, main }`.
+`joins`, `joinGroups`, and `pagination` only appear when requested. A simple `{}` body returns `{ table, main }`. `pagination.computed` appears only if `computeMin`/`computeMax`/`computeSum`/`computeAvg` are used.
 
 ### GET /rest/{table}/:id
 
@@ -311,6 +366,24 @@ Returns the deleted record or 404.
 ### POST /bulk/{table}/delete
 
 **Body:** Array of objects with the PK field, e.g. `[{ "id": 1 }, { "id": 2 }]`. Executes as a single `DELETE WHERE pk IN (...)`.
+
+### Validation errors (400)
+
+Both schema-level (TypeBox/Ajv) and custom (`validate` / `validateBulk`) errors use the same response shape:
+
+```json
+{
+  "statusCode": 400,
+  "error": "Bad Request",
+  "message": "Validation failed",
+  "fields": [
+    { "path": "main.email", "code": "format", "message": "must match format \"email\"" },
+    { "path": "name", "code": "required", "message": "is required" }
+  ]
+}
+```
+
+Custom validators return tuples `[field, code]` or `[field, code, message]` — `message` defaults to `code` if omitted. `validateBulk` replaces per-item `validate` in bulk-upsert requests.
 
 ## Multi-Tenant
 
@@ -417,23 +490,49 @@ The package re-exports commonly needed utilities so you don't need to install th
 ```typescript
 import {
   Type,                   // from @sinclair/typebox
+  type Static,            // from @sinclair/typebox
   ConditionBuilder,       // from node-condition-builder
   Expression,             // from node-condition-builder
-  QueryClient,            // raw SQL query helper
+
+  // Table configuration
   defineTable,
   exportTableInfo,
   buildRelation,
   buildUpsertRule,
   buildUpsertRules,
+
+  // DB layer
+  QueryClient,            // raw SQL query helper
+  createQueryClient,      // factory with dialect string
+  pgQueryable,            // pg pool adapter
+  mysqlQueryable,         // mysql2 pool adapter
+
+  // Programmatic high-level API
+  createSqlApi,           // standalone SqlApi (for scripts/tests)
+  setupSwagger,           // manual Swagger registration
+} from 'fastify-auto-sqlapi';
+
+import type {
+  ValidationError,        // [field, code] | [field, code, message]
+  ValidatorFn,
+  BulkValidatorFn,
+  JoinRefFilter,
+  JoinGroupRequest,
+  SearchCondition,
+  ConditionMethod,
 } from 'fastify-auto-sqlapi';
 ```
+
+After registering the plugin, `app.sqlApi` is decorated on the Fastify instance and exposes `search`, `get`, `insert`, `update`, `delete`, `bulkUpsert`, `bulkDelete` for custom routes — same code path as the auto-generated endpoints.
 
 ## Requirements
 
 - Node.js >= 18
-- PostgreSQL
-- Fastify >= 4
-- `@fastify/postgres` >= 5
+- Fastify >= 4 (peer dependency)
+- One of:
+  - **PostgreSQL** + `pg` + `@fastify/postgres`
+  - **MySQL** / **MariaDB** + `mysql2`
+- Optional: `@fastify/swagger` + `@fastify/swagger-ui` for Swagger UI
 
 ## License
 

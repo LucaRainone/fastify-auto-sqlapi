@@ -251,6 +251,17 @@ export interface AggregationRequest {
 export interface JoinGroupRequest {
   aggregations: AggregationRequest;
   filters?: FilterRecord;
+  conditions?: SearchCondition[];
+}
+
+/**
+ * Reference filter for join-based existential filtering (joinFilters) and
+ * join-based virtual joins data fetching (joins). Combines equality-based filters
+ * with rich ConditionBuilder-powered conditions, both applied to the join schema.
+ */
+export interface JoinRefFilter {
+  filters?: FilterRecord;
+  conditions?: SearchCondition[];
 }
 
 export interface SearchParams {
@@ -258,8 +269,8 @@ export interface SearchParams {
   tableConf: ITable;
   filters?: FilterRecord;
   conditions?: SearchCondition[];
-  joinFilters?: Record<string, FilterRecord>;
-  joins?: Record<string, { filters?: FilterRecord }>;
+  joinFilters?: Record<string, JoinRefFilter>;
+  joins?: Record<string, JoinRefFilter>;
   joinGroups?: Record<string, JoinGroupRequest>;
   orderBy?: string;
   paginator?: Paginator;

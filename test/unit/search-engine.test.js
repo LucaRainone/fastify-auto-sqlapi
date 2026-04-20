@@ -330,7 +330,7 @@ describe('searchEngine - joinFilters (EXISTS)', () => {
       db,
       tableConf: DbTables.customer,
       joinFilters: {
-        customer_order: { status: 'pending' },
+        customer_order: { filters: { status: 'pending' } },
       },
     });
 
@@ -352,7 +352,7 @@ describe('searchEngine - joinFilters (EXISTS)', () => {
       tableConf: DbTables.customer,
       filters: { name: 'Mario' },
       joinFilters: {
-        customer_order: { status: 'pending' },
+        customer_order: { filters: { status: 'pending' } },
       },
     });
 
@@ -374,7 +374,7 @@ describe('searchEngine - joinFilters (EXISTS)', () => {
       tableConf: DbTables.customer,
       filters: { name: 'Mario', email: 'test@test.it' },
       joinFilters: {
-        customer_order: { status: 'pending', total: 100 },
+        customer_order: { filters: { status: 'pending', total: 100 } },
       },
     });
 
@@ -418,7 +418,7 @@ describe('searchEngine - joinFilters (EXISTS)', () => {
       db,
       tableConf: DbTables.customer,
       joinFilters: {
-        customer_order: { status: 'pending' },
+        customer_order: { filters: { status: 'pending' } },
       },
       paginator: { page: 1, itemsPerPage: 10 },
     });

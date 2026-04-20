@@ -102,7 +102,7 @@ describe('SqlApi.search', () => {
     const { sqlApi } = createTestFixture(mockPg);
 
     const result = await sqlApi.search('customer', {
-      joinFilters: { customer_order: { status: 'pending' } },
+      joinFilters: { customer_order: { filters: { status: 'pending' } } },
     });
 
     assert.equal(result.main.length, 1);

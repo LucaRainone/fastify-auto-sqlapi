@@ -13,6 +13,7 @@ import type {
   PaginationResult,
   JoinDefinition,
   JoinGroupRequest,
+  JoinRefFilter,
   ITable,
   SchemaDefinition,
   TenantScopeIndirect,
@@ -94,12 +95,17 @@ function buildAggOrderExpr(
   const joinTable = db.qi(joinSchema.tableName);
   const fkCol = db.qi(joinSchema.col(joinField));
 
-  // Rebuild joinGroup filters with correct placeholder offset
+  // Rebuild joinGroup filters + conditions with correct placeholder offset
   let filterWhere = '';
   let filterVals: unknown[] = [];
   const joinTableConf = dbTables[joinTableName];
-  if (groupReq!.filters && joinTableConf) {
-    const cb = joinTableConf.filters(groupReq!.filters);
+  if ((groupReq!.filters || groupReq!.conditions?.length) && joinSchema) {
+    const cb = buildJoinRefCondition(
+      joinTableConf,
+      joinSchema,
+      { filters: groupReq!.filters, conditions: groupReq!.conditions },
+      db
+    );
     const built = cb.build(startIdx, db.ph);
     if (built) {
       filterWhere = ` AND ${built}`;
@@ -262,11 +268,11 @@ async function executeVirtualJoins(
   dbTables: DbTables,
   tableConf: ITable,
   mainResults: Record<string, unknown>[],
-  joins: Record<string, { filters?: FilterRecord }>
+  joins: Record<string, JoinRefFilter>
 ): Promise<Record<string, Record<string, unknown>[]>> {
   const result: Record<string, Record<string, unknown>[]> = {};
 
-  for (const [joinTableName, joinOpts] of Object.entries(joins)) {
+  for (const [joinTableName, joinRef] of Object.entries(joins)) {
     const joinDef = findJoinDefinition(tableConf, joinTableName);
     if (!joinDef) continue;
 
@@ -280,10 +286,8 @@ async function executeVirtualJoins(
       continue;
     }
 
-    // Build join filters
-    const cb = joinTableConf
-      ? joinTableConf.filters(joinOpts?.filters || {})
-      : new ConditionBuilder('AND');
+    // Build join filters (equality) + rich conditions
+    const cb = buildJoinRefCondition(joinTableConf, joinSchema, joinRef || {}, db);
     const fkCol = joinSchema.col(joinField);
     cb.isIn(db.qi(fkCol), ids);
     const where = cb.build(1, db.ph);
@@ -331,7 +335,7 @@ async function executeJoinGroups(
       continue;
     }
 
-    const { aggregations, filters: groupFilters } = groupReq;
+    const { aggregations, filters: groupFilters, conditions: groupConditions } = groupReq;
     const selectParts: string[] = [];
     const groupByParts: string[] = [];
 
@@ -383,11 +387,14 @@ async function executeJoinGroups(
       continue;
     }
 
-    // Build WHERE clause
+    // Build WHERE clause: equality filters + rich conditions
     const joinTableConf = dbTables[joinTableName];
-    const cb = joinTableConf && groupFilters
-      ? joinTableConf.filters(groupFilters)
-      : new ConditionBuilder('AND');
+    const cb = buildJoinRefCondition(
+      joinTableConf,
+      joinSchema,
+      { filters: groupFilters, conditions: groupConditions },
+      db
+    );
     const fkCol = joinSchema.col(joinField);
     cb.isIn(db.qi(fkCol), ids);
     const where = cb.build(1, db.ph);
@@ -464,6 +471,36 @@ function dispatchConditionMethod(
   } else if (NULL_SET.has(method)) {
     (cb[method as keyof ConditionBuilder] as Function)(colOrExpr, true);
   }
+}
+
+/**
+ * Build a ConditionBuilder that applies both equality filters and rich conditions
+ * to a join schema. Used by joinFilters (EXISTS), virtual joins data fetching,
+ * and joinGroups (aggregation WHERE + orderBy scalar subquery).
+ */
+function buildJoinRefCondition(
+  joinTableConf: ITable | undefined,
+  joinSchema: SchemaDefinition,
+  ref: JoinRefFilter,
+  db: QueryClient
+): ConditionBuilder {
+  const cb = (ref.filters && joinTableConf)
+    ? joinTableConf.filters(ref.filters)
+    : new ConditionBuilder('AND');
+
+  if (ref.conditions?.length) {
+    for (const c of ref.conditions) {
+      if (!ALLOWED_SET.has(c.method)) {
+        const err = new Error(`Invalid condition method: ${c.method}`) as Error & { statusCode: number };
+        err.statusCode = 400;
+        throw err;
+      }
+      const col = db.qi(validateSchemaField(c.field, joinSchema));
+      dispatchConditionMethod(cb, c.method, col, (c.params as unknown[]) ?? []);
+    }
+  }
+
+  return cb;
 }
 
 function applyConditions(
@@ -551,22 +588,21 @@ function buildJoinFiltersExists(
   db: QueryClient,
   dbTables: DbTables,
   tableConf: ITable,
-  joinFilters: Record<string, FilterRecord>,
+  joinFilters: Record<string, JoinRefFilter>,
   currentWhere: string,
   currentValues: unknown[]
 ): { where: string; values: unknown[] } {
   let where = currentWhere;
   const values = [...currentValues];
 
-  for (const [joinTableName, filterValues] of Object.entries(joinFilters)) {
+  for (const [joinTableName, ref] of Object.entries(joinFilters)) {
     const joinDef = findJoinDefinition(tableConf, joinTableName);
     if (!joinDef) continue;
 
     const [joinSchema, joinField, mainField] = joinDef;
     const joinTableConf = dbTables[joinTableName];
-    if (!joinTableConf) continue;
 
-    const filterCondition = joinTableConf.filters(filterValues);
+    const filterCondition = buildJoinRefCondition(joinTableConf, joinSchema, ref, db);
     const startIdx = values.length + 1;
     const filterWhere = filterCondition.build(startIdx, db.ph);
     const filterVals = filterCondition.getValues();
@@ -576,7 +612,12 @@ function buildJoinFiltersExists(
     const mainCol = db.qi(tableConf.Schema.col(mainColName));
     const mainTable = db.qi(tableConf.Schema.tableName);
 
-    where += ` AND EXISTS (SELECT 1 FROM ${db.qi(joinSchema.tableName)} WHERE ${fkCol} = ${mainTable}.${mainCol} AND ${filterWhere})`;
+    // If there are no inner conditions, just the correlation suffices.
+    const innerWhere = filterWhere
+      ? `${fkCol} = ${mainTable}.${mainCol} AND ${filterWhere}`
+      : `${fkCol} = ${mainTable}.${mainCol}`;
+
+    where += ` AND EXISTS (SELECT 1 FROM ${db.qi(joinSchema.tableName)} WHERE ${innerWhere})`;
     values.push(...filterVals);
   }
 

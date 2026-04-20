@@ -14,6 +14,14 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
   const tableConf = dbTables[tableName];
   const schema = tableConf.Schema;
 
+  // Condition item shape (shared across main, joinFilters, joins, joinGroups)
+  const methodEnum = Type.Union(ALLOWED_METHODS.map((m) => Type.Literal(m)));
+  const conditionItemSchema = Type.Object({
+    field: Type.String(),
+    method: methodEnum,
+    params: Type.Optional(Type.Array(Type.Any())),
+  });
+
   // Filters: schema fields + extraFilters
   const filterFields = {
     ...schema.fields,
@@ -23,7 +31,7 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
 
   // Joins & JoinGroups from allowedReadJoins
   const joinProperties: Record<string, ReturnType<typeof Type.Object>> = {};
-  const joinFilterProperties: Record<string, ReturnType<typeof Type.Partial>> = {};
+  const joinFilterProperties: Record<string, ReturnType<typeof Type.Object>> = {};
   const joinGroupProperties: Record<string, ReturnType<typeof Type.Object>> = {};
 
   if (tableConf.allowedReadJoins) {
@@ -35,11 +43,14 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
         ? { ...joinSchema.fields, ...joinTableConf.extraFilters }
         : { ...joinSchema.fields };
 
-      joinProperties[joinTableName] = Type.Object({
+      // Shared { filters?, conditions? } shape for joinFilters, joins, and joinGroups inner filters
+      const joinRefShape = {
         filters: Type.Optional(Type.Partial(Type.Object(joinFilterFields))),
-      });
+        conditions: Type.Optional(Type.Array(conditionItemSchema)),
+      };
 
-      joinFilterProperties[joinTableName] = Type.Partial(Type.Object(joinFilterFields));
+      joinProperties[joinTableName] = Type.Object(joinRefShape);
+      joinFilterProperties[joinTableName] = Type.Object(joinRefShape);
 
       joinGroupProperties[joinTableName] = Type.Object({
         aggregations: Type.Object({
@@ -52,17 +63,10 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
           count: Type.Optional(Type.Array(Type.String())),
         }),
         filters: Type.Optional(Type.Partial(Type.Object(joinFilterFields))),
+        conditions: Type.Optional(Type.Array(conditionItemSchema)),
       });
     }
   }
-
-  // Conditions: advanced filters with ConditionBuilder methods
-  const methodEnum = Type.Union(ALLOWED_METHODS.map((m) => Type.Literal(m)));
-  const conditionItemSchema = Type.Object({
-    field: Type.String(),
-    method: methodEnum,
-    params: Type.Optional(Type.Array(Type.Any())),
-  });
 
   const bodyProperties: Record<string, unknown> = {
     filters: filtersSchema,
