@@ -1,4 +1,4 @@
-import { camelcaseObject, snakecaseRecord } from '../../naming.js';
+import { snakecaseRecord } from '../../naming.js';
 import { processSecondaries, processDeletions } from '../write-helpers.js';
 import { stripTenantColumn, buildTenantCondition, buildTenantJoin } from '../../tenant.js';
 import { runValidation } from '../validate.js';
@@ -14,12 +14,10 @@ import type {
 export async function updateEngine(params: UpdateParams): Promise<UpdateResult> {
   const { db, tableConf, dbTables, request, record, secondaries, deletions, tenant } = params;
 
-  // 1. Prepare: extract PK, snakecase, build update fields
   const schema = tableConf.Schema;
   const pk = primaryAsString(tableConf.primary);
   const pkCol = schema.col(pk);
-  const snaked = snakecaseRecord(record, schema);
-  const pkValue = snaked[pkCol];
+  const pkValue = record[pk];
 
   if (pkValue == null) {
     const error = new Error(`Primary key "${pk}" is required`) as Error & { statusCode: number };
@@ -27,47 +25,51 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     throw error;
   }
 
-  const updateFields = { ...snaked };
-  delete updateFields[pkCol];
-
-  // 1b. Tenant: strip tenant column from update fields + validate ownership
-  if (tenant) {
-    stripTenantColumn(updateFields, tenant.scope);
-
-    if ('through' in tenant.scope) {
-      // Indirect: verify the record belongs to tenant via subquery
-      const scope = tenant.scope as TenantScopeIndirect;
-      const tableName = schema.tableName;
-      const cb = new ConditionBuilder('AND');
-      cb.isEqual(`${db.qi(tableName)}.${db.qi(pkCol)}`, pkValue as ConditionValue);
-      cb.append(buildTenantCondition(db, scope, tenant.ids));
-      const checkWhere = cb.build(1, db.ph);
-      const checkValues = cb.getValues();
-      const joinSql = buildTenantJoin(db, scope, tableName);
-      const checkSql = `SELECT 1 FROM ${db.qi(tableName)} ${joinSql} WHERE ${checkWhere} LIMIT 1`;
-      const checkResult = await db.query(checkSql, checkValues);
-      if (checkResult.rows.length === 0) {
-        const error = new Error('Record not found') as Error & { statusCode: number };
-        error.statusCode = 404;
-        throw error;
-      }
+  // 1. Tenant ownership check (indirect) — do it early so user mutations don't run on records they can't access
+  if (tenant && 'through' in tenant.scope) {
+    const scope = tenant.scope as TenantScopeIndirect;
+    const tableName = schema.tableName;
+    const cb = new ConditionBuilder('AND');
+    cb.isEqual(`${db.qi(tableName)}.${db.qi(pkCol)}`, pkValue as ConditionValue);
+    cb.append(buildTenantCondition(db, scope, tenant.ids));
+    const checkWhere = cb.build(1, db.ph);
+    const checkValues = cb.getValues();
+    const joinSql = buildTenantJoin(db, scope, tableName);
+    const checkSql = `SELECT 1 FROM ${db.qi(tableName)} ${joinSql} WHERE ${checkWhere} LIMIT 1`;
+    const checkResult = await db.query(checkSql, checkValues);
+    if (checkResult.rows.length === 0) {
+      const error = new Error('Record not found') as Error & { statusCode: number };
+      error.statusCode = 404;
+      throw error;
     }
   }
 
-  // 2. Custom validation (receives original camelCase record)
-  await runValidation(db, request, tableConf, record, secondaries);
+  // 2. Mutable copy of input in camelCase
+  const inputRecord: Record<string, unknown> = { ...record };
 
-  // 3. beforeUpdate hook
+  // 3. Custom validation (camelCase)
+  await runValidation(db, request, tableConf, inputRecord, secondaries);
+
+  // 4. beforeUpdate hook (camelCase — user can mutate with schema field names)
   if (tableConf.beforeUpdate) {
-    await tableConf.beforeUpdate(db, request, updateFields);
+    await tableConf.beforeUpdate(db, request, inputRecord as Parameters<NonNullable<typeof tableConf.beforeUpdate>>[2]);
   }
 
-  // 4. Update main
+  // 5. Convert to DB format (after all user mutations)
+  const snaked = snakecaseRecord(inputRecord, schema);
+  const updateFields = { ...snaked };
+  delete updateFields[pkCol];
+
+  // 6. Strip tenant column (user cannot change tenant of an existing record)
+  if (tenant) {
+    stripTenantColumn(updateFields, tenant.scope);
+  }
+
+  // 7. Update main
   const hasFieldsToUpdate = Object.keys(updateFields).length > 0;
 
   let extraCondition: ConditionBuilder | undefined;
   if (tenant && !('through' in tenant.scope)) {
-    // Direct: add tenant to WHERE
     extraCondition = new ConditionBuilder('AND');
     if (tenant.ids.length === 1) {
       extraCondition.isEqual(tenant.scope.column, tenant.ids[0]);
@@ -116,21 +118,20 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
   // Build the main response (PK-only)
   const mainResult = { [pk]: pkValue };
 
-  // 5. Secondaries (upsert/insert with FK auto-fill)
+  // 8. Secondaries (upsert/insert with FK auto-fill — camelCase)
   let secondaryResults: Record<string, Record<string, unknown>[]> | undefined;
   if (secondaries && Object.keys(secondaries).length > 0) {
-    // Merge input fields + PK for FK auto-fill
-    const mainForFK = { ...camelcaseObject(snaked as Record<string, unknown>, schema) };
+    const mainForFK = { ...inputRecord };
     secondaryResults = await processSecondaries(db, tableConf, dbTables, mainForFK, secondaries);
   }
 
-  // 6. Deletions
+  // 9. Deletions
   let deletionResults: Record<string, Record<string, unknown>[]> | undefined;
   if (deletions && Object.keys(deletions).length > 0) {
     deletionResults = await processDeletions(db, tableConf, deletions);
   }
 
-  // 7. Return PK-only
+  // 10. Return PK-only
   const result: UpdateResult = { main: mainResult };
   if (secondaryResults && Object.keys(secondaryResults).length > 0) {
     result.secondaries = secondaryResults;

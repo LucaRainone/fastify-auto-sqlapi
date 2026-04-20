@@ -153,9 +153,23 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
   schemaOverrides?: Partial<Record<string & keyof F, TSchema>>;
   validate?: ValidatorFn<F>;
   validateBulk?: BulkValidatorFn<F>;
-  beforeInsert?: (db: QueryClient, req: FastifyRequest, record: Record<string, unknown>) => Promise<void>;
-  beforeUpdate?: (db: QueryClient, req: FastifyRequest, fields: Record<string, unknown>, secondaryFieldsFetcher?: unknown) => void | Promise<void>;
-  afterInsert?: (db: QueryClient, req: FastifyRequest, record: Record<string, unknown>, secondaryRecords?: unknown) => Promise<void>;
+  beforeInsert?: (
+    db: QueryClient,
+    req: FastifyRequest,
+    record: { [K in keyof F]?: Static<F[K]> | Expression | null }
+  ) => Promise<void>;
+  beforeUpdate?: (
+    db: QueryClient,
+    req: FastifyRequest,
+    fields: { [K in keyof F]?: Static<F[K]> | Expression | null },
+    secondaryFieldsFetcher?: unknown
+  ) => void | Promise<void>;
+  afterInsert?: (
+    db: QueryClient,
+    req: FastifyRequest,
+    record: { [K in keyof F]?: Static<F[K]> },
+    secondaryRecords?: unknown
+  ) => Promise<void>;
   defaultOrder?: string;
   excludeFromCreation?: (string & keyof F)[];
   distinctResults?: boolean;

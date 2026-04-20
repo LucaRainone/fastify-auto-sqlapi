@@ -163,7 +163,7 @@ describe('orderBy - aggregation on joinGroup', () => {
     const mainCall = mockPg.calls[0];
     const sql = mainCall.text;
     // Subquery includes filter on status with $2 (because $1 is the main WHERE active filter)
-    assert.ok(sql.includes('status = $2'), `placeholder $2 on status present, got: ${sql}`);
+    assert.ok(sql.includes('"status" = $2'), `placeholder $2 on status present, got: ${sql}`);
     // Values order: [main WHERE values, orderBy subquery filter values]
     assert.deepEqual(mainCall.values, [true, 'completed']);
   });
@@ -480,7 +480,7 @@ describe('conditions - aggregation on joinGroup (HAVING-style)', () => {
     const sql = mockPg.calls[0].text;
     const values = mockPg.calls[0].values;
     // Subquery contains the status filter, and values include 'active' before the 4
-    assert.ok(sql.includes('status = $1'), `status filter with $1 present, got: ${sql}`);
+    assert.ok(sql.includes('"status" = $1'), `status filter with $1 present, got: ${sql}`);
     assert.deepEqual(values, ['active', 4]);
   });
 

@@ -38,3 +38,14 @@ CREATE TABLE customer_order (
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ
 );
+
+-- betterauth-style table: camelCase column names (quoted identifiers preserve case in PG)
+CREATE TABLE "userAccount" (
+  "id" TEXT PRIMARY KEY,
+  "userId" TEXT NOT NULL,
+  "providerId" VARCHAR(50) NOT NULL,
+  "accountId" VARCHAR(255) NOT NULL,
+  "accessToken" TEXT,
+  "createdAt" TIMESTAMPTZ DEFAULT now(),
+  "updatedAt" TIMESTAMPTZ
+);

@@ -283,17 +283,17 @@ export const TableCustomer = defineTable({
     return []; // ValidationError[]
   },
 
-  // HOOKS — side effects (runs after validation)
+  // HOOKS — side effects (runs after validation). All receive camelCase (schema field names).
   beforeInsert: async (db, req, record) => {
-    // Mutate record before INSERT. record is snake_case.
-    record.created_by = req.user.id;
+    // Mutate record before INSERT. Use camelCase (schema) field names — conversion is automatic.
+    record.createdBy = req.user.id;
   },
   afterInsert: async (db, req, record, secondaryRecords) => {
-    // Called after INSERT + secondaries. record is camelCase.
+    // Called after INSERT + secondaries. record is camelCase (input merged with generated PK).
   },
   beforeUpdate: async (db, req, fields) => {
-    // Mutate fields before UPDATE. fields is snake_case.
-    fields.updated_by = req.user.id;
+    // Mutate fields before UPDATE. camelCase. PK is present for reference but excluded from UPDATE SET.
+    fields.updatedBy = req.user.id;
   },
 
   // AUTH — per-table request hooks
@@ -600,7 +600,7 @@ Tables without `tenantScope` are unaffected — no filtering regardless of `getT
 - **`schemaOverrides`**: override auto-generated schema fields with stricter TypeBox types (e.g. `{ email: Type.String({ format: 'email' }) }`). Overrides are merged into the body schema for insert, update, and bulk-upsert. The original Schema file is never modified. In updates, overridden fields are still wrapped in Optional (validates only when present). Overrides appear in Swagger.
 - **Validation receives camelCase**: `validate` receives the original camelCase record (as sent by the client) and secondaries. Field names match the schema definition, with full TypeScript inference (`main.startDate`, not `main.start_date`). It returns `ValidationError[]` — tuples of `[field, code]` or `[field, code, message]`. If any errors are returned, the request is rejected with 400 before hooks or SQL execute.
 - **`validateBulk` replaces `validate` in bulk**: when `validateBulk` is defined, it is called once with all items and per-item `validate` is skipped. This allows optimized batch queries instead of N individual checks. When only `validate` is defined, it runs per-item as fallback.
-- **Hooks receive snake_case, validate receives camelCase**: `validate(db, req, main, secondaries)` gets camelCase (pre-conversion). `beforeInsert(db, req, record)` and `beforeUpdate(db, req, fields)` get snake_case (post-conversion). `afterInsert` receives camelCase (post-DB).
+- **All hooks and validators receive camelCase records**: `validate`, `beforeInsert`, `beforeUpdate`, and `afterInsert` all get records keyed by schema field names (camelCase). Mutations propagate to the SQL (plugin converts to DB column format via `colMap` after the hook). The engine internally uses `snakecaseRecord(..., schema)` after user mutations to map field names to actual DB columns.
 - **Filters validation**: TypeBox schemas use `additionalProperties: false`. By default Fastify strips unknown fields silently. For 400 errors on unknown filters: `Fastify({ ajv: { customOptions: { removeAdditional: false } } })`.
 - **Tenant filtering**: when `tenantScope` is set on a table and `getTenantId` is provided in plugin options, all CRUD operations are automatically scoped to the tenant. `getTenantId` returning `null`/`undefined` = admin (no filter). Returning an array = multi-tenant user (IN clause).
 
@@ -702,12 +702,13 @@ const TableCustomer = defineTable({
   primary: 'id',
   ...exportTableInfo(SchemaCustomer),
   beforeInsert: async (db, req, record) => {
-    record.created_by = req.user.id;
-    record.created_at = db.expression('NOW()');
+    // camelCase — schema field names. The plugin converts to the actual DB column names.
+    record.createdBy = req.user.id;
+    record.createdAt = db.expression('NOW()');
   },
   beforeUpdate: async (db, req, fields) => {
-    fields.updated_by = req.user.id;
-    fields.updated_at = db.expression('NOW()');
+    fields.updatedBy = req.user.id;
+    fields.updatedAt = db.expression('NOW()');
   },
 });
 ```

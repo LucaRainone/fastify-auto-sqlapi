@@ -242,7 +242,7 @@ describe('updateEngine - composite PK secondaries', () => {
 });
 
 describe('updateEngine - beforeUpdate hook', () => {
-  it('calls beforeUpdate with update fields', async () => {
+  it('calls beforeUpdate with camelCase input record (including PK for reference)', async () => {
     let hookFields = null;
     const mockPg = createMockPg([
       { rows: [], affectedRows: 1 },
@@ -263,8 +263,29 @@ describe('updateEngine - beforeUpdate hook', () => {
 
     assert.ok(hookFields);
     assert.equal(hookFields.name, 'Updated');
-    // PK should not be in update fields
-    assert.equal(hookFields.id, undefined);
+    // Hook now receives the full camelCase input record (PK included for reference)
+    assert.equal(hookFields.id, 1);
+  });
+
+  it('PK is excluded from the actual UPDATE SET', async () => {
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 1 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await updateEngine({
+      db,
+      tableConf: DbTables.customer,
+      dbTables: DbTables,
+      request: mockRequest,
+      record: { id: 1, name: 'Updated' },
+    });
+
+    const sql = mockPg.calls[0].text;
+    // UPDATE SET contains name but not id
+    const setClause = sql.match(/SET\s+(.+?)\s+WHERE/)?.[1] ?? '';
+    assert.ok(setClause.includes('"name"'));
+    assert.ok(!setClause.includes('"id"'));
   });
 });
 

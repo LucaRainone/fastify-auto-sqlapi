@@ -6,6 +6,15 @@ import type {
   TableFilterFn,
   ITable,
 } from '../types.js';
+import { getDialect } from './dialect.js';
+
+// Quote an identifier using the current global ConditionBuilder dialect.
+// Needed so that DB columns with uppercase letters (e.g. betterauth "userId")
+// are preserved on PostgreSQL (which folds unquoted identifiers to lowercase)
+// and on MySQL (which is case-sensitive on Linux filesystems).
+function qi(field: string): string {
+  return getDialect(ConditionBuilder.DIALECT).qi(field);
+}
 
 // Extract properties from TObject or use the Record directly
 type ExtraProps<EF> = EF extends TObject<infer P> ? P : EF extends Record<string, TSchema> ? EF : Record<string, never>;
@@ -27,7 +36,7 @@ export function exportTableInfo<
     // Only auto-match real schema fields (DB columns)
     for (const field of Object.keys(Schema.fields)) {
       if (field in filterValues && filterValues[field] !== null && filterValues[field] !== undefined) {
-        condition.isEqual(Schema.col(field), filterValues[field]);
+        condition.isEqual(qi(Schema.col(field)), filterValues[field]);
       }
     }
 

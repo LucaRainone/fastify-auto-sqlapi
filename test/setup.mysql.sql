@@ -39,3 +39,14 @@ CREATE TABLE customer_order (
   updated_at TIMESTAMP NULL,
   FOREIGN KEY (customer_id) REFERENCES customer(id)
 );
+
+-- betterauth-style table: camelCase column names (backtick-quoted in MySQL preserves case)
+CREATE TABLE `userAccount` (
+  `id` VARCHAR(64) PRIMARY KEY,
+  `userId` VARCHAR(64) NOT NULL,
+  `providerId` VARCHAR(50) NOT NULL,
+  `accountId` VARCHAR(255) NOT NULL,
+  `accessToken` TEXT,
+  `createdAt` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updatedAt` TIMESTAMP NULL
+);

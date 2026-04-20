@@ -176,10 +176,10 @@ const TableCustomer = defineTable({
     return [];
   },
 
-  // Hooks (runs after validation)
-  beforeInsert: async (db, req, record) => { /* record is snake_case */ },
-  beforeUpdate: async (db, req, fields) => { /* fields is snake_case */ },
-  afterInsert: async (db, req, record, secondaryRecords) => { /* record is camelCase */ },
+  // Hooks (runs after validation) — all receive camelCase records (schema field names)
+  beforeInsert: async (db, req, record) => { /* camelCase; mutations propagate to INSERT */ },
+  beforeUpdate: async (db, req, fields) => { /* camelCase; PK included for reference, excluded from UPDATE SET */ },
+  afterInsert: async (db, req, record, secondaryRecords) => { /* camelCase; input merged with generated PK */ },
 
   // Auth (per-table)
   onRequests: [
@@ -478,9 +478,9 @@ await app.register(async (instance) => {
 
 ## Conventions
 
-- **camelCase in API, snake_case in DB** — the plugin converts automatically
-- **Joins are virtual** — they execute separate `SELECT ... WHERE fk IN (...)` queries, not SQL JOINs
-- **Hooks receive snake_case** — `beforeInsert` and `beforeUpdate` get snake_case records; `afterInsert` gets camelCase
+- **camelCase everywhere in the API** — requests, responses, `validate`, and all hooks (`beforeInsert`, `beforeUpdate`, `afterInsert`) use schema field names
+- **Conversion to DB column format is automatic** via `colMap` — supports both snake_case and camelCase DB columns (e.g. betterauth-style)
+- **Joins are virtual** — separate `SELECT ... WHERE fk IN (...)` queries, not SQL JOINs
 - **All response fields are Optional** — response schemas use `Type.Partial` since `RETURNING *` may return any subset
 
 ## Re-exports

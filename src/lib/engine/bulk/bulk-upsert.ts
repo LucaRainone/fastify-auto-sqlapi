@@ -1,4 +1,4 @@
-import { camelcaseObject, snakecaseRecord } from '../../naming.js';
+import { snakecaseRecord } from '../../naming.js';
 import { removeExcludedFields, processSecondaries, processDeletions } from '../write-helpers.js';
 import { injectTenantValue, validateTenantFK } from '../../tenant.js';
 import { runValidation, runBulkValidation } from '../validate.js';
@@ -18,17 +18,35 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
   const pk = primaryAsString(tableConf.primary);
   const pkCol = schema.col(pk);
 
-  // 1. Prepare all main records
-  const preparedMains = items.map((item) => {
-    let rec = snakecaseRecord(item.main, schema);
-    rec = removeExcludedFields(rec, tableConf);
-    return rec as DbRecord;
+  // 1. Mutable camelCase copies of each item.main
+  const inputMains: Record<string, unknown>[] = items.map((item) => ({ ...item.main }));
+
+  // 2. Custom validation (camelCase)
+  if (tableConf.validateBulk) {
+    await runBulkValidation(db, request, tableConf, items);
+  } else {
+    for (let i = 0; i < items.length; i++) {
+      await runValidation(db, request, tableConf, inputMains[i], items[i].secondaries);
+    }
+  }
+
+  // 3. beforeInsert hook per record (camelCase)
+  if (tableConf.beforeInsert) {
+    for (const rec of inputMains) {
+      await tableConf.beforeInsert(db, request, rec as Parameters<NonNullable<typeof tableConf.beforeInsert>>[2]);
+    }
+  }
+
+  // 4. Convert to DB format (after user mutations)
+  const preparedMains = inputMains.map((rec) => {
+    let converted = snakecaseRecord(rec, schema);
+    converted = removeExcludedFields(converted, tableConf);
+    return converted as DbRecord;
   });
 
-  // 1b. Tenant: inject or validate FK
+  // 5. Tenant: inject or validate FK (enforced after user mutations)
   if (tenant) {
     if ('through' in tenant.scope) {
-      // Indirect: collect all FK values, validate in batch
       const scope = tenant.scope as TenantScopeIndirect;
       const fkCol = scope.through.localField;
       const fkValues = preparedMains.map((rec) => rec[fkCol]);
@@ -40,23 +58,7 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
     }
   }
 
-  // 2. Custom validation (receives original camelCase records)
-  if (tableConf.validateBulk) {
-    await runBulkValidation(db, request, tableConf, items);
-  } else {
-    for (let i = 0; i < items.length; i++) {
-      await runValidation(db, request, tableConf, items[i].main, items[i].secondaries);
-    }
-  }
-
-  // 3. beforeInsert hook per record
-  if (tableConf.beforeInsert) {
-    for (const rec of preparedMains) {
-      await tableConf.beforeInsert(db, request, rec);
-    }
-  }
-
-  // 4. Bulk upsert all mains in one query → returns PK-only
+  // 6. Bulk upsert all mains in one query → returns PK-only
   const upsertKeys = tableConf.upsertMap?.get(schema);
   let pkRows: Record<string, unknown>[];
   if (upsertKeys) {
@@ -75,18 +77,19 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
     );
   }
 
-  const pksCamel = pkRows.map((r) => camelcaseObject(r as Record<string, unknown>, schema));
-
-  // 5. Process secondaries and deletions per item
+  // 7. Process secondaries, deletions, afterInsert per item (all camelCase)
   const results: BulkUpsertResult[] = [];
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
-    const mainPk = pksCamel[i];
-    const result: BulkUpsertResult = { main: mainPk };
+    const mainPk = pkRows[i]; // PK-only (already in camelCase field name since PK uses camelCase field)
+    // pkRows entries come from SQL RETURNING or insertId — keys are DB column names.
+    // For simple PK named the same in API and DB (like 'id') this is transparent.
+    // If PK name differs (rare), the user should not rely on mainPk for FK auto-fill — it's the merged inputMain that drives FK.
+    const result: BulkUpsertResult = { main: { [pk]: mainPk[pkCol] ?? mainPk[pk] } };
 
-    // For FK auto-fill in secondaries, merge input record + PK
-    const mainForFK = { ...camelcaseObject(preparedMains[i] as Record<string, unknown>, schema), ...mainPk };
+    // FK auto-fill: input camelCase + generated PK
+    const mainForFK = { ...inputMains[i], [pk]: mainPk[pkCol] ?? mainPk[pk] };
 
     if (item.secondaries && Object.keys(item.secondaries).length > 0) {
       const sec = await processSecondaries(db, tableConf, dbTables, mainForFK, item.secondaries);
@@ -98,9 +101,9 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
       if (Object.keys(del).length > 0) result.deletions = del;
     }
 
-    // 6. afterInsert hook per item
+    // 8. afterInsert hook per item (camelCase)
     if (tableConf.afterInsert) {
-      await tableConf.afterInsert(db, request, mainForFK, result.secondaries);
+      await tableConf.afterInsert(db, request, mainForFK as Parameters<NonNullable<typeof tableConf.afterInsert>>[2], result.secondaries);
     }
 
     results.push(result);
