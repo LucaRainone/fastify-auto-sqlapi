@@ -85,7 +85,7 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
 export const SearchTableQueryString = Type.Object({
   orderBy: Type.Optional(Type.String()),
   page: Type.Optional(Type.Integer({ minimum: 1 })),
-  itemsPerPage: Type.Optional(Type.Integer({ minimum: 1, maximum: 5000, default: 500 })),
+  itemsPerPage: Type.Optional(Type.Integer({ minimum: 1, default: 500 })),
   computeMin: Type.Optional(Type.String()),
   computeMax: Type.Optional(Type.String()),
   computeSum: Type.Optional(Type.String()),
