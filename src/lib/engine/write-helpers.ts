@@ -9,11 +9,9 @@ import type {
 
 export function findWriteJoin(
   tableConf: ITable,
-  joinTableName: string
+  alias: string
 ): JoinDefinition | undefined {
-  return tableConf.allowedWriteJoins?.find(
-    ([joinSchema]) => joinSchema.tableName === joinTableName
-  );
+  return tableConf.allowedWriteJoins?.find((j) => j.alias === alias);
 }
 
 export function removeExcludedFields(
@@ -48,15 +46,15 @@ export async function processSecondaries(
 ): Promise<Record<string, Record<string, unknown>[]>> {
   const results: Record<string, Record<string, unknown>[]> = {};
 
-  for (const [joinTableName, records] of Object.entries(secondaries)) {
+  for (const [alias, records] of Object.entries(secondaries)) {
     if (!records?.length) continue;
 
-    const joinDef = findWriteJoin(tableConf, joinTableName);
+    const joinDef = findWriteJoin(tableConf, alias);
     if (!joinDef) continue;
 
-    const [joinSchema, joinField, mainField] = joinDef;
+    const { joinSchema, joinField, mainField } = joinDef;
     const joinCol = joinSchema.col(joinField);
-    const secondaryTableConf = findSecondaryTableConf(dbTables, joinTableName);
+    const secondaryTableConf = findSecondaryTableConf(dbTables, joinSchema.tableName);
     const secondaryPk = secondaryTableConf?.primary || joinField;
     const secondaryPkCol = Array.isArray(secondaryPk)
       ? secondaryPk.map((f) => joinSchema.col(f))
@@ -98,7 +96,7 @@ export async function processSecondaries(
       );
     }
 
-    results[joinTableName] = pkRows.map((r) =>
+    results[alias] = pkRows.map((r) =>
       camelcaseObject(r as Record<string, unknown>, joinSchema)
     );
   }
@@ -113,13 +111,13 @@ export async function processDeletions(
 ): Promise<Record<string, Record<string, unknown>[]>> {
   const results: Record<string, Record<string, unknown>[]> = {};
 
-  for (const [joinTableName, records] of Object.entries(deletions)) {
+  for (const [alias, records] of Object.entries(deletions)) {
     if (!records?.length) continue;
 
-    const joinDef = findWriteJoin(tableConf, joinTableName);
+    const joinDef = findWriteJoin(tableConf, alias);
     if (!joinDef) continue;
 
-    const [joinSchema] = joinDef;
+    const { joinSchema } = joinDef;
     const deletedRows: Record<string, unknown>[] = [];
 
     for (const rec of records) {
@@ -130,7 +128,7 @@ export async function processDeletions(
       }
     }
 
-    results[joinTableName] = deletedRows;
+    results[alias] = deletedRows;
   }
 
   return results;

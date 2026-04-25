@@ -67,7 +67,7 @@ function createTestDbTables(mockPg, opts = {}) {
       defaultOrder: 'id',
       excludeFromCreation: opts.excludeFromCreation || [],
       allowedWriteJoins: opts.allowedWriteJoins || [
-        buildRelation(customerSchema, 'id', orderSchema, 'customerId'),
+        buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
       ...(opts.upsertMap ? { upsertMap: opts.upsertMap } : {}),
       ...(opts.beforeInsert ? { beforeInsert: opts.beforeInsert } : {}),

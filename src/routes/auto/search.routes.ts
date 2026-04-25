@@ -13,10 +13,12 @@ export default async function searchRoutes(
     const bodySchema = SearchTableBodyPost(DbTables, tableName);
     const responseSchema = SearchTableResponse(DbTables, tableName);
 
-    const joinList = Object.keys(bodySchema.properties.joins?.properties || {}).join(', ');
+    const multiAliases = Object.keys(bodySchema.properties.joinMultiple?.properties || {});
+    const leftAliases = Object.keys(bodySchema.properties.joinLeft?.properties || {});
     const description = [
       `Search records in ${tableName}`,
-      joinList && `Available joins: ${joinList}`,
+      multiAliases.length && `Available joinMultiple/joinMustExist/joinGroup aliases: ${multiAliases.join(', ')}`,
+      leftAliases.length && `Available joinLeft aliases: ${leftAliases.join(', ')}`,
     ].filter(Boolean).join('. ');
 
     fastify.route({
@@ -38,9 +40,10 @@ export default async function searchRoutes(
         const result = await fastify.sqlApi.search(tableName, {
           filters: body.filters,
           conditions: body.conditions,
-          joinFilters: body.joinFilters,
-          joins: body.joins,
-          joinGroups: body.joinGroups,
+          joinMustExist: body.joinMustExist,
+          joinMultiple: body.joinMultiple,
+          joinGroup: body.joinGroup,
+          joinLeft: body.joinLeft,
           orderBy: query.orderBy,
           paginator: (query.page || query.itemsPerPage)
             ? {

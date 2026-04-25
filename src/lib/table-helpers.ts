@@ -60,7 +60,33 @@ export function exportTableInfo<
 export function defineTable<F extends Record<string, TSchema>>(
   config: ITable<F>
 ): ITable<F> {
+  validateAliasUniqueness(config.allowedReadJoins, 'allowedReadJoins');
+  validateAliasUniqueness(config.allowedWriteJoins, 'allowedWriteJoins');
   return config;
+}
+
+function validateAliasUniqueness(
+  joins: JoinDefinition[] | undefined,
+  label: string
+): void {
+  if (!joins?.length) return;
+  const seen = new Set<string>();
+  for (const j of joins) {
+    if (seen.has(j.alias)) {
+      throw new Error(
+        `defineTable: duplicate alias '${j.alias}' in ${label}. ` +
+        `When omitted, alias defaults to joinSchema.tableName — ` +
+        `declare an explicit alias to disambiguate.`
+      );
+    }
+    seen.add(j.alias);
+  }
+}
+
+export interface BuildRelationOptions {
+  alias?: string;
+  selection?: string;
+  unique?: boolean;
 }
 
 export function buildRelation<
@@ -71,9 +97,16 @@ export function buildRelation<
   mainField: string & keyof M | (string & keyof M)[],
   joinSchema: SchemaDefinition<J>,
   joinField: string & keyof J,
-  selection: string = '*'
+  options?: BuildRelationOptions
 ): JoinDefinition {
-  return [joinSchema, joinField, mainField, selection];
+  return {
+    joinSchema,
+    joinField,
+    mainField,
+    alias: options?.alias ?? joinSchema.tableName,
+    selection: options?.selection ?? '*',
+    unique: options?.unique ?? false,
+  };
 }
 
 export function buildUpsertRule<F extends Record<string, TSchema>>(

@@ -64,7 +64,7 @@ function createTestDbTables(mockPg, opts = {}) {
       ...customerInfo,
       defaultOrder: 'id',
       allowedWriteJoins: opts.allowedWriteJoins ?? [
-        buildRelation(customerSchema, 'id', orderSchema, 'customerId'),
+        buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
       ...(opts.beforeUpdate ? { beforeUpdate: opts.beforeUpdate } : {}),
     },
@@ -196,7 +196,7 @@ describe('updateEngine - composite PK secondaries', () => {
         ...agentInfo,
         defaultOrder: 'id',
         allowedWriteJoins: [
-          buildRelation(agentSchema, 'id', linkSchema, 'agentId'),
+          buildRelation(agentSchema, 'id', linkSchema, 'agentId', { alias: 'link' }),
         ],
       },
       agent_team_link: {
@@ -221,7 +221,7 @@ describe('updateEngine - composite PK secondaries', () => {
       request: mockRequest,
       record: { id: 14, name: 'Updated' },
       secondaries: {
-        agent_team_link: [{ teamId: 2 }],
+        link: [{ teamId: 2 }],
       },
     });
 
@@ -233,11 +233,11 @@ describe('updateEngine - composite PK secondaries', () => {
     // FK auto-fill: agent_id should be 14
     assert.ok(bulkCall.values.includes(14));
 
-    // Result should contain both PK fields (camelCase)
+    // Result should contain both PK fields (camelCase) under the alias key
     assert.ok(result.secondaries);
-    assert.equal(result.secondaries.agent_team_link.length, 1);
-    assert.equal(result.secondaries.agent_team_link[0].agentId, 14);
-    assert.equal(result.secondaries.agent_team_link[0].teamId, 2);
+    assert.equal(result.secondaries.link.length, 1);
+    assert.equal(result.secondaries.link[0].agentId, 14);
+    assert.equal(result.secondaries.link[0].teamId, 2);
   });
 });
 

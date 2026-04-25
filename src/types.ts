@@ -103,8 +103,14 @@ export interface TenantContext {
 
 // ─── Join Definition ─────────────────────────────────────────
 
-// [joinSchema, joinField, mainField, selection]
-export type JoinDefinition = [SchemaDefinition, string, string | string[], string];
+export interface JoinDefinition {
+  joinSchema: SchemaDefinition;
+  joinField: string;
+  mainField: string | string[];
+  alias: string;
+  selection: string;
+  unique: boolean;
+}
 
 // ─── Validation ─────────────────────────────────────────────
 
@@ -269,13 +275,19 @@ export interface JoinGroupRequest {
 }
 
 /**
- * Reference filter for join-based existential filtering (joinFilters) and
- * join-based virtual joins data fetching (joins). Combines equality-based filters
- * with rich ConditionBuilder-powered conditions, both applied to the join schema.
+ * Reference filter for join-based existential filtering (joinMustExist),
+ * virtual joins data fetching (joinMultiple), and parent inline (joinLeft).
+ * Combines equality-based filters with rich ConditionBuilder-powered conditions,
+ * both applied to the join schema.
  */
 export interface JoinRefFilter {
   filters?: FilterRecord;
   conditions?: SearchCondition[];
+}
+
+/** Per-request override of the per-relation default selection. */
+export interface JoinFetchRequest extends JoinRefFilter {
+  selection?: string;
 }
 
 export interface SearchParams {
@@ -283,9 +295,10 @@ export interface SearchParams {
   tableConf: ITable;
   filters?: FilterRecord;
   conditions?: SearchCondition[];
-  joinFilters?: Record<string, JoinRefFilter>;
-  joins?: Record<string, JoinRefFilter>;
-  joinGroups?: Record<string, JoinGroupRequest>;
+  joinMustExist?: Record<string, JoinRefFilter>;
+  joinMultiple?: Record<string, JoinFetchRequest>;
+  joinGroup?: Record<string, JoinGroupRequest>;
+  joinLeft?: Record<string, JoinFetchRequest>;
   orderBy?: string;
   paginator?: Paginator;
   computeMin?: string;
@@ -304,8 +317,9 @@ export interface PaginationResult {
 
 export interface SearchResult {
   main: Record<string, unknown>[];
-  joins?: Record<string, Record<string, unknown>[]>;
-  joinGroups?: Record<string, Record<string, unknown>>;
+  joinMultiple?: Record<string, Record<string, unknown>[]>;
+  joinLeft?: Record<string, Record<string, unknown>[]>;
+  joinGroup?: Record<string, Record<string, unknown>>;
   pagination?: PaginationResult;
 }
 

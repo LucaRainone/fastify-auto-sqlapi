@@ -45,7 +45,7 @@ const DbTables = {
     ...customerInfo,
     defaultOrder: 'id',
     allowedReadJoins: [
-      buildRelation(customerSchema, 'id', orderSchema, 'customerId'),
+      buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
     ],
   },
   customer_order: {
@@ -95,7 +95,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
       method: 'POST',
       url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
       payload: {
-        joinGroups: {
+        joinGroup: {
           customer_order: { aggregations: { sum: ['total'] } },
         },
       },
@@ -114,7 +114,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
       method: 'POST',
       url: '/auto/search/customer?orderBy=customer_order.sum.total%20ASC',
       payload: {
-        joinGroups: {
+        joinGroup: {
           customer_order: { aggregations: { sum: ['total'] } },
         },
       },
@@ -133,7 +133,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
       method: 'POST',
       url: '/auto/search/customer?orderBy=customer_order.avg.total%20DESC',
       payload: {
-        joinGroups: {
+        joinGroup: {
           customer_order: { aggregations: { avg: ['total'] } },
         },
       },
@@ -151,7 +151,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
       method: 'POST',
       url: '/auto/search/customer?orderBy=customer_order.count.id%20DESC',
       payload: {
-        joinGroups: {
+        joinGroup: {
           customer_order: { aggregations: { count: ['id'] } },
         },
       },
@@ -175,7 +175,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
         method: 'POST',
         url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
         payload: {
-          joinGroups: {
+          joinGroup: {
             customer_order: {
               aggregations: { sum: ['total'] },
               filters: { status: 'completed' },
@@ -209,7 +209,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
         method: 'POST',
         url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC,%20name%20ASC',
         payload: {
-          joinGroups: {
+          joinGroup: {
             customer_order: { aggregations: { sum: ['total'] } },
           },
         },
@@ -231,7 +231,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
       method: 'POST',
       url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC&page=1&itemsPerPage=2',
       payload: {
-        joinGroups: {
+        joinGroup: {
           customer_order: { aggregations: { sum: ['total'] } },
         },
       },
@@ -245,12 +245,12 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
     assert.equal(body.main[1].name, 'Luigi Verdi');
   });
 
-  it('returns breakdown in joinGroups response alongside ordering', async () => {
+  it('returns breakdown in joinGroup response alongside ordering', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
       payload: {
-        joinGroups: {
+        joinGroup: {
           customer_order: { aggregations: { sum: ['total'] } },
         },
       },
@@ -259,9 +259,9 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
     assert.equal(res.statusCode, 200);
     const body = JSON.parse(res.payload);
     assert.equal(body.main[0].name, 'Mario Rossi');
-    assert.ok(body.joinGroups);
-    assert.ok(body.joinGroups.customer_order);
-    assert.ok(body.joinGroups.customer_order.sum);
+    assert.ok(body.joinGroup);
+    assert.ok(body.joinGroup.customer_order);
+    assert.ok(body.joinGroup.customer_order.sum);
   });
 
   it('rejects orderBy with undeclared joinGroup (400)', async () => {
@@ -281,7 +281,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
       method: 'POST',
       url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
       payload: {
-        joinGroups: {
+        joinGroup: {
           customer_order: { aggregations: { sum: ['id'] } },
         },
       },
@@ -297,7 +297,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
       method: 'POST',
       url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
       payload: {
-        joinGroups: {
+        joinGroup: {
           customer_order: { aggregations: { sum: ['total'], by: 'status' } },
         },
       },
@@ -317,7 +317,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
         conditions: [
           { field: 'customer_order.count.id', method: 'isGreaterOrEqual', params: [2] },
         ],
-        joinGroups: {
+        joinGroup: {
           customer_order: { aggregations: { count: ['id'] } },
         },
       },
@@ -339,7 +339,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
           { field: 'name', method: 'isLike', params: ['M%'] },
           { field: 'customer_order.sum.total', method: 'isGreater', params: [0] },
         ],
-        joinGroups: {
+        joinGroup: {
           customer_order: { aggregations: { sum: ['total'] } },
         },
       },
@@ -366,7 +366,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
           conditions: [
             { field: 'customer_order.sum.total', method: 'isGreater', params: [100] },
           ],
-          joinGroups: {
+          joinGroup: {
             customer_order: {
               aggregations: { sum: ['total'] },
               filters: { status: 'completed' },
@@ -393,7 +393,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
         conditions: [
           { field: 'customer_order.count.id', method: 'isGreater', params: [0] },
         ],
-        joinGroups: {
+        joinGroup: {
           customer_order: { aggregations: { sum: ['total'], count: ['id'] } },
         },
       },
@@ -431,7 +431,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
       method: 'POST',
       url: '/auto/search/customer?orderBy=customer_order.count.id%20DESC',
       payload: {
-        joinGroups: {
+        joinGroup: {
           customer_order: {
             aggregations: { count: ['id'], by: 'customerId' },
           },
@@ -445,8 +445,8 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
     assert.equal(body.main[0].name, 'Mario Rossi');
     assert.equal(body.main[1].name, 'Luigi Verdi');
     // Breakdown: per-customer buckets present
-    assert.ok(body.joinGroups.customer_order);
-    assert.ok(Array.isArray(body.joinGroups.customer_order.rows) || body.joinGroups.customer_order.count,
+    assert.ok(body.joinGroup.customer_order);
+    assert.ok(Array.isArray(body.joinGroup.customer_order.rows) || body.joinGroup.customer_order.count,
       'should contain per-customer breakdown');
   });
 });
@@ -464,7 +464,7 @@ describe(`[${DIALECT}] search orderBy agg with multi-tenant (FK scoping)`, () =>
       defaultOrder: 'id',
       tenantScope: { column: 'organization_id' },
       allowedReadJoins: [
-        buildRelation(customerSchema, 'id', orderSchema, 'customerId'),
+        buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
     },
     customer_order: {
@@ -508,7 +508,7 @@ describe(`[${DIALECT}] search orderBy agg with multi-tenant (FK scoping)`, () =>
       url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
       headers: { 'x-tenant-id': '1' },
       payload: {
-        joinGroups: {
+        joinGroup: {
           customer_order: { aggregations: { sum: ['total'] } },
         },
       },
@@ -528,7 +528,7 @@ describe(`[${DIALECT}] search orderBy agg with multi-tenant (FK scoping)`, () =>
       url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
       headers: { 'x-tenant-id': '2' },
       payload: {
-        joinGroups: {
+        joinGroup: {
           customer_order: { aggregations: { sum: ['total'] } },
         },
       },

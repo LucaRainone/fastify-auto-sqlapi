@@ -8,9 +8,11 @@ The plugin generates REST endpoints (search, get, insert, update, delete, bulk u
 
 ## Documentation
 
-- **[AGENTS_BACKEND.md](./AGENTS_BACKEND.md)** — Setup workflow, CLI, schema/table generation, `defineTable()` complete reference, `buildRelation`, `extraFilters` + `extendedCondition`, **SqlApi** (programmatic high-level API for custom routes), ConditionBuilder API, QueryClient API, Swagger, multi-tenant configuration, **validation** (`validate` + `validateBulk`), hooks, key conventions, common backend patterns, FAQ/gotchas, dialect differences.
+- **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)** — **READ FIRST when migrating.** Maps the old join API (`joinFilters`, `joins`, `joinGroups`) to the new alias-based one (`joinMustExist`, `joinMultiple`, `joinGroup`, `joinLeft`). Covers `buildRelation` new options-object signature (alias defaults to `joinSchema.tableName`, plus `selection` and `unique`), request/response key renames, secondaries key renames, dotted notation rules, and validation/400 errors. Common to backend and frontend.
 
-- **[AGENTS_FRONTEND.md](./AGENTS_FRONTEND.md)** — Generated endpoints overview, search (POST with body filters, conditions/advanced filters using ConditionBuilder methods, query params for ordering/pagination/aggregation), joinFilters (EXISTS-based filtering by related tables), GET, INSERT (with secondaries), UPDATE (with secondaries + deletions), DELETE, bulk upsert, bulk delete, response shapes (PK-only), **validation errors** (structured field-level 400 responses), joins usage, joinGroups/aggregations, pagination, computed values.
+- **[AGENTS_BACKEND.md](./AGENTS_BACKEND.md)** — Setup workflow, CLI, schema/table generation, `defineTable()` complete reference, `buildRelation` (alias + unique), `extraFilters` + `extendedCondition`, **SqlApi** (programmatic high-level API for custom routes), ConditionBuilder API, QueryClient API, Swagger, multi-tenant configuration, **validation** (`validate` + `validateBulk`), hooks, key conventions, common backend patterns, FAQ/gotchas, dialect differences.
+
+- **[AGENTS_FRONTEND.md](./AGENTS_FRONTEND.md)** — Generated endpoints overview, search (POST with body filters, conditions/advanced filters using ConditionBuilder methods, query params for ordering/pagination/aggregation), `joinMustExist` (EXISTS-based filtering by related tables), `joinMultiple` (fetch child rows), `joinGroup` (aggregations), `joinLeft` (embed N:1 parent inline), GET, INSERT (with secondaries), UPDATE (with secondaries + deletions), DELETE, bulk upsert, bulk delete, response shapes (PK-only), **validation errors** (structured field-level 400 responses), pagination, computed values.
 
 ## Quick Reference
 
@@ -54,3 +56,14 @@ export const TableCustomer = defineTable({
   ...exportTableInfo(Schema),
 });
 ```
+
+### Joins at a glance
+
+| Family | Direction | Cardinality | Output |
+|--------|-----------|-------------|--------|
+| `joinMustExist` | child → main | 1:N | filters main via EXISTS |
+| `joinMultiple` | child → main | 1:N | side query, child rows in `result.joinMultiple.<alias>` |
+| `joinGroup` | child → main | 1:N | aggregations in `result.joinGroup.<alias>` |
+| `joinLeft` | parent → main | N:1 | real LEFT JOIN (on demand), parent rows in `result.joinLeft.<alias>` |
+
+Declare relations with `buildRelation(M, mF, J, jF, options?)`. Options are all optional: `alias` defaults to `joinSchema.tableName` (override only when joining the same table twice or to use a friendlier name), `selection` defaults to `'*'`, `unique` defaults to `false`. Set `unique: true` for N:1 (parent) relations to enable `joinLeft`. See [BREAKING_CHANGES.md](./BREAKING_CHANGES.md) for the full migration guide.

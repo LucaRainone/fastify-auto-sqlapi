@@ -9,7 +9,7 @@ export function mergeOnRequests(options: SqlApiPluginOptions, tableConf: ITable)
 
 export function buildWriteDescription(action: string, tableName: string, tableConf: ITable): string {
   const joinList = tableConf.allowedWriteJoins
-    ?.map(([joinSchema]) => joinSchema.tableName)
+    ?.map((j) => j.alias)
     .join(', ');
   return [
     `${action} ${tableName}`,

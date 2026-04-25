@@ -17,6 +17,8 @@ import type {
   SearchCondition,
   Paginator,
   JoinGroupRequest,
+  JoinRefFilter,
+  JoinFetchRequest,
   SearchResult,
   GetResult,
   InsertResult,
@@ -35,9 +37,10 @@ import type {
 export interface SqlApiSearchParams {
   filters?: FilterRecord;
   conditions?: SearchCondition[];
-  joinFilters?: Record<string, FilterRecord>;
-  joins?: Record<string, { filters?: FilterRecord }>;
-  joinGroups?: Record<string, JoinGroupRequest>;
+  joinMustExist?: Record<string, JoinRefFilter>;
+  joinMultiple?: Record<string, JoinFetchRequest>;
+  joinGroup?: Record<string, JoinGroupRequest>;
+  joinLeft?: Record<string, JoinFetchRequest>;
   orderBy?: string;
   paginator?: Paginator;
   computeMin?: string;
@@ -115,9 +118,10 @@ export class SqlApi {
       tableConf,
       filters: params.filters,
       conditions: params.conditions,
-      joinFilters: params.joinFilters,
-      joins: params.joins,
-      joinGroups: params.joinGroups,
+      joinMustExist: params.joinMustExist,
+      joinMultiple: params.joinMultiple,
+      joinGroup: params.joinGroup,
+      joinLeft: params.joinLeft,
       orderBy: params.orderBy,
       paginator: params.paginator,
       computeMin: params.computeMin,

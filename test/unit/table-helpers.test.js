@@ -118,35 +118,94 @@ describe('exportTableInfo', () => {
 });
 
 describe('buildRelation', () => {
-  it('returns a JoinDefinition tuple', () => {
+  it('returns a JoinDefinition object with explicit alias', () => {
     const mainSchema = createMockSchema('customer', { id: Type.Number() });
     const joinSchema = createMockSchema('customer_order', { customerId: Type.Number() });
 
-    const result = buildRelation(mainSchema, 'id', joinSchema, 'customerId');
+    const result = buildRelation(mainSchema, 'id', joinSchema, 'customerId', { alias: 'orders' });
 
-    assert.equal(result.length, 4);
-    assert.equal(result[0], joinSchema);
-    assert.equal(result[1], 'customerId');
-    assert.equal(result[2], 'id');
-    assert.equal(result[3], '*');
+    assert.equal(result.joinSchema, joinSchema);
+    assert.equal(result.joinField, 'customerId');
+    assert.equal(result.mainField, 'id');
+    assert.equal(result.alias, 'orders');
+    assert.equal(result.selection, '*');
+    assert.equal(result.unique, false);
   });
 
-  it('supports custom selection', () => {
+  it('defaults alias to joinSchema.tableName when omitted', () => {
     const mainSchema = createMockSchema('customer', { id: Type.Number() });
     const joinSchema = createMockSchema('customer_order', { customerId: Type.Number() });
 
-    const result = buildRelation(mainSchema, 'id', joinSchema, 'customerId', 'id, total');
+    const a = buildRelation(mainSchema, 'id', joinSchema, 'customerId');
+    assert.equal(a.alias, 'customer_order');
 
-    assert.equal(result[3], 'id, total');
+    const b = buildRelation(mainSchema, 'id', joinSchema, 'customerId', {});
+    assert.equal(b.alias, 'customer_order');
+
+    const c = buildRelation(mainSchema, 'id', joinSchema, 'customerId', { selection: 'id' });
+    assert.equal(c.alias, 'customer_order');
+    assert.equal(c.selection, 'id');
+  });
+
+  it('supports custom selection and unique flag', () => {
+    const mainSchema = createMockSchema('customer', { id: Type.Number() });
+    const joinSchema = createMockSchema('customer_order', { customerId: Type.Number() });
+
+    const result = buildRelation(mainSchema, 'id', joinSchema, 'customerId', {
+      alias: 'orders',
+      selection: 'id, total',
+      unique: true,
+    });
+
+    assert.equal(result.selection, 'id, total');
+    assert.equal(result.unique, true);
   });
 
   it('supports array mainField', () => {
     const mainSchema = createMockSchema('customer', { id: Type.Number() });
     const joinSchema = createMockSchema('report', { customerId: Type.Number() });
 
-    const result = buildRelation(mainSchema, ['id', 'name'], joinSchema, 'customerId');
+    const result = buildRelation(mainSchema, ['id', 'name'], joinSchema, 'customerId', { alias: 'reports' });
 
-    assert.deepEqual(result[2], ['id', 'name']);
+    assert.deepEqual(result.mainField, ['id', 'name']);
+  });
+});
+
+describe('defineTable - alias uniqueness', () => {
+  it('rejects duplicate aliases in allowedReadJoins', async () => {
+    const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+    const mainSchema = createMockSchema('session', { id: Type.Number(), userId: Type.Number() });
+    const userSchema = createMockSchema('user', { id: Type.Number() });
+
+    assert.throws(
+      () => defineTable({
+        primary: 'id',
+        ...exportTableInfo(mainSchema),
+        allowedReadJoins: [
+          buildRelation(mainSchema, 'userId', userSchema, 'id', { unique: true }), // alias defaults to 'user'
+          buildRelation(mainSchema, 'userId', userSchema, 'id', { unique: true }), // alias defaults to 'user' again
+        ],
+      }),
+      /duplicate alias 'user'/
+    );
+  });
+
+  it('accepts duplicate join targets when aliases are explicit and distinct', async () => {
+    const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+    const mainSchema = createMockSchema('session', { id: Type.Number(), createdBy: Type.Number(), updatedBy: Type.Number() });
+    const userSchema = createMockSchema('user', { id: Type.Number() });
+
+    const conf = defineTable({
+      primary: 'id',
+      ...exportTableInfo(mainSchema),
+      allowedReadJoins: [
+        buildRelation(mainSchema, 'createdBy', userSchema, 'id', { alias: 'creator', unique: true }),
+        buildRelation(mainSchema, 'updatedBy', userSchema, 'id', { alias: 'updater', unique: true }),
+      ],
+    });
+    assert.equal(conf.allowedReadJoins.length, 2);
+    assert.equal(conf.allowedReadJoins[0].alias, 'creator');
+    assert.equal(conf.allowedReadJoins[1].alias, 'updater');
   });
 });
 

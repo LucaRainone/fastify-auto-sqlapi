@@ -43,7 +43,7 @@ function createDbTables() {
       ...customerInfo,
       defaultOrder: 'id',
       allowedReadJoins: [
-        buildRelation(customerSchema, 'id', orderSchema, 'customerId'),
+        buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
     },
     customer_order: {
@@ -71,29 +71,29 @@ describe('SearchTableBodyPost', () => {
     assert.ok(filtersSchema);
   });
 
-  it('includes joins and joinGroups for tables with allowedReadJoins', () => {
+  it('includes joins and joinGroup for tables with allowedReadJoins', () => {
     const dbTables = createDbTables();
     const schema = SearchTableBodyPost(dbTables, 'customer');
 
-    assert.ok(schema.properties.joins);
-    assert.ok(schema.properties.joinGroups);
+    assert.ok(schema.properties.joinMultiple);
+    assert.ok(schema.properties.joinGroup);
   });
 
   it('does not include joins for tables without allowedReadJoins', () => {
     const dbTables = createDbTables();
     const schema = SearchTableBodyPost(dbTables, 'customer_order');
 
-    assert.equal(schema.properties.joins, undefined);
-    assert.equal(schema.properties.joinGroups, undefined);
+    assert.equal(schema.properties.joinMultiple, undefined);
+    assert.equal(schema.properties.joinGroup, undefined);
   });
 
-  it('joinGroups includes aggregation fields', () => {
+  it('joinGroup includes aggregation fields', () => {
     const dbTables = createDbTables();
     const schema = SearchTableBodyPost(dbTables, 'customer');
 
-    // Dig into joinGroups -> customer_order -> aggregations
-    const joinGroupsSchema = schema.properties.joinGroups;
-    assert.ok(joinGroupsSchema);
+    // Dig into joinGroup -> customer_order -> aggregations
+    const joinGroupSchema = schema.properties.joinGroup;
+    assert.ok(joinGroupSchema);
   });
 });
 
@@ -110,14 +110,14 @@ describe('SearchTableQueryString', () => {
 });
 
 describe('SearchTableResponse', () => {
-  it('has table, main, joins, joinGroups, pagination', () => {
+  it('has table, main, joins, joinGroup, pagination', () => {
     const dbTables = createDbTables();
     const schema = SearchTableResponse(dbTables, 'customer');
 
     assert.ok(schema.properties.table);
     assert.ok(schema.properties.main);
-    assert.ok(schema.properties.joins);
-    assert.ok(schema.properties.joinGroups);
+    assert.ok(schema.properties.joinMultiple);
+    assert.ok(schema.properties.joinGroup);
     assert.ok(schema.properties.pagination);
   });
 
@@ -133,7 +133,7 @@ describe('SearchTableResponse', () => {
     const dbTables = createDbTables();
     const schema = SearchTableResponse(dbTables, 'customer');
 
-    assert.ok(schema.properties.joins.properties.customer_order);
-    assert.equal(schema.properties.joins.properties.customer_order.type, 'array');
+    assert.ok(schema.properties.joinMultiple.properties.customer_order);
+    assert.equal(schema.properties.joinMultiple.properties.customer_order.type, 'array');
   });
 });

@@ -5,19 +5,20 @@ import { buildTenantCondition, buildTenantJoin } from '../../tenant.js';
 import { primaryAsString } from '../../../types.js';
 import type {
   DbTables,
-  FilterRecord,
   SearchParams,
   SearchResult,
   SearchCondition,
-  ConditionMethod,
   PaginationResult,
   JoinDefinition,
   JoinGroupRequest,
   JoinRefFilter,
+  JoinFetchRequest,
   ITable,
   SchemaDefinition,
   TenantScopeIndirect,
 } from '../../../types.js';
+
+// ─── Schema field validation ────────────────────────────────
 
 function validateSchemaField(field: string, schema: SchemaDefinition): string {
   if (!(field in schema.fields)) {
@@ -28,77 +29,84 @@ function validateSchemaField(field: string, schema: SchemaDefinition): string {
   return schema.col(field);
 }
 
+function err400(msg: string): never {
+  const e = new Error(msg) as Error & { statusCode: number };
+  e.statusCode = 400;
+  throw e;
+}
+
+// ─── Join lookup ────────────────────────────────────────────
+
+function findJoinByAlias(tableConf: ITable, alias: string): JoinDefinition | undefined {
+  return tableConf.allowedReadJoins?.find((j) => j.alias === alias);
+}
+
+function requireJoin(tableConf: ITable, alias: string, requireUnique: boolean): JoinDefinition {
+  const joinDef = findJoinByAlias(tableConf, alias);
+  if (!joinDef) {
+    err400(`Unknown join alias: ${alias}`);
+  }
+  if (requireUnique && !joinDef!.unique) {
+    err400(`Join alias '${alias}' is not declared with unique:true; use joinMultiple/joinMustExist/joinGroup instead`);
+  }
+  if (!requireUnique && joinDef!.unique) {
+    err400(`Join alias '${alias}' is declared with unique:true; use joinLeft instead`);
+  }
+  return joinDef!;
+}
+
+// ─── Aggregation orderBy / conditions ───────────────────────
+
 const AGG_FN_SQL: Record<string, string> = {
   sum: 'SUM',
   min: 'MIN',
   max: 'MAX',
   avg: 'AVG',
   count: 'COUNT',
-  distinctCount: 'COUNT DISTINCT', // marker, handled specially
+  distinctCount: 'COUNT DISTINCT',
 };
 
 function buildAggOrderExpr(
   db: QueryClient,
   dbTables: DbTables,
   tableConf: ITable,
-  joinTableName: string,
+  alias: string,
   fn: string,
   field: string,
-  joinGroups: Record<string, JoinGroupRequest> | undefined,
+  joinGroup: Record<string, JoinGroupRequest> | undefined,
   startIdx: number
 ): { expr: string; values: unknown[] } {
-  const err400 = (msg: string): never => {
-    const e = new Error(msg) as Error & { statusCode: number };
-    e.statusCode = 400;
-    throw e;
-  };
-
-  // Whitelist fn
   if (!(fn in AGG_FN_SQL)) {
     err400(`Invalid aggregation function: ${fn}`);
   }
 
-  // Require joinGroups declaration for the referenced table + fn + field
-  const groupReq = joinGroups?.[joinTableName];
+  const groupReq = joinGroup?.[alias];
   if (!groupReq) {
-    err400(`orderBy references undeclared joinGroup: ${joinTableName}`);
+    err400(`orderBy/conditions reference undeclared joinGroup: ${alias}`);
   }
   const declaredFields = (groupReq!.aggregations as Record<string, unknown>)[fn];
   if (!Array.isArray(declaredFields) || !declaredFields.includes(field)) {
-    err400(`orderBy references undeclared aggregation: ${joinTableName}.${fn}.${field}`);
+    err400(`orderBy/conditions reference undeclared aggregation: ${alias}.${fn}.${field}`);
   }
 
-  // Resolve join definition
-  const joinDef = tableConf.allowedReadJoins?.find(
-    ([js]) => js.tableName === joinTableName
-  );
-  if (!joinDef) {
-    err400(`Unknown join table in orderBy: ${joinTableName}`);
-  }
-  const [joinSchema, joinField, mainField] = joinDef!;
+  const joinDef = requireJoin(tableConf, alias, false);
+  const { joinSchema, joinField, mainField } = joinDef;
 
-  // If joinGroup has `by`, only accept it when `by` is the correlation FK (joinField).
-  // In that case each main row corresponds to exactly one group, so the scalar
-  // subquery is semantically equivalent to no-by. Any other `by` produces multiple
-  // groups per main row → not a single scalar, reject.
   if (groupReq!.aggregations.by && groupReq!.aggregations.by !== joinField) {
-    err400(`Cannot order by aggregation on joinGroup with 'by' clause on non-FK column: ${joinTableName} (grouped by '${groupReq!.aggregations.by}', correlation FK is '${joinField}')`);
+    err400(`Cannot order by aggregation on joinGroup with 'by' clause on non-FK column: ${alias} (grouped by '${groupReq!.aggregations.by}', correlation FK is '${joinField}')`);
   }
 
-  // Validate field exists on join schema
   const fieldCol = validateSchemaField(field, joinSchema);
 
-  // Build correlation: joinTable.fk = mainTable.main_pk
   const mainColName = Array.isArray(mainField) ? mainField[0] : mainField;
   const mainCol = db.qi(tableConf.Schema.col(mainColName));
   const mainTable = db.qi(tableConf.Schema.tableName);
   const joinTable = db.qi(joinSchema.tableName);
   const fkCol = db.qi(joinSchema.col(joinField));
 
-  // Rebuild joinGroup filters + conditions with correct placeholder offset
   let filterWhere = '';
   let filterVals: unknown[] = [];
-  const joinTableConf = dbTables[joinTableName];
+  const joinTableConf = dbTables[joinSchema.tableName];
   if ((groupReq!.filters || groupReq!.conditions?.length) && joinSchema) {
     const cb = buildJoinRefCondition(
       joinTableConf,
@@ -113,19 +121,24 @@ function buildAggOrderExpr(
     }
   }
 
-  // Generate SQL expression
   const qField = db.qi(fieldCol);
   const fnSql = AGG_FN_SQL[fn];
   const aggExpr = fnSql === 'COUNT DISTINCT'
     ? `COUNT(DISTINCT ${joinTable}.${qField})`
     : `${fnSql}(${joinTable}.${qField})`;
 
-  // COALESCE with 0 so main rows without matching joined records get a sortable
-  // numeric value instead of NULL. Works on all dialects (PG/MySQL/MariaDB) and
-  // keeps "no data" at the bottom on DESC (top-N queries), and at the top on ASC.
   const expr = `COALESCE((SELECT ${aggExpr} FROM ${joinTable} WHERE ${joinTable}.${fkCol} = ${mainTable}.${mainCol}${filterWhere}), 0)`;
 
   return { expr, values: filterVals };
+}
+
+// ─── orderBy parsing & validation ───────────────────────────
+
+interface OrderByResult {
+  sql: string;
+  values: unknown[];
+  /** Aliases referenced in 2-parti notation (joinLeft) — need a LEFT JOIN. */
+  leftJoinAliases: Set<string>;
 }
 
 function validateOrderBy(
@@ -133,28 +146,27 @@ function validateOrderBy(
   tableConf: ITable,
   db: QueryClient,
   dbTables: DbTables,
-  joinGroups: Record<string, JoinGroupRequest> | undefined,
+  joinGroup: Record<string, JoinGroupRequest> | undefined,
   startIdx: number
-): { sql: string; values: unknown[] } {
+): OrderByResult {
   const parts = orderBy.split(',');
   const outParts: string[] = [];
   const outValues: unknown[] = [];
+  const leftJoinAliases = new Set<string>();
   let currentIdx = startIdx;
 
   for (const part of parts) {
     const trimmed = part.trim();
 
-    // Dotted notation: <joinTable>.<fn>.<field> [ASC|DESC]
-    const dottedMatch = trimmed.match(/^(\w+)\.(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i);
-    if (dottedMatch) {
+    // 3-parti: <alias>.<fn>.<field> [ASC|DESC] (aggregation via joinGroup)
+    const dotted3 = trimmed.match(/^(\w+)\.(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i);
+    if (dotted3) {
       if (tableConf.distinctResults) {
-        const err = new Error('Cannot combine distinctResults with aggregation orderBy') as Error & { statusCode: number };
-        err.statusCode = 400;
-        throw err;
+        err400('Cannot combine distinctResults with aggregation orderBy');
       }
-      const [, joinTableName, fn, field, dir] = dottedMatch;
+      const [, alias, fn, field, dir] = dotted3;
       const { expr, values } = buildAggOrderExpr(
-        db, dbTables, tableConf, joinTableName, fn, field, joinGroups, currentIdx
+        db, dbTables, tableConf, alias, fn, field, joinGroup, currentIdx
       );
       outParts.push(`${expr} ${(dir || 'ASC').toUpperCase()}`);
       outValues.push(...values);
@@ -162,20 +174,107 @@ function validateOrderBy(
       continue;
     }
 
-    // Plain field: <field> [ASC|DESC]
-    const plainMatch = trimmed.match(/^(\w+)(?:\s+(ASC|DESC))?$/i);
-    if (!plainMatch) {
-      const err = new Error(`Invalid orderBy: ${trimmed}`) as Error & { statusCode: number };
-      err.statusCode = 400;
-      throw err;
+    // 2-parti: <alias>.<field> [ASC|DESC] (joinLeft inline ordering)
+    const dotted2 = trimmed.match(/^(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i);
+    if (dotted2) {
+      const [, alias, field, dir] = dotted2;
+      const joinDef = requireJoin(tableConf, alias, true);
+      const col = validateSchemaField(field, joinDef.joinSchema);
+      // Reference the LEFT JOIN'd table via its alias (SQL identifier).
+      outParts.push(`${db.qi(alias)}.${db.qi(col)} ${(dir || 'ASC').toUpperCase()}`);
+      leftJoinAliases.add(alias);
+      continue;
     }
-    const [, field, dir] = plainMatch;
+
+    // 1-parte: <field> [ASC|DESC]
+    const plain = trimmed.match(/^(\w+)(?:\s+(ASC|DESC))?$/i);
+    if (!plain) {
+      err400(`Invalid orderBy: ${trimmed}`);
+    }
+    const [, field, dir] = plain!;
     const col = validateSchemaField(field, tableConf.Schema);
     outParts.push(`${db.qi(col)} ${(dir || 'ASC').toUpperCase()}`);
   }
 
-  return { sql: outParts.join(', '), values: outValues };
+  return { sql: outParts.join(', '), values: outValues, leftJoinAliases };
 }
+
+// ─── joinLeft: LEFT JOIN clause builder ─────────────────────
+
+interface LeftJoinBuild {
+  joinClauses: string[];
+  whereExtras: string[];
+  values: unknown[];
+}
+
+function buildLeftJoinClauses(
+  db: QueryClient,
+  tableConf: ITable,
+  aliasesNeedingJoin: Set<string>,
+  joinLeft: Record<string, JoinFetchRequest> | undefined,
+  startIdx: number
+): LeftJoinBuild {
+  const joinClauses: string[] = [];
+  const whereExtras: string[] = [];
+  const values: unknown[] = [];
+  let currentIdx = startIdx;
+
+  for (const alias of aliasesNeedingJoin) {
+    const joinDef = requireJoin(tableConf, alias, true);
+    const { joinSchema, joinField, mainField } = joinDef;
+
+    const mainColName = Array.isArray(mainField) ? mainField[0] : mainField;
+    const mainCol = db.qi(tableConf.Schema.col(mainColName));
+    const mainTable = db.qi(tableConf.Schema.tableName);
+    const joinTable = db.qi(joinSchema.tableName);
+    const fkCol = db.qi(joinSchema.col(joinField));
+    const aliasIdent = db.qi(alias);
+
+    joinClauses.push(
+      `LEFT JOIN ${joinTable} AS ${aliasIdent} ON ${aliasIdent}.${fkCol} = ${mainTable}.${mainCol}`
+    );
+
+    const ref = joinLeft?.[alias];
+    if (ref && (ref.filters || ref.conditions?.length)) {
+      // Build a ConditionBuilder where each column is prefixed with the alias
+      // (so SQL references the LEFT JOIN'd table, not a bare table name).
+      // Note: extraFilters declared on joinTableConf are not supported here for
+      // joinLeft (they would require alias-aware handlers); only schema fields apply.
+      const cb = new ConditionBuilder('AND');
+
+      if (ref.filters) {
+        for (const [field, value] of Object.entries(ref.filters)) {
+          if (value === null || value === undefined) continue;
+          if (field in joinSchema.fields) {
+            cb.isEqual(`${aliasIdent}.${db.qi(joinSchema.col(field))}`, value);
+          }
+        }
+      }
+
+      if (ref.conditions?.length) {
+        for (const c of ref.conditions) {
+          if (!ALLOWED_SET.has(c.method)) {
+            err400(`Invalid condition method: ${c.method}`);
+          }
+          const col = `${aliasIdent}.${db.qi(validateSchemaField(c.field, joinSchema))}`;
+          dispatchConditionMethod(cb, c.method, col, (c.params as unknown[]) ?? []);
+        }
+      }
+
+      const sql = cb.build(currentIdx, db.ph);
+      const vals = cb.getValues();
+      if (sql) {
+        whereExtras.push(sql);
+        values.push(...vals);
+        currentIdx += vals.length;
+      }
+    }
+  }
+
+  return { joinClauses, whereExtras, values };
+}
+
+// ─── Main query execution ───────────────────────────────────
 
 async function executeMainQuery(
   db: QueryClient,
@@ -254,53 +353,39 @@ async function buildPagination(
   };
 }
 
-function findJoinDefinition(
-  tableConf: ITable,
-  joinTableName: string
-): JoinDefinition | undefined {
-  return tableConf.allowedReadJoins?.find(
-    ([joinSchema]) => joinSchema.tableName === joinTableName
-  );
-}
+// ─── joinMultiple (virtual fetch, child rows in side query) ─
 
-async function executeVirtualJoins(
+async function executeJoinMultiple(
   db: QueryClient,
   dbTables: DbTables,
   tableConf: ITable,
   mainResults: Record<string, unknown>[],
-  joins: Record<string, JoinRefFilter>
+  joinMultiple: Record<string, JoinFetchRequest>
 ): Promise<Record<string, Record<string, unknown>[]>> {
   const result: Record<string, Record<string, unknown>[]> = {};
 
-  for (const [joinTableName, joinRef] of Object.entries(joins)) {
-    const joinDef = findJoinDefinition(tableConf, joinTableName);
-    if (!joinDef) continue;
+  for (const [alias, ref] of Object.entries(joinMultiple)) {
+    const joinDef = requireJoin(tableConf, alias, false);
+    const { joinSchema, joinField, mainField, selection: defaultSelection } = joinDef;
+    const joinTableConf = dbTables[joinSchema.tableName];
 
-    const [joinSchema, joinField, mainField, selection] = joinDef;
-    const joinTableConf = dbTables[joinTableName];
-
-    // Collect IDs from main results
     const ids = collectIds(mainResults, mainField);
     if (ids.length === 0) {
-      result[joinTableName] = [];
+      result[alias] = [];
       continue;
     }
 
-    // Build join filters (equality) + rich conditions
-    const cb = buildJoinRefCondition(joinTableConf, joinSchema, joinRef || {}, db);
+    const cb = buildJoinRefCondition(joinTableConf, joinSchema, ref || {}, db);
     const fkCol = joinSchema.col(joinField);
     cb.isIn(db.qi(fkCol), ids);
     const where = cb.build(1, db.ph);
     const values = cb.getValues();
 
-    // selection is a comma-separated list of field names (camelCase API names).
-    // Resolve each to its DB column via schema.col() and quote it.
+    const selection = ref?.selection ?? defaultSelection;
     const columns = selection === '*'
       ? '*'
-      : selection.split(',').map((c) => {
-          const field = c.trim();
-          return db.qi(joinSchema.col(field));
-        }).join(', ');
+      : selection.split(',').map((c) => db.qi(joinSchema.col(c.trim()))).join(', ');
+
     const rows = await db.select({
       tableName: joinSchema.tableName,
       columns,
@@ -308,30 +393,76 @@ async function executeVirtualJoins(
       values,
     });
 
-    result[joinTableName] = rows.map((r) => camelcaseObject(r as Record<string, unknown>, joinSchema));
+    result[alias] = rows.map((r) => camelcaseObject(r as Record<string, unknown>, joinSchema));
   }
 
   return result;
 }
 
-async function executeJoinGroups(
+// ─── joinLeft (parent fetch via PK IN side query) ───────────
+
+async function executeJoinLeft(
+  db: QueryClient,
+  tableConf: ITable,
+  mainResults: Record<string, unknown>[],
+  joinLeft: Record<string, JoinFetchRequest>
+): Promise<Record<string, Record<string, unknown>[]>> {
+  const result: Record<string, Record<string, unknown>[]> = {};
+
+  for (const [alias, ref] of Object.entries(joinLeft)) {
+    const joinDef = requireJoin(tableConf, alias, true);
+    const { joinSchema, joinField, mainField, selection: defaultSelection } = joinDef;
+
+    // For joinLeft (N:1), mainField on main is the FK pointing to joinField (PK) on parent.
+    // We collect the FK values from the main results and look up parents by their PK.
+    const ids = collectIds(mainResults, mainField);
+    if (ids.length === 0) {
+      result[alias] = [];
+      continue;
+    }
+
+    const fkCol = joinSchema.col(joinField);
+    const cb = new ConditionBuilder('AND');
+    cb.isIn(db.qi(fkCol), ids);
+    const where = cb.build(1, db.ph);
+    const values = cb.getValues();
+
+    const selection = ref?.selection ?? defaultSelection;
+    const columns = selection === '*'
+      ? '*'
+      : selection.split(',').map((c) => db.qi(joinSchema.col(c.trim()))).join(', ');
+
+    const rows = await db.select({
+      tableName: joinSchema.tableName,
+      columns,
+      where,
+      values,
+    });
+
+    result[alias] = rows.map((r) => camelcaseObject(r as Record<string, unknown>, joinSchema));
+  }
+
+  return result;
+}
+
+// ─── joinGroup (aggregations) ───────────────────────────────
+
+async function executeJoinGroup(
   db: QueryClient,
   dbTables: DbTables,
   tableConf: ITable,
   mainResults: Record<string, unknown>[],
-  joinGroups: Record<string, JoinGroupRequest>
+  joinGroup: Record<string, JoinGroupRequest>
 ): Promise<Record<string, Record<string, unknown>>> {
   const result: Record<string, Record<string, unknown>> = {};
 
-  for (const [joinTableName, groupReq] of Object.entries(joinGroups)) {
-    const joinDef = findJoinDefinition(tableConf, joinTableName);
-    if (!joinDef) continue;
-
-    const [joinSchema, joinField, mainField] = joinDef;
+  for (const [alias, groupReq] of Object.entries(joinGroup)) {
+    const joinDef = requireJoin(tableConf, alias, false);
+    const { joinSchema, joinField, mainField } = joinDef;
 
     const ids = collectIds(mainResults, mainField);
     if (ids.length === 0) {
-      result[joinTableName] = {};
+      result[alias] = {};
       continue;
     }
 
@@ -345,50 +476,29 @@ async function executeJoinGroups(
       groupByParts.push(db.qi(byCol));
     }
 
-    if (aggregations.distinctCount) {
-      for (const f of aggregations.distinctCount) {
+    const addAgg = (kind: string, fnSql: string, fields: string[] | undefined): void => {
+      if (!fields) return;
+      for (const f of fields) {
         const col = validateSchemaField(f, joinSchema);
-        selectParts.push(`COUNT(DISTINCT ${db.qi(col)}) as "distinctCount_${f}"`);
+        const expr = fnSql === 'COUNT DISTINCT'
+          ? `COUNT(DISTINCT ${db.qi(col)})`
+          : `${fnSql}(${db.qi(col)})`;
+        selectParts.push(`${expr} as "${kind}_${f}"`);
       }
-    }
-    if (aggregations.min) {
-      for (const f of aggregations.min) {
-        const col = validateSchemaField(f, joinSchema);
-        selectParts.push(`MIN(${db.qi(col)}) as "min_${f}"`);
-      }
-    }
-    if (aggregations.max) {
-      for (const f of aggregations.max) {
-        const col = validateSchemaField(f, joinSchema);
-        selectParts.push(`MAX(${db.qi(col)}) as "max_${f}"`);
-      }
-    }
-    if (aggregations.sum) {
-      for (const f of aggregations.sum) {
-        const col = validateSchemaField(f, joinSchema);
-        selectParts.push(`SUM(${db.qi(col)}) as "sum_${f}"`);
-      }
-    }
-    if (aggregations.avg) {
-      for (const f of aggregations.avg) {
-        const col = validateSchemaField(f, joinSchema);
-        selectParts.push(`AVG(${db.qi(col)}) as "avg_${f}"`);
-      }
-    }
-    if (aggregations.count) {
-      for (const f of aggregations.count) {
-        const col = validateSchemaField(f, joinSchema);
-        selectParts.push(`COUNT(${db.qi(col)}) as "count_${f}"`);
-      }
-    }
+    };
+    addAgg('distinctCount', 'COUNT DISTINCT', aggregations.distinctCount);
+    addAgg('min', 'MIN', aggregations.min);
+    addAgg('max', 'MAX', aggregations.max);
+    addAgg('sum', 'SUM', aggregations.sum);
+    addAgg('avg', 'AVG', aggregations.avg);
+    addAgg('count', 'COUNT', aggregations.count);
 
     if (selectParts.length === 0) {
-      result[joinTableName] = {};
+      result[alias] = {};
       continue;
     }
 
-    // Build WHERE clause: equality filters + rich conditions
-    const joinTableConf = dbTables[joinTableName];
+    const joinTableConf = dbTables[joinSchema.tableName];
     const cb = buildJoinRefCondition(
       joinTableConf,
       joinSchema,
@@ -406,7 +516,6 @@ async function executeJoinGroups(
     const queryResult = await db.query(sql, values);
     const rows = queryResult.rows;
 
-    // Format: { distinctCount: {field: value}, min: {field: value}, ... }
     const formatted: Record<string, unknown> = {};
     if (rows.length > 0) {
       const row = rows.length === 1 && !aggregations.by ? rows[0] : rows;
@@ -422,18 +531,19 @@ async function executeJoinGroups(
       }
     }
 
-    result[joinTableName] = formatted;
+    result[alias] = formatted;
   }
 
   return result;
 }
+
+// ─── ID collection ──────────────────────────────────────────
 
 function collectIds(
   mainResults: Record<string, unknown>[],
   mainField: string | string[]
 ): ConditionValue[] {
   if (Array.isArray(mainField)) {
-    // Composite key: collect tuples
     const seen = new Set<string>();
     const ids: ConditionValue[] = [];
     for (const r of mainResults) {
@@ -445,9 +555,7 @@ function collectIds(
     }
     return ids;
   }
-
-  const unique = [...new Set(mainResults.map((r) => r[mainField]).filter((v) => v != null))] as ConditionValue[];
-  return unique;
+  return [...new Set(mainResults.map((r) => r[mainField]).filter((v) => v != null))] as ConditionValue[];
 }
 
 // ─── Conditions (advanced filters) ──────────────────────────
@@ -473,11 +581,6 @@ function dispatchConditionMethod(
   }
 }
 
-/**
- * Build a ConditionBuilder that applies both equality filters and rich conditions
- * to a join schema. Used by joinFilters (EXISTS), virtual joins data fetching,
- * and joinGroups (aggregation WHERE + orderBy scalar subquery).
- */
 function buildJoinRefCondition(
   joinTableConf: ITable | undefined,
   joinSchema: SchemaDefinition,
@@ -491,9 +594,7 @@ function buildJoinRefCondition(
   if (ref.conditions?.length) {
     for (const c of ref.conditions) {
       if (!ALLOWED_SET.has(c.method)) {
-        const err = new Error(`Invalid condition method: ${c.method}`) as Error & { statusCode: number };
-        err.statusCode = 400;
-        throw err;
+        err400(`Invalid condition method: ${c.method}`);
       }
       const col = db.qi(validateSchemaField(c.field, joinSchema));
       dispatchConditionMethod(cb, c.method, col, (c.params as unknown[]) ?? []);
@@ -513,11 +614,8 @@ function applyConditions(
     // Skip dot-notation fields — those become aggregation conditions processed later
     if (c.field.includes('.')) continue;
 
-    // Validate method — whitelist only, blocks prototype poisoning
     if (!ALLOWED_SET.has(c.method)) {
-      const err = new Error(`Invalid condition method: ${c.method}`) as Error & { statusCode: number };
-      err.statusCode = 400;
-      throw err;
+      err400(`Invalid condition method: ${c.method}`);
     }
 
     const col = db.qi(validateSchemaField(c.field, schema));
@@ -525,15 +623,6 @@ function applyConditions(
   }
 }
 
-/**
- * Append aggregation-based conditions (HAVING-style) to the main WHERE clause.
- * For each condition with a dotted field like `session.count.id`, builds a
- * correlated scalar subquery (reusing buildAggOrderExpr) and uses it as the
- * left-hand side of a ConditionBuilder method.
- *
- * Runs after the base WHERE / joinFilters are built so placeholder offsets
- * are correct.
- */
 function appendAggConditions(
   currentWhere: string,
   currentValues: unknown[],
@@ -541,7 +630,7 @@ function appendAggConditions(
   db: QueryClient,
   dbTables: DbTables,
   tableConf: ITable,
-  joinGroups: Record<string, JoinGroupRequest> | undefined
+  joinGroup: Record<string, JoinGroupRequest> | undefined
 ): { where: string; values: unknown[] } {
   let where = currentWhere;
   let values = [...currentValues];
@@ -550,27 +639,20 @@ function appendAggConditions(
     if (!c.field.includes('.')) continue;
 
     if (!ALLOWED_SET.has(c.method)) {
-      const err = new Error(`Invalid condition method: ${c.method}`) as Error & { statusCode: number };
-      err.statusCode = 400;
-      throw err;
+      err400(`Invalid condition method: ${c.method}`);
     }
 
     const parts = c.field.split('.');
     if (parts.length !== 3) {
-      const err = new Error(`Invalid dotted field in condition: ${c.field} (expected <joinTable>.<fn>.<field>)`) as Error & { statusCode: number };
-      err.statusCode = 400;
-      throw err;
+      err400(`Invalid dotted field in condition: ${c.field} (expected <alias>.<fn>.<field>)`);
     }
-    const [joinTableName, fn, field] = parts;
+    const [alias, fn, field] = parts;
 
-    // Build the scalar subquery; values for its filters are appended to the main values array.
     const { expr, values: exprValues } = buildAggOrderExpr(
-      db, dbTables, tableConf, joinTableName, fn, field, joinGroups, values.length + 1
+      db, dbTables, tableConf, alias, fn, field, joinGroup, values.length + 1
     );
     values = [...values, ...exprValues];
 
-    // Use a temporary ConditionBuilder to generate "<expr> <op> <placeholder>" with
-    // the correct placeholder offset, then merge it back into the main values.
     const tmpCb = new ConditionBuilder('AND');
     dispatchConditionMethod(tmpCb, c.method, expr, c.params as unknown[]);
     const startIdx = values.length + 1;
@@ -582,25 +664,23 @@ function appendAggConditions(
   return { where, values };
 }
 
-// ─── Join filters (EXISTS subquery) ─────────────────────────
+// ─── joinMustExist (EXISTS subquery filter on main) ─────────
 
-function buildJoinFiltersExists(
+function buildJoinMustExistClauses(
   db: QueryClient,
   dbTables: DbTables,
   tableConf: ITable,
-  joinFilters: Record<string, JoinRefFilter>,
+  joinMustExist: Record<string, JoinRefFilter>,
   currentWhere: string,
   currentValues: unknown[]
 ): { where: string; values: unknown[] } {
   let where = currentWhere;
   const values = [...currentValues];
 
-  for (const [joinTableName, ref] of Object.entries(joinFilters)) {
-    const joinDef = findJoinDefinition(tableConf, joinTableName);
-    if (!joinDef) continue;
-
-    const [joinSchema, joinField, mainField] = joinDef;
-    const joinTableConf = dbTables[joinTableName];
+  for (const [alias, ref] of Object.entries(joinMustExist)) {
+    const joinDef = requireJoin(tableConf, alias, false);
+    const { joinSchema, joinField, mainField } = joinDef;
+    const joinTableConf = dbTables[joinSchema.tableName];
 
     const filterCondition = buildJoinRefCondition(joinTableConf, joinSchema, ref, db);
     const startIdx = values.length + 1;
@@ -612,7 +692,6 @@ function buildJoinFiltersExists(
     const mainCol = db.qi(tableConf.Schema.col(mainColName));
     const mainTable = db.qi(tableConf.Schema.tableName);
 
-    // If there are no inner conditions, just the correlation suffices.
     const innerWhere = filterWhere
       ? `${fkCol} = ${mainTable}.${mainCol} AND ${filterWhere}`
       : `${fkCol} = ${mainTable}.${mainCol}`;
@@ -624,21 +703,33 @@ function buildJoinFiltersExists(
   return { where, values };
 }
 
+// ─── searchEngine entrypoint ────────────────────────────────
+
 export async function searchEngine(
   dbTables: DbTables,
   params: SearchParams
 ): Promise<SearchResult> {
-  const { db, tableConf, filters, conditions, joinFilters, joins, joinGroups, orderBy, paginator, computeMin, computeMax, computeSum, computeAvg, tenant } = params;
+  const {
+    db, tableConf, filters, conditions,
+    joinMustExist, joinMultiple, joinGroup, joinLeft,
+    orderBy, paginator,
+    computeMin, computeMax, computeSum, computeAvg, tenant,
+  } = params;
+
+  // Validate aliases used as keys against allowedReadJoins + unique flag (early 400s)
+  if (joinMustExist) for (const a of Object.keys(joinMustExist)) requireJoin(tableConf, a, false);
+  if (joinMultiple) for (const a of Object.keys(joinMultiple)) requireJoin(tableConf, a, false);
+  if (joinGroup) for (const a of Object.keys(joinGroup)) requireJoin(tableConf, a, false);
+  if (joinLeft) for (const a of Object.keys(joinLeft)) requireJoin(tableConf, a, true);
 
   // Build main condition
   const condition = tableConf.filters(filters || {});
 
-  // Advanced conditions
   if (conditions?.length) {
     applyConditions(condition, conditions, tableConf.Schema, db);
   }
 
-  // Tenant filtering
+  // Tenant
   const tenantJoins: string[] = [];
   if (tenant) {
     condition.append(buildTenantCondition(db, tenant.scope, tenant.ids));
@@ -650,51 +741,81 @@ export async function searchEngine(
   let where = condition.build(1, db.ph);
   let values: unknown[] = [...condition.getValues()];
 
-  // Join filters: add EXISTS subqueries
-  if (joinFilters && Object.keys(joinFilters).length > 0) {
-    ({ where, values } = buildJoinFiltersExists(db, dbTables, tableConf, joinFilters, where, values));
+  // joinMustExist (EXISTS)
+  if (joinMustExist && Object.keys(joinMustExist).length > 0) {
+    ({ where, values } = buildJoinMustExistClauses(db, dbTables, tableConf, joinMustExist, where, values));
   }
 
-  // Aggregation conditions (HAVING-style): dotted fields in `conditions` are
-  // translated into scalar subqueries using the joinGroup aggregation.
+  // Aggregation conditions (HAVING-style)
   if (conditions?.length) {
     const hasAggConditions = conditions.some((c) => c.field.includes('.'));
     if (hasAggConditions) {
-      ({ where, values } = appendAggConditions(where, values, conditions, db, dbTables, tableConf, joinGroups));
+      ({ where, values } = appendAggConditions(where, values, conditions, db, dbTables, tableConf, joinGroup));
     }
   }
 
-  // Validate and sanitize orderBy (user input -> SQL identifier)
-  // Note: orderBy aggregation values are kept separate from WHERE values,
-  // so that buildPagination (which doesn't use ORDER BY) only binds WHERE params.
+  // orderBy parsing — collects 2-parti aliases that need LEFT JOIN on the main query
   let safeOrderBy: string | undefined;
   let orderByValues: unknown[] = [];
+  let orderByLeftAliases = new Set<string>();
   if (orderBy) {
-    const obResult = validateOrderBy(orderBy, tableConf, db, dbTables, joinGroups, values.length + 1);
+    const obResult = validateOrderBy(orderBy, tableConf, db, dbTables, joinGroup, values.length + 1);
     safeOrderBy = obResult.sql;
     orderByValues = obResult.values;
+    orderByLeftAliases = obResult.leftJoinAliases;
   }
 
-  // Main query: bind WHERE values + orderBy aggregation values
-  const mainValues = [...values, ...orderByValues];
-  const main = await executeMainQuery(db, tableConf, where, mainValues, safeOrderBy, paginator, tenantJoins);
+  // Determine which joinLeft aliases need a LEFT JOIN on the main query:
+  // - any alias used in 2-parti orderBy
+  // - any alias in joinLeft body that has filters or conditions on the parent
+  const aliasesNeedingLeftJoin = new Set<string>(orderByLeftAliases);
+  if (joinLeft) {
+    for (const [alias, ref] of Object.entries(joinLeft)) {
+      if (ref?.filters || ref?.conditions?.length) aliasesNeedingLeftJoin.add(alias);
+    }
+  }
 
-  // Pagination: bind only WHERE values (COUNT/compute queries don't use ORDER BY)
+  // Build LEFT JOIN clauses + extra WHERE for filtered parents
+  const extraJoinClauses: string[] = [...tenantJoins];
+  let leftJoinValues: unknown[] = [];
+  if (aliasesNeedingLeftJoin.size > 0) {
+    const lj = buildLeftJoinClauses(
+      db, tableConf, aliasesNeedingLeftJoin, joinLeft, values.length + 1
+    );
+    extraJoinClauses.push(...lj.joinClauses);
+    leftJoinValues = lj.values;
+    for (const w of lj.whereExtras) where += ` AND ${w}`;
+  }
+
+  // Bind WHERE values + LEFT JOIN values + orderBy aggregation values for main query.
+  // Pagination COUNT/compute include WHERE + LEFT JOIN values (no orderBy).
+  const whereAndJoinValues = [...values, ...leftJoinValues];
+  const mainValues = [...whereAndJoinValues, ...orderByValues];
+
+  const main = await executeMainQuery(
+    db, tableConf, where, mainValues, safeOrderBy, paginator, extraJoinClauses
+  );
+
   let pagination: PaginationResult | undefined;
   if (paginator) {
-    pagination = await buildPagination(db, tableConf, where, values, paginator, tenantJoins, computeMin, computeMax, computeSum, computeAvg);
+    pagination = await buildPagination(
+      db, tableConf, where, whereAndJoinValues, paginator, extraJoinClauses,
+      computeMin, computeMax, computeSum, computeAvg
+    );
   }
 
-  // Virtual joins (only if requested)
   const result: SearchResult = { main };
 
-  if (joins && Object.keys(joins).length > 0) {
-    result.joins = await executeVirtualJoins(db, dbTables, tableConf, main, joins);
+  if (joinMultiple && Object.keys(joinMultiple).length > 0) {
+    result.joinMultiple = await executeJoinMultiple(db, dbTables, tableConf, main, joinMultiple);
   }
 
-  // Join groups (only if requested)
-  if (joinGroups && Object.keys(joinGroups).length > 0) {
-    result.joinGroups = await executeJoinGroups(db, dbTables, tableConf, main, joinGroups);
+  if (joinLeft && Object.keys(joinLeft).length > 0) {
+    result.joinLeft = await executeJoinLeft(db, tableConf, main, joinLeft);
+  }
+
+  if (joinGroup && Object.keys(joinGroup).length > 0) {
+    result.joinGroup = await executeJoinGroup(db, dbTables, tableConf, main, joinGroup);
   }
 
   if (pagination) {

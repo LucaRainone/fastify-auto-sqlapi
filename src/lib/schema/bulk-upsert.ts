@@ -18,12 +18,12 @@ export function BulkUpsertTableBody(dbTables: DbTables, tableName: string) {
     const secondaryProperties: Record<string, TSchema> = {};
     const deletionProperties: Record<string, TSchema> = {};
 
-    for (const [joinSchema, joinField] of tableConf.allowedWriteJoins) {
+    for (const { joinSchema, joinField, alias } of tableConf.allowedWriteJoins) {
       const secondaryTableConf = findSecondaryTableConf(dbTables, joinSchema.tableName);
       const joinFields = buildSecondaryFields(joinSchema, joinField, secondaryTableConf);
-      secondaryProperties[joinSchema.tableName] = Type.Array(Type.Object(joinFields));
+      secondaryProperties[alias] = Type.Array(Type.Object(joinFields));
 
-      deletionProperties[joinSchema.tableName] = Type.Array(
+      deletionProperties[alias] = Type.Array(
         Type.Partial(Type.Object(joinSchema.fields))
       );
     }
@@ -50,12 +50,12 @@ export function BulkUpsertTableResponse(dbTables: DbTables, tableName: string) {
     const secondaryProperties: Record<string, TSchema> = {};
     const deletionProperties: Record<string, TSchema> = {};
 
-    for (const [joinSchema, joinField] of tableConf.allowedWriteJoins) {
+    for (const { joinSchema, joinField, alias } of tableConf.allowedWriteJoins) {
       const secondaryTableConf = findSecondaryTableConf(dbTables, joinSchema.tableName);
-      secondaryProperties[joinSchema.tableName] = Type.Array(
+      secondaryProperties[alias] = Type.Array(
         Type.Object(pkSchema(secondaryTableConf, joinSchema, joinField))
       );
-      deletionProperties[joinSchema.tableName] = Type.Array(
+      deletionProperties[alias] = Type.Array(
         Type.Partial(Type.Object(joinSchema.fields))
       );
     }

@@ -63,7 +63,7 @@ function createTestDbTables(mockPg) {
       ...customerInfo,
       defaultOrder: 'id',
       allowedReadJoins: [
-        buildRelation(customerSchema, 'id', orderSchema, 'customerId'),
+        buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
     },
     customer_order: {
@@ -169,7 +169,7 @@ describe('searchEngine - main query', () => {
     );
   });
 
-  it('returns no joins, joinGroups, pagination when not requested', async () => {
+  it('returns no joins, joinGroup, pagination when not requested', async () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
@@ -180,8 +180,8 @@ describe('searchEngine - main query', () => {
       tableConf: DbTables.customer,
     });
 
-    assert.equal(result.joins, undefined);
-    assert.equal(result.joinGroups, undefined);
+    assert.equal(result.joinMultiple, undefined);
+    assert.equal(result.joinGroup, undefined);
     assert.equal(result.pagination, undefined);
   });
 });
@@ -273,15 +273,15 @@ describe('searchEngine - virtual joins', () => {
     const result = await searchEngine(DbTables, {
       db,
       tableConf: DbTables.customer,
-      joins: { customer_order: {} },
+      joinMultiple: { customer_order: {} },
     });
 
     // Join query should use IN
     const joinCall = mockPg.calls[1];
     assert.ok(joinCall.text.includes('IN'));
     assert.ok(joinCall.text.includes('customer_order'));
-    assert.ok(result.joins.customer_order);
-    assert.equal(result.joins.customer_order.length, 1);
+    assert.ok(result.joinMultiple.customer_order);
+    assert.equal(result.joinMultiple.customer_order.length, 1);
   });
 
   it('returns empty array when main results have no matching IDs', async () => {
@@ -294,10 +294,10 @@ describe('searchEngine - virtual joins', () => {
     const result = await searchEngine(DbTables, {
       db,
       tableConf: DbTables.customer,
-      joins: { customer_order: {} },
+      joinMultiple: { customer_order: {} },
     });
 
-    assert.deepEqual(result.joins.customer_order, []);
+    assert.deepEqual(result.joinMultiple.customer_order, []);
     assert.equal(mockPg.calls.length, 1); // no join query
   });
 
@@ -311,7 +311,7 @@ describe('searchEngine - virtual joins', () => {
     await searchEngine(DbTables, {
       db,
       tableConf: DbTables.customer,
-      joins: { customer_order: { filters: { status: 'pending' } } },
+      joinMultiple: { customer_order: { filters: { status: 'pending' } } },
     });
 
     const joinCall = mockPg.calls[1];
@@ -319,7 +319,7 @@ describe('searchEngine - virtual joins', () => {
   });
 });
 
-describe('searchEngine - joinFilters (EXISTS)', () => {
+describe('searchEngine - joinMustExist (EXISTS)', () => {
   it('adds EXISTS subquery to main WHERE', async () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
@@ -329,7 +329,7 @@ describe('searchEngine - joinFilters (EXISTS)', () => {
     await searchEngine(DbTables, {
       db,
       tableConf: DbTables.customer,
-      joinFilters: {
+      joinMustExist: {
         customer_order: { filters: { status: 'pending' } },
       },
     });
@@ -341,7 +341,7 @@ describe('searchEngine - joinFilters (EXISTS)', () => {
     assert.ok(mockPg.calls[0].values.includes('pending'));
   });
 
-  it('combines main filters with joinFilters', async () => {
+  it('combines main filters with joinMustExist', async () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
@@ -351,7 +351,7 @@ describe('searchEngine - joinFilters (EXISTS)', () => {
       db,
       tableConf: DbTables.customer,
       filters: { name: 'Mario' },
-      joinFilters: {
+      joinMustExist: {
         customer_order: { filters: { status: 'pending' } },
       },
     });
@@ -363,7 +363,7 @@ describe('searchEngine - joinFilters (EXISTS)', () => {
     assert.ok(mockPg.calls[0].values.includes('pending'));
   });
 
-  it('parameter indices are correct with main filters + joinFilters', async () => {
+  it('parameter indices are correct with main filters + joinMustExist', async () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
@@ -373,7 +373,7 @@ describe('searchEngine - joinFilters (EXISTS)', () => {
       db,
       tableConf: DbTables.customer,
       filters: { name: 'Mario', email: 'test@test.it' },
-      joinFilters: {
+      joinMustExist: {
         customer_order: { filters: { status: 'pending', total: 100 } },
       },
     });
@@ -387,25 +387,25 @@ describe('searchEngine - joinFilters (EXISTS)', () => {
     assert.ok(values.includes(100));
   });
 
-  it('ignores joinFilters for unknown join tables', async () => {
+  it('rejects joinMustExist for unknown alias with 400', async () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
-      db,
-      tableConf: DbTables.customer,
-      joinFilters: {
-        nonexistent_table: { foo: 'bar' },
-      },
-    });
-
-    const sql = mockPg.calls[0].text;
-    assert.ok(!sql.includes('EXISTS'));
+    await assert.rejects(
+      () => searchEngine(DbTables, {
+        db,
+        tableConf: DbTables.customer,
+        joinMustExist: {
+          nonexistent_table: { filters: { foo: 'bar' } },
+        },
+      }),
+      (err) => err.statusCode === 400 && /Unknown join alias/.test(err.message)
+    );
   });
 
-  it('works with pagination and joinFilters', async () => {
+  it('works with pagination and joinMustExist', async () => {
     const mockPg = createMockPg([
       // Main query
       { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
@@ -417,7 +417,7 @@ describe('searchEngine - joinFilters (EXISTS)', () => {
     const result = await searchEngine(DbTables, {
       db,
       tableConf: DbTables.customer,
-      joinFilters: {
+      joinMustExist: {
         customer_order: { filters: { status: 'pending' } },
       },
       paginator: { page: 1, itemsPerPage: 10 },
@@ -700,7 +700,7 @@ describe('searchEngine - conditions (advanced filters)', () => {
   });
 });
 
-describe('searchEngine - joinGroups', () => {
+describe('searchEngine - joinGroup', () => {
   it('executes GROUP BY aggregation', async () => {
     const mockPg = createMockPg([
       // Main
@@ -713,7 +713,7 @@ describe('searchEngine - joinGroups', () => {
     const result = await searchEngine(DbTables, {
       db,
       tableConf: DbTables.customer,
-      joinGroups: {
+      joinGroup: {
         customer_order: {
           aggregations: { sum: ['total'] },
         },
@@ -723,7 +723,7 @@ describe('searchEngine - joinGroups', () => {
     const groupCall = mockPg.calls[1];
     assert.ok(groupCall.text.includes('SUM'));
     assert.ok(groupCall.text.includes('customer_order'));
-    assert.ok(result.joinGroups.customer_order);
+    assert.ok(result.joinGroup.customer_order);
   });
 
   it('includes GROUP BY when "by" is specified', async () => {
@@ -736,7 +736,7 @@ describe('searchEngine - joinGroups', () => {
     await searchEngine(DbTables, {
       db,
       tableConf: DbTables.customer,
-      joinGroups: {
+      joinGroup: {
         customer_order: {
           aggregations: { by: 'status', sum: ['total'] },
         },
@@ -745,5 +745,178 @@ describe('searchEngine - joinGroups', () => {
 
     const groupCall = mockPg.calls[1];
     assert.ok(groupCall.text.includes('GROUP BY'));
+  });
+});
+
+// ─── joinLeft (N:1 parent) ───────────────────────────────────
+
+const userFields = {
+  id: Type.Number(),
+  name: Type.String(),
+  role: Type.String(),
+};
+
+const sessionFields = {
+  id: Type.Number(),
+  userId: Type.Number(),
+  active: Type.Boolean(),
+};
+
+function createSessionDbTables(mockPg) {
+  const userSchema = createMockSchema('user', userFields);
+  const sessionSchema = createMockSchema('session', sessionFields);
+  const userInfo = exportTableInfo(userSchema);
+  const sessionInfo = exportTableInfo(sessionSchema);
+
+  const DbTables = {
+    session: {
+      primary: 'id',
+      ...sessionInfo,
+      defaultOrder: 'id',
+      allowedReadJoins: [
+        buildRelation(sessionSchema, 'userId', userSchema, 'id', {
+          alias: 'creator',
+          unique: true,
+        }),
+        buildRelation(sessionSchema, 'userId', userSchema, 'id', {
+          alias: 'updater',
+          unique: true,
+          selection: 'id,name',
+        }),
+      ],
+    },
+    user: { primary: 'id', ...userInfo, defaultOrder: 'id' },
+  };
+
+  return { DbTables, db: new QueryClient(mockPg) };
+}
+
+describe('searchEngine - joinLeft (N:1 parent)', () => {
+  it('does NOT add LEFT JOIN when no filter or 2-parti orderBy is requested', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 1, user_id: 7, active: true }], affectedRows: 1 },
+      { rows: [{ id: 7, name: 'Alice', role: 'admin' }], affectedRows: 1 },
+    ]);
+    const { DbTables, db } = createSessionDbTables(mockPg);
+
+    const result = await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.session,
+      joinLeft: { creator: {} },
+    });
+
+    assert.ok(!mockPg.calls[0].text.includes('LEFT JOIN'), 'main query has no LEFT JOIN');
+    assert.ok(mockPg.calls[1].text.includes('FROM "user"'));
+    assert.ok(result.joinLeft);
+    assert.equal(result.joinLeft.creator.length, 1);
+    assert.equal(result.joinLeft.creator[0].name, 'Alice');
+  });
+
+  it('adds LEFT JOIN when filter on parent is requested', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 1, user_id: 7, active: true }], affectedRows: 1 },
+      { rows: [{ id: 7, name: 'Alice', role: 'admin' }], affectedRows: 1 },
+    ]);
+    const { DbTables, db } = createSessionDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.session,
+      joinLeft: { creator: { filters: { role: 'admin' } } },
+    });
+
+    const mainSql = mockPg.calls[0].text;
+    assert.ok(mainSql.includes('LEFT JOIN "user" AS "creator"'));
+    assert.ok(mainSql.includes('"creator"."role"'));
+    assert.ok(mockPg.calls[0].values.includes('admin'));
+  });
+
+  it('adds LEFT JOIN when 2-parti orderBy uses joinLeft alias', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 1, user_id: 7, active: true }], affectedRows: 1 },
+      { rows: [{ id: 7, name: 'Alice', role: 'admin' }], affectedRows: 1 },
+    ]);
+    const { DbTables, db } = createSessionDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.session,
+      joinLeft: { creator: {} },
+      orderBy: 'creator.name ASC',
+    });
+
+    const mainSql = mockPg.calls[0].text;
+    assert.ok(mainSql.includes('LEFT JOIN "user" AS "creator"'));
+    assert.ok(mainSql.includes('ORDER BY "creator"."name" ASC'));
+  });
+
+  it('rejects joinLeft on non-unique alias with 400', async () => {
+    const mockPg = createMockPg([]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await assert.rejects(
+      () => searchEngine(DbTables, {
+        db,
+        tableConf: DbTables.customer,
+        joinLeft: { customer_order: {} },
+      }),
+      (err) => err.statusCode === 400 && /unique:true/.test(err.message)
+    );
+  });
+
+  it('rejects joinMultiple on unique alias with 400', async () => {
+    const mockPg = createMockPg([]);
+    const { DbTables, db } = createSessionDbTables(mockPg);
+
+    await assert.rejects(
+      () => searchEngine(DbTables, {
+        db,
+        tableConf: DbTables.session,
+        joinMultiple: { creator: {} },
+      }),
+      (err) => err.statusCode === 400 && /joinLeft/.test(err.message)
+    );
+  });
+
+  it('supports multiple aliases on the same table', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 1, user_id: 7, active: true }], affectedRows: 1 },
+      // creator side query
+      { rows: [{ id: 7, name: 'Alice', role: 'admin' }], affectedRows: 1 },
+      // updater side query
+      { rows: [{ id: 7, name: 'Alice' }], affectedRows: 1 },
+    ]);
+    const { DbTables, db } = createSessionDbTables(mockPg);
+
+    const result = await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.session,
+      joinLeft: {
+        creator: {},
+        updater: {},
+      },
+    });
+
+    assert.ok(result.joinLeft.creator);
+    assert.ok(result.joinLeft.updater);
+  });
+
+  it('respects per-request selection override', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 1, user_id: 7, active: true }], affectedRows: 1 },
+      { rows: [{ id: 7, name: 'Alice' }], affectedRows: 1 },
+    ]);
+    const { DbTables, db } = createSessionDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.session,
+      joinLeft: { creator: { selection: 'id,name' } },
+    });
+
+    const sideSql = mockPg.calls[1].text;
+    assert.ok(sideSql.includes('"id"'));
+    assert.ok(sideSql.includes('"name"'));
+    assert.ok(!sideSql.includes('"role"'));
   });
 });

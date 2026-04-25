@@ -65,7 +65,7 @@ function createTestDbTables(mockPg, opts = {}) {
       ...sessionInfo,
       defaultOrder: 'id',
       allowedWriteJoins: [
-        buildRelation(sessionSchema, 'id', periodSchema, 'sessionId'),
+        buildRelation(sessionSchema, 'id', periodSchema, 'sessionId', { alias: 'period' }),
       ],
       ...(opts.validate ? { validate: opts.validate } : {}),
       ...(opts.validateBulk ? { validateBulk: opts.validateBulk } : {}),

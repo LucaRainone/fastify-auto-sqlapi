@@ -60,10 +60,10 @@ function createTestFixture(mockPg) {
       defaultOrder: 'id',
       excludeFromCreation: ['id'],
       allowedReadJoins: [
-        buildRelation(customerSchema, 'id', orderSchema, 'customerId'),
+        buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
       allowedWriteJoins: [
-        buildRelation(customerSchema, 'id', orderSchema, 'customerId'),
+        buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
     },
     customer_order: {
@@ -95,14 +95,14 @@ describe('SqlApi.search', () => {
     assert.ok(mockPg.calls[0].values.includes('Mario'));
   });
 
-  it('searches with joinFilters', async () => {
+  it('searches with joinMustExist', async () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
     ]);
     const { sqlApi } = createTestFixture(mockPg);
 
     const result = await sqlApi.search('customer', {
-      joinFilters: { customer_order: { filters: { status: 'pending' } } },
+      joinMustExist: { customer_order: { filters: { status: 'pending' } } },
     });
 
     assert.equal(result.main.length, 1);

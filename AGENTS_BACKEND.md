@@ -2,6 +2,8 @@
 
 How to set up schemas, tables, and configure the plugin.
 
+> ⚠️ **Migrating from a previous version?** The join API was redesigned (no backward compat). See **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)** for the full migration guide — request/response key renames, `buildRelation` signature, and validation rules. Common to backend and frontend.
+
 ## Setup Workflow
 
 ### 1. Install
@@ -234,13 +236,20 @@ export const TableCustomer = defineTable({
   excludeFromCreation: ['id'],            // Fields omitted from INSERT — MUST include auto-increment PKs
   distinctResults: true,                  // Use SELECT DISTINCT
 
-  // JOINS — relations to other tables
-  allowedReadJoins: [                     // Available for search queries (joins, joinFilters, joinGroups)
-    buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId'),
-    buildRelation(SchemaCustomer, 'id', SchemaAddress, 'customerId', 'id, city, zip'),
+  // JOINS — relations to other tables. Alias defaults to joinSchema.tableName —
+  // declare it explicitly only when joining the same table twice or when you want
+  // a friendlier name. Set `unique: true` for N:1 (parent) relations to enable `joinLeft`.
+  allowedReadJoins: [                     // Available for search: joinMustExist / joinMultiple / joinGroup / joinLeft
+    buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId'),                              // alias = 'order' (default)
+    buildRelation(SchemaCustomer, 'id', SchemaAddress, 'customerId', { selection: 'id, city, zip' }), // alias = 'address'
+    // N:1 example (enables joinLeft):
+    // buildRelation(SchemaSession, 'userId', SchemaUser, 'id', { unique: true }),               // alias = 'user'
+    // Alias multipli sulla stessa tabella (richiede alias espliciti):
+    // buildRelation(SchemaSession, 'createdBy', SchemaUser, 'id', { alias: 'creator', unique: true }),
+    // buildRelation(SchemaSession, 'updatedBy', SchemaUser, 'id', { alias: 'updater', unique: true }),
   ],
-  allowedWriteJoins: [                    // Available for insert/update secondaries
-    buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId'),
+  allowedWriteJoins: [                    // Available for insert/update secondaries (alias is the request body key)
+    buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId'),                              // alias = 'order'
   ],
 
   // UPSERT — ON CONFLICT resolution
@@ -271,8 +280,9 @@ export const TableCustomer = defineTable({
     if (main.name === '') {
       errors.push(['name', 'required', 'cannot be empty']);
     }
-    // Cross-entity: validate secondaries (e.g. date overlap in periods)
-    if (secondaries?.customer_order) {
+    // Cross-entity: validate secondaries (e.g. date overlap in periods).
+    // Note: secondaries are keyed by alias (declared in allowedWriteJoins), not by tableName.
+    if (secondaries?.orders) {
       // ... check overlaps, business rules across related records
     }
     return errors;
@@ -308,14 +318,42 @@ export const TableCustomer = defineTable({
 ### buildRelation signature
 
 ```typescript
-buildRelation(mainSchema, mainField, joinSchema, joinField, selection?)
+buildRelation(mainSchema, mainField, joinSchema, joinField, options?)
+
+// where options is fully optional:
+// {
+//   alias?: string;           // default = joinSchema.tableName. The key used in request/response
+//                             // payloads, secondaries/deletions, and dotted-notation orderBy/conditions.
+//   selection?: string;       // default '*'. Comma-separated columns: 'id, name, total'.
+//   unique?: boolean;         // default false.
+//                             //   false → 1:N (child→main). Allowed in joinMustExist/joinMultiple/joinGroup.
+//                             //   true  → N:1 (parent→main). Allowed in joinLeft only.
+// }
 ```
 
 - `mainField`: field(s) in main table (string or string[])
-- `joinField`: field in join table that references the main
-- `selection`: SQL columns to select (default `'*'`), e.g. `'id, name, total'`
+- `joinField`: field in join table that joins to `mainField`
+  - For 1:N (child→main): `joinField` is the FK on the child table → `mainField` is the PK on main
+  - For N:1 (parent→main): `joinField` is the PK on the parent table → `mainField` is the FK on main
 
-The join works as: `SELECT {selection} FROM {joinTable} WHERE {joinField} IN ({mainField values})`
+**When to declare an explicit `alias`**: only when (a) you join the same table multiple times in the same `allowedReadJoins`/`allowedWriteJoins`, or (b) you want a friendlier name in the public API surface than the SQL table name (e.g. `'orders'` instead of `'customer_order'`). Otherwise omit it — the default is `joinSchema.tableName`.
+
+**Choosing `unique`**: if `joinField` is the PK (or part of the composite PK) of `joinSchema`, the relation is N:1 — you almost certainly want `unique: true` so the alias is usable in `joinLeft`.
+
+**Aliasing the same table twice**: declare two `buildRelation` entries with different `alias`. Example: a `session` table referencing `user` for both `createdBy` and `updatedBy`:
+
+```typescript
+allowedReadJoins: [
+  buildRelation(SchemaSession, 'createdBy', SchemaUser, 'id', { alias: 'creator', unique: true }),
+  buildRelation(SchemaSession, 'updatedBy', SchemaUser, 'id', { alias: 'updater', unique: true }),
+]
+```
+
+If two entries in the same `allowedReadJoins`/`allowedWriteJoins` resolve to the same alias (explicit or implicit), `defineTable` throws at startup. So you cannot accidentally have two relations sharing an alias — the error tells you to disambiguate explicitly.
+
+The 1:N joins (`joinMustExist` / `joinMultiple` / `joinGroup`) work as: `SELECT {selection} FROM {childTable} WHERE {childFK} IN ({mainPK values})`. The N:1 join (`joinLeft`) adds `LEFT JOIN {parentTable} AS {alias} ON {alias}.{parentPK} = {main}.{mainFK}` to the main query, but only when the request actually needs it (filters/orderBy on parent fields). Otherwise a side query `SELECT FROM {parentTable} WHERE {parentPK} IN (distinct main FK values)` is used.
+
+**`joinLeft` limitation**: `extraFilters` declared via `extendedCondition` on the parent table are not applied inside `joinLeft.filters` (only schema fields). The other join families fully support extraFilters.
 
 ### extraFilters + extendedCondition
 
@@ -401,7 +439,7 @@ app.get('/billing/:customerId', async (request) => {
   const customerId = Number(request.params.customerId);
   return app.sqlApi.search('subscription', {
     filters: { customerId, status: 'active' },
-    joinFilters: { customer_order: { status: 'pending' } },
+    joinMustExist: { orders: { filters: { status: 'pending' } } },
     paginator: { page: 1, itemsPerPage: 50 },
   }, request);
 });
@@ -431,10 +469,13 @@ const sqlApi = createSqlApi(db, dbTables, { dialect: 'mysql' });
 
 ```typescript
 // Search — full filter, join, pagination, aggregation support
-// orderBy supports dot notation for joinGroup aggregations: "session.sum.duration DESC"
-// (requires the joinGroup to be declared in the same request, see AGENTS_FRONTEND.md)
+// orderBy supports two dotted notations:
+//   - 3-parti `<alias>.<fn>.<field>` for joinGroup aggregations (must be declared in the request body)
+//   - 2-parti `<alias>.<field>` for joinLeft parent fields
+// See AGENTS_FRONTEND.md and BREAKING_CHANGES.md for the full reference.
 sqlApi.search(tableName, {
-  filters?, joinFilters?, joins?, joinGroups?,
+  filters?, conditions?,
+  joinMustExist?, joinMultiple?, joinGroup?, joinLeft?,
   orderBy?, paginator?, computeMin?, computeMax?, computeSum?, computeAvg?,
 }, request?): Promise<SearchResult>
 
@@ -640,7 +681,7 @@ const TableSession = defineTable({
   primary: 'id',
   ...exportTableInfo(SchemaSession),
   allowedWriteJoins: [
-    buildRelation(SchemaSession, 'id', SchemaPeriod, 'sessionId'),
+    buildRelation(SchemaSession, 'id', SchemaPeriod, 'sessionId', { alias: 'periods' }),
   ],
   validate: async (db, req, main, secondaries) => {
     // ValidationError is a tuple: [field, code] or [field, code, message]
@@ -660,13 +701,13 @@ const TableSession = defineTable({
       }
     }
 
-    // Cross-entity: validate periods don't overlap
-    const periods = secondaries?.session_period;
+    // Cross-entity: validate periods don't overlap (secondaries keyed by alias)
+    const periods = secondaries?.periods;
     if (periods?.length) {
       for (let i = 0; i < periods.length; i++) {
         for (let j = i + 1; j < periods.length; j++) {
           if (periods[i].startDate < periods[j].endDate && periods[j].startDate < periods[i].endDate) {
-            errors.push([`session_period[${j}].startDate`, 'overlap', 'overlaps with another period']);
+            errors.push([`periods[${j}].startDate`, 'overlap', 'overlaps with another period']);
           }
         }
       }

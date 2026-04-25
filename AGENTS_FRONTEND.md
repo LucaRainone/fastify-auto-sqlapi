@@ -2,6 +2,8 @@
 
 How to call the auto-generated CRUD endpoints.
 
+> ⚠️ **Migrating from a previous version?** The join API was redesigned (no backward compat). See **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)** for the full migration guide — request/response key renames, new `joinLeft` family, dotted notation rules, secondaries key renames. Common to backend and frontend.
+
 ## Generated Endpoints
 
 The plugin defines routes with these base paths: `/search/`, `/rest/`, `/bulk/`. The prefix from `register()` is prepended by Fastify. For a table `customer` with `prefix: '/auto'`:
@@ -32,7 +34,7 @@ Without prefix, routes are at root: `/search/customer`, `/rest/customer/:id`, et
 &computeMin=id&computeMax=id&computeSum=total&computeAvg=total
 ```
 
-- `orderBy` — SQL ORDER BY clause (default: `defaultOrder` from table config)
+- `orderBy` — SQL ORDER BY clause (default: `defaultOrder` from table config). Supports dotted notations for joins, see below.
 - `page` + `itemsPerPage` — pagination (when either is present, response includes `pagination` object; `page` defaults to 1, `itemsPerPage` defaults to 500)
 - `computeMin`, `computeMax`, `computeSum`, `computeAvg` — aggregate a column, returned in `pagination.computed`
 
@@ -44,14 +46,14 @@ Without prefix, routes are at root: `/search/customer`, `/rest/customer/:id`, et
   "conditions": [
     { "field": "createdAt", "method": "isGreater", "params": ["2024-01-01"] }
   ],
-  "joinFilters": {
-    "customer_label_link": { "labelId": 1 }
+  "joinMustExist": {
+    "labels": { "filters": { "labelId": 1 } }
   },
-  "joins": {
-    "customer_order": { "filters": { "status": "pending" } }
+  "joinMultiple": {
+    "orders": { "filters": { "status": "pending" } }
   },
-  "joinGroups": {
-    "customer_order": {
+  "joinGroup": {
+    "orders": {
       "aggregations": {
         "by": "status",
         "sum": ["total"],
@@ -61,9 +63,14 @@ Without prefix, routes are at root: `/search/customer`, `/rest/customer/:id`, et
       },
       "filters": { "status": "active" }
     }
+  },
+  "joinLeft": {
+    "creator": { "selection": "id,name,email" }
   }
 }
 ```
+
+The keys inside `joinMustExist`, `joinMultiple`, `joinGroup`, `joinLeft` are **aliases** declared by the backend in `buildRelation`. By default an alias equals the joined table's name; backends may override it (e.g. `'orders'` instead of `'customer_order'`) or declare multiple aliases for the same table (e.g. `'creator'` and `'updater'` both pointing to `user`). Check the Swagger description of each `/search/{table}` endpoint to see the available aliases.
 
 ### Filters
 
@@ -103,23 +110,23 @@ Pass any schema field as a key in `filters`. The plugin auto-applies `WHERE col 
 Also available: `isNotGreater`, `isNotGreaterOrEqual`, `isNotLess`, `isNotLessOrEqual`.
 
 - **Multiple conditions on the same field** — it's an array, so `total > 100 AND total < 500` is natural
-- **Combinable** with `filters` (equality), `joinFilters` (EXISTS), pagination, etc.
+- **Combinable** with `filters` (equality), `joinMustExist` (EXISTS), pagination, etc.
 - **Field validation** — field names are validated against the table schema (400 if unknown)
 - **Method validation** — only whitelisted methods are allowed (`raw`, `append` etc. are blocked)
 
 #### Conditions on joinGroup aggregations (HAVING-style)
 
-You can filter main rows based on the value of a joinGroup aggregation using the same dot notation as `orderBy`: `<joinTable>.<fn>.<field>`.
+You can filter main rows based on the value of a `joinGroup` aggregation using 3-parti dot notation: `<alias>.<fn>.<field>`.
 
 Example: "users with at least 4 sessions":
 
 ```json
 {
   "conditions": [
-    { "field": "session.count.id", "method": "isGreaterOrEqual", "params": [4] }
+    { "field": "sessions.count.id", "method": "isGreaterOrEqual", "params": [4] }
   ],
-  "joinGroups": {
-    "session": { "aggregations": { "count": ["id"] } }
+  "joinGroup": {
+    "sessions": { "aggregations": { "count": ["id"] } }
   }
 }
 ```
@@ -135,21 +142,21 @@ WHERE COALESCE((
 ```
 
 **Rules:**
-- Same declaration requirement as orderBy: the joinGroup must be declared in `joinGroups.<table>.aggregations.<fn>` with the referenced field.
-- The joinGroup's own `filters` are applied inside the correlated subquery (consistent with the breakdown). Example: filter customers whose SUM of *completed* orders > 1000 by declaring `joinGroups.order.filters: { status: 'completed' }`.
+- The joinGroup must be declared in `joinGroup.<alias>.aggregations.<fn>` with the referenced field. The engine refuses undeclared references with 400.
+- The joinGroup's own `filters` are applied inside the correlated subquery (consistent with the breakdown).
 - All ConditionBuilder methods work: `isEqual`, `isGreater`, `isLess`, `isBetween`, `isIn`, `isNull`, `isNotNull`, etc.
 - Can be combined with plain-field conditions and with aggregation `orderBy` in the same request.
-- Respects `aggregations.by` rules: allowed when `by` equals the correlation FK, otherwise 400.
+- Respects `aggregations.by` rules: allowed only when `by` equals the correlation FK, otherwise 400.
 
-### Join Filters (filter main by related table)
+### `joinMustExist` (filter main by related table — EXISTS)
 
-`joinFilters` restrict **main table results** based on conditions on a related table. Only tables listed in `allowedReadJoins` are available. Uses `EXISTS` subquery — no duplicate rows, works correctly with pagination.
+`joinMustExist` restricts **main table results** based on conditions on a related child table. Aliases must come from `allowedReadJoins` declarations with `unique: false`. Uses `EXISTS` subquery — no duplicate rows, works correctly with pagination.
 
 ```json
 {
   "filters": { "name": "Mario" },
-  "joinFilters": {
-    "customer_label_link": { "labelId": 1 }
+  "joinMustExist": {
+    "labels": { "filters": { "labelId": 1 } }
   }
 }
 ```
@@ -162,24 +169,37 @@ WHERE "name" = $1
     WHERE "customer_id" = "customer"."id" AND "label_id" = $2)
 ```
 
-`joinFilters` support the same filter fields as the related table (schema fields + extra filters defined via `extendedCondition`). Can be combined with `filters`, `joins`, `joinGroups`, and pagination.
+`joinMustExist` accepts `{ filters, conditions }` (both optional). Supports schema fields + extra filters defined via `extendedCondition` on the related table. Combinable with `filters`, `joinMultiple`, `joinGroup`, `joinLeft`, and pagination.
 
-**Key difference from `joins`**: `joinFilters` filter which main records are returned. `joins` fetch related data for the returned main records. They can be used together.
+**Difference from `joinMultiple`**: `joinMustExist` filters which main records are returned. `joinMultiple` fetches related child data for the returned main records. They can be used together.
 
-### Joins
+### `joinMultiple` (fetch related child rows)
 
-Request related table data via `joins`. Only tables listed in `allowedReadJoins` are available. Each join key is the table name, with optional `filters` to narrow the joined results.
-
-The join executes as a separate query: `SELECT ... FROM {joinTable} WHERE {fk} IN ({main PKs})`. Results are grouped by FK.
-
-### Join Groups (Aggregations)
-
-`joinGroups` compute aggregated data on related tables:
+Request related child table data via `joinMultiple`. Aliases must come from `allowedReadJoins` declarations with `unique: false`. Each entry accepts `{ filters?, conditions?, selection? }`.
 
 ```json
 {
-  "joinGroups": {
-    "customer_order": {
+  "joinMultiple": {
+    "orders": {
+      "filters": { "status": "pending" },
+      "selection": "id,total,status"
+    }
+  }
+}
+```
+
+`selection` is optional and overrides the default declared in `buildRelation` (which itself defaults to `'*'`).
+
+The fetch executes as a separate side query: `SELECT {selection} FROM {childTable} WHERE {fk} IN ({main PKs})`. Returned in `result.joinMultiple.<alias>` as an array.
+
+### `joinGroup` (aggregations on related child rows)
+
+`joinGroup` computes aggregated values on a related child table:
+
+```json
+{
+  "joinGroup": {
+    "orders": {
       "aggregations": {
         "by": "status",
         "sum": ["total"],
@@ -195,39 +215,70 @@ The join executes as a separate query: `SELECT ... FROM {joinTable} WHERE {fk} I
 }
 ```
 
-- `by` — GROUP BY field
+- `by` — GROUP BY field (optional)
 - `sum`, `min`, `max`, `avg` — aggregate functions on specified columns
 - `count` — COUNT(col)
 - `distinctCount` — COUNT(DISTINCT col)
 - `filters` — optional, narrow rows before aggregation
 
+Returned as `result.joinGroup.<alias>` — keyed by the function name when no `by`, or with a `rows` array when `by` is set.
+
+Aliases must come from `allowedReadJoins` declarations with `unique: false`.
+
+### `joinLeft` (embed N:1 parent inline)
+
+`joinLeft` embeds a parent record (N:1 relation) into the result. Aliases must come from `allowedReadJoins` declarations with `unique: true`. Each entry accepts `{ filters?, conditions?, selection? }`.
+
+```json
+{
+  "joinLeft": {
+    "creator": {},
+    "updater": { "filters": { "active": true }, "selection": "id,name" }
+  }
+}
+```
+
+The engine attaches a real `LEFT JOIN <parentTable> AS <alias>` to the main query **only when needed**:
+- when the request includes `filters` or `conditions` on the parent (effectively turns into INNER JOIN behavior on those aliases — main rows whose parent doesn't match are excluded);
+- when `orderBy` uses 2-parti dotted notation referring to a parent field (`<alias>.<field>`).
+
+Otherwise only a side query `WHERE pk IN (distinct fk values)` is issued — no LEFT JOIN, no row duplication. Either way, the response shape is the same.
+
+The parent rows are returned in `result.joinLeft.<alias>` as a deduplicated array. The client maps a main row to its parent by FK lookup:
+
+```js
+const parent = result.joinLeft.creator.find((u) => u.id === mainRow.userId);
+```
+
+> **Limitation**: `extraFilters` declared via `extendedCondition` on the parent table are **not** applied inside `joinLeft.filters` (only schema fields). The other join families fully support extraFilters.
+
 ### Ordering
 
-Use the `orderBy` query parameter:
+Use the `orderBy` query parameter. Three forms are supported:
 
-```
-?orderBy=name ASC
-?orderBy=name ASC, id DESC
-?orderBy=created_at DESC
-```
+| Form | Source of `<alias>` | Example |
+|------|---------------------|---------|
+| `<field> [ASC\|DESC]` | main schema | `?orderBy=name ASC` |
+| `<alias>.<field> [ASC\|DESC]` | `joinLeft`-eligible (`unique: true`) | `?orderBy=creator.name ASC` |
+| `<alias>.<fn>.<field> [ASC\|DESC]` | `joinGroup` declared in same body | `?orderBy=orders.sum.total DESC` |
+
+Multiple parts may be comma-separated: `?orderBy=creator.name ASC, id DESC`.
 
 If not specified, the table's `defaultOrder` is used.
 
-#### Ordering by joinGroup aggregations
-
-You can order the main results by an aggregation computed on a joined table using dot notation: `<joinTable>.<fn>.<field>`.
+#### Ordering by joinGroup aggregations (3-parti)
 
 Supported functions: `sum`, `min`, `max`, `avg`, `count`, `distinctCount`.
 
 Example: get users ordered by total session duration DESC.
 
 ```
-POST /auto/search/user?orderBy=session.sum.duration%20DESC
+POST /auto/search/user?orderBy=sessions.sum.duration%20DESC
 ```
 ```json
 {
-  "joinGroups": {
-    "session": {
+  "joinGroup": {
+    "sessions": {
       "aggregations": { "sum": ["duration"] }
     }
   }
@@ -245,13 +296,21 @@ ORDER BY (
 ```
 
 **Rules:**
-- The joinGroup **must be declared in the request body** (`joinGroups.<table>.aggregations.<fn>` must include the field). The engine refuses undeclared references with 400.
-- If the joinGroup declares `aggregations.filters`, those filters are applied inside the correlated subquery — consistent with the breakdown.
-- **`aggregations.by`**: allowed **only** when `by` is the same field used for the join correlation (e.g. `by: "userId"` when joining user→session via userId). In that case each main row maps to exactly one group, so the ordering is well-defined *and* the response contains the per-row breakdown you can render next to each row. Using `by` on any other column is rejected with 400 (the result would be bucketed per group, not per row).
+- The joinGroup **must be declared in the request body** (`joinGroup.<alias>.aggregations.<fn>` must include the field). The engine refuses undeclared references with 400.
+- If the joinGroup declares `filters`, those filters are applied inside the correlated subquery — consistent with the breakdown.
+- **`aggregations.by`**: allowed only when `by` is the same field used for the join correlation. Using `by` on any other column is rejected with 400.
 - **Not allowed** when the main table has `distinctResults: true`. 400 error.
-- Can be combined with plain field ordering: `?orderBy=session.sum.duration DESC, name ASC`.
-- The joinGroup breakdown is still returned in the response (`joinGroups.session.sum.duration` etc.) as before — you get both ordered main results and the aggregated summary.
-- **No-data rows**: rows with no matching joined records are coalesced to `0` via `COALESCE(..., 0)`. Practically: on DESC they appear last, on ASC they appear first. This is universal across PostgreSQL, MySQL, and MariaDB.
+- Can be combined with plain-field ordering and with 2-parti `joinLeft` ordering: `?orderBy=sessions.sum.duration DESC, creator.name ASC, name`.
+- The joinGroup breakdown is still returned in the response (`result.joinGroup.<alias>`) — you get both ordered main results and the aggregated summary.
+- **No-data rows**: rows with no matching joined records are coalesced to `0` via `COALESCE(..., 0)`. On DESC they appear last, on ASC they appear first.
+
+#### Ordering by parent fields (2-parti)
+
+```
+?orderBy=creator.name ASC
+```
+
+The alias must be declared with `unique: true` (so it's eligible for `joinLeft`). The engine adds a real `LEFT JOIN` on the main query to make the column orderable. Main row count is preserved (no duplication, since N:1).
 
 ### Pagination
 
@@ -278,11 +337,14 @@ These compute aggregates on the main table's result set (respecting filters). Re
 {
   "table": "customer",
   "main": [{ "id": 1, "name": "Mario", "email": "m@t.it" }],
-  "joins": {
-    "customer_order": [{ "id": 10, "customerId": 1, "total": 50 }]
+  "joinLeft": {
+    "creator": [{ "id": 7, "name": "Alice", "email": "a@x.it" }]
   },
-  "joinGroups": {
-    "customer_order": {
+  "joinMultiple": {
+    "orders": [{ "id": 10, "customerId": 1, "total": 50 }]
+  },
+  "joinGroup": {
+    "orders": {
       "sum": { "total": 150 },
       "rows": [{ "by": "pending", "sum_total": 100 }]
     }
@@ -296,7 +358,7 @@ These compute aggregates on the main table's result set (respecting filters). Re
 }
 ```
 
-`joins`, `joinGroups`, `pagination` appear ONLY if requested. A simple search returns just `{ table, main }`.
+`joinLeft`, `joinMultiple`, `joinGroup`, `pagination` appear ONLY if requested. A simple search returns just `{ table, main }`.
 
 ---
 
@@ -322,7 +384,7 @@ Returns 404 if not found.
 {
   "main": { "name": "Mario", "email": "m@t.it" },
   "secondaries": {
-    "customer_order": [
+    "orders": [
       { "total": 50, "status": "pending" }
     ]
   }
@@ -330,7 +392,7 @@ Returns 404 if not found.
 ```
 
 - `main` — the record to insert. Omit auto-increment PKs (they are in `excludeFromCreation`).
-- `secondaries` — optional. Related records to insert. Only tables in `allowedWriteJoins` are accepted. FK fields (e.g. `customerId` in orders) are auto-filled from the inserted main record's PK.
+- `secondaries` — optional. Related records to insert. Keys are **aliases** from `allowedWriteJoins`. FK fields (e.g. `customerId` in orders) are auto-filled from the inserted main record's PK.
 
 **Response (201):** PK-only for main and secondaries.
 
@@ -338,7 +400,7 @@ Returns 404 if not found.
 {
   "main": { "id": 1 },
   "secondaries": {
-    "customer_order": [{ "id": 10 }]
+    "orders": [{ "id": 10 }]
   }
 }
 ```
@@ -353,25 +415,25 @@ Returns 404 if not found.
 {
   "main": { "id": 1, "name": "Mario Updated", "email": "new@t.it" },
   "secondaries": {
-    "customer_order": [{ "total": 75, "status": "shipped" }]
+    "orders": [{ "total": 75, "status": "shipped" }]
   },
   "deletions": {
-    "customer_order": [{ "id": 10 }]
+    "orders": [{ "id": 10 }]
   }
 }
 ```
 
 - `main` — MUST include the PK. Only changed fields need to be sent (partial update).
-- `secondaries` — optional. New related records to insert (FK auto-filled).
-- `deletions` — optional. Related records to delete (by PK).
+- `secondaries` — optional. New related records to insert (FK auto-filled). Keys are **aliases**.
+- `deletions` — optional. Related records to delete (by PK). Keys are **aliases**.
 
 **Response (200):** PK-only for main, secondaries, and deletions.
 
 ```json
 {
   "main": { "id": 1 },
-  "secondaries": { "customer_order": [{ "id": 20 }] },
-  "deletions": { "customer_order": [{ "id": 10 }] }
+  "secondaries": { "orders": [{ "id": 20 }] },
+  "deletions":   { "orders": [{ "id": 10 }] }
 }
 ```
 
@@ -401,8 +463,8 @@ Insert or update multiple records in a single request.
 [
   {
     "main": { "name": "Mario", "email": "m@t.it" },
-    "secondaries": { "customer_order": [{ "total": 50 }] },
-    "deletions": { "customer_order": [{ "id": 99 }] }
+    "secondaries": { "orders": [{ "total": 50 }] },
+    "deletions": { "orders": [{ "id": 99 }] }
   },
   {
     "main": { "name": "Luigi", "email": "l@t.it" }
@@ -410,7 +472,7 @@ Insert or update multiple records in a single request.
 ]
 ```
 
-All main records are inserted/upserted in a single SQL query. Secondaries and deletions are processed per-item.
+All main records are inserted/upserted in a single SQL query. Secondaries and deletions are processed per-item. `secondaries`/`deletions` keys are **aliases**.
 
 **Response (200):** Array of `{ main (PK-only), secondaries? (PK-only), deletions? }`.
 
@@ -452,13 +514,13 @@ Both return the same response format:
   "message": "Validation failed",
   "fields": [
     { "path": "body.main.name", "code": "required", "message": "must have required property 'name'" },
-    { "path": "session_period[1].startDate", "code": "overlap", "message": "overlaps with another period" }
+    { "path": "periods[1].startDate", "code": "overlap", "message": "overlaps with another period" }
   ]
 }
 ```
 
 Each entry in `fields`:
-- `path` — the field path (e.g. `body.main.name` for schema errors, `name` or `session_period[1].startDate` for custom validation)
+- `path` — the field path (e.g. `body.main.name` for schema errors, `name` or `periods[1].startDate` for custom validation)
 - `code` — machine-readable error code (e.g. `required`, `type`, `overlap`, `unique`)
 - `message` — human-readable description
 
@@ -468,7 +530,7 @@ Each entry in `fields`:
 const response = await fetch('/api/rest/session', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ main: { name: '' }, secondaries: { session_period: periods } }),
+  body: JSON.stringify({ main: { name: '' }, secondaries: { periods } }),
 });
 
 if (!response.ok) {
@@ -488,4 +550,6 @@ if (!response.ok) {
 
 - **PK-only responses**: Insert, update, delete, bulk operations return only the primary key fields, not the full record. This is by design for performance and consistency.
 - **camelCase fields**: All request and response fields use camelCase (e.g. `customerId`, not `customer_id`). The plugin converts automatically.
-- **Joins are virtual**: Not SQL JOINs. They execute separate queries and group results by FK. This keeps the main query simple and avoids N+1 issues through batching.
+- **Aliases everywhere**: in request bodies, response payloads, `secondaries`/`deletions`, and dotted notation, the keys are aliases declared by the backend in `buildRelation`. Default = the joined table's name; can be overridden (e.g. `orders` for `customer_order`).
+- **`joinMultiple` / `joinMustExist` / `joinGroup`** are 1:N (child→main) and use side queries / EXISTS / correlated subqueries — no row duplication of main.
+- **`joinLeft`** is N:1 (parent→main) and adds a real `LEFT JOIN` on demand (only when filtering/ordering by parent).

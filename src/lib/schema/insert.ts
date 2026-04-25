@@ -23,10 +23,10 @@ export function InsertTableBody(dbTables: DbTables, tableName: string): TObject 
   if (tableConf.allowedWriteJoins?.length) {
     const secondaryProperties: Record<string, TSchema> = {};
 
-    for (const [joinSchema, joinField] of tableConf.allowedWriteJoins) {
+    for (const { joinSchema, joinField, alias } of tableConf.allowedWriteJoins) {
       const secondaryTableConf = findSecondaryTableConf(dbTables, joinSchema.tableName);
       const joinFields = buildSecondaryFields(joinSchema, joinField, secondaryTableConf);
-      secondaryProperties[joinSchema.tableName] = Type.Array(Type.Object(joinFields));
+      secondaryProperties[alias] = Type.Array(Type.Object(joinFields));
     }
 
     bodyProperties.secondaries = Type.Optional(
@@ -47,9 +47,9 @@ export function InsertTableResponse(dbTables: DbTables, tableName: string): TObj
   if (tableConf.allowedWriteJoins?.length) {
     const secondaryProperties: Record<string, TSchema> = {};
 
-    for (const [joinSchema, joinField] of tableConf.allowedWriteJoins) {
+    for (const { joinSchema, joinField, alias } of tableConf.allowedWriteJoins) {
       const secondaryTableConf = findSecondaryTableConf(dbTables, joinSchema.tableName);
-      secondaryProperties[joinSchema.tableName] = Type.Array(
+      secondaryProperties[alias] = Type.Array(
         Type.Object(pkSchema(secondaryTableConf, joinSchema, joinField))
       );
     }

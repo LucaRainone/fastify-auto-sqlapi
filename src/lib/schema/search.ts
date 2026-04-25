@@ -6,6 +6,8 @@ const JoinGroupResultItem = Type.Object({
   sum: Type.Optional(Type.Record(Type.String(), Type.Any())),
   min: Type.Optional(Type.Record(Type.String(), Type.Any())),
   max: Type.Optional(Type.Record(Type.String(), Type.Any())),
+  avg: Type.Optional(Type.Record(Type.String(), Type.Any())),
+  count: Type.Optional(Type.Record(Type.String(), Type.Any())),
   distinctCount: Type.Optional(Type.Record(Type.String(), Type.Any())),
   rows: Type.Optional(Type.Array(Type.Any())),
 });
@@ -14,7 +16,6 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
   const tableConf = dbTables[tableName];
   const schema = tableConf.Schema;
 
-  // Condition item shape (shared across main, joinFilters, joins, joinGroups)
   const methodEnum = Type.Union(ALLOWED_METHODS.map((m) => Type.Literal(m)));
   const conditionItemSchema = Type.Object({
     field: Type.String(),
@@ -22,49 +23,58 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
     params: Type.Optional(Type.Array(Type.Any())),
   });
 
-  // Filters: schema fields + extraFilters
   const filterFields = {
     ...schema.fields,
     ...tableConf.extraFilters,
   };
   const filtersSchema = Type.Optional(Type.Partial(Type.Object(filterFields)));
 
-  // Joins & JoinGroups from allowedReadJoins
-  const joinProperties: Record<string, ReturnType<typeof Type.Object>> = {};
-  const joinFilterProperties: Record<string, ReturnType<typeof Type.Object>> = {};
-  const joinGroupProperties: Record<string, ReturnType<typeof Type.Object>> = {};
+  // Per-alias entries split by unique flag:
+  //  - unique:false → joinMustExist / joinMultiple / joinGroup
+  //  - unique:true  → joinLeft
+  const joinMustExistProps: Record<string, ReturnType<typeof Type.Object>> = {};
+  const joinMultipleProps: Record<string, ReturnType<typeof Type.Object>> = {};
+  const joinGroupProps: Record<string, ReturnType<typeof Type.Object>> = {};
+  const joinLeftProps: Record<string, ReturnType<typeof Type.Object>> = {};
 
   if (tableConf.allowedReadJoins) {
-    for (const [joinSchema] of tableConf.allowedReadJoins) {
-      const joinTableName = joinSchema.tableName;
-      const joinTableConf = dbTables[joinTableName];
+    for (const joinDef of tableConf.allowedReadJoins) {
+      const { joinSchema, alias, unique } = joinDef;
+      const joinTableConf = dbTables[joinSchema.tableName];
 
       const joinFilterFields = joinTableConf
         ? { ...joinSchema.fields, ...joinTableConf.extraFilters }
         : { ...joinSchema.fields };
 
-      // Shared { filters?, conditions? } shape for joinFilters, joins, and joinGroups inner filters
       const joinRefShape = {
         filters: Type.Optional(Type.Partial(Type.Object(joinFilterFields))),
         conditions: Type.Optional(Type.Array(conditionItemSchema)),
       };
 
-      joinProperties[joinTableName] = Type.Object(joinRefShape);
-      joinFilterProperties[joinTableName] = Type.Object(joinRefShape);
+      const joinFetchShape = {
+        ...joinRefShape,
+        selection: Type.Optional(Type.String()),
+      };
 
-      joinGroupProperties[joinTableName] = Type.Object({
-        aggregations: Type.Object({
-          by: Type.Optional(Type.String()),
-          distinctCount: Type.Optional(Type.Array(Type.String())),
-          min: Type.Optional(Type.Array(Type.String())),
-          max: Type.Optional(Type.Array(Type.String())),
-          sum: Type.Optional(Type.Array(Type.String())),
-          avg: Type.Optional(Type.Array(Type.String())),
-          count: Type.Optional(Type.Array(Type.String())),
-        }),
-        filters: Type.Optional(Type.Partial(Type.Object(joinFilterFields))),
-        conditions: Type.Optional(Type.Array(conditionItemSchema)),
-      });
+      if (unique) {
+        joinLeftProps[alias] = Type.Object(joinFetchShape);
+      } else {
+        joinMustExistProps[alias] = Type.Object(joinRefShape);
+        joinMultipleProps[alias] = Type.Object(joinFetchShape);
+        joinGroupProps[alias] = Type.Object({
+          aggregations: Type.Object({
+            by: Type.Optional(Type.String()),
+            distinctCount: Type.Optional(Type.Array(Type.String())),
+            min: Type.Optional(Type.Array(Type.String())),
+            max: Type.Optional(Type.Array(Type.String())),
+            sum: Type.Optional(Type.Array(Type.String())),
+            avg: Type.Optional(Type.Array(Type.String())),
+            count: Type.Optional(Type.Array(Type.String())),
+          }),
+          filters: Type.Optional(Type.Partial(Type.Object(joinFilterFields))),
+          conditions: Type.Optional(Type.Array(conditionItemSchema)),
+        });
+      }
     }
   }
 
@@ -73,10 +83,13 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
     conditions: Type.Optional(Type.Array(conditionItemSchema)),
   };
 
-  if (Object.keys(joinProperties).length > 0) {
-    bodyProperties.joinFilters = Type.Optional(Type.Partial(Type.Object(joinFilterProperties)));
-    bodyProperties.joins = Type.Optional(Type.Partial(Type.Object(joinProperties)));
-    bodyProperties.joinGroups = Type.Optional(Type.Partial(Type.Object(joinGroupProperties)));
+  if (Object.keys(joinMustExistProps).length > 0) {
+    bodyProperties.joinMustExist = Type.Optional(Type.Partial(Type.Object(joinMustExistProps)));
+    bodyProperties.joinMultiple = Type.Optional(Type.Partial(Type.Object(joinMultipleProps)));
+    bodyProperties.joinGroup = Type.Optional(Type.Partial(Type.Object(joinGroupProps)));
+  }
+  if (Object.keys(joinLeftProps).length > 0) {
+    bodyProperties.joinLeft = Type.Optional(Type.Partial(Type.Object(joinLeftProps)));
   }
 
   return Type.Object(bodyProperties as Record<string, ReturnType<typeof Type.Optional>>);
@@ -97,32 +110,47 @@ export function SearchTableResponse(dbTables: DbTables, tableName: string): TObj
 
   const mainItem = Type.Partial(Type.Object(tableConf.Schema.fields));
 
-  const joinResponseProperties: Record<string, ReturnType<typeof Type.Array>> = {};
-  const joinGroupResponseProperties: Record<string, TSchema> = {};
+  const joinMultipleProps: Record<string, ReturnType<typeof Type.Array>> = {};
+  const joinLeftProps: Record<string, ReturnType<typeof Type.Array>> = {};
+  const joinGroupProps: Record<string, TSchema> = {};
+
   if (tableConf.allowedReadJoins) {
-    for (const [joinSchema] of tableConf.allowedReadJoins) {
-      joinResponseProperties[joinSchema.tableName] = Type.Array(
-        Type.Partial(Type.Object(joinSchema.fields))
-      );
-      joinGroupResponseProperties[joinSchema.tableName] = JoinGroupResultItem;
+    for (const joinDef of tableConf.allowedReadJoins) {
+      const { joinSchema, alias, unique } = joinDef;
+      const itemArray = Type.Array(Type.Partial(Type.Object(joinSchema.fields)));
+      if (unique) {
+        joinLeftProps[alias] = itemArray;
+      } else {
+        joinMultipleProps[alias] = itemArray;
+        joinGroupProps[alias] = JoinGroupResultItem;
+      }
     }
   }
 
-  return Type.Object({
+  const responseProps: Record<string, unknown> = {
     table: Type.String(),
     main: Type.Array(mainItem),
-    joins: Type.Optional(Type.Partial(Type.Object(joinResponseProperties))),
-    joinGroups: Type.Optional(Type.Partial(Type.Object(joinGroupResponseProperties))),
-    pagination: Type.Optional(
-      Type.Object({
-        total: Type.Integer(),
-        pages: Type.Integer(),
-        computed: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-        paginator: Type.Object({
-          page: Type.Integer(),
-          itemsPerPage: Type.Integer(),
-        }),
-      })
-    ),
-  });
+  };
+
+  if (Object.keys(joinMultipleProps).length > 0) {
+    responseProps.joinMultiple = Type.Optional(Type.Partial(Type.Object(joinMultipleProps)));
+    responseProps.joinGroup = Type.Optional(Type.Partial(Type.Object(joinGroupProps)));
+  }
+  if (Object.keys(joinLeftProps).length > 0) {
+    responseProps.joinLeft = Type.Optional(Type.Partial(Type.Object(joinLeftProps)));
+  }
+
+  responseProps.pagination = Type.Optional(
+    Type.Object({
+      total: Type.Integer(),
+      pages: Type.Integer(),
+      computed: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+      paginator: Type.Object({
+        page: Type.Integer(),
+        itemsPerPage: Type.Integer(),
+      }),
+    })
+  );
+
+  return Type.Object(responseProps as Record<string, ReturnType<typeof Type.Optional>>);
 }

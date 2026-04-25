@@ -44,7 +44,7 @@ const DbTables = {
     ...customerInfo,
     defaultOrder: 'id',
     allowedReadJoins: [
-      buildRelation(customerSchema, 'id', orderSchema, 'customerId'),
+      buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
     ],
   },
   customer_order: {
@@ -169,14 +169,14 @@ describe(`[${DIALECT}] search routes integration`, () => {
       url: '/auto/search/customer',
       payload: {
         filters: { isActive: true },
-        joins: { customer_order: {} },
+        joinMultiple: { customer_order: {} },
       },
     });
 
     assert.equal(res.statusCode, 200);
     const body = JSON.parse(res.payload);
-    assert.ok(body.joins.customer_order);
-    assert.equal(body.joins.customer_order.length, 3);
+    assert.ok(body.joinMultiple.customer_order);
+    assert.equal(body.joinMultiple.customer_order.length, 3);
   });
 
   it('supports join filters', async () => {
@@ -184,23 +184,23 @@ describe(`[${DIALECT}] search routes integration`, () => {
       method: 'POST',
       url: '/auto/search/customer',
       payload: {
-        joins: {
+        joinMultiple: {
           customer_order: { filters: { status: 'completed' } },
         },
       },
     });
 
     const body = JSON.parse(res.payload);
-    assert.ok(body.joins.customer_order.every((o) => o.status === 'completed'));
+    assert.ok(body.joinMultiple.customer_order.every((o) => o.status === 'completed'));
   });
 
-  it('supports joinGroups with aggregations', async () => {
+  it('supports joinGroup with aggregations', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/auto/search/customer',
       payload: {
         filters: { name: 'Mario Rossi' },
-        joinGroups: {
+        joinGroup: {
           customer_order: {
             aggregations: { sum: ['total'] },
           },
@@ -210,8 +210,8 @@ describe(`[${DIALECT}] search routes integration`, () => {
 
     assert.equal(res.statusCode, 200);
     const body = JSON.parse(res.payload);
-    assert.ok(body.joinGroups.customer_order);
-    assert.ok(body.joinGroups.customer_order.sum);
+    assert.ok(body.joinGroup.customer_order);
+    assert.ok(body.joinGroup.customer_order.sum);
   });
 
   it('search on customer_order table', async () => {

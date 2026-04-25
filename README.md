@@ -9,13 +9,15 @@ Point it at your database, and get a full REST API with search, advanced conditi
 - **Zero boilerplate** — define your tables, get 7 endpoints each
 - **No ORM** — raw SQL via `pg` + parameterized queries
 - **TypeBox validation** — request/response schemas auto-generated from your DB
-- **Virtual joins** — fetch related records without complex SQL
+- **Joins** — four explicit families (`joinMustExist`, `joinMultiple`, `joinGroup`, `joinLeft`) with alias support
 - **Bulk operations** — batch insert/upsert/delete in single queries
 - **Multi-tenant** — automatic row-level isolation, zero code in handlers
 - **Validation** — structured field-level validation with cross-entity support
 - **Hooks** — `beforeInsert`, `beforeUpdate`, `afterInsert` for custom logic
 - **Swagger UI** — optional, auto-configured from your schemas
 - **Composable** — register all routes or pick only what you need
+
+> ⚠️ **Migrating from a previous version?** The join API was redesigned. See **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)** for the full migration guide.
 
 ## Quick Start
 
@@ -143,12 +145,16 @@ const TableCustomer = defineTable({
   excludeFromCreation: ['id'],              // omit from INSERT (e.g. auto-increment)
   distinctResults: true,                    // SELECT DISTINCT
 
-  // Relations
+  // Relations — alias defaults to joinSchema.tableName. Override with `{ alias: '...' }`
+  // when you join the same table twice (e.g. `createdBy`/`updatedBy`) or want a friendlier
+  // name. Set `unique: true` for N:1 (parent) relations to enable `joinLeft`.
   allowedReadJoins: [
-    buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId'),
+    buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId'),                       // alias = 'order'
+    buildRelation(SchemaSession, 'userId', SchemaUser, 'id', { unique: true }),           // alias = 'user', N:1
+    buildRelation(SchemaSession, 'updatedBy', SchemaUser, 'id', { alias: 'updater', unique: true }),
   ],
   allowedWriteJoins: [
-    buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId'),
+    buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId'),                       // alias = 'order'
   ],
 
   // Upsert (ON CONFLICT)
@@ -255,20 +261,20 @@ Search with filters, advanced conditions, pagination, ordering, joins, and aggre
     { "field": "total", "method": "isGreater", "params": [100] },
     { "field": "createdAt", "method": "isBetween", "params": ["2024-01-01", "2024-12-31"] }
   ],
-  "joinFilters": {
-    "order": {
+  "joinMustExist": {
+    "orders": {
       "filters": { "status": "completed" },
       "conditions": [{ "field": "total", "method": "isGreater", "params": [50] }]
     }
   },
-  "joins": {
-    "order": {
+  "joinMultiple": {
+    "orders": {
       "filters": { "status": "completed" },
-      "conditions": [{ "field": "total", "method": "isGreater", "params": [50] }]
+      "selection": "id,total,status"
     }
   },
-  "joinGroups": {
-    "order": {
+  "joinGroup": {
+    "orders": {
       "aggregations": {
         "by": "status",
         "sum": ["total"],
@@ -278,20 +284,29 @@ Search with filters, advanced conditions, pagination, ordering, joins, and aggre
         "count": ["id"],
         "distinctCount": ["status"]
       },
-      "filters": { "status": "completed" },
-      "conditions": [{ "field": "total", "method": "isGreater", "params": [0] }]
+      "filters": { "status": "completed" }
     }
+  },
+  "joinLeft": {
+    "creator": { "selection": "id,name,email" }
   }
 }
 ```
 
 - **`filters`** — equality-based, flat key/value. Supports schema fields + `extraFilters`.
 - **`conditions`** — array of `{ field, method, params }`. Methods: `isEqual`, `isNotEqual`, `isGreater`, `isGreaterOrEqual`, `isLess`, `isLessOrEqual`, `isLike`, `isILike`, `isIn`, `isNotIn`, `isBetween`, `isNotBetween`, `isNull`, `isNotNull`.
-- **`joinFilters`** — EXISTS-based filtering: "main rows where at least one related row matches". Accepts `{ filters, conditions }` (both optional). Only tables in `allowedReadJoins`.
-- **`joins`** — fetch related records (virtual join via separate query). Accepts `{ filters, conditions }`.
-- **`joinGroups`** — aggregations on related tables. Supports `sum`, `min`, `max`, `avg`, `count`, `distinctCount`, and optional `by` for GROUP BY. Accepts `{ filters, conditions }` inside the subquery.
+- **`joinMustExist`** — EXISTS-based filter: "main rows where at least one related row matches". Accepts `{ filters, conditions }` (both optional). Aliases must come from `allowedReadJoins` declarations with `unique: false`.
+- **`joinMultiple`** — fetches related child rows in a side query. Accepts `{ filters, conditions, selection }`. Same `unique: false` aliases.
+- **`joinGroup`** — aggregations on the related table. Supports `sum`, `min`, `max`, `avg`, `count`, `distinctCount`, and optional `by` for GROUP BY. Accepts `{ filters, conditions }`. Same `unique: false` aliases.
+- **`joinLeft`** — embeds an N:1 parent. Real `LEFT JOIN` is added on demand (only when the request has `filters`/`conditions` on the parent or uses 2-parti `orderBy` on this alias). Aliases must be declared with `unique: true`. Accepts `{ filters, conditions, selection }`.
 
-**Dot-notation in `conditions` and `orderBy`** — use `<joinTable>.<fn>.<field>` to filter/order the main rows by an aggregation value (HAVING-style). Example: `orderBy=order.sum.total DESC` or `conditions: [{ field: 'order.count.id', method: 'isGreaterOrEqual', params: [4] }]`. The joinGroup must be declared in the body.
+**Dot-notation in `orderBy` and `conditions`**:
+
+| Form | Source | Example |
+|------|--------|---------|
+| `<field>` | main schema | `orderBy=name ASC` |
+| `<alias>.<field>` | `joinLeft` aliases (`unique: true`) | `orderBy=creator.name ASC` |
+| `<alias>.<fn>.<field>` | `joinGroup` aliases declared in the same body | `orderBy=orders.sum.total DESC`, or `conditions: [{ field: 'orders.count.id', method: 'isGreaterOrEqual', params: [4] }]` |
 
 **Querystring** (optional): `orderBy`, `page`, `itemsPerPage`, `computeMin`, `computeMax`, `computeSum`, `computeAvg`
 
@@ -301,9 +316,10 @@ Search with filters, advanced conditions, pagination, ordering, joins, and aggre
 {
   "table": "customer",
   "main": [{ "id": 1, "name": "Mario", "email": "m@test.it" }],
-  "joins": { "order": [{ "id": 10, "customerId": 1, "total": 50 }] },
-  "joinGroups": {
-    "order": {
+  "joinLeft":     { "creator": [{ "id": 7, "name": "Alice", "email": "a@x.it" }] },
+  "joinMultiple": { "orders":  [{ "id": 10, "customerId": 1, "total": 50 }] },
+  "joinGroup": {
+    "orders": {
       "sum": { "total": 300 },
       "count": { "id": 2 },
       "rows": [{ "by": "completed", "sum_total": 300, "count_id": 2 }]
@@ -318,7 +334,7 @@ Search with filters, advanced conditions, pagination, ordering, joins, and aggre
 }
 ```
 
-`joins`, `joinGroups`, and `pagination` only appear when requested. A simple `{}` body returns `{ table, main }`. `pagination.computed` appears only if `computeMin`/`computeMax`/`computeSum`/`computeAvg` are used.
+`joinLeft`, `joinMultiple`, `joinGroup`, and `pagination` appear only when requested. A simple `{}` body returns `{ table, main }`. `pagination.computed` appears only if `computeMin`/`computeMax`/`computeSum`/`computeAvg` are used.
 
 ### GET /rest/{table}/:id
 
@@ -332,12 +348,12 @@ Returns `{ main: { ... } }` or 404.
 {
   "main": { "name": "Mario", "email": "m@test.it" },
   "secondaries": {
-    "order": [{ "total": 50, "status": "pending" }]
+    "orders": [{ "total": 50, "status": "pending" }]
   }
 }
 ```
 
-`secondaries` is optional. FK fields are auto-filled from the inserted main record.
+`secondaries` keys are the **alias** declared in `allowedWriteJoins`. FK fields are auto-filled from the inserted main record.
 
 **Response (201):** `{ main: { ... }, secondaries: { ... } }`
 
@@ -348,8 +364,8 @@ Returns `{ main: { ... } }` or 404.
 ```json
 {
   "main": { "id": 1, "name": "Updated Name" },
-  "secondaries": { "order": [{ "total": 75 }] },
-  "deletions": { "order": [{ "id": 10 }] }
+  "secondaries": { "orders": [{ "total": 75 }] },
+  "deletions":   { "orders": [{ "id": 10 }] }
 }
 ```
 
@@ -480,7 +496,9 @@ await app.register(async (instance) => {
 
 - **camelCase everywhere in the API** — requests, responses, `validate`, and all hooks (`beforeInsert`, `beforeUpdate`, `afterInsert`) use schema field names
 - **Conversion to DB column format is automatic** via `colMap` — supports both snake_case and camelCase DB columns (e.g. betterauth-style)
-- **Joins are virtual** — separate `SELECT ... WHERE fk IN (...)` queries, not SQL JOINs
+- **Aliases identify joins** — declared in `buildRelation({ alias })`, used as keys in request/response/`secondaries`/dotted notation
+- **`joinMustExist` / `joinMultiple` / `joinGroup`** are 1:N (child→main) and use side queries / EXISTS / correlated subqueries — no row duplication
+- **`joinLeft`** is N:1 (parent→main) and adds a real `LEFT JOIN` on demand (only when filtering/ordering by parent)
 - **All response fields are Optional** — response schemas use `Type.Partial` since `RETURNING *` may return any subset
 
 ## Re-exports
@@ -516,7 +534,9 @@ import type {
   ValidationError,        // [field, code] | [field, code, message]
   ValidatorFn,
   BulkValidatorFn,
+  JoinDefinition,
   JoinRefFilter,
+  JoinFetchRequest,
   JoinGroupRequest,
   SearchCondition,
   ConditionMethod,
