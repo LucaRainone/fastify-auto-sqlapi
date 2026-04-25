@@ -445,6 +445,27 @@ async function executeJoinLeft(
   return result;
 }
 
+const TRUNCATE_UNITS = new Set(['year', 'quarter', 'month', 'day', 'hour']);
+
+function buildByExpression(
+  by: string | { field: string; truncate: string },
+  joinSchema: SchemaDefinition,
+  db: QueryClient
+): string {
+  if (typeof by === 'string') {
+    return db.qi(validateSchemaField(by, joinSchema));
+  }
+  if (!by.field || !by.truncate) {
+    err400(`Invalid 'by' specification: expected { field, truncate }`);
+  }
+  if (!TRUNCATE_UNITS.has(by.truncate)) {
+    err400(`Invalid truncate unit: '${by.truncate}'. Allowed: year, quarter, month, day, hour`);
+  }
+  const col = db.qi(validateSchemaField(by.field, joinSchema));
+  const qualifiedCol = `${db.qi(joinSchema.tableName)}.${col}`;
+  return db.dateTrunc(by.truncate as 'year' | 'quarter' | 'month' | 'day' | 'hour', qualifiedCol);
+}
+
 // ─── joinGroup (aggregations) ───────────────────────────────
 
 async function executeJoinGroup(
@@ -471,9 +492,9 @@ async function executeJoinGroup(
     const groupByParts: string[] = [];
 
     if (aggregations.by) {
-      const byCol = validateSchemaField(aggregations.by, joinSchema);
-      selectParts.push(`${db.qi(byCol)} as "by"`);
-      groupByParts.push(db.qi(byCol));
+      const byExpr = buildByExpression(aggregations.by, joinSchema, db);
+      selectParts.push(`${byExpr} as "by"`);
+      groupByParts.push(byExpr);
     }
 
     const addAgg = (kind: string, fnSql: string, fields: string[] | undefined): void => {

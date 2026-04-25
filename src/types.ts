@@ -258,8 +258,14 @@ export interface Paginator {
   itemsPerPage: number;
 }
 
+export type TruncateUnit = 'year' | 'quarter' | 'month' | 'day' | 'hour';
+
+export type AggregationByField =
+  | string
+  | { field: string; truncate: TruncateUnit };
+
 export interface AggregationRequest {
-  by?: string;
+  by?: AggregationByField;
   distinctCount?: string[];
   min?: string[];
   max?: string[];

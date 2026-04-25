@@ -34,6 +34,7 @@ const orderSchema = createSchema('customer_order', {
   customerId: Type.Optional(Type.Integer()),
   total: Type.Optional(Type.Number()),
   status: Type.Optional(Type.String()),
+  orderDate: Type.Optional(Type.String()),
 });
 
 const customerInfo = exportTableInfo(customerSchema);
@@ -538,5 +539,101 @@ describe(`[${DIALECT}] search orderBy agg with multi-tenant (FK scoping)`, () =>
     const body = JSON.parse(res.payload);
     assert.equal(body.main.length, 1);
     assert.equal(body.main[0].name, 'Anna B');
+  });
+});
+
+describe(`[${DIALECT}] joinGroup with truncate (date bucketing)`, () => {
+  let app;
+  let db;
+  let marioId;
+
+  before(async () => {
+    ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
+    await cleanTables(db, ['customer_order', 'customer']);
+
+    const customers = await seedRows(db, 'customer', [
+      { name: 'Mario Rossi', email: 'mario@test.it', is_active: true },
+    ]);
+    marioId = customers[0].id;
+
+    // Spread orders across multiple months to verify monthly bucketing
+    await seedRows(db, 'customer_order', [
+      { customer_id: marioId, total: 100, status: 'paid', order_date: '2026-01-15' },
+      { customer_id: marioId, total: 50,  status: 'paid', order_date: '2026-01-20' },
+      { customer_id: marioId, total: 200, status: 'paid', order_date: '2026-02-05' },
+      { customer_id: marioId, total: 75,  status: 'paid', order_date: '2026-04-10' },
+    ]);
+  });
+
+  after(async () => {
+    await app.close();
+  });
+
+  it('groups by month with sum and returns ISO date string', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auto/search/customer',
+      payload: {
+        joinGroup: {
+          customer_order: {
+            aggregations: {
+              by: { field: 'orderDate', truncate: 'month' },
+              sum: ['total'],
+            },
+          },
+        },
+      },
+    });
+
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.payload);
+    const rows = body.joinGroup.customer_order.rows;
+    assert.ok(Array.isArray(rows));
+    // 3 distinct months (Jan, Feb, Apr)
+    assert.equal(rows.length, 3);
+
+    const byMonth = Object.fromEntries(rows.map((r) => [String(r.by).slice(0, 10), Number(r.sum_total)]));
+    assert.equal(byMonth['2026-01-01'], 150);
+    assert.equal(byMonth['2026-02-01'], 200);
+    assert.equal(byMonth['2026-04-01'], 75);
+  });
+
+  it('groups by year with count', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auto/search/customer',
+      payload: {
+        joinGroup: {
+          customer_order: {
+            aggregations: {
+              by: { field: 'orderDate', truncate: 'year' },
+              count: ['id'],
+            },
+          },
+        },
+      },
+    });
+
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.payload);
+    const rows = body.joinGroup.customer_order.rows;
+    assert.equal(rows.length, 1);
+    assert.equal(String(rows[0].by).slice(0, 10), '2026-01-01');
+    assert.equal(Number(rows[0].count_id), 4);
+  });
+
+  it('rejects invalid truncate unit with 400', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auto/search/customer',
+      payload: {
+        joinGroup: {
+          customer_order: {
+            aggregations: { by: { field: 'orderDate', truncate: 'fortnight' }, count: ['id'] },
+          },
+        },
+      },
+    });
+    assert.equal(res.statusCode, 400);
   });
 });

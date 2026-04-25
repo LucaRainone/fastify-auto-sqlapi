@@ -48,6 +48,7 @@ const orderFields = {
   customerId: Type.Number(),
   total: Type.Number(),
   status: Type.String(),
+  createdAt: Type.String(),
 };
 
 function createTestDbTables(mockPg) {
@@ -745,6 +746,73 @@ describe('searchEngine - joinGroup', () => {
 
     const groupCall = mockPg.calls[1];
     assert.ok(groupCall.text.includes('GROUP BY'));
+  });
+
+  it('supports truncate-by on a timestamp field (postgres dialect)', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
+      { rows: [{ by: '2026-04-01', sum_total: 100 }], affectedRows: 1 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      joinGroup: {
+        customer_order: {
+          aggregations: {
+            by: { field: 'createdAt', truncate: 'month' },
+            sum: ['total'],
+          },
+        },
+      },
+    });
+
+    const groupCall = mockPg.calls[1];
+    // Postgres-style DATE_TRUNC + TO_CHAR producing ISO date string
+    assert.ok(groupCall.text.includes("DATE_TRUNC('month'"));
+    assert.ok(groupCall.text.includes("TO_CHAR"));
+    assert.ok(groupCall.text.includes('GROUP BY'));
+  });
+
+  it('rejects invalid truncate unit with 400', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await assert.rejects(
+      () => searchEngine(DbTables, {
+        db,
+        tableConf: DbTables.customer,
+        joinGroup: {
+          customer_order: {
+            aggregations: { by: { field: 'createdAt', truncate: 'fortnight' }, sum: ['total'] },
+          },
+        },
+      }),
+      (err) => err.statusCode === 400 && /Invalid truncate unit/.test(err.message)
+    );
+  });
+
+  it('rejects truncate-by on unknown field with 400', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+
+    await assert.rejects(
+      () => searchEngine(DbTables, {
+        db,
+        tableConf: DbTables.customer,
+        joinGroup: {
+          customer_order: {
+            aggregations: { by: { field: 'bogus', truncate: 'month' }, sum: ['total'] },
+          },
+        },
+      }),
+      (err) => err.statusCode === 400 && /Unknown field/.test(err.message)
+    );
   });
 });
 

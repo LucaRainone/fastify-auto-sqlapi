@@ -31,6 +31,10 @@ export class QueryClient {
     return this.dialect.name;
   }
 
+  get dateTrunc(): SqlDialect['dateTrunc'] {
+    return this.dialect.dateTrunc.bind(this.dialect);
+  }
+
   setDebug(mode: boolean): void {
     this.debug = mode;
   }

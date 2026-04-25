@@ -215,11 +215,42 @@ The fetch executes as a separate side query: `SELECT {selection} FROM {childTabl
 }
 ```
 
-- `by` — GROUP BY field (optional)
+- `by` — GROUP BY field (optional). Two forms:
+  - `"<field>"` — group by the column directly
+  - `{ field: "<dateField>", truncate: "year" | "quarter" | "month" | "day" | "hour" }` — group by a timestamp truncated to a calendar bucket; the returned `by` value is normalized to an ISO date string (`'YYYY-MM-DD'`, or `'YYYY-MM-DDTHH:00:00'` for `hour`).
 - `sum`, `min`, `max`, `avg` — aggregate functions on specified columns
 - `count` — COUNT(col)
 - `distinctCount` — COUNT(DISTINCT col)
 - `filters` — optional, narrow rows before aggregation
+
+Example — monthly revenue per customer:
+
+```json
+{
+  "joinGroup": {
+    "orders": {
+      "aggregations": {
+        "by": { "field": "orderDate", "truncate": "month" },
+        "sum": ["total"]
+      }
+    }
+  }
+}
+```
+
+Response:
+```json
+{
+  "joinGroup": {
+    "orders": {
+      "rows": [
+        { "by": "2026-01-01", "sum_total": 150 },
+        { "by": "2026-02-01", "sum_total": 200 }
+      ]
+    }
+  }
+}
+```
 
 Returned as `result.joinGroup.<alias>` — keyed by the function name when no `by`, or with a `rows` array when `by` is set.
 

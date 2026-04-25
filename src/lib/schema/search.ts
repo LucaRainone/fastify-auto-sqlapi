@@ -63,7 +63,19 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
         joinMultipleProps[alias] = Type.Object(joinFetchShape);
         joinGroupProps[alias] = Type.Object({
           aggregations: Type.Object({
-            by: Type.Optional(Type.String()),
+            by: Type.Optional(Type.Union([
+              Type.String(),
+              Type.Object({
+                field: Type.String(),
+                truncate: Type.Union([
+                  Type.Literal('year'),
+                  Type.Literal('quarter'),
+                  Type.Literal('month'),
+                  Type.Literal('day'),
+                  Type.Literal('hour'),
+                ]),
+              }),
+            ])),
             distinctCount: Type.Optional(Type.Array(Type.String())),
             min: Type.Optional(Type.Array(Type.String())),
             max: Type.Optional(Type.Array(Type.String())),
