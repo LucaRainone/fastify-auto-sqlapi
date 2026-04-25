@@ -572,25 +572,35 @@ async function executeJoinLeft(
   return result;
 }
 
-const TRUNCATE_UNITS = new Set(['year', 'quarter', 'month', 'day', 'hour']);
-
+/**
+ * Resolve `aggregations.by` to a SQL expression. Accepts:
+ *  - a schema field name → quoted column reference
+ *  - a computed-field name declared on the join table → its expr (no bound
+ *    values supported in this position; reject with 400 if the computed
+ *    returns values)
+ */
 function buildByExpression(
-  by: string | { field: string; truncate: string },
+  by: string,
   joinSchema: SchemaDefinition,
+  joinTableConf: ITable | undefined,
   db: QueryClient
 ): string {
-  if (typeof by === 'string') {
-    return db.qi(validateSchemaField(by, joinSchema));
+  if (typeof by !== 'string') {
+    err400(`Invalid 'by' specification: expected a field or computed name`);
   }
-  if (!by.field || !by.truncate) {
-    err400(`Invalid 'by' specification: expected { field, truncate }`);
+  if (by in joinSchema.fields) {
+    return db.qi(joinSchema.col(by));
   }
-  if (!TRUNCATE_UNITS.has(by.truncate)) {
-    err400(`Invalid truncate unit: '${by.truncate}'. Allowed: year, quarter, month, day, hour`);
+  const fn = joinTableConf?.computedFields?.[by];
+  if (fn) {
+    const ctx = buildComputedContext(db, joinSchema);
+    const ev = fn(ctx);
+    if ((ev.values ?? []).length > 0) {
+      err400(`Computed field '${by}' with bound values cannot be used in aggregations.by`);
+    }
+    return ev.expr;
   }
-  const col = db.qi(validateSchemaField(by.field, joinSchema));
-  const qualifiedCol = `${db.qi(joinSchema.tableName)}.${col}`;
-  return db.dateTrunc(by.truncate as 'year' | 'quarter' | 'month' | 'day' | 'hour', qualifiedCol);
+  err400(`Unknown field: ${by}`);
 }
 
 // ─── joinGroup (aggregations) ───────────────────────────────
@@ -607,6 +617,7 @@ async function executeJoinGroup(
   for (const [alias, groupReq] of Object.entries(joinGroup)) {
     const joinDef = requireJoin(tableConf, alias, false);
     const { joinSchema, joinField, mainField } = joinDef;
+    const joinTableConf = dbTables[joinSchema.tableName];
 
     const ids = collectIds(mainResults, mainField);
     if (ids.length === 0) {
@@ -619,7 +630,7 @@ async function executeJoinGroup(
     const groupByParts: string[] = [];
 
     if (aggregations.by) {
-      const byExpr = buildByExpression(aggregations.by, joinSchema, db);
+      const byExpr = buildByExpression(aggregations.by, joinSchema, joinTableConf, db);
       selectParts.push(`${byExpr} as "by"`);
       groupByParts.push(byExpr);
     }
@@ -646,7 +657,6 @@ async function executeJoinGroup(
       continue;
     }
 
-    const joinTableConf = dbTables[joinSchema.tableName];
     const groupRef = { filters: groupFilters, conditions: groupConditions };
     const cb = buildJoinRefCondition(joinTableConf, joinSchema, groupRef, db);
     const fkCol = joinSchema.col(joinField);

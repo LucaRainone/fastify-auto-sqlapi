@@ -748,34 +748,56 @@ describe('searchEngine - joinGroup', () => {
     assert.ok(groupCall.text.includes('GROUP BY'));
   });
 
-  it('supports truncate-by on a timestamp field (postgres dialect)', async () => {
+  it('supports computed-by (date bucketing via db.dateTrunc helper, postgres)', async () => {
+    const customerSchema = createMockSchema('customer', customerFields);
+    const orderSchema = createMockSchema('customer_order', orderFields);
+
     const mockPg = createMockPg([
       { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
       { rows: [{ by: '2026-04-01', sum_total: 100 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const DbTables = {
+      customer: {
+        primary: 'id',
+        ...exportTableInfo(customerSchema),
+        defaultOrder: 'id',
+        allowedReadJoins: [
+          buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
+        ],
+      },
+      customer_order: {
+        primary: 'id',
+        ...exportTableInfo(orderSchema),
+        defaultOrder: 'id',
+        computedFields: {
+          monthBucket: ({ db, qiCol }) => ({
+            expr: db.dateTrunc('month', qiCol('createdAt')),
+            values: [],
+            type: Type.String(),
+          }),
+        },
+      },
+    };
+    const db = new QueryClient(mockPg);
 
     await searchEngine(DbTables, {
       db,
       tableConf: DbTables.customer,
       joinGroup: {
         customer_order: {
-          aggregations: {
-            by: { field: 'createdAt', truncate: 'month' },
-            sum: ['total'],
-          },
+          aggregations: { by: 'monthBucket', sum: ['total'] },
         },
       },
     });
 
     const groupCall = mockPg.calls[1];
-    // Postgres-style DATE_TRUNC + TO_CHAR producing ISO date string
+    // Postgres dateTrunc helper expands to DATE_TRUNC + TO_CHAR
     assert.ok(groupCall.text.includes("DATE_TRUNC('month'"));
     assert.ok(groupCall.text.includes("TO_CHAR"));
     assert.ok(groupCall.text.includes('GROUP BY'));
   });
 
-  it('rejects invalid truncate unit with 400', async () => {
+  it('rejects unknown by name with 400', async () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
     ]);
@@ -787,27 +809,7 @@ describe('searchEngine - joinGroup', () => {
         tableConf: DbTables.customer,
         joinGroup: {
           customer_order: {
-            aggregations: { by: { field: 'createdAt', truncate: 'fortnight' }, sum: ['total'] },
-          },
-        },
-      }),
-      (err) => err.statusCode === 400 && /Invalid truncate unit/.test(err.message)
-    );
-  });
-
-  it('rejects truncate-by on unknown field with 400', async () => {
-    const mockPg = createMockPg([
-      { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
-    ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
-
-    await assert.rejects(
-      () => searchEngine(DbTables, {
-        db,
-        tableConf: DbTables.customer,
-        joinGroup: {
-          customer_order: {
-            aggregations: { by: { field: 'bogus', truncate: 'month' }, sum: ['total'] },
+            aggregations: { by: 'bogus', sum: ['total'] },
           },
         },
       }),

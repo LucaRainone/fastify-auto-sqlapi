@@ -298,7 +298,7 @@ Search with filters, advanced conditions, pagination, ordering, joins, and aggre
 - **`conditions`** — array of `{ field, method, params }`. Methods: `isEqual`, `isNotEqual`, `isGreater`, `isGreaterOrEqual`, `isLess`, `isLessOrEqual`, `isLike`, `isILike`, `isIn`, `isNotIn`, `isBetween`, `isNotBetween`, `isNull`, `isNotNull`.
 - **`joinMustExist`** — EXISTS-based filter: "main rows where at least one related row matches". Accepts `{ filters, conditions }` (both optional). Aliases must come from `allowedReadJoins` declarations with `unique: false`.
 - **`joinMultiple`** — fetches related child rows in a side query. Accepts `{ filters, conditions, selection }`. Same `unique: false` aliases.
-- **`joinGroup`** — aggregations on the related table. Supports `sum`, `min`, `max`, `avg`, `count`, `distinctCount`, and optional `by` for GROUP BY (can be `"<field>"` or `{ field, truncate: "year"|"quarter"|"month"|"day"|"hour" }` for date bucketing → ISO string). Accepts `{ filters, conditions }`. Same `unique: false` aliases.
+- **`joinGroup`** — aggregations on the related table. Supports `sum`, `min`, `max`, `avg`, `count`, `distinctCount`, and optional `by` for GROUP BY (a schema field name or a computed-field name declared on the join table — e.g. for date bucketing declare a computed using `db.dateTrunc('month', qiCol('orderDate'))`). Accepts `{ filters, conditions }`. Same `unique: false` aliases.
 - **`joinLeft`** — embeds an N:1 parent. Real `LEFT JOIN` is added on demand (only when the request has `filters`/`conditions` on the parent or uses 2-parti `orderBy` on this alias). Aliases must be declared with `unique: true`. Accepts `{ filters, conditions, selection }`.
 
 **Dot-notation in `orderBy` and `conditions`**:

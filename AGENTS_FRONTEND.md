@@ -215,22 +215,20 @@ The fetch executes as a separate side query: `SELECT {selection} FROM {childTabl
 }
 ```
 
-- `by` — GROUP BY field (optional). Two forms:
-  - `"<field>"` — group by the column directly
-  - `{ field: "<dateField>", truncate: "year" | "quarter" | "month" | "day" | "hour" }` — group by a timestamp truncated to a calendar bucket; the returned `by` value is normalized to an ISO date string (`'YYYY-MM-DD'`, or `'YYYY-MM-DDTHH:00:00'` for `hour`).
+- `by` — GROUP BY name (optional). Either a schema field on the join table or a **computed field** declared on it (e.g. for date bucketing, the backend declares a computed using `db.dateTrunc(unit, qiCol('orderDate'))` and you reference it by name).
 - `sum`, `min`, `max`, `avg` — aggregate functions on specified columns
 - `count` — COUNT(col)
 - `distinctCount` — COUNT(DISTINCT col)
 - `filters` — optional, narrow rows before aggregation
 
-Example — monthly revenue per customer:
+Example — monthly revenue per customer (the backend declared a `monthBucket` computed):
 
 ```json
 {
   "joinGroup": {
     "orders": {
       "aggregations": {
-        "by": { "field": "orderDate", "truncate": "month" },
+        "by": "monthBucket",
         "sum": ["total"]
       }
     }

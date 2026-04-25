@@ -297,14 +297,12 @@ export interface Paginator {
   itemsPerPage: number;
 }
 
-export type TruncateUnit = 'year' | 'quarter' | 'month' | 'day' | 'hour';
-
-export type AggregationByField =
-  | string
-  | { field: string; truncate: TruncateUnit };
-
 export interface AggregationRequest {
-  by?: AggregationByField;
+  /**
+   * GROUP BY field. Either a schema field name on the join table or a
+   * computed-field name declared on the join table's `computedFields`.
+   */
+  by?: string;
   distinctCount?: string[];
   min?: string[];
   max?: string[];

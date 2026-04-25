@@ -542,13 +542,42 @@ describe(`[${DIALECT}] search orderBy agg with multi-tenant (FK scoping)`, () =>
   });
 });
 
-describe(`[${DIALECT}] joinGroup with truncate (date bucketing)`, () => {
+// Bucket by date via computed fields + db.dateTrunc helper.
+const DbTablesBuckets = {
+  customer: {
+    primary: 'id',
+    ...customerInfo,
+    defaultOrder: 'id',
+    allowedReadJoins: [
+      buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
+    ],
+  },
+  customer_order: {
+    primary: 'id',
+    ...orderInfo,
+    defaultOrder: 'id',
+    computedFields: {
+      monthBucket: ({ db, qiCol }) => ({
+        expr: db.dateTrunc('month', qiCol('orderDate')),
+        values: [],
+        type: Type.String(),
+      }),
+      yearBucket: ({ db, qiCol }) => ({
+        expr: db.dateTrunc('year', qiCol('orderDate')),
+        values: [],
+        type: Type.String(),
+      }),
+    },
+  },
+};
+
+describe(`[${DIALECT}] joinGroup with computed-by (date bucketing)`, () => {
   let app;
   let db;
   let marioId;
 
   before(async () => {
-    ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
+    ({ app, db } = await createTestApp(DbTablesBuckets, { prefix: '/auto' }));
     await cleanTables(db, ['customer_order', 'customer']);
 
     const customers = await seedRows(db, 'customer', [
@@ -569,17 +598,14 @@ describe(`[${DIALECT}] joinGroup with truncate (date bucketing)`, () => {
     await app.close();
   });
 
-  it('groups by month with sum and returns ISO date string', async () => {
+  it('groups by computed monthBucket with sum and returns ISO date string', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/auto/search/customer',
       payload: {
         joinGroup: {
           customer_order: {
-            aggregations: {
-              by: { field: 'orderDate', truncate: 'month' },
-              sum: ['total'],
-            },
+            aggregations: { by: 'monthBucket', sum: ['total'] },
           },
         },
       },
@@ -589,7 +615,6 @@ describe(`[${DIALECT}] joinGroup with truncate (date bucketing)`, () => {
     const body = JSON.parse(res.payload);
     const rows = body.joinGroup.customer_order.rows;
     assert.ok(Array.isArray(rows));
-    // 3 distinct months (Jan, Feb, Apr)
     assert.equal(rows.length, 3);
 
     const byMonth = Object.fromEntries(rows.map((r) => [String(r.by).slice(0, 10), Number(r.sum_total)]));
@@ -598,17 +623,14 @@ describe(`[${DIALECT}] joinGroup with truncate (date bucketing)`, () => {
     assert.equal(byMonth['2026-04-01'], 75);
   });
 
-  it('groups by year with count', async () => {
+  it('groups by computed yearBucket with count', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/auto/search/customer',
       payload: {
         joinGroup: {
           customer_order: {
-            aggregations: {
-              by: { field: 'orderDate', truncate: 'year' },
-              count: ['id'],
-            },
+            aggregations: { by: 'yearBucket', count: ['id'] },
           },
         },
       },
@@ -622,14 +644,14 @@ describe(`[${DIALECT}] joinGroup with truncate (date bucketing)`, () => {
     assert.equal(Number(rows[0].count_id), 4);
   });
 
-  it('rejects invalid truncate unit with 400', async () => {
+  it('rejects unknown by name with 400', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/auto/search/customer',
       payload: {
         joinGroup: {
           customer_order: {
-            aggregations: { by: { field: 'orderDate', truncate: 'fortnight' }, count: ['id'] },
+            aggregations: { by: 'bogus', count: ['id'] },
           },
         },
       },
