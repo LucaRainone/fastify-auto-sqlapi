@@ -988,3 +988,140 @@ describe('searchEngine - joinLeft (N:1 parent)', () => {
     assert.ok(!sideSql.includes('"role"'));
   });
 });
+
+// ─── Computed Fields ─────────────────────────────────────────
+
+function createComputedDbTables(mockPg) {
+  const customerSchema = createMockSchema('customer', {
+    id: Type.Number(),
+    firstName: Type.String(),
+    lastName: Type.String(),
+    metadata: Type.Any(),
+  });
+  const customerInfo = exportTableInfo(customerSchema);
+
+  const DbTables = {
+    customer: {
+      primary: 'id',
+      ...customerInfo,
+      defaultOrder: 'id',
+      computedFields: {
+        fullName: ({ qiCol }) => ({
+          expr: `${qiCol('firstName')} || ' ' || ${qiCol('lastName')}`,
+          values: [],
+          type: Type.String(),
+        }),
+        statusFromMeta: ({ db, qiCol }) => ({
+          expr: db.dialectName === 'postgres'
+            ? `${qiCol('metadata')}->>'status'`
+            : `JSON_UNQUOTE(JSON_EXTRACT(${qiCol('metadata')}, '$.status'))`,
+          values: [],
+          type: Type.String(),
+        }),
+      },
+    },
+  };
+
+  return { DbTables, db: new QueryClient(mockPg) };
+}
+
+describe('searchEngine - computed fields', () => {
+  it('filters by computed (equality) via side-channel WHERE', async () => {
+    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
+    const { DbTables, db } = createComputedDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      filters: { statusFromMeta: 'active' },
+    });
+
+    const sql = mockPg.calls[0].text;
+    assert.ok(sql.includes("metadata"), 'WHERE should reference the metadata column');
+    assert.ok(sql.includes("->>"), 'Postgres JSON arrow operator should be present');
+    assert.ok(mockPg.calls[0].values.includes('active'));
+  });
+
+  it('orderBy by computed (1-parte) emits the expr in ORDER BY', async () => {
+    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
+    const { DbTables, db } = createComputedDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      orderBy: 'fullName ASC',
+    });
+
+    const sql = mockPg.calls[0].text;
+    assert.ok(/ORDER BY .*first_name.*\|\|.*last_name/.test(sql));
+  });
+
+  it('selectComputed projects the expr aliased in main SELECT', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 1, first_name: 'Mario', last_name: 'Rossi', fullName: 'Mario Rossi' }], affectedRows: 1 },
+    ]);
+    const { DbTables, db } = createComputedDbTables(mockPg);
+
+    const result = await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      selectComputed: ['fullName'],
+    });
+
+    const sql = mockPg.calls[0].text;
+    assert.ok(sql.includes('AS "fullName"'));
+    assert.equal(result.main[0].fullName, 'Mario Rossi');
+  });
+
+  it('rejects selectComputed with unknown name (400)', async () => {
+    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
+    const { DbTables, db } = createComputedDbTables(mockPg);
+
+    await assert.rejects(
+      () => searchEngine(DbTables, {
+        db,
+        tableConf: DbTables.customer,
+        selectComputed: ['bogus'],
+      }),
+      (err) => err.statusCode === 400 && /Unknown computed field/.test(err.message)
+    );
+  });
+
+  it('conditions with operator on computed field uses side-channel', async () => {
+    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
+    const { DbTables, db } = createComputedDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      conditions: [
+        { field: 'fullName', method: 'isILike', params: ['%mario%'] },
+      ],
+    });
+
+    const sql = mockPg.calls[0].text;
+    assert.ok(/\|\|/.test(sql), 'fullName concat should appear in WHERE');
+    assert.ok(/ILIKE|LIKE/i.test(sql));
+    assert.ok(mockPg.calls[0].values.includes('%mario%'));
+  });
+
+  it('computeMin on a computed field wraps the expr inside MIN(...)', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 1 }], affectedRows: 1 },         // main
+      { rows: [{ total: '1' }], affectedRows: 1 },    // count
+      { rows: [{ value: 'M Rossi' }], affectedRows: 1 }, // computeMin
+    ]);
+    const { DbTables, db } = createComputedDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      paginator: { page: 1, itemsPerPage: 10 },
+      computeMin: 'fullName',
+    });
+
+    const computeSql = mockPg.calls[2].text;
+    assert.ok(computeSql.includes('MIN('));
+    assert.ok(computeSql.includes('||'), 'computeMin wraps the computed expr');
+  });
+});

@@ -582,5 +582,6 @@ if (!response.ok) {
 - **PK-only responses**: Insert, update, delete, bulk operations return only the primary key fields, not the full record. This is by design for performance and consistency.
 - **camelCase fields**: All request and response fields use camelCase (e.g. `customerId`, not `customer_id`). The plugin converts automatically.
 - **Aliases everywhere**: in request bodies, response payloads, `secondaries`/`deletions`, and dotted notation, the keys are aliases declared by the backend in `buildRelation`. Default = the joined table's name; can be overridden (e.g. `orders` for `customer_order`).
+- **Computed fields**: the backend may declare virtual fields via `computedFields` on a table. They appear in Swagger as additional filter/orderBy names, behave exactly like schema fields (filters, conditions, orderBy, computeMin/Max/Sum/Avg), and are projected into the main response only when explicitly listed in `selectComputed: ['<name>']` in the body.
 - **`joinMultiple` / `joinMustExist` / `joinGroup`** are 1:N (child→main) and use side queries / EXISTS / correlated subqueries — no row duplication of main.
 - **`joinLeft`** is N:1 (parent→main) and adds a real `LEFT JOIN` on demand (only when filtering/ordering by parent).

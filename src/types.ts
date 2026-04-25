@@ -101,6 +101,35 @@ export interface TenantContext {
   scope: TenantScope;
 }
 
+// ─── Computed fields ─────────────────────────────────────────
+
+/**
+ * Context passed to ComputedFieldFn when the engine resolves a computed field.
+ * - `db` exposes dialect-aware helpers (qi, ph, dialectName, dateTrunc, ...).
+ * - `qiCol(field, opts?)` returns a quoted column reference, optionally
+ *   prefixed by an alias qualifier — needed when the computed is embedded in
+ *   a `LEFT JOIN <table> AS <alias>` (joinLeft).
+ */
+export interface ComputedFieldContext {
+  db: QueryClient;
+  qiCol(field: string, opts?: { qualifier?: string }): string;
+}
+
+/**
+ * Result returned by a ComputedFieldFn.
+ *  - `expr`: SQL fragment usable as a scalar expression.
+ *  - `values`: bound parameter values (always parameterized — never interpolate
+ *    user-derived data into `expr`).
+ *  - `type`: TypeBox schema for Swagger filters and main response (REQUIRED).
+ */
+export interface ComputedFieldExpr {
+  expr: string;
+  values: unknown[];
+  type: TSchema;
+}
+
+export type ComputedFieldFn = (ctx: ComputedFieldContext) => ComputedFieldExpr;
+
 // ─── Join Definition ─────────────────────────────────────────
 
 export interface JoinDefinition {
@@ -153,6 +182,16 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
   Schema: SchemaDefinition<F>;
   filters: TableFilterFn;
   extraFilters: Record<string, TSchema>;
+  /**
+   * Virtual fields produced by a SQL expression. Usable like schema fields in
+   * `filters`, `conditions` (non-dotted), `orderBy` (1-parte),
+   * `computeMin/Max/Sum/Avg`, and (opt-in) in `selectComputed` for the main
+   * response. Each entry MUST declare `type` for Swagger and validation.
+   *
+   * Naming clashes with `Schema.fields` or `extraFilters` keys throw at
+   * `defineTable` time.
+   */
+  computedFields?: Record<string, ComputedFieldFn>;
   allowedReadJoins?: JoinDefinition[];
   allowedWriteJoins?: JoinDefinition[];
   upsertMap?: Map<SchemaDefinition, string[]>;
@@ -311,6 +350,11 @@ export interface SearchParams {
   computeMax?: string;
   computeSum?: string;
   computeAvg?: string;
+  /**
+   * Names of computed fields (declared on `tableConf.computedFields`) to project
+   * into the main response. Each becomes an extra column on each `main[i]` row.
+   */
+  selectComputed?: string[];
   tenant?: TenantContext;
 }
 

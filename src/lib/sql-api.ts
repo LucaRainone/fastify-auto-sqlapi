@@ -47,6 +47,7 @@ export interface SqlApiSearchParams {
   computeMax?: string;
   computeSum?: string;
   computeAvg?: string;
+  selectComputed?: string[];
 }
 
 export interface SqlApiInsertParams {
@@ -128,6 +129,7 @@ export class SqlApi {
       computeMax: params.computeMax,
       computeSum: params.computeSum,
       computeAvg: params.computeAvg,
+      selectComputed: params.selectComputed,
       tenant,
     });
   }

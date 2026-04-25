@@ -62,7 +62,31 @@ export function defineTable<F extends Record<string, TSchema>>(
 ): ITable<F> {
   validateAliasUniqueness(config.allowedReadJoins, 'allowedReadJoins');
   validateAliasUniqueness(config.allowedWriteJoins, 'allowedWriteJoins');
+  validateComputedFields(config as unknown as ITable);
   return config;
+}
+
+function validateComputedFields(config: ITable): void {
+  const computed = config.computedFields;
+  if (!computed) return;
+
+  const schemaFields = Object.keys(config.Schema.fields);
+  const extraKeys = Object.keys(config.extraFilters || {});
+
+  for (const name of Object.keys(computed)) {
+    if (schemaFields.includes(name)) {
+      throw new Error(
+        `defineTable: computedFields name '${name}' collides with a schema field on ` +
+        `table '${config.Schema.tableName}'. Choose a different name.`
+      );
+    }
+    if (extraKeys.includes(name)) {
+      throw new Error(
+        `defineTable: computedFields name '${name}' collides with an extraFilters key on ` +
+        `table '${config.Schema.tableName}'. Choose a different name.`
+      );
+    }
+  }
 }
 
 function validateAliasUniqueness(

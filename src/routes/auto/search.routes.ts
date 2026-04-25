@@ -44,6 +44,7 @@ export default async function searchRoutes(
           joinMultiple: body.joinMultiple,
           joinGroup: body.joinGroup,
           joinLeft: body.joinLeft,
+          selectComputed: body.selectComputed,
           orderBy: query.orderBy,
           paginator: (query.page || query.itemsPerPage)
             ? {

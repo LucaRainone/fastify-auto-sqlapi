@@ -171,6 +171,59 @@ describe('buildRelation', () => {
   });
 });
 
+describe('defineTable - computedFields validation', () => {
+  it('throws when computed name collides with a schema field', async () => {
+    const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+    const schema = createMockSchema('customer', { id: Type.Number(), name: Type.String() });
+    assert.throws(
+      () => defineTable({
+        primary: 'id',
+        ...exportTableInfo(schema),
+        computedFields: {
+          name: ({ qiCol }) => ({ expr: qiCol('name'), values: [], type: Type.String() }),
+        },
+      }),
+      /collides with a schema field/
+    );
+  });
+
+  it('throws when computed name collides with an extraFilters key', async () => {
+    const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+    const schema = createMockSchema('customer', { id: Type.Number() });
+    assert.throws(
+      () => defineTable({
+        primary: 'id',
+        ...exportTableInfo(schema, { q: Type.String() }, () => {}),
+        computedFields: {
+          q: ({ qiCol }) => ({ expr: qiCol('id'), values: [], type: Type.String() }),
+        },
+      }),
+      /collides with an extraFilters key/
+    );
+  });
+
+  it('accepts computed fields with no clashes', async () => {
+    const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+    const schema = createMockSchema('customer', {
+      id: Type.Number(),
+      firstName: Type.String(),
+      lastName: Type.String(),
+    });
+    const conf = defineTable({
+      primary: 'id',
+      ...exportTableInfo(schema),
+      computedFields: {
+        fullName: ({ qiCol }) => ({
+          expr: `${qiCol('firstName')} || ' ' || ${qiCol('lastName')}`,
+          values: [],
+          type: Type.String(),
+        }),
+      },
+    });
+    assert.ok(conf.computedFields.fullName);
+  });
+});
+
 describe('defineTable - alias uniqueness', () => {
   it('rejects duplicate aliases in allowedReadJoins', async () => {
     const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));

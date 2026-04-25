@@ -23,9 +23,28 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
     params: Type.Optional(Type.Array(Type.Any())),
   });
 
+  // Build a TypeBox map of computed-field types (declared in defineTable).
+  const computedTypes: Record<string, TSchema> = {};
+  if (tableConf.computedFields) {
+    for (const [name, fn] of Object.entries(tableConf.computedFields)) {
+      // Cheap dry-run with a stub context to extract the declared `type`.
+      // The fn is pure-functional w.r.t. ctx — only `type` is read here.
+      try {
+        const stub = fn({
+          db: { qi: (s: string) => s, dialectName: 'postgres' } as never,
+          qiCol: () => '""',
+        });
+        if (stub.type) computedTypes[name] = stub.type;
+      } catch {
+        // ignore — Swagger schema generation is best-effort; runtime validates.
+      }
+    }
+  }
+
   const filterFields = {
     ...schema.fields,
     ...tableConf.extraFilters,
+    ...computedTypes,
   };
   const filtersSchema = Type.Optional(Type.Partial(Type.Object(filterFields)));
 
@@ -42,8 +61,23 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
       const { joinSchema, alias, unique } = joinDef;
       const joinTableConf = dbTables[joinSchema.tableName];
 
+      const joinComputedTypes: Record<string, TSchema> = {};
+      if (joinTableConf?.computedFields) {
+        for (const [name, fn] of Object.entries(joinTableConf.computedFields)) {
+          try {
+            const stub = fn({
+              db: { qi: (s: string) => s, dialectName: 'postgres' } as never,
+              qiCol: () => '""',
+            });
+            if (stub.type) joinComputedTypes[name] = stub.type;
+          } catch {
+            // best-effort
+          }
+        }
+      }
+
       const joinFilterFields = joinTableConf
-        ? { ...joinSchema.fields, ...joinTableConf.extraFilters }
+        ? { ...joinSchema.fields, ...joinTableConf.extraFilters, ...joinComputedTypes }
         : { ...joinSchema.fields };
 
       const joinRefShape = {
@@ -95,6 +129,10 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
     conditions: Type.Optional(Type.Array(conditionItemSchema)),
   };
 
+  if (Object.keys(computedTypes).length > 0) {
+    bodyProperties.selectComputed = Type.Optional(Type.Array(Type.String()));
+  }
+
   if (Object.keys(joinMustExistProps).length > 0) {
     bodyProperties.joinMustExist = Type.Optional(Type.Partial(Type.Object(joinMustExistProps)));
     bodyProperties.joinMultiple = Type.Optional(Type.Partial(Type.Object(joinMultipleProps)));
@@ -115,12 +153,32 @@ export const SearchTableQueryString = Type.Object({
   computeMax: Type.Optional(Type.String()),
   computeSum: Type.Optional(Type.String()),
   computeAvg: Type.Optional(Type.String()),
+  // selectComputed list goes in the body (POST), not querystring — see SearchTableBodyPost.
 });
 
 export function SearchTableResponse(dbTables: DbTables, tableName: string): TObject {
   const tableConf = dbTables[tableName];
 
-  const mainItem = Type.Partial(Type.Object(tableConf.Schema.fields));
+  // Computed fields are present in main rows only when explicitly listed in
+  // request body's selectComputed, so they're optional/Partial here.
+  const computedTypes: Record<string, TSchema> = {};
+  if (tableConf.computedFields) {
+    for (const [name, fn] of Object.entries(tableConf.computedFields)) {
+      try {
+        const stub = fn({
+          db: { qi: (s: string) => s, dialectName: 'postgres' } as never,
+          qiCol: () => '""',
+        });
+        if (stub.type) computedTypes[name] = stub.type;
+      } catch {
+        // best-effort
+      }
+    }
+  }
+
+  const mainItem = Object.keys(computedTypes).length > 0
+    ? Type.Partial(Type.Object({ ...tableConf.Schema.fields, ...computedTypes }))
+    : Type.Partial(Type.Object(tableConf.Schema.fields));
 
   const joinMultipleProps: Record<string, ReturnType<typeof Type.Array>> = {};
   const joinLeftProps: Record<string, ReturnType<typeof Type.Array>> = {};

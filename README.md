@@ -10,6 +10,7 @@ Point it at your database, and get a full REST API with search, advanced conditi
 - **No ORM** — raw SQL via `pg` + parameterized queries
 - **TypeBox validation** — request/response schemas auto-generated from your DB
 - **Joins** — four explicit families (`joinMustExist`, `joinMultiple`, `joinGroup`, `joinLeft`) with alias support
+- **Computed fields** — declare virtual fields as SQL expressions in `defineTable`; usable like schema fields in filters/orderBy/conditions, and opt-in projected in the response via `selectComputed`. Covers JSON extraction, derived columns, dialect-aware date bucketing
 - **Bulk operations** — batch insert/upsert/delete in single queries
 - **Multi-tenant** — automatic row-level isolation, zero code in handlers
 - **Validation** — structured field-level validation with cross-entity support

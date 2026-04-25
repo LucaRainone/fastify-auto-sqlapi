@@ -389,6 +389,89 @@ export const TableCustomer = defineTable({
 
 ---
 
+## Computed Fields (extension system)
+
+`computedFields` lets you declare **virtual fields** as SQL expressions on a per-table basis. Each computed becomes usable like a regular schema field across the search API: `filters` (equality), `conditions` (operators), `orderBy` (1-parte), `computeMin/Max/Sum/Avg`, and (opt-in) in `selectComputed` for the main response. Same machinery serves JSON column extraction, derived strings, dialect-aware date/calendar bucketing — without growing the library case-by-case.
+
+```typescript
+import { defineTable, exportTableInfo, Type } from 'fastify-auto-sqlapi';
+import { SchemaCustomer as Schema } from '../schemas/SchemaCustomer';
+
+export const TableCustomer = defineTable({
+  primary: 'id',
+  ...exportTableInfo(Schema),
+  computedFields: {
+    // JSON path extraction — dialect-aware (Postgres -> arrow, MySQL -> JSON_EXTRACT).
+    statusFromMeta: ({ db, qiCol }) => ({
+      expr: db.dialectName === 'postgres'
+        ? `${qiCol('metadata')}->>'status'`
+        : `JSON_UNQUOTE(JSON_EXTRACT(${qiCol('metadata')}, '$.status'))`,
+      values: [],
+      type: Type.String(),
+    }),
+    // Derived string column — dialect-aware concat.
+    fullName: ({ db, qiCol }) => ({
+      expr: db.dialectName === 'postgres'
+        ? `${qiCol('firstName')} || ' ' || ${qiCol('lastName')}`
+        : `CONCAT(${qiCol('firstName')}, ' ', ${qiCol('lastName')})`,
+      values: [],
+      type: Type.String(),
+    }),
+  },
+});
+```
+
+Client side, the computed name behaves like any other field:
+
+```json
+{
+  "filters": { "statusFromMeta": "active" },
+  "conditions": [
+    { "field": "fullName", "method": "isLike", "params": ["%Mario%"] }
+  ],
+  "orderBy": "fullName ASC",
+  "selectComputed": ["fullName", "statusFromMeta"]
+}
+```
+
+The values returned by `selectComputed` appear as extra fields on each `main[i]` row.
+
+### `ComputedFieldFn` signature
+
+```typescript
+type ComputedFieldFn = (ctx: {
+  db: QueryClient;                                 // dialect-aware (qi, ph, dialectName, dateTrunc, ...)
+  qiCol(field: string, opts?: { qualifier?: string }): string;
+}) => {
+  expr: string;                                    // SQL fragment
+  values: unknown[];                               // bound values (see limitations below)
+  type: TSchema;                                   // REQUIRED — used by Swagger and body validation
+};
+```
+
+`qiCol(field)` returns a properly-quoted column reference, optionally prefixed by an alias qualifier — the engine passes the alias automatically when the computed is invoked inside a `joinLeft` LEFT JOIN, so the same function works both inline on the main query and as a parent-side column.
+
+### Validation & startup checks
+
+`defineTable` throws synchronously if a computed name collides with a schema field or an `extraFilters` key on the same table. The error message tells you which name to change.
+
+### Side queries (`joinMustExist`, `joinMultiple`, `joinGroup`, `joinLeft`)
+
+Computed fields are **per-table**: a side query operating on a join target reads `joinTableConf.computedFields`, not the main table's. So if you need `statusFromMeta` on `joinLeft.user.filters`, declare it on `TableUser`, not on `TableSession`.
+
+For `joinLeft` specifically, the computed expr is automatically alias-prefixed by `qiCol` (the engine forwards the alias). For the other three families the side query is a separate SELECT, so plain column references suffice.
+
+### Limitations (first round, by design)
+
+- **Bound `values` in computed expressions** are supported only on `filters`/`conditions` (main and `joinMustExist`/`joinMultiple`/`joinGroup`). They are rejected with 400 on `selectComputed`, `computeMin/Max/Sum/Avg`, `orderBy`, and `joinLeft.filters`/`conditions` — those paths require placeholder coordination not done in the first round. Most use cases (JSON extraction, concat, dateTrunc, simple ops) need no placeholders.
+- **Computed cannot be used in `joinGroup.aggregations.by`** — the existing FK-correlation constraint requires dedicated handling. Use `{field, truncate}` for date bucketing instead. A 400 is returned if you try.
+- **Computed cannot be used as aggregation function** (`sum`/`min`/`max`/...). The values inside `aggregations.sum: ['<name>']` must be schema field names. To aggregate on a derived expression, declare the derivation as a computed and pass the computed name as the field, BUT only via `computeMin/Max/Sum/Avg` (top-level main aggregates), not the joinGroup ones.
+- **No chained computed** (a computed referencing another computed). Flat-only.
+- **Read-only**. Computed fields are not usable in insert/update bodies — the consumer's `expr` is for SELECT/WHERE/ORDER BY, never for writes.
+- **Same expression evaluated multiple times** when used in WHERE + ORDER BY + SELECT. Cheap exprs are fine; for expensive ones, query planner CSE often helps.
+
+---
+
 ## ConditionBuilder API
 
 Used in `extendedCondition` callbacks, hooks, and exposed via the `conditions` field in the search API (see [AGENTS_FRONTEND.md](./AGENTS_FRONTEND.md#conditions-advanced-filters)).
