@@ -1,33 +1,25 @@
 import type { FastifyInstance } from 'fastify';
 import { BulkUpsertTableBody, BulkUpsertTableResponse } from '../../lib/schema/bulk-upsert.js';
-import { mergeOnRequests, buildWriteDescription } from './route-helpers.js';
+import { registerForAllTables, buildWriteDescription } from './route-helpers.js';
 import type { SqlApiPluginOptions, BulkUpsertItem } from '../../types.js';
 
 export default async function bulkUpsertRoutes(
   fastify: FastifyInstance,
-  options: SqlApiPluginOptions
+  options: SqlApiPluginOptions,
 ): Promise<void> {
-  const { DbTables } = options;
-
-  for (const [tableName, tableConf] of Object.entries(DbTables)) {
-    const bodySchema = BulkUpsertTableBody(DbTables, tableName);
-    const responseSchema = BulkUpsertTableResponse(DbTables, tableName);
-
-    fastify.route({
-      method: 'PUT',
-      url: `/bulk/${tableConf.Schema.tableName}`,
-      schema: {
-        body: bodySchema,
-        response: { 200: responseSchema },
-        tags: [`SqlAPI-${tableName}`],
-        summary: `Bulk upsert ${tableName}`,
-        description: buildWriteDescription('Bulk upsert records in', tableName, tableConf),
-      },
-      onRequest: mergeOnRequests(options, tableConf),
-      handler: async (request, reply) => {
-        const items = request.body as BulkUpsertItem[];
-        reply.send(await fastify.sqlApi.bulkUpsert(tableName, items, request));
-      },
-    });
-  }
+  await registerForAllTables(fastify, options, {
+    method: 'PUT',
+    url: (tc) => `/bulk/${tc.Schema.tableName}`,
+    successStatus: 200,
+    schemas: (db, table) => ({
+      body: BulkUpsertTableBody(db, table),
+      response: BulkUpsertTableResponse(db, table),
+    }),
+    summary: 'Bulk upsert',
+    description: (name, tc) => buildWriteDescription('Bulk upsert records in', name, tc),
+    handle: (fastify, tableName, _tc, request) => {
+      const items = request.body as BulkUpsertItem[];
+      return fastify.sqlApi.bulkUpsert(tableName, items, request);
+    },
+  });
 }

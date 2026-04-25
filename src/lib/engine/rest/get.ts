@@ -1,6 +1,7 @@
 import { ConditionBuilder } from 'node-condition-builder';
 import { camelcaseObject } from '../../naming.js';
 import { buildTenantCondition, buildTenantJoin } from '../../tenant.js';
+import { httpError } from '../../errors.js';
 import { primaryAsString } from '../../../types.js';
 import type { GetParams, GetResult, TenantScopeIndirect } from '../../../types.js';
 
@@ -30,11 +31,7 @@ export async function getEngine(params: GetParams): Promise<GetResult> {
     joins: joins.length > 0 ? joins : undefined,
   });
 
-  if (rows.length === 0) {
-    const err = new Error(`Record not found: ${id}`) as Error & { statusCode: number };
-    err.statusCode = 404;
-    throw err;
-  }
+  if (rows.length === 0) throw httpError(404, `Record not found: ${id}`);
 
   return { main: camelcaseObject(rows[0] as Record<string, unknown>, tableConf.Schema) };
 }

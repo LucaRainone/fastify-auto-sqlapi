@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { loadConfig } from '../lib/cli/config.js';
 import { parseSchemaFile, generateSingleTableFile, generateDbTablesIndex } from '../lib/cli/tables-codegen.js';
 import type { ParsedSchema } from '../lib/cli/tables-codegen.js';
-import { loadEnvFile, CONSOLE_COLORS, display, displayAsTableRow, error } from './utils.js';
+import { loadEnvFile, CONSOLE_COLORS, display, displayAsTableRow, error, parseArgs, runCli } from './utils.js';
 
 function printHelp(): void {
   console.log('');
@@ -25,41 +25,17 @@ function printHelp(): void {
   display('dbTables.ts is always regenerated to include all schemas.', CONSOLE_COLORS.magenta);
 }
 
-function parseCliArgs(): { output?: string; all: boolean; tables: string[] } {
-  const args = process.argv.slice(2);
-  const result: { output?: string; all: boolean; tables: string[] } = { all: false, tables: [] };
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--output' && i + 1 < args.length) {
-      result.output = args[++i];
-    } else if (args[i] === '--all') {
-      result.all = true;
-    } else if (!args[i].startsWith('--')) {
-      // Split by comma to support both "a b" and "a,b" and "a, b"
-      for (const part of args[i].split(',')) {
-        const trimmed = part.trim();
-        if (trimmed) result.tables.push(trimmed);
-      }
-    }
-  }
-  return result;
-}
-
-async function main(): Promise<void> {
-  const cliArgs = parseCliArgs();
+await runCli('fastify-auto-sqlapi: generating tables template', async () => {
+  const cliArgs = parseArgs({
+    output: { type: 'value' },
+    all:    { type: 'flag'  },
+    tables: { type: 'list'  },
+  });
 
   if (!cliArgs.all && cliArgs.tables.length === 0) {
-    display(
-      '++++++ fastify-auto-sqlapi: generate tables template ++++++',
-      CONSOLE_COLORS.yellow
-    );
     printHelp();
     process.exit(1);
   }
-
-  display(
-    '++++++ fastify-auto-sqlapi: generating tables template ++++++',
-    CONSOLE_COLORS.yellow
-  );
 
   const config = await loadConfig();
   loadEnvFile(config.envFile);
@@ -150,9 +126,4 @@ async function main(): Promise<void> {
     'Edit the generated Table*.ts files to customize your table configuration.',
     CONSOLE_COLORS.magenta
   );
-}
-
-main().catch((e) => {
-  error(`Error: ${(e as Error).message}`);
-  process.exit(1);
 });

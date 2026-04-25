@@ -1,14 +1,18 @@
 import { snakecaseRecord } from '../../naming.js';
 import { processSecondaries, processDeletions } from '../write-helpers.js';
-import { stripTenantColumn, buildTenantCondition, buildTenantJoin } from '../../tenant.js';
+import {
+  stripTenantColumn,
+  assertTenantOwnership,
+  buildTenantUpdateExtra,
+} from '../../tenant.js';
 import { runValidation } from '../validate.js';
-import { ConditionBuilder, type ConditionValue } from 'node-condition-builder';
+import { httpError } from '../../errors.js';
+import { type ConditionValue } from 'node-condition-builder';
 import { primaryAsString } from '../../../types.js';
 import type {
   UpdateParams,
   UpdateResult,
   DbRecord,
-  TenantScopeIndirect,
 } from '../../../types.js';
 
 export async function updateEngine(params: UpdateParams): Promise<UpdateResult> {
@@ -19,30 +23,10 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
   const pkCol = schema.col(pk);
   const pkValue = record[pk];
 
-  if (pkValue == null) {
-    const error = new Error(`Primary key "${pk}" is required`) as Error & { statusCode: number };
-    error.statusCode = 400;
-    throw error;
-  }
+  if (pkValue == null) throw httpError(400, `Primary key "${pk}" is required`);
 
   // 1. Tenant ownership check (indirect) — do it early so user mutations don't run on records they can't access
-  if (tenant && 'through' in tenant.scope) {
-    const scope = tenant.scope as TenantScopeIndirect;
-    const tableName = schema.tableName;
-    const cb = new ConditionBuilder('AND');
-    cb.isEqual(`${db.qi(tableName)}.${db.qi(pkCol)}`, pkValue as ConditionValue);
-    cb.append(buildTenantCondition(db, scope, tenant.ids));
-    const checkWhere = cb.build(1, db.ph);
-    const checkValues = cb.getValues();
-    const joinSql = buildTenantJoin(db, scope, tableName);
-    const checkSql = `SELECT 1 FROM ${db.qi(tableName)} ${joinSql} WHERE ${checkWhere} LIMIT 1`;
-    const checkResult = await db.query(checkSql, checkValues);
-    if (checkResult.rows.length === 0) {
-      const error = new Error('Record not found') as Error & { statusCode: number };
-      error.statusCode = 404;
-      throw error;
-    }
-  }
+  await assertTenantOwnership(db, tenant, schema.tableName, pkCol, pkValue as ConditionValue);
 
   // 2. Mutable copy of input in camelCase
   const inputRecord: Record<string, unknown> = { ...record };
@@ -68,15 +52,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
   // 7. Update main
   const hasFieldsToUpdate = Object.keys(updateFields).length > 0;
 
-  let extraCondition: ConditionBuilder | undefined;
-  if (tenant && !('through' in tenant.scope)) {
-    extraCondition = new ConditionBuilder('AND');
-    if (tenant.ids.length === 1) {
-      extraCondition.isEqual(tenant.scope.column, tenant.ids[0]);
-    } else {
-      extraCondition.isIn(tenant.scope.column, tenant.ids);
-    }
-  }
+  const extraCondition = buildTenantUpdateExtra(tenant);
 
   if (hasFieldsToUpdate) {
     const affectedRows = await db.update(
@@ -86,11 +62,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
       extraCondition
     );
 
-    if (affectedRows === 0) {
-      const error = new Error(`Record not found`) as Error & { statusCode: number };
-      error.statusCode = 404;
-      throw error;
-    }
+    if (affectedRows === 0) throw httpError(404, `Record not found`);
   } else {
     // No fields to update: verify the record exists (for secondaries/deletions)
     let whereSql = `${db.qi(schema.tableName)}.${db.qi(pkCol)} = ${db.ph(1)}`;
@@ -108,11 +80,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
       limit: '1',
     });
 
-    if (rows.length === 0) {
-      const error = new Error(`Record not found`) as Error & { statusCode: number };
-      error.statusCode = 404;
-      throw error;
-    }
+    if (rows.length === 0) throw httpError(404, `Record not found`);
   }
 
   // Build the main response (PK-only)

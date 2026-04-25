@@ -1,6 +1,7 @@
 import type { FastifyRequest } from 'fastify';
 import type { QueryClient } from './db.js';
 import { ConditionBuilder, type ConditionValue, type ConditionValueOrUndefined } from 'node-condition-builder';
+import { httpError } from './errors.js';
 import type {
   ITable,
   SqlApiPluginOptions,
@@ -71,9 +72,7 @@ export function injectTenantValue(
   const col = scope.column;
   if (col in record) {
     if (!tenantIds.includes(record[col] as TenantId)) {
-      const err = new Error('Access denied: tenant value does not match') as Error & { statusCode: number };
-      err.statusCode = 403;
-      throw err;
+      throw httpError(403, 'Access denied: tenant value does not match');
     }
     return;
   }
@@ -83,9 +82,7 @@ export function injectTenantValue(
     return;
   }
 
-  const err = new Error('Ambiguous tenant: specify the tenant value') as Error & { statusCode: number };
-  err.statusCode = 400;
-  throw err;
+  throw httpError(400, 'Ambiguous tenant: specify the tenant value');
 }
 
 export async function validateTenantFK(
@@ -116,9 +113,7 @@ export async function validateTenantFK(
   const result = await db.query(sql, values);
 
   if (result.rows.length > 0) {
-    const err = new Error('Access denied: records do not belong to tenant') as Error & { statusCode: number };
-    err.statusCode = 403;
-    throw err;
+    throw httpError(403, 'Access denied: records do not belong to tenant');
   }
 }
 
@@ -156,10 +151,72 @@ export function buildTenantDeleteWhere(
   return { where, values };
 }
 
+/**
+ * Mutates `fields` in-place: removes the tenant column from a SET payload (direct scopes only).
+ * No-op for indirect or no scope.
+ */
 export function stripTenantColumn(
   fields: Record<string, unknown>,
   scope: TenantScope
 ): void {
   if (isIndirect(scope)) return;
   delete fields[scope.column];
+}
+
+/**
+ * For insert/bulk-upsert: enforce tenant on records that are about to be written.
+ * For direct scopes, mutates each record in-place to inject/validate the tenant column.
+ * For indirect scopes, batch-validates the FK values against the tenant scope.
+ * Throws 400 (ambiguous tenant) or 403 (mismatch) on violation. No-op when `tenant` is undefined.
+ */
+export async function enforceTenantOnWrites(
+  db: QueryClient,
+  tenant: TenantContext | undefined,
+  records: Record<string, unknown>[]
+): Promise<void> {
+  if (!tenant) return;
+  if (isIndirect(tenant.scope)) {
+    const fkCol = tenant.scope.through.localField;
+    await validateTenantFK(db, tenant.scope, tenant.ids, records.map((r) => r[fkCol]));
+    return;
+  }
+  for (const r of records) injectTenantValue(r, tenant.scope, tenant.ids);
+}
+
+/**
+ * For update: builds the optional `extraCondition` ConditionBuilder for direct tenants.
+ * Returns undefined for indirect or no-tenant scenarios — those are handled separately
+ * (indirect uses pre-check via `assertTenantOwnership`).
+ */
+export function buildTenantUpdateExtra(
+  tenant: TenantContext | undefined
+): ConditionBuilder | undefined {
+  if (!tenant || isIndirect(tenant.scope)) return undefined;
+  const cb = new ConditionBuilder('AND');
+  if (tenant.ids.length === 1) cb.isEqual(tenant.scope.column, tenant.ids[0]);
+  else cb.isIn(tenant.scope.column, tenant.ids);
+  return cb;
+}
+
+/**
+ * For update with indirect tenant: pre-check ownership via `SELECT 1 ... INNER JOIN ... LIMIT 1`.
+ * Throws 404 if the record either does not exist or does not belong to the tenant.
+ * No-op for direct or no-tenant — those are enforced via `extraCondition` in the UPDATE itself.
+ */
+export async function assertTenantOwnership(
+  db: QueryClient,
+  tenant: TenantContext | undefined,
+  tableName: string,
+  pkCol: string,
+  pkValue: ConditionValue
+): Promise<void> {
+  if (!tenant || !isIndirect(tenant.scope)) return;
+  const cb = new ConditionBuilder('AND');
+  cb.isEqual(`${db.qi(tableName)}.${db.qi(pkCol)}`, pkValue);
+  cb.append(buildTenantCondition(db, tenant.scope, tenant.ids));
+  const sql = `SELECT 1 FROM ${db.qi(tableName)} ${buildTenantJoin(db, tenant.scope, tableName)} WHERE ${cb.build(1, db.ph)} LIMIT 1`;
+  const r = await db.query(sql, cb.getValues());
+  if (r.rows.length === 0) {
+    throw httpError(404, 'Record not found');
+  }
 }

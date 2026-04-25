@@ -3,6 +3,7 @@ import { ConditionBuilder } from 'node-condition-builder';
 import { createQueryClient, QueryClient } from './db.js';
 import { getDialect, type DialectName } from './dialect.js';
 import { resolveTenant } from './tenant.js';
+import { httpError } from './errors.js';
 import { searchEngine } from './engine/search/search.js';
 import { getEngine } from './engine/rest/get.js';
 import { insertEngine } from './engine/rest/insert.js';
@@ -93,11 +94,7 @@ export class SqlApi {
 
   private getTableConf(tableName: string) {
     const conf = this.dbTables[tableName];
-    if (!conf) {
-      const err = new Error(`Table "${tableName}" not found in DbTables`) as Error & { statusCode: number };
-      err.statusCode = 400;
-      throw err;
-    }
+    if (!conf) throw httpError(400, `Table "${tableName}" not found in DbTables`);
     return conf;
   }
 

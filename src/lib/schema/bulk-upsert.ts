@@ -1,8 +1,13 @@
 import { Type, type TSchema } from '@sinclair/typebox';
 import { primaryAsString } from '../../types.js';
 import type { DbTables } from '../../types.js';
-import { findSecondaryTableConf } from '../engine/write-helpers.js';
-import { pkSchema, buildSecondaryFields, applySchemaOverrides } from './helpers.js';
+import {
+  pkSchema,
+  applySchemaOverrides,
+  attachWriteJoinSections,
+  writeJoinBodyFields,
+  writeJoinResponseFields,
+} from './helpers.js';
 
 export function BulkUpsertTableBody(dbTables: DbTables, tableName: string) {
   const tableConf = dbTables[tableName];
@@ -14,27 +19,10 @@ export function BulkUpsertTableBody(dbTables: DbTables, tableName: string) {
     main: mainSchema,
   };
 
-  if (tableConf.allowedWriteJoins?.length) {
-    const secondaryProperties: Record<string, TSchema> = {};
-    const deletionProperties: Record<string, TSchema> = {};
-
-    for (const { joinSchema, joinField, alias } of tableConf.allowedWriteJoins) {
-      const secondaryTableConf = findSecondaryTableConf(dbTables, joinSchema.tableName);
-      const joinFields = buildSecondaryFields(joinSchema, joinField, secondaryTableConf);
-      secondaryProperties[alias] = Type.Array(Type.Object(joinFields));
-
-      deletionProperties[alias] = Type.Array(
-        Type.Partial(Type.Object(joinSchema.fields))
-      );
-    }
-
-    itemProperties.secondaries = Type.Optional(
-      Type.Partial(Type.Object(secondaryProperties))
-    );
-    itemProperties.deletions = Type.Optional(
-      Type.Partial(Type.Object(deletionProperties))
-    );
-  }
+  attachWriteJoinSections(itemProperties, tableConf, dbTables, {
+    withDeletions: true,
+    secondaryFields: writeJoinBodyFields,
+  });
 
   return Type.Array(Type.Object(itemProperties));
 }
@@ -46,27 +34,10 @@ export function BulkUpsertTableResponse(dbTables: DbTables, tableName: string) {
     main: Type.Object(pkSchema(tableConf, tableConf.Schema, primaryAsString(tableConf.primary))),
   };
 
-  if (tableConf.allowedWriteJoins?.length) {
-    const secondaryProperties: Record<string, TSchema> = {};
-    const deletionProperties: Record<string, TSchema> = {};
-
-    for (const { joinSchema, joinField, alias } of tableConf.allowedWriteJoins) {
-      const secondaryTableConf = findSecondaryTableConf(dbTables, joinSchema.tableName);
-      secondaryProperties[alias] = Type.Array(
-        Type.Object(pkSchema(secondaryTableConf, joinSchema, joinField))
-      );
-      deletionProperties[alias] = Type.Array(
-        Type.Partial(Type.Object(joinSchema.fields))
-      );
-    }
-
-    responseProperties.secondaries = Type.Optional(
-      Type.Partial(Type.Object(secondaryProperties))
-    );
-    responseProperties.deletions = Type.Optional(
-      Type.Partial(Type.Object(deletionProperties))
-    );
-  }
+  attachWriteJoinSections(responseProperties, tableConf, dbTables, {
+    withDeletions: true,
+    secondaryFields: writeJoinResponseFields,
+  });
 
   return Type.Array(Type.Object(responseProperties));
 }

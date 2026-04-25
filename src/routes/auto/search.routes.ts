@@ -1,65 +1,58 @@
 import type { FastifyInstance } from 'fastify';
 import { SearchTableBodyPost, SearchTableQueryString, SearchTableResponse } from '../../lib/schema/search.js';
-import { mergeOnRequests } from './route-helpers.js';
+import { registerForAllTables } from './route-helpers.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
 export default async function searchRoutes(
   fastify: FastifyInstance,
-  options: SqlApiPluginOptions
+  options: SqlApiPluginOptions,
 ): Promise<void> {
-  const { DbTables } = options;
+  await registerForAllTables(fastify, options, {
+    method: 'POST',
+    url: (tc) => `/search/${tc.Schema.tableName}`,
+    successStatus: 200,
+    schemas: (db, table) => ({
+      body: SearchTableBodyPost(db, table),
+      querystring: SearchTableQueryString,
+      response: SearchTableResponse(db, table),
+    }),
+    summary: 'Search',
+    description: (name, _tc, schemas) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const body = schemas.body as any;
+      const multiAliases = Object.keys(body?.properties?.joinMultiple?.properties || {});
+      const leftAliases = Object.keys(body?.properties?.joinLeft?.properties || {});
+      return [
+        `Search records in ${name}`,
+        multiAliases.length && `Available joinMultiple/joinMustExist/joinGroup aliases: ${multiAliases.join(', ')}`,
+        leftAliases.length && `Available joinLeft aliases: ${leftAliases.join(', ')}`,
+      ].filter(Boolean).join('. ');
+    },
+    handle: async (fastify, tableName, tc, request) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const body = request.body as Record<string, any>;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const query = request.query as Record<string, any>;
 
-  for (const [tableName, tableConf] of Object.entries(DbTables)) {
-    const bodySchema = SearchTableBodyPost(DbTables, tableName);
-    const responseSchema = SearchTableResponse(DbTables, tableName);
+      const result = await fastify.sqlApi.search(tableName, {
+        filters: body.filters,
+        conditions: body.conditions,
+        joinMustExist: body.joinMustExist,
+        joinMultiple: body.joinMultiple,
+        joinGroup: body.joinGroup,
+        joinLeft: body.joinLeft,
+        selectComputed: body.selectComputed,
+        orderBy: query.orderBy,
+        paginator: (query.page || query.itemsPerPage)
+          ? { page: query.page || 1, itemsPerPage: query.itemsPerPage || 500 }
+          : undefined,
+        computeMin: query.computeMin,
+        computeMax: query.computeMax,
+        computeSum: query.computeSum,
+        computeAvg: query.computeAvg,
+      }, request);
 
-    const multiAliases = Object.keys(bodySchema.properties.joinMultiple?.properties || {});
-    const leftAliases = Object.keys(bodySchema.properties.joinLeft?.properties || {});
-    const description = [
-      `Search records in ${tableName}`,
-      multiAliases.length && `Available joinMultiple/joinMustExist/joinGroup aliases: ${multiAliases.join(', ')}`,
-      leftAliases.length && `Available joinLeft aliases: ${leftAliases.join(', ')}`,
-    ].filter(Boolean).join('. ');
-
-    fastify.route({
-      method: 'POST',
-      url: `/search/${tableConf.Schema.tableName}`,
-      schema: {
-        body: bodySchema,
-        querystring: SearchTableQueryString,
-        response: { 200: responseSchema },
-        tags: [`SqlAPI-${tableName}`],
-        summary: `Search ${tableName}`,
-        description,
-      },
-      onRequest: mergeOnRequests(options, tableConf),
-      handler: async (request, reply) => {
-        const body = request.body as Record<string, any>;
-        const query = request.query as Record<string, any>;
-
-        const result = await fastify.sqlApi.search(tableName, {
-          filters: body.filters,
-          conditions: body.conditions,
-          joinMustExist: body.joinMustExist,
-          joinMultiple: body.joinMultiple,
-          joinGroup: body.joinGroup,
-          joinLeft: body.joinLeft,
-          selectComputed: body.selectComputed,
-          orderBy: query.orderBy,
-          paginator: (query.page || query.itemsPerPage)
-            ? {
-                page: query.page || 1,
-                itemsPerPage: query.itemsPerPage || 500,
-              }
-            : undefined,
-          computeMin: query.computeMin,
-          computeMax: query.computeMax,
-          computeSum: query.computeSum,
-          computeAvg: query.computeAvg,
-        }, request);
-
-        reply.send({ table: tableConf.Schema.tableName, ...result });
-      },
-    });
-  }
+      return { table: tc.Schema.tableName, ...result };
+    },
+  });
 }

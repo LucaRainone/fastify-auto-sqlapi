@@ -5,31 +5,15 @@ import { loadConfig } from '../lib/cli/config.js';
 import { buildConnectionString, introspectTables } from '../lib/cli/pg-introspect.js';
 import { buildMysqlConnectionConfig, introspectMysqlTables } from '../lib/cli/mysql-introspect.js';
 import { buildTableMap, generateSchemaFile } from '../lib/cli/schema-codegen.js';
-import { loadEnvFile, CONSOLE_COLORS, display, displayAsTableRow, error } from './utils.js';
+import { loadEnvFile, CONSOLE_COLORS, display, displayAsTableRow, parseArgs, runCli } from './utils.js';
 import type { ColumnInfo, DialectName } from '../types.js';
 
-function parseCliArgs(): { output?: string; tables?: string[]; dialect?: string } {
-  const args = process.argv.slice(2);
-  const result: { output?: string; tables?: string[]; dialect?: string } = {};
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--output' && i + 1 < args.length) {
-      result.output = args[++i];
-    } else if (args[i] === '--tables' && i + 1 < args.length) {
-      result.tables = args[++i].split(',').map((t) => t.trim()).filter(Boolean);
-    } else if (args[i] === '--dialect' && i + 1 < args.length) {
-      result.dialect = args[++i];
-    }
-  }
-  return result;
-}
-
-async function main(): Promise<void> {
-  display(
-    '++++++ fastify-auto-sqlapi: generating schemas ++++++',
-    CONSOLE_COLORS.yellow
-  );
-
-  const cliArgs = parseCliArgs();
+await runCli('fastify-auto-sqlapi: generating schemas', async () => {
+  const cliArgs = parseArgs({
+    output:  { type: 'value' },
+    tables:  { type: 'list'  },
+    dialect: { type: 'value' },
+  });
   const config = await loadConfig();
   loadEnvFile(config.envFile);
   const dialect = (cliArgs.dialect || config.dialect || 'postgres') as DialectName;
@@ -63,7 +47,7 @@ async function main(): Promise<void> {
 
   // Filter tables if --tables flag is provided
   const tableNames = cliArgs.tables;
-  if (tableNames) {
+  if (tableNames.length) {
     for (const schemaName of Object.keys(tableMap)) {
       if (!tableNames.includes(tableMap[schemaName].name)) {
         delete tableMap[schemaName];
@@ -114,7 +98,7 @@ async function main(): Promise<void> {
   }
 
   // Remove orphan Schema*.ts files (only when generating all tables)
-  if (!tableNames) {
+  if (!tableNames.length) {
     const existingFiles = fs.readdirSync(schemasDir);
     for (const file of existingFiles) {
       if (file.startsWith('Schema') && file.endsWith('.ts') && !generatedFiles.has(file)) {
@@ -139,9 +123,4 @@ async function main(): Promise<void> {
   if (!somethingTouched) {
     display('All schemas are already up to date.', CONSOLE_COLORS.magenta);
   }
-}
-
-main().catch((e) => {
-  error(`Error: ${(e as Error).message}`);
-  process.exit(1);
 });

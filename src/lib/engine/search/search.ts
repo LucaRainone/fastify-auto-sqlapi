@@ -18,6 +18,7 @@ import type {
   TenantScopeIndirect,
   ComputedFieldContext,
   ComputedFieldExpr,
+  ComputedFieldFn,
 } from '../../../types.js';
 
 // ─── Schema field validation ────────────────────────────────
@@ -117,16 +118,94 @@ function requireJoin(tableConf: ITable, alias: string, requireUnique: boolean): 
   return joinDef!;
 }
 
+// ─── Reusable helpers for join references / computed fields ─
+
+interface JoinRefs {
+  mainColName: string;
+  /** db.qi'd column reference on main side (FK or PK) */
+  mainCol: string;
+  /** db.qi'd table name on main side */
+  mainTable: string;
+  /** db.qi'd table name on join side */
+  joinTable: string;
+  /** db.qi'd column reference on join side (FK or PK) */
+  fkCol: string;
+}
+
+/** Extract quoted identifiers for a join reference. Used by joinMustExist, joinLeft and joinGroup
+ * SQL builders to avoid the 4-line FK/PK destructuring boilerplate at every call site. */
+function extractJoinRefs(db: QueryClient, tableConf: ITable, joinDef: JoinDefinition): JoinRefs {
+  const { joinSchema, joinField, mainField } = joinDef;
+  const mainColName = Array.isArray(mainField) ? mainField[0] : mainField;
+  return {
+    mainColName,
+    mainCol: db.qi(tableConf.Schema.col(mainColName)),
+    mainTable: db.qi(tableConf.Schema.tableName),
+    joinTable: db.qi(joinSchema.tableName),
+    fkCol: db.qi(joinSchema.col(joinField)),
+  };
+}
+
+/**
+ * Evaluate a computed field. When `allowBoundValues=false`, throws 400 if the computed binds
+ * any parameters — used in positions where parameter binding cannot be coordinated (orderBy,
+ * compute*, joinLeft.filters, etc).
+ */
+function evaluateComputedField(
+  fn: ComputedFieldFn,
+  schema: SchemaDefinition,
+  db: QueryClient,
+  alias: string | undefined,
+  message: string,
+  allowBoundValues = false,
+): ComputedFieldExpr {
+  const ev = fn(buildComputedContext(db, schema, alias));
+  if (!allowBoundValues && (ev.values?.length ?? 0) > 0) {
+    err400(message);
+  }
+  return ev;
+}
+
+/** Map rows from snake_case columns to camelCase fields, preserving any computed-field columns
+ * that are projected by their declared name (skipped by camelcaseObject). */
+function mapRowsToCamelCase(
+  rows: Record<string, unknown>[],
+  schema: SchemaDefinition,
+  computedFieldNames?: Iterable<string>,
+): Record<string, unknown>[] {
+  const computed = computedFieldNames ? new Set(computedFieldNames) : null;
+  return rows.map((r) => {
+    const camel = camelcaseObject(r, schema);
+    if (computed) {
+      for (const name of computed) {
+        if (name in r) camel[name] = r[name];
+      }
+    }
+    return camel;
+  });
+}
+
+/** Build the SELECT columns list for a join fetch: '*' or comma-separated quoted columns. */
+function buildSelectionColumns(selection: string, joinSchema: SchemaDefinition, db: QueryClient): string {
+  if (selection === '*') return '*';
+  return selection.split(',').map((c) => db.qi(joinSchema.col(c.trim()))).join(', ');
+}
+
 // ─── Aggregation orderBy / conditions ───────────────────────
 
-const AGG_FN_SQL: Record<string, string> = {
-  sum: 'SUM',
-  min: 'MIN',
-  max: 'MAX',
-  avg: 'AVG',
-  count: 'COUNT',
-  distinctCount: 'COUNT DISTINCT',
+interface AggFn { sql: string; distinct: boolean }
+const AGG_FN: Record<string, AggFn> = {
+  sum:           { sql: 'SUM',   distinct: false },
+  min:           { sql: 'MIN',   distinct: false },
+  max:           { sql: 'MAX',   distinct: false },
+  avg:           { sql: 'AVG',   distinct: false },
+  count:         { sql: 'COUNT', distinct: false },
+  distinctCount: { sql: 'COUNT', distinct: true  },
 };
+
+function aggExpr(fn: AggFn, qualifiedCol: string): string {
+  return fn.distinct ? `COUNT(DISTINCT ${qualifiedCol})` : `${fn.sql}(${qualifiedCol})`;
+}
 
 function buildAggOrderExpr(
   db: QueryClient,
@@ -138,43 +217,36 @@ function buildAggOrderExpr(
   joinGroup: Record<string, JoinGroupRequest> | undefined,
   startIdx: number
 ): { expr: string; values: unknown[] } {
-  if (!(fn in AGG_FN_SQL)) {
-    err400(`Invalid aggregation function: ${fn}`);
-  }
+  const aggFn = AGG_FN[fn];
+  if (!aggFn) err400(`Invalid aggregation function: ${fn}`);
 
   const groupReq = joinGroup?.[alias];
-  if (!groupReq) {
-    err400(`orderBy/conditions reference undeclared joinGroup: ${alias}`);
-  }
-  const declaredFields = (groupReq!.aggregations as Record<string, unknown>)[fn];
+  if (!groupReq) err400(`orderBy/conditions reference undeclared joinGroup: ${alias}`);
+
+  const declaredFields = (groupReq.aggregations as Record<string, unknown>)[fn];
   if (!Array.isArray(declaredFields) || !declaredFields.includes(field)) {
     err400(`orderBy/conditions reference undeclared aggregation: ${alias}.${fn}.${field}`);
   }
 
   const joinDef = requireJoin(tableConf, alias, false);
-  const { joinSchema, joinField, mainField } = joinDef;
+  const { joinSchema, joinField } = joinDef;
 
-  if (groupReq!.aggregations.by && groupReq!.aggregations.by !== joinField) {
-    err400(`Cannot order by aggregation on joinGroup with 'by' clause on non-FK column: ${alias} (grouped by '${groupReq!.aggregations.by}', correlation FK is '${joinField}')`);
+  if (groupReq.aggregations.by && groupReq.aggregations.by !== joinField) {
+    err400(`Cannot order by aggregation on joinGroup with 'by' clause on non-FK column: ${alias} (grouped by '${groupReq.aggregations.by}', correlation FK is '${joinField}')`);
   }
 
   const fieldCol = validateSchemaField(field, joinSchema);
-
-  const mainColName = Array.isArray(mainField) ? mainField[0] : mainField;
-  const mainCol = db.qi(tableConf.Schema.col(mainColName));
-  const mainTable = db.qi(tableConf.Schema.tableName);
-  const joinTable = db.qi(joinSchema.tableName);
-  const fkCol = db.qi(joinSchema.col(joinField));
+  const refs = extractJoinRefs(db, tableConf, joinDef);
 
   let filterWhere = '';
   let filterVals: unknown[] = [];
   const joinTableConf = dbTables[joinSchema.tableName];
-  if ((groupReq!.filters || groupReq!.conditions?.length) && joinSchema) {
+  if (groupReq.filters || groupReq.conditions?.length) {
     const cb = buildJoinRefCondition(
       joinTableConf,
       joinSchema,
-      { filters: groupReq!.filters, conditions: groupReq!.conditions },
-      db
+      { filters: groupReq.filters, conditions: groupReq.conditions },
+      db,
     );
     const built = cb.build(startIdx, db.ph);
     if (built) {
@@ -183,13 +255,8 @@ function buildAggOrderExpr(
     }
   }
 
-  const qField = db.qi(fieldCol);
-  const fnSql = AGG_FN_SQL[fn];
-  const aggExpr = fnSql === 'COUNT DISTINCT'
-    ? `COUNT(DISTINCT ${joinTable}.${qField})`
-    : `${fnSql}(${joinTable}.${qField})`;
-
-  const expr = `COALESCE((SELECT ${aggExpr} FROM ${joinTable} WHERE ${joinTable}.${fkCol} = ${mainTable}.${mainCol}${filterWhere}), 0)`;
+  const qualifiedCol = `${refs.joinTable}.${db.qi(fieldCol)}`;
+  const expr = `COALESCE((SELECT ${aggExpr(aggFn, qualifiedCol)} FROM ${refs.joinTable} WHERE ${refs.joinTable}.${refs.fkCol} = ${refs.mainTable}.${refs.mainCol}${filterWhere}), 0)`;
 
   return { expr, values: filterVals };
 }
@@ -286,17 +353,12 @@ function buildLeftJoinClauses(
 
   for (const alias of aliasesNeedingJoin) {
     const joinDef = requireJoin(tableConf, alias, true);
-    const { joinSchema, joinField, mainField } = joinDef;
-
-    const mainColName = Array.isArray(mainField) ? mainField[0] : mainField;
-    const mainCol = db.qi(tableConf.Schema.col(mainColName));
-    const mainTable = db.qi(tableConf.Schema.tableName);
-    const joinTable = db.qi(joinSchema.tableName);
-    const fkCol = db.qi(joinSchema.col(joinField));
+    const { joinSchema } = joinDef;
+    const refs = extractJoinRefs(db, tableConf, joinDef);
     const aliasIdent = db.qi(alias);
 
     joinClauses.push(
-      `LEFT JOIN ${joinTable} AS ${aliasIdent} ON ${aliasIdent}.${fkCol} = ${mainTable}.${mainCol}`
+      `LEFT JOIN ${refs.joinTable} AS ${aliasIdent} ON ${aliasIdent}.${refs.fkCol} = ${refs.mainTable}.${refs.mainCol}`
     );
 
     const ref = joinLeft?.[alias];
@@ -317,11 +379,10 @@ function buildLeftJoinClauses(
             cb.isEqual(`${aliasIdent}.${db.qi(joinSchema.col(field))}`, value);
           } else if (computed?.[field]) {
             // Computed field on the parent table: build expr with alias-qualified columns.
-            const ctx = buildComputedContext(db, joinSchema, alias);
-            const ev = computed[field](ctx);
-            if ((ev.values ?? []).length > 0) {
-              err400(`Computed field '${field}' with bound values is not supported in joinLeft.filters`);
-            }
+            const ev = evaluateComputedField(
+              computed[field], joinSchema, db, alias,
+              `Computed field '${field}' with bound values is not supported in joinLeft.filters`,
+            );
             cb.isEqual(ev.expr, value);
           }
         }
@@ -336,11 +397,10 @@ function buildLeftJoinClauses(
             const col = `${aliasIdent}.${db.qi(joinSchema.col(c.field))}`;
             dispatchConditionMethod(cb, c.method, col, (c.params as unknown[]) ?? []);
           } else if (computed?.[c.field]) {
-            const ctx = buildComputedContext(db, joinSchema, alias);
-            const ev = computed[c.field](ctx);
-            if ((ev.values ?? []).length > 0) {
-              err400(`Computed field '${c.field}' with bound values is not supported in joinLeft.conditions`);
-            }
+            const ev = evaluateComputedField(
+              computed[c.field], joinSchema, db, alias,
+              `Computed field '${c.field}' with bound values is not supported in joinLeft.conditions`,
+            );
             dispatchConditionMethod(cb, c.method, ev.expr, (c.params as unknown[]) ?? []);
           } else {
             err400(`Unknown field: ${c.field}`);
@@ -388,11 +448,10 @@ async function executeMainQuery(
     for (const name of selectComputed) {
       const fn = tableConf.computedFields?.[name];
       if (!fn) err400(`Unknown computed field in selectComputed: '${name}'`);
-      const ctx = buildComputedContext(db, tableConf.Schema);
-      const out = fn!(ctx);
-      if ((out.values ?? []).length > 0) {
-        err400(`Computed field '${name}' with bound values cannot be used in selectComputed`);
-      }
+      const out = evaluateComputedField(
+        fn!, tableConf.Schema, db, undefined,
+        `Computed field '${name}' with bound values cannot be used in selectComputed`,
+      );
       projections.push(`${out.expr} AS ${db.qi(name)}`);
     }
     columns = projections.join(', ');
@@ -409,18 +468,7 @@ async function executeMainQuery(
     joins: extraJoins.length > 0 ? extraJoins : undefined,
   });
 
-  // Computed projections are aliased with their declared name — pass them through
-  // as-is. Schema fields use camelcaseObject for snake/camel conversion.
-  const computedNames = new Set(selectComputed ?? []);
-  return rows.map((r) => {
-    const camel = camelcaseObject(r as Record<string, unknown>, tableConf.Schema);
-    for (const name of computedNames) {
-      if (name in (r as Record<string, unknown>)) {
-        camel[name] = (r as Record<string, unknown>)[name];
-      }
-    }
-    return camel;
-  });
+  return mapRowsToCamelCase(rows as Record<string, unknown>[], tableConf.Schema, selectComputed);
 }
 
 async function buildPagination(
@@ -509,9 +557,7 @@ async function executeJoinMultiple(
     }
 
     const selection = ref?.selection ?? defaultSelection;
-    const columns = selection === '*'
-      ? '*'
-      : selection.split(',').map((c) => db.qi(joinSchema.col(c.trim()))).join(', ');
+    const columns = buildSelectionColumns(selection, joinSchema, db);
 
     const rows = await db.select({
       tableName: joinSchema.tableName,
@@ -520,7 +566,7 @@ async function executeJoinMultiple(
       values,
     });
 
-    result[alias] = rows.map((r) => camelcaseObject(r as Record<string, unknown>, joinSchema));
+    result[alias] = mapRowsToCamelCase(rows as Record<string, unknown>[], joinSchema);
   }
 
   return result;
@@ -555,9 +601,7 @@ async function executeJoinLeft(
     const values = cb.getValues();
 
     const selection = ref?.selection ?? defaultSelection;
-    const columns = selection === '*'
-      ? '*'
-      : selection.split(',').map((c) => db.qi(joinSchema.col(c.trim()))).join(', ');
+    const columns = buildSelectionColumns(selection, joinSchema, db);
 
     const rows = await db.select({
       tableName: joinSchema.tableName,
@@ -566,7 +610,7 @@ async function executeJoinLeft(
       values,
     });
 
-    result[alias] = rows.map((r) => camelcaseObject(r as Record<string, unknown>, joinSchema));
+    result[alias] = mapRowsToCamelCase(rows as Record<string, unknown>[], joinSchema);
   }
 
   return result;
@@ -593,12 +637,10 @@ function buildByExpression(
   }
   const fn = joinTableConf?.computedFields?.[by];
   if (fn) {
-    const ctx = buildComputedContext(db, joinSchema);
-    const ev = fn(ctx);
-    if ((ev.values ?? []).length > 0) {
-      err400(`Computed field '${by}' with bound values cannot be used in aggregations.by`);
-    }
-    return ev.expr;
+    return evaluateComputedField(
+      fn, joinSchema, db, undefined,
+      `Computed field '${by}' with bound values cannot be used in aggregations.by`,
+    ).expr;
   }
   err400(`Unknown field: ${by}`);
 }
@@ -635,22 +677,20 @@ async function executeJoinGroup(
       groupByParts.push(byExpr);
     }
 
-    const addAgg = (kind: string, fnSql: string, fields: string[] | undefined): void => {
+    const addAgg = (kind: string, fields: string[] | undefined): void => {
       if (!fields) return;
+      const fn = AGG_FN[kind];
       for (const f of fields) {
         const col = validateSchemaField(f, joinSchema);
-        const expr = fnSql === 'COUNT DISTINCT'
-          ? `COUNT(DISTINCT ${db.qi(col)})`
-          : `${fnSql}(${db.qi(col)})`;
-        selectParts.push(`${expr} as "${kind}_${f}"`);
+        selectParts.push(`${aggExpr(fn, db.qi(col))} as "${kind}_${f}"`);
       }
     };
-    addAgg('distinctCount', 'COUNT DISTINCT', aggregations.distinctCount);
-    addAgg('min', 'MIN', aggregations.min);
-    addAgg('max', 'MAX', aggregations.max);
-    addAgg('sum', 'SUM', aggregations.sum);
-    addAgg('avg', 'AVG', aggregations.avg);
-    addAgg('count', 'COUNT', aggregations.count);
+    addAgg('distinctCount', aggregations.distinctCount);
+    addAgg('min', aggregations.min);
+    addAgg('max', aggregations.max);
+    addAgg('sum', aggregations.sum);
+    addAgg('avg', aggregations.avg);
+    addAgg('count', aggregations.count);
 
     if (selectParts.length === 0) {
       result[alias] = {};
@@ -787,8 +827,7 @@ function collectJoinRefComputedClauses(
     for (const [name, value] of Object.entries(ref.filters)) {
       if (value === null || value === undefined) continue;
       if (!computed[name]) continue;
-      const ctx = buildComputedContext(db, joinTableConf!.Schema);
-      const ev = computed[name](ctx);
+      const ev = evaluateComputedField(computed[name], joinTableConf!.Schema, db, undefined, '', true);
       out.push({ method: 'isEqual', expr: ev.expr, values: ev.values ?? [], params: [value] });
     }
   }
@@ -798,8 +837,7 @@ function collectJoinRefComputedClauses(
     for (const c of ref.conditions) {
       if (!computed[c.field]) continue;
       if (!ALLOWED_SET.has(c.method)) err400(`Invalid condition method: ${c.method}`);
-      const ctx = buildComputedContext(db, joinTableConf!.Schema);
-      const ev = computed[c.field](ctx);
+      const ev = evaluateComputedField(computed[c.field], joinTableConf!.Schema, db, undefined, '', true);
       out.push({
         method: c.method,
         expr: ev.expr,
@@ -870,8 +908,7 @@ function collectComputedFilterClauses(
   for (const [name, value] of Object.entries(filters)) {
     if (value === null || value === undefined) continue;
     if (!computed[name]) continue;
-    const ctx = buildComputedContext(db, tableConf.Schema);
-    const ref = computed[name](ctx);
+    const ref = evaluateComputedField(computed[name], tableConf.Schema, db, undefined, '', true);
     out.push({ method: 'isEqual', expr: ref.expr, values: ref.values ?? [], params: [value] });
   }
   return out;
@@ -963,8 +1000,9 @@ function buildJoinMustExistClauses(
 
   for (const [alias, ref] of Object.entries(joinMustExist)) {
     const joinDef = requireJoin(tableConf, alias, false);
-    const { joinSchema, joinField, mainField } = joinDef;
+    const { joinSchema } = joinDef;
     const joinTableConf = dbTables[joinSchema.tableName];
+    const refs = extractJoinRefs(db, tableConf, joinDef);
 
     const filterCondition = buildJoinRefCondition(joinTableConf, joinSchema, ref, db);
     const startIdx = values.length + 1;
@@ -985,16 +1023,11 @@ function buildJoinMustExistClauses(
       filterWhere = cwhere;
     }
 
-    const fkCol = db.qi(joinSchema.col(joinField));
-    const mainColName = Array.isArray(mainField) ? mainField[0] : mainField;
-    const mainCol = db.qi(tableConf.Schema.col(mainColName));
-    const mainTable = db.qi(tableConf.Schema.tableName);
-
     const innerWhere = filterWhere
-      ? `${fkCol} = ${mainTable}.${mainCol} AND ${filterWhere}`
-      : `${fkCol} = ${mainTable}.${mainCol}`;
+      ? `${refs.fkCol} = ${refs.mainTable}.${refs.mainCol} AND ${filterWhere}`
+      : `${refs.fkCol} = ${refs.mainTable}.${refs.mainCol}`;
 
-    where += ` AND EXISTS (SELECT 1 FROM ${db.qi(joinSchema.tableName)} WHERE ${innerWhere})`;
+    where += ` AND EXISTS (SELECT 1 FROM ${refs.joinTable} WHERE ${innerWhere})`;
     values.push(...filterVals);
   }
 

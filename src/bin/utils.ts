@@ -60,3 +60,82 @@ export function display(text: string, color: number = 0): void {
 export function error(text: string): void {
   display(text, CONSOLE_COLORS.red);
 }
+
+type ArgSpec =
+  | { type: 'value' }
+  | { type: 'flag' }
+  | { type: 'list' };
+
+type ArgValue<S extends ArgSpec> =
+  S['type'] extends 'flag' ? boolean :
+  S['type'] extends 'list' ? string[] :
+  string | undefined;
+
+/**
+ * Tiny declarative argv parser for the bundled CLIs.
+ * - `value`  → recognized as `--name X`, last value wins
+ * - `flag`   → recognized as `--name`, default false
+ * - `list`   → comma-separated `--name a,b,c`; can also accept positional comma-/space- separated tokens
+ *
+ * Positional tokens (non-`--`) are accumulated into `positional`. List specs auto-merge those tokens
+ * (split on ',') into the list as well, supporting both "a b" and "a,b" CLI shapes.
+ */
+export function parseArgs<S extends Record<string, ArgSpec>>(
+  spec: S,
+  argv = process.argv.slice(2)
+): { [K in keyof S]: ArgValue<S[K]> } & { positional: string[] } {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const out: Record<string, any> = { positional: [] };
+  for (const [name, def] of Object.entries(spec)) {
+    out[name] = def.type === 'flag' ? false : def.type === 'list' ? [] : undefined;
+  }
+
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i];
+    if (token.startsWith('--')) {
+      const name = token.slice(2);
+      const def = spec[name];
+      if (!def) continue;
+      if (def.type === 'flag') {
+        out[name] = true;
+      } else if (def.type === 'value' && i + 1 < argv.length) {
+        out[name] = argv[++i];
+      } else if (def.type === 'list' && i + 1 < argv.length) {
+        const next = argv[++i];
+        for (const part of next.split(',')) {
+          const t = part.trim();
+          if (t) out[name].push(t);
+        }
+      }
+    } else {
+      out.positional.push(token);
+      // Auto-distribute positional values into the (single) list spec, if any
+      for (const [n, def] of Object.entries(spec)) {
+        if (def.type === 'list') {
+          for (const part of token.split(',')) {
+            const t = part.trim();
+            if (t) out[n].push(t);
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return out as any;
+}
+
+/**
+ * CLI entry-point wrapper: prints a header, awaits `fn`, and turns thrown errors into a red message
+ * with a non-zero exit code (without aborting the process synchronously, so unfinished stdout flushes).
+ */
+export async function runCli(name: string, fn: () => Promise<void>): Promise<void> {
+  display(`++++++ ${name} ++++++`, CONSOLE_COLORS.yellow);
+  try {
+    await fn();
+  } catch (e) {
+    error(`Error: ${(e as Error).message ?? String(e)}`);
+    process.exitCode = 1;
+  }
+}

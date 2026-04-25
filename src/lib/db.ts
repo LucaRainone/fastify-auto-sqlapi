@@ -4,6 +4,9 @@ import type { Queryable, SqlResult, DbRecord, SelectOptions } from '../types.js'
 import type { SqlDialect } from './dialect.js';
 import { getDialect } from './dialect.js';
 
+// Default chunk size for bulk INSERT/UPSERT. Picked to keep parameter count well under
+// PostgreSQL's hard limit of 65535 bind parameters per statement (≈ 130 columns × 500 rows).
+// Override per-call via the `chunkSize` argument when working with extremely wide tables.
 const DEFAULT_CHUNK_SIZE = 500;
 
 /** @deprecated Use db.qi() instead */
@@ -105,28 +108,16 @@ export class QueryClient {
     return { values, rows: rowPlaceholders.join(', ') };
   }
 
-  // Build the update SET for upsert: dialect-specific
-  #upsertUpdateSet(fields: string[], conflictKeys: string[]): string {
-    const updateCols = fields.filter((f) => !conflictKeys.includes(f));
-    if (!updateCols.length) return '';
-
-    if (this.dialect.name === 'postgres') {
-      return updateCols
-        .map((f) => `${this.dialect.qi(f)} = EXCLUDED.${this.dialect.qi(f)}`)
-        .join(', ');
-    }
-    // MySQL/MariaDB: VALUES(col) syntax
-    return updateCols
-      .map((f) => `${this.dialect.qi(f)} = VALUES(${this.dialect.qi(f)})`)
-      .join(', ');
-  }
-
   #quotedPkCols(pkCol: string | string[]): string {
     const cols = Array.isArray(pkCol) ? pkCol : [pkCol];
     return cols.map((c) => this.dialect.qi(c)).join(', ');
   }
 
-  #mysqlPkResult(pkCol: string | string[], record: DbRecord, insertId?: number): Record<string, unknown> {
+  #insertHead(table: string, fields: string[]): string {
+    return `INSERT INTO ${this.dialect.qi(table)} (${this.#q(fields)})`;
+  }
+
+  #mysqlPkRow(pkCol: string | string[], record: DbRecord, insertId?: number): Record<string, unknown> {
     const cols = Array.isArray(pkCol) ? pkCol : [pkCol];
     const result: Record<string, unknown> = {};
     for (const col of cols) {
@@ -137,6 +128,24 @@ export class QueryClient {
     if (Object.keys(result).length > 0) return result;
     if (!Array.isArray(pkCol)) return { [pkCol]: insertId };
     return result;
+  }
+
+  /**
+   * Single source of truth for "extract PK rows from an insert/upsert result". When the
+   * dialect supports RETURNING (postgres/mariadb), returns `result.rows` directly. Otherwise
+   * (mysql) synthesizes PK rows from `insertId` + the input records (assumes
+   * `auto_increment_increment=1` for multi-row inserts).
+   */
+  #extractPkRows(
+    result: SqlResult,
+    pkCol: string | string[],
+    inputs: DbRecord[]
+  ): Record<string, unknown>[] {
+    if (this.dialect.supportsReturning) return result.rows as Record<string, unknown>[];
+    const firstId = result.insertId;
+    return inputs.map((rec, j) =>
+      this.#mysqlPkRow(pkCol, rec, typeof firstId === 'number' ? firstId + j : undefined)
+    );
   }
 
   async insert(
@@ -151,16 +160,12 @@ export class QueryClient {
     const returning = this.dialect.returningPk(this.#quotedPkCols(pkCol));
 
     const result = await this.query(
-      `INSERT INTO ${this.dialect.qi(table)} (${this.#q(fields)})
+      `${this.#insertHead(table, fields)}
        VALUES (${placeholders.join(', ')})${returning}`,
       values
     );
 
-    if (this.dialect.supportsReturning) {
-      return result.rows[0] as Record<string, unknown>;
-    }
-
-    return this.#mysqlPkResult(pkCol, record, result.insertId);
+    return this.#extractPkRows(result, pkCol, [record])[0];
   }
 
   async insertOrUpdate(
@@ -173,22 +178,17 @@ export class QueryClient {
     const { fields, placeholders } = this.#params(record, values);
     if (!fields.length) throw new Error('Cannot execute empty insert');
 
-    const updateSet = this.#upsertUpdateSet(fields, conflictKeys);
-    const upsertClause = this.dialect.upsertSql(this.#q(conflictKeys), updateSet);
+    const upsertClause = this.dialect.upsertSql(this.#q(conflictKeys), this.dialect.upsertUpdateSet(fields, conflictKeys));
     const returning = this.dialect.returningPk(this.#quotedPkCols(pkCol));
 
     const result = await this.query(
-      `INSERT INTO ${this.dialect.qi(table)} (${this.#q(fields)})
+      `${this.#insertHead(table, fields)}
        VALUES (${placeholders.join(', ')})
        ${upsertClause}${returning}`,
       values
     );
 
-    if (this.dialect.supportsReturning) {
-      return result.rows[0] as Record<string, unknown>;
-    }
-
-    return this.#mysqlPkResult(pkCol, record, result.insertId);
+    return this.#extractPkRows(result, pkCol, [record])[0];
   }
 
   async bulkInsert(
@@ -200,28 +200,17 @@ export class QueryClient {
     if (!records.length) return [];
 
     const fields = Object.keys(records[0]);
-    const results: Record<string, unknown>[] = [];
     const returning = this.dialect.returningPk(this.#quotedPkCols(pkCol));
+    const results: Record<string, unknown>[] = [];
 
     for (let i = 0; i < records.length; i += chunkSize) {
       const chunk = records.slice(i, i + chunkSize);
       const { values, rows } = this.#bulkValues(fields, chunk);
       const result = await this.query(
-        `INSERT INTO ${this.dialect.qi(table)} (${this.#q(fields)}) VALUES ${rows}${returning}`,
+        `${this.#insertHead(table, fields)} VALUES ${rows}${returning}`,
         values
       );
-
-      if (this.dialect.supportsReturning) {
-        results.push(...(result.rows as Record<string, unknown>[]));
-      } else {
-        // MySQL: insertId is the FIRST generated ID of the multi-row insert.
-        // Subsequent rows follow sequentially assuming auto_increment_increment=1 (default).
-        const firstId = result.insertId;
-        for (let j = 0; j < chunk.length; j++) {
-          const id = typeof firstId === 'number' ? firstId + j : undefined;
-          results.push(this.#mysqlPkResult(pkCol, chunk[j], id));
-        }
-      }
+      results.push(...this.#extractPkRows(result, pkCol, chunk));
     }
 
     return results;
@@ -237,8 +226,7 @@ export class QueryClient {
     if (!records.length) return [];
 
     const fields = Object.keys(records[0]);
-    const updateSet = this.#upsertUpdateSet(fields, conflictKeys);
-    const upsertClause = this.dialect.upsertSql(this.#q(conflictKeys), updateSet);
+    const upsertClause = this.dialect.upsertSql(this.#q(conflictKeys), this.dialect.upsertUpdateSet(fields, conflictKeys));
     const returning = this.dialect.returningPk(this.#quotedPkCols(pkCol));
     const results: Record<string, unknown>[] = [];
 
@@ -246,21 +234,12 @@ export class QueryClient {
       const chunk = records.slice(i, i + chunkSize);
       const { values, rows } = this.#bulkValues(fields, chunk);
       const result = await this.query(
-        `INSERT INTO ${this.dialect.qi(table)} (${this.#q(fields)})
+        `${this.#insertHead(table, fields)}
          VALUES ${rows}
          ${upsertClause}${returning}`,
         values
       );
-
-      if (this.dialect.supportsReturning) {
-        results.push(...(result.rows as Record<string, unknown>[]));
-      } else {
-        const firstId = result.insertId;
-        for (let j = 0; j < chunk.length; j++) {
-          const id = typeof firstId === 'number' ? firstId + j : undefined;
-          results.push(this.#mysqlPkResult(pkCol, chunk[j], id));
-        }
-      }
+      results.push(...this.#extractPkRows(result, pkCol, chunk));
     }
 
     return results;

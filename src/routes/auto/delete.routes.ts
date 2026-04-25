@@ -1,37 +1,29 @@
 import type { FastifyInstance } from 'fastify';
 import { Type } from '@sinclair/typebox';
 import { primaryAsString } from '../../types.js';
-import { mergeOnRequests } from './route-helpers.js';
+import { registerForAllTables } from './route-helpers.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
 export default async function deleteRoutes(
   fastify: FastifyInstance,
-  options: SqlApiPluginOptions
+  options: SqlApiPluginOptions,
 ): Promise<void> {
-  const { DbTables } = options;
-
-  for (const [tableName, tableConf] of Object.entries(DbTables)) {
-    const pkField = primaryAsString(tableConf.primary);
-    const pkType = tableConf.Schema.fields[pkField];
-    const responseSchema = Type.Object({
-      main: Type.Object({ [pkField]: pkType }),
-    });
-
-    fastify.route({
-      method: 'DELETE',
-      url: `/rest/${tableConf.Schema.tableName}/:id`,
-      schema: {
+  await registerForAllTables(fastify, options, {
+    method: 'DELETE',
+    url: (tc) => `/rest/${tc.Schema.tableName}/:id`,
+    successStatus: 200,
+    schemas: (_db, _table, tc) => {
+      const pkField = primaryAsString(tc.primary);
+      return {
         params: Type.Object({ id: Type.String() }),
-        response: { 200: responseSchema },
-        tags: [`SqlAPI-${tableName}`],
-        summary: `Delete ${tableName}`,
-        description: `Delete a record from ${tableName} by primary key`,
-      },
-      onRequest: mergeOnRequests(options, tableConf),
-      handler: async (request, reply) => {
-        const { id } = request.params as { id: string };
-        reply.send(await fastify.sqlApi.delete(tableName, id, request));
-      },
-    });
-  }
+        response: Type.Object({ main: Type.Object({ [pkField]: tc.Schema.fields[pkField] }) }),
+      };
+    },
+    summary: 'Delete',
+    description: (name) => `Delete a record from ${name} by primary key`,
+    handle: (fastify, tableName, _tc, request) => {
+      const { id } = request.params as { id: string };
+      return fastify.sqlApi.delete(tableName, id, request);
+    },
+  });
 }

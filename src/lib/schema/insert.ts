@@ -1,8 +1,13 @@
 import { Type, type TObject, type TSchema } from '@sinclair/typebox';
 import { primaryAsString } from '../../types.js';
 import type { DbTables } from '../../types.js';
-import { findSecondaryTableConf } from '../engine/write-helpers.js';
-import { pkSchema, buildSecondaryFields, applySchemaOverrides } from './helpers.js';
+import {
+  pkSchema,
+  applySchemaOverrides,
+  attachWriteJoinSections,
+  writeJoinBodyFields,
+  writeJoinResponseFields,
+} from './helpers.js';
 
 export function InsertTableBody(dbTables: DbTables, tableName: string): TObject {
   const tableConf = dbTables[tableName];
@@ -20,19 +25,10 @@ export function InsertTableBody(dbTables: DbTables, tableName: string): TObject 
     main: Type.Object(mainFields),
   };
 
-  if (tableConf.allowedWriteJoins?.length) {
-    const secondaryProperties: Record<string, TSchema> = {};
-
-    for (const { joinSchema, joinField, alias } of tableConf.allowedWriteJoins) {
-      const secondaryTableConf = findSecondaryTableConf(dbTables, joinSchema.tableName);
-      const joinFields = buildSecondaryFields(joinSchema, joinField, secondaryTableConf);
-      secondaryProperties[alias] = Type.Array(Type.Object(joinFields));
-    }
-
-    bodyProperties.secondaries = Type.Optional(
-      Type.Partial(Type.Object(secondaryProperties))
-    );
-  }
+  attachWriteJoinSections(bodyProperties, tableConf, dbTables, {
+    withDeletions: false,
+    secondaryFields: writeJoinBodyFields,
+  });
 
   return Type.Object(bodyProperties);
 }
@@ -44,20 +40,10 @@ export function InsertTableResponse(dbTables: DbTables, tableName: string): TObj
     main: Type.Object(pkSchema(tableConf, tableConf.Schema, primaryAsString(tableConf.primary))),
   };
 
-  if (tableConf.allowedWriteJoins?.length) {
-    const secondaryProperties: Record<string, TSchema> = {};
-
-    for (const { joinSchema, joinField, alias } of tableConf.allowedWriteJoins) {
-      const secondaryTableConf = findSecondaryTableConf(dbTables, joinSchema.tableName);
-      secondaryProperties[alias] = Type.Array(
-        Type.Object(pkSchema(secondaryTableConf, joinSchema, joinField))
-      );
-    }
-
-    responseProperties.secondaries = Type.Optional(
-      Type.Partial(Type.Object(secondaryProperties))
-    );
-  }
+  attachWriteJoinSections(responseProperties, tableConf, dbTables, {
+    withDeletions: false,
+    secondaryFields: writeJoinResponseFields,
+  });
 
   return Type.Object(responseProperties);
 }

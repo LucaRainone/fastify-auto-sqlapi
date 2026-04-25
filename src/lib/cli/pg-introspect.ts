@@ -1,4 +1,4 @@
-import { createRequire } from 'node:module';
+import { loadOptionalDependency } from './load-dependency.js';
 import type { ColumnInfo } from '../../types.js';
 
 export function buildConnectionString(): string {
@@ -19,21 +19,8 @@ export async function introspectTables(
   connectionString: string,
   schema: string
 ): Promise<ColumnInfo[]> {
-  // Dynamic require from cwd so it works with npm link
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let pg: any;
-  try {
-    const require = createRequire(process.cwd() + '/noop.js');
-    pg = require('pg');
-  } catch {
-    try {
-      // Fallback: resolve from the package's own node_modules
-      const require = createRequire(import.meta.url);
-      pg = require('pg');
-    } catch {
-      throw new Error('pg is required for PostgreSQL introspection. Install it with: npm install pg');
-    }
-  }
+  const pg = loadOptionalDependency<any>('pg', 'npm install pg');
 
   const client = new pg.Client({ connectionString });
 
