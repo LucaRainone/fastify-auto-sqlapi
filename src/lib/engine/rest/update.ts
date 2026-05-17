@@ -93,10 +93,11 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     secondaryResults = await processSecondaries(db, tableConf, dbTables, mainForFK, secondaries);
   }
 
-  // 9. Deletions
+  // 9. Deletions (FK auto-fill from main like secondaries)
   let deletionResults: Record<string, Record<string, unknown>[]> | undefined;
   if (deletions && Object.keys(deletions).length > 0) {
-    deletionResults = await processDeletions(db, tableConf, deletions);
+    const mainForFK = { ...inputRecord };
+    deletionResults = await processDeletions(db, tableConf, mainForFK, deletions);
   }
 
   // 10. Return PK-only

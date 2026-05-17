@@ -66,17 +66,23 @@ type JoinFieldsBuilder = (
   secondaryConf: ITable | undefined
 ) => Record<string, TSchema>;
 
-/** Maps each writeJoin alias to a Type.Array(Type.Object(...)) using the provided fields builder. */
+/**
+ * Maps each writeJoin alias to a Type.Array(Type.Object(...)) using the provided fields builder.
+ * When `itemsPartial` is true, wraps each item with Type.Partial — used for deletion sub-schemas
+ * where every field is a matcher (the engine auto-injects the FK to main).
+ */
 export function buildJoinAliasMap(
   tableConf: ITable,
   dbTables: DbTables,
-  build: JoinFieldsBuilder
+  build: JoinFieldsBuilder,
+  options: { itemsPartial?: boolean } = {}
 ): Record<string, TSchema> {
   const out: Record<string, TSchema> = {};
   if (!tableConf.allowedWriteJoins?.length) return out;
   for (const j of tableConf.allowedWriteJoins) {
     const sc = findSecondaryTableConf(dbTables, j.joinSchema.tableName);
-    out[j.alias] = Type.Array(Type.Object(build(j, sc)));
+    const item = Type.Object(build(j, sc));
+    out[j.alias] = Type.Array(options.itemsPartial ? Type.Partial(item) : item);
   }
   return out;
 }
@@ -85,6 +91,10 @@ export function buildJoinAliasMap(
  * Attach `secondaries` (and optionally `deletions`) sections to the given target object,
  * iterating once over `tableConf.allowedWriteJoins`. Mutates `target` in-place.
  * Used by body and response schema builders for insert/update/bulk-upsert.
+ *
+ * Deletions are emitted with every field Optional (Type.Partial) because the engine
+ * auto-injects the FK to main and the consumer typically just provides the PK (or a small
+ * subset of fields) to identify which child rows to delete.
  */
 export function attachWriteJoinSections(
   target: Record<string, TSchema>,
@@ -99,7 +109,14 @@ export function attachWriteJoinSections(
   if (options.withDeletions) {
     target.deletions = Type.Optional(
       Type.Partial(
-        Type.Object(buildJoinAliasMap(tableConf, dbTables, ({ joinSchema }) => joinSchema.fields))
+        Type.Object(
+          buildJoinAliasMap(
+            tableConf,
+            dbTables,
+            ({ joinSchema }) => joinSchema.fields,
+            { itemsPartial: true },
+          )
+        )
       )
     );
   }

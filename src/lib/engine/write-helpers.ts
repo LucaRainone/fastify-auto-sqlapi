@@ -148,9 +148,20 @@ export async function processSecondaries(
   return results;
 }
 
+/**
+ * Process per-alias deletion requests for a write join.
+ *
+ * The FK from `mainRecord` (matching `joinDef.mainField` → `joinDef.joinField`) is
+ * auto-injected into every deletion record. This means the consumer can provide just
+ * the PK (e.g. `{ id: 5 }`) and the engine will run
+ * `DELETE FROM child WHERE id = 5 AND fk_to_main = <main.id>` — both ergonomic
+ * (no need to repeat the FK) and safer (cannot accidentally delete a row that
+ * doesn't belong to this main).
+ */
 export async function processDeletions(
   db: QueryClient,
   tableConf: ITable,
+  mainRecord: Record<string, unknown>,
   deletions: Record<string, Record<string, unknown>[]>
 ): Promise<Record<string, Record<string, unknown>[]>> {
   const results: Record<string, Record<string, unknown>[]> = {};
@@ -161,11 +172,18 @@ export async function processDeletions(
     const joinDef = findWriteJoin(tableConf, alias);
     if (!joinDef) continue;
 
-    const { joinSchema } = joinDef;
+    const { joinSchema, joinField, mainField } = joinDef;
+    const joinCol = joinSchema.col(joinField);
+    const mainValue = Array.isArray(mainField)
+      ? mainRecord[mainField[0]]
+      : mainRecord[mainField as string];
+
     const deletedRows: Record<string, unknown>[] = [];
 
     for (const rec of records) {
       const snaked = snakecaseRecord(rec, joinSchema) as DbRecord;
+      // Auto-inject FK to main: scopes the DELETE to children owned by this main.
+      snaked[joinCol] = mainValue as DbRecord[string];
       const affectedRows = await db.delete(joinSchema.tableName, snaked);
       if (affectedRows > 0) {
         deletedRows.push(camelcaseObject(snaked as Record<string, unknown>, joinSchema));

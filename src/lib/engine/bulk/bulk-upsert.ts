@@ -77,7 +77,7 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
     }
 
     if (item.deletions && Object.keys(item.deletions).length > 0) {
-      const del = await processDeletions(db, tableConf, item.deletions);
+      const del = await processDeletions(db, tableConf, mainForFK, item.deletions);
       if (Object.keys(del).length > 0) result.deletions = del;
     }
 
