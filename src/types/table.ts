@@ -50,6 +50,38 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
     record: { [K in keyof F]?: Static<F[K]> },
     secondaryRecords?: unknown
   ) => Promise<void>;
+  /**
+   * Runs before a single record is deleted (DELETE /rest/:id). Throw to abort the
+   * deletion (the thrown error's `statusCode`/`message` are surfaced to the client).
+   * Use it to enforce referential or business rules the DB cascade would otherwise hide.
+   *
+   * For tenant-scoped tables the hook only runs once ownership has been verified, so it
+   * never fires for rows the caller cannot access.
+   *
+   * `req` is the Fastify request that triggered the operation. It is always present when
+   * the delete comes through the auto-generated HTTP route. It is `undefined` only if you
+   * call `sqlApi.delete(table, id)` programmatically without passing a request — in that
+   * case any hook that reads request context (e.g. `req.user`) must guard for it.
+   */
+  beforeDelete?: (
+    db: QueryClient,
+    req: FastifyRequest,
+    id: string | number
+  ) => void | Promise<void>;
+  /**
+   * Bulk counterpart of `beforeDelete`, invoked ONCE with all ids before a bulk delete
+   * (POST /bulk/:table/delete). Called once — not per id — to preserve the single-query
+   * optimization. Throw to abort the whole batch. `beforeDelete` is NOT called for bulk
+   * deletes; configure this hook if you need a guard there.
+   *
+   * Same `req` caveat as `beforeDelete`: present via the HTTP route, `undefined` only when
+   * `sqlApi.bulkDelete(table, ids)` is called programmatically without a request.
+   */
+  beforeBulkDelete?: (
+    db: QueryClient,
+    req: FastifyRequest,
+    ids: (string | number)[]
+  ) => void | Promise<void>;
   defaultOrder?: string;
   excludeFromCreation?: (string & keyof F)[];
   distinctResults?: boolean;

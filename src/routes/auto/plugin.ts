@@ -22,6 +22,58 @@ declare module 'fastify' {
   }
 }
 
+type AjvValidationErrors = NonNullable<FastifyError['validation']>;
+
+interface ValidationResponseField {
+  path: string;
+  message: string;
+  code: string;
+}
+
+// Schema combinators for which Ajv reports one error per failed branch plus a
+// single combinator-level summary error, all targeting the same path.
+const COMBINATOR_KEYWORDS = new Set(['anyOf', 'oneOf']);
+
+/**
+ * Converts Ajv validation errors into response fields, stripping the noise Ajv
+ * emits for schema combinators.
+ *
+ * An enum modelled as `anyOf` of `const`s fails every branch when invalid, so Ajv
+ * produces one `const` error per branch plus an `anyOf` error — all on the same
+ * path. We keep only the combinator error for those paths and drop the per-branch
+ * errors, then deduplicate any remaining identical entries. `required` errors are
+ * re-pointed from the parent object to the actually missing property.
+ */
+function normalizeAjvErrors(errors: AjvValidationErrors): ValidationResponseField[] {
+  const toPath = (v: AjvValidationErrors[number]): string => {
+    const path = (v.instancePath || '').replace(/\//g, '.').replace(/^\./, '');
+    const missing = (v.params as { missingProperty?: string })?.missingProperty;
+    if (v.keyword === 'required' && missing) {
+      return path ? `${path}.${missing}` : missing;
+    }
+    return path;
+  };
+
+  const mapped = errors.map((v) => ({
+    path: toPath(v),
+    message: v.message || 'invalid',
+    code: v.keyword || 'unknown',
+  }));
+
+  const combinatorPaths = new Set(
+    mapped.filter((f) => COMBINATOR_KEYWORDS.has(f.code)).map((f) => f.path)
+  );
+
+  const seen = new Set<string>();
+  return mapped.filter((f) => {
+    if (combinatorPaths.has(f.path) && !COMBINATOR_KEYWORDS.has(f.code)) return false;
+    const key = `${f.path}|${f.code}|${f.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export default fp(async function fastifyAutoSqlApi(
   fastify: FastifyInstance,
   options: SqlApiPluginOptions
@@ -63,11 +115,7 @@ export default fp(async function fastifyAutoSqlApi(
     instance.setErrorHandler((error: FastifyError, request, reply) => {
       // Schema validation errors (Ajv)
       if (error.validation) {
-        const fields = error.validation.map((v) => ({
-          path: (v.instancePath || '').replace(/\//g, '.').replace(/^\./, ''),
-          message: v.message || 'invalid',
-          code: v.keyword || 'unknown',
-        }));
+        const fields = normalizeAjvErrors(error.validation);
         return reply.status(400).send({
           statusCode: 400,
           error: 'Bad Request',

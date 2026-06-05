@@ -106,4 +106,88 @@ describe('bulkDeleteEngine', () => {
 
     assert.ok(mockPg.calls[0].text.includes('"id" IN'));
   });
+
+  describe('beforeBulkDelete hook', () => {
+    it('calls beforeBulkDelete ONCE with all ids, not per id', async () => {
+      const mockPg = createMockPg([{ rows: [], affectedRows: 3 }]);
+      const { tableConf, db } = createTestTableConf(mockPg);
+      const invocations = [];
+      tableConf.beforeBulkDelete = (hookDb, req, ids) => {
+        invocations.push({ sameDb: hookDb === db, req, ids });
+      };
+      const request = { url: '/bulk' };
+
+      await bulkDeleteEngine({ db, tableConf, ids: [1, 2, 3], request });
+
+      // One call, with the full ids array — no loop
+      assert.equal(invocations.length, 1);
+      assert.equal(invocations[0].sameDb, true);
+      assert.equal(invocations[0].req, request);
+      assert.deepEqual(invocations[0].ids, [1, 2, 3]);
+      // Without tenant: no ownership SELECT, single DELETE preserved
+      assert.equal(mockPg.calls.length, 1);
+      assert.ok(mockPg.calls[0].text.includes('DELETE FROM "customer"'));
+    });
+
+    it('aborts the whole batch when beforeBulkDelete throws (no DELETE)', async () => {
+      const mockPg = createMockPg([{ rows: [], affectedRows: 3 }]);
+      const { tableConf, db } = createTestTableConf(mockPg);
+      tableConf.beforeBulkDelete = () => {
+        const e = new Error('batch blocked');
+        e.statusCode = 409;
+        throw e;
+      };
+
+      await assert.rejects(
+        () => bulkDeleteEngine({ db, tableConf, ids: [1, 2, 3], request: {} }),
+        (err) => err.statusCode === 409
+      );
+      assert.equal(mockPg.calls.length, 0);
+    });
+
+    it('tenant: rejects the batch if any id is not owned (404, hook not called)', async () => {
+      const mockPg = createMockPg([
+        { rows: [{ pk: 1 }, { pk: 2 }], affectedRows: 2 }, // only 2 of 3 owned
+      ]);
+      const { tableConf, db } = createTestTableConf(mockPg);
+      tableConf.tenantScope = { column: 'organization_id' };
+      let called = false;
+      tableConf.beforeBulkDelete = () => { called = true; };
+
+      await assert.rejects(
+        () => bulkDeleteEngine({
+          db, tableConf, ids: [1, 2, 3], request: {},
+          tenant: { ids: [9], scope: { column: 'organization_id' } },
+        }),
+        (err) => err.statusCode === 404
+      );
+
+      assert.equal(called, false);
+      // Only the ownership SELECT ran; no DELETE
+      assert.equal(mockPg.calls.length, 1);
+      assert.ok(mockPg.calls[0].text.startsWith('SELECT DISTINCT'));
+    });
+
+    it('tenant: runs hook once and deletes when all ids owned', async () => {
+      const mockPg = createMockPg([
+        { rows: [{ pk: 1 }, { pk: 2 }], affectedRows: 2 }, // ownership SELECT → all owned
+        { rows: [], affectedRows: 2 },                     // DELETE
+      ]);
+      const { tableConf, db } = createTestTableConf(mockPg);
+      tableConf.tenantScope = { column: 'organization_id' };
+      let calls = 0;
+      tableConf.beforeBulkDelete = () => { calls++; };
+
+      const results = await bulkDeleteEngine({
+        db, tableConf, ids: [1, 2], request: {},
+        tenant: { ids: [9], scope: { column: 'organization_id' } },
+      });
+
+      assert.equal(calls, 1);
+      assert.equal(results.length, 2);
+      assert.equal(mockPg.calls.length, 2);
+      assert.ok(mockPg.calls[0].text.startsWith('SELECT DISTINCT'));
+      assert.ok(mockPg.calls[1].text.includes('DELETE FROM "customer"'));
+    });
+  });
 });

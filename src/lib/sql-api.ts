@@ -169,7 +169,7 @@ export class SqlApi {
   async delete(tableName: string, id: string | number, request?: FastifyRequest): Promise<DeleteResult> {
     const tableConf = this.getTableConf(tableName);
     const tenant = await this.getTenant(tableName, request);
-    return deleteEngine({ db: this.db, tableConf, id, tenant });
+    return deleteEngine({ db: this.db, tableConf, id, tenant, request });
   }
 
   async bulkUpsert(tableName: string, items: BulkUpsertItem[], request?: FastifyRequest): Promise<BulkUpsertResult[]> {
@@ -188,7 +188,7 @@ export class SqlApi {
   async bulkDelete(tableName: string, ids: (string | number)[], request?: FastifyRequest): Promise<BulkDeleteResult[]> {
     const tableConf = this.getTableConf(tableName);
     const tenant = await this.getTenant(tableName, request);
-    return bulkDeleteEngine({ db: this.db, tableConf, ids, tenant });
+    return bulkDeleteEngine({ db: this.db, tableConf, ids, tenant, request });
   }
 }
 

@@ -105,4 +105,89 @@ describe('deleteEngine', () => {
 
     assert.equal(mockPg.calls.length, 1);
   });
+
+  describe('beforeDelete hook', () => {
+    it('calls beforeDelete with (db, request, id) then deletes', async () => {
+      const mockPg = createMockPg([{ rows: [], affectedRows: 1 }]);
+      const { tableConf, db } = createTestTableConf(mockPg);
+      const seen = [];
+      tableConf.beforeDelete = (hookDb, req, id) => {
+        seen.push({ sameDb: hookDb === db, req, id });
+      };
+      const request = { url: '/x' };
+
+      await deleteEngine({ db, tableConf, id: '7', request });
+
+      assert.equal(seen.length, 1);
+      assert.equal(seen[0].sameDb, true);
+      assert.equal(seen[0].req, request);
+      assert.equal(seen[0].id, '7');
+      // Without tenant: no ownership SELECT, just the DELETE → single query
+      assert.equal(mockPg.calls.length, 1);
+      assert.ok(mockPg.calls[0].text.includes('DELETE FROM "customer"'));
+    });
+
+    it('aborts the deletion when beforeDelete throws (no DELETE executed)', async () => {
+      const mockPg = createMockPg([{ rows: [], affectedRows: 1 }]);
+      const { tableConf, db } = createTestTableConf(mockPg);
+      tableConf.beforeDelete = () => {
+        const e = new Error('blocked by referential rule');
+        e.statusCode = 409;
+        throw e;
+      };
+
+      await assert.rejects(
+        () => deleteEngine({ db, tableConf, id: '7', request: {} }),
+        (err) => err.statusCode === 409 && err.message === 'blocked by referential rule'
+      );
+      assert.equal(mockPg.calls.length, 0);
+    });
+
+    it('tenant: runs hook only after ownership confirmed, then deletes', async () => {
+      const mockPg = createMockPg([
+        { rows: [{ pk: 7 }], affectedRows: 1 }, // ownership SELECT → owned
+        { rows: [], affectedRows: 1 },          // DELETE
+      ]);
+      const { tableConf, db } = createTestTableConf(mockPg);
+      tableConf.tenantScope = { column: 'organization_id' };
+      let called = false;
+      tableConf.beforeDelete = () => { called = true; };
+
+      const result = await deleteEngine({
+        db, tableConf, id: '7', request: {},
+        tenant: { ids: [3], scope: { column: 'organization_id' } },
+      });
+
+      assert.equal(called, true);
+      assert.equal(result.main.id, '7');
+      // ownership SELECT then tenant-scoped DELETE
+      assert.equal(mockPg.calls.length, 2);
+      assert.ok(mockPg.calls[0].text.startsWith('SELECT DISTINCT'));
+      assert.ok(mockPg.calls[0].text.includes('"organization_id" IN'));
+      assert.ok(mockPg.calls[1].text.includes('DELETE FROM "customer"'));
+    });
+
+    it('tenant: does NOT run hook for a non-owned record (404, no DELETE)', async () => {
+      const mockPg = createMockPg([
+        { rows: [], affectedRows: 0 }, // ownership SELECT → not owned
+      ]);
+      const { tableConf, db } = createTestTableConf(mockPg);
+      tableConf.tenantScope = { column: 'organization_id' };
+      let called = false;
+      tableConf.beforeDelete = () => { called = true; };
+
+      await assert.rejects(
+        () => deleteEngine({
+          db, tableConf, id: '7', request: {},
+          tenant: { ids: [3], scope: { column: 'organization_id' } },
+        }),
+        (err) => err.statusCode === 404
+      );
+
+      assert.equal(called, false);
+      // Only the ownership SELECT ran; no DELETE
+      assert.equal(mockPg.calls.length, 1);
+      assert.ok(mockPg.calls[0].text.startsWith('SELECT DISTINCT'));
+    });
+  });
 });

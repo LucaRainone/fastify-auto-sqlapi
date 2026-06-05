@@ -220,3 +220,33 @@ export async function assertTenantOwnership(
     throw httpError(404, 'Record not found');
   }
 }
+
+/**
+ * Assert that EVERY pk in `ids` exists and belongs to the tenant, for both direct and indirect
+ * scopes. Throws 404 if any id is missing or not owned. No-op when `tenant` is undefined or `ids`
+ * is empty. Used by the delete engines to enforce tenant ownership BEFORE running a `beforeDelete`/
+ * `beforeBulkDelete` hook, so user code never runs against rows the caller cannot access.
+ */
+export async function assertTenantOwnsAll(
+  db: QueryClient,
+  tenant: TenantContext | undefined,
+  tableName: string,
+  pkCol: string,
+  ids: ConditionValue[]
+): Promise<void> {
+  if (!tenant || !ids.length) return;
+
+  const qualifiedPk = `${db.qi(tableName)}.${db.qi(pkCol)}`;
+  const cb = new ConditionBuilder('AND');
+  cb.isIn(qualifiedPk, ids);
+  cb.append(buildTenantCondition(db, tenant.scope, tenant.ids));
+
+  const join = isIndirect(tenant.scope) ? ` ${buildTenantJoin(db, tenant.scope, tableName)}` : '';
+  const sql = `SELECT DISTINCT ${qualifiedPk} AS pk FROM ${db.qi(tableName)}${join} WHERE ${cb.build(1, db.ph)}`;
+  const r = await db.query<{ pk: unknown }>(sql, cb.getValues());
+
+  const uniqueRequested = new Set(ids.map((v) => String(v))).size;
+  if (r.rows.length < uniqueRequested) {
+    throw httpError(404, 'Record not found');
+  }
+}

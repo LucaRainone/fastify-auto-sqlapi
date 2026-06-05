@@ -54,6 +54,7 @@ export interface GetResult {
 
 export interface DeleteParams extends DmlBaseParams {
   id: string | number;
+  request?: FastifyRequest;
 }
 
 export interface DeleteResult {
@@ -82,6 +83,7 @@ export interface BulkUpsertResult {
 
 export interface BulkDeleteParams extends DmlBaseParams {
   ids: (string | number)[];
+  request?: FastifyRequest;
 }
 
 export interface BulkDeleteResult {
