@@ -39,6 +39,15 @@ CREATE TABLE customer_order (
   updated_at TIMESTAMPTZ
 );
 
+-- Composite primary key (product_id, lang) — translations-style table
+CREATE TABLE product_translation (
+  product_id INTEGER NOT NULL REFERENCES product(id),
+  lang VARCHAR(8) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  PRIMARY KEY (product_id, lang)
+);
+
 -- betterauth-style table: camelCase column names (quoted identifiers preserve case in PG)
 CREATE TABLE "userAccount" (
   "id" TEXT PRIMARY KEY,

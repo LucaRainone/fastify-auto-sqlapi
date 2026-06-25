@@ -359,6 +359,21 @@ buildRelation(mainSchema, mainField, joinSchema, joinField, options?)
 
 **Choosing `unique`**: if `joinField` is the PK (or part of the composite PK) of `joinSchema`, the relation is N:1 — you almost certainly want `unique: true` so the alias is usable in `joinLeft`.
 
+**Owned child tables (translations, `*_info` details): use a writeJoin, not a standalone table.** A table that only exists as a child of a parent — e.g. `product_info` with composite PK `(product_id, lang)` — should be an `allowedWriteJoins` on the parent, not its own `DbTables` entry. The engine auto-fills the FK (`product_id`); add it to `upsertMap` (conflict key = the composite PK) to upsert children passing only their own fields. Avoids redundant endpoints/validators.
+
+```typescript
+// on the parent (product) table:
+allowedWriteJoins: [
+  buildRelation(SchemaProduct, 'id', SchemaProductInfo, 'productId', { alias: 'translations' }),
+],
+upsertMap: buildUpsertRules(
+  buildUpsertRule(SchemaProductInfo, ['productId', 'lang']),  // composite conflict key
+),
+// → PUT /rest/product { "main": {...}, "secondaries": { "translations": [{ "lang": "en", "name": "Bike" }] } }
+```
+
+Expose a composite-PK table as a standalone CRUD table only when it stands on its own (M:N link tables, natural keys) — composite PKs are fully supported there too.
+
 **Aliasing the same table twice**: declare two `buildRelation` entries with different `alias`. Example: a `session` table referencing `user` for both `createdBy` and `updatedBy`:
 
 ```typescript

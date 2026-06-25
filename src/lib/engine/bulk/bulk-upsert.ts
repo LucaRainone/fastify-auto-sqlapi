@@ -1,7 +1,8 @@
+import { camelcaseObject } from '../../naming.js';
 import { processSecondaries, processDeletions, prepareInsertRecord } from '../write-helpers.js';
 import { enforceTenantOnWrites } from '../../tenant.js';
 import { runBulkValidation } from '../validate.js';
-import { primaryAsString } from '../../../types.js';
+import { primaryAsCols } from '../../../types.js';
 import type {
   BulkUpsertParams,
   BulkUpsertResult,
@@ -13,8 +14,8 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
   if (!items.length) return [];
 
   const schema = tableConf.Schema;
-  const pk = primaryAsString(tableConf.primary);
-  const pkCol = schema.col(pk);
+  // Full primary key columns — composite PKs need every column (see insertEngine).
+  const pkCol = primaryAsCols(tableConf.primary, (f) => schema.col(f));
 
   // 1. Bulk validation runs once for all items (skips per-item validate). Otherwise per-item
   //    validation happens inside prepareInsertRecord below.
@@ -63,13 +64,13 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
-    const mainPk = pkRows[i]; // PK-only (already in camelCase field name since PK uses camelCase field)
-    // pkRows entries come from SQL RETURNING or insertId — keys are DB column names.
-    // For simple PK named the same in API and DB (like 'id') this is transparent.
-    const result: BulkUpsertResult = { main: { [pk]: mainPk[pkCol] ?? mainPk[pk] } };
+    // pkRows entries come from SQL RETURNING or mysql insertId synthesis — keys are DB
+    // column names; camelcaseObject maps them back to schema fields (full composite PK).
+    const mainPkCamel = camelcaseObject(pkRows[i], schema);
+    const result: BulkUpsertResult = { main: mainPkCamel };
 
     // FK auto-fill: input camelCase + generated PK
-    const mainForFK = { ...inputMains[i], [pk]: mainPk[pkCol] ?? mainPk[pk] };
+    const mainForFK = { ...inputMains[i], ...mainPkCamel };
 
     if (item.secondaries && Object.keys(item.secondaries).length > 0) {
       const sec = await processSecondaries(db, tableConf, dbTables, mainForFK, item.secondaries);

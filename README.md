@@ -403,6 +403,20 @@ Returns `{ main: { ... } }` or 404.
 
 `secondaries` keys are the **alias** declared in `allowedWriteJoins`. FK fields are auto-filled from the inserted main record.
 
+> **Owned child tables (translations, `*_info` details): use a writeJoin, not a standalone table.**
+> A table that only exists as a child of a parent — e.g. `product_info` with composite PK `(product_id, lang)` — should be an `allowedWriteJoins` on the parent, not its own `DbTables` entry. The engine auto-fills the FK (`product_id`); add it to `upsertMap` (conflict key = the composite PK) to upsert children passing only their own fields:
+> ```typescript
+> // on the parent (product) table:
+> allowedWriteJoins: [
+>   buildRelation(SchemaProduct, 'id', SchemaProductInfo, 'productId', { alias: 'translations' }),
+> ],
+> upsertMap: buildUpsertRules(
+>   buildUpsertRule(SchemaProductInfo, ['productId', 'lang']),  // composite conflict key
+> ),
+> // → PUT /rest/product { "main": {...}, "secondaries": { "translations": [{ "lang": "en", "name": "Bike" }] } }
+> ```
+> Expose a composite-PK table as a standalone CRUD table only when it stands on its own (M:N link tables, natural keys) — composite PKs are fully supported there too.
+
 **Response (201):** `{ main: { ... }, secondaries: { ... } }`
 
 ### PUT /rest/{table}

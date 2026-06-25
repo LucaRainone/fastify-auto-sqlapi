@@ -8,7 +8,6 @@ import {
 import { runValidation } from '../validate.js';
 import { httpError } from '../../errors.js';
 import { type ConditionValue } from 'node-condition-builder';
-import { primaryAsString } from '../../../types.js';
 import type {
   UpdateParams,
   UpdateResult,
@@ -19,14 +18,17 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
   const { db, tableConf, dbTables, request, record, secondaries, deletions, tenant } = params;
 
   const schema = tableConf.Schema;
-  const pk = primaryAsString(tableConf.primary);
-  const pkCol = schema.col(pk);
-  const pkValue = record[pk];
+  // Every primary key field/column: composite PKs must match on ALL columns, otherwise an
+  // UPDATE keyed on the first column alone would hit every row sharing that value.
+  const pkFields = Array.isArray(tableConf.primary) ? tableConf.primary : [tableConf.primary];
+  const pkCols = pkFields.map((f) => schema.col(f));
+  const pkValues = pkFields.map((f) => record[f]);
 
-  if (pkValue == null) throw httpError(400, `Primary key "${pk}" is required`);
+  const missingIdx = pkValues.findIndex((v) => v == null);
+  if (missingIdx !== -1) throw httpError(400, `Primary key "${pkFields[missingIdx]}" is required`);
 
   // 1. Tenant ownership check (indirect) — do it early so user mutations don't run on records they can't access
-  await assertTenantOwnership(db, tenant, schema.tableName, pkCol, pkValue as ConditionValue);
+  await assertTenantOwnership(db, tenant, schema.tableName, pkCols, pkValues as ConditionValue[]);
 
   // 2. Mutable copy of input in camelCase
   const inputRecord: Record<string, unknown> = { ...record };
@@ -42,7 +44,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
   // 5. Convert to DB format (after all user mutations)
   const snaked = snakecaseRecord(inputRecord, schema);
   const updateFields = { ...snaked };
-  delete updateFields[pkCol];
+  for (const c of pkCols) delete updateFields[c];
 
   // 6. Strip tenant column (user cannot change tenant of an existing record)
   if (tenant) {
@@ -57,22 +59,26 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
 
     const extraCondition = buildTenantUpdateExtra(tx, tenant);
 
+    // WHERE matching every primary key column (single or composite).
+    const whereByPk = Object.fromEntries(pkCols.map((c, i) => [c, pkValues[i]])) as DbRecord;
+
     if (hasFieldsToUpdate) {
       const affectedRows = await tx.update(
         schema.tableName,
         updateFields as DbRecord,
-        { [pkCol]: pkValue } as DbRecord,
+        whereByPk,
         extraCondition
       );
 
       if (affectedRows === 0) throw httpError(404, `Record not found`);
     } else {
       // No fields to update: verify the record exists (for secondaries/deletions)
-      let whereSql = `${tx.qi(schema.tableName)}.${tx.qi(pkCol)} = ${tx.ph(1)}`;
-      const whereValues: unknown[] = [pkValue];
+      const whereParts = pkCols.map((c, i) => `${tx.qi(schema.tableName)}.${tx.qi(c)} = ${tx.ph(i + 1)}`);
+      let whereSql = whereParts.join(' AND ');
+      const whereValues: unknown[] = [...pkValues];
 
       if (extraCondition) {
-        whereSql += ` AND ${extraCondition.build(2, tx.ph)}`;
+        whereSql += ` AND ${extraCondition.build(pkCols.length + 1, tx.ph)}`;
         whereValues.push(...extraCondition.getValues());
       }
 
@@ -86,8 +92,8 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
       if (rows.length === 0) throw httpError(404, `Record not found`);
     }
 
-    // Build the main response (PK-only)
-    const mainResult = { [pk]: pkValue };
+    // Build the main response (PK-only — every PK field)
+    const mainResult = Object.fromEntries(pkFields.map((f, i) => [f, pkValues[i]]));
 
     // 8. Secondaries (upsert/insert with FK auto-fill — camelCase)
     let secondaryResults: Record<string, Record<string, unknown>[]> | undefined;

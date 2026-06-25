@@ -208,12 +208,14 @@ export async function assertTenantOwnership(
   db: QueryClient,
   tenant: TenantContext | undefined,
   tableName: string,
-  pkCol: string,
-  pkValue: ConditionValue
+  pkCol: string | string[],
+  pkValue: ConditionValue | ConditionValue[]
 ): Promise<void> {
   if (!tenant || !isIndirect(tenant.scope)) return;
   const cb = new ConditionBuilder('AND', db.cbDialect);
-  cb.isEqual(`${db.qi(tableName)}.${db.qi(pkCol)}`, pkValue);
+  const cols = Array.isArray(pkCol) ? pkCol : [pkCol];
+  const vals = Array.isArray(pkValue) ? pkValue : [pkValue];
+  cols.forEach((c, i) => cb.isEqual(`${db.qi(tableName)}.${db.qi(c)}`, vals[i]));
   cb.append(buildTenantCondition(db, tenant.scope, tenant.ids));
   const sql = `SELECT 1 FROM ${db.qi(tableName)} ${buildTenantJoin(db, tenant.scope, tableName)} WHERE ${cb.build(1, db.ph)} LIMIT 1`;
   const r = await db.query(sql, cb.getValues());
