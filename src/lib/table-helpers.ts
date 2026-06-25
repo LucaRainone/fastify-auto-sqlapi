@@ -1,4 +1,4 @@
-import { ConditionBuilder, type ConditionValueOrUndefined } from 'node-condition-builder';
+import { ConditionBuilder, type ConditionValueOrUndefined, type DialectName as CbDialect } from 'node-condition-builder';
 import type { TSchema, TObject } from '@sinclair/typebox';
 import type {
   SchemaDefinition,
@@ -8,12 +8,13 @@ import type {
 } from '../types.js';
 import { getDialect } from './dialect.js';
 
-// Quote an identifier using the current global ConditionBuilder dialect.
-// Needed so that DB columns with uppercase letters (e.g. betterauth "userId")
-// are preserved on PostgreSQL (which folds unquoted identifiers to lowercase)
-// and on MySQL (which is case-sensitive on Linux filesystems).
-function qi(field: string): string {
-  return getDialect(ConditionBuilder.DIALECT).qi(field);
+// Quote an identifier using the given ConditionBuilder dialect (or the global
+// default when not provided). Needed so that DB columns with uppercase letters
+// (e.g. betterauth "userId") are preserved on PostgreSQL (which folds unquoted
+// identifiers to lowercase) and on MySQL (which is case-sensitive on Linux
+// filesystems).
+function qi(field: string, dialect?: CbDialect): string {
+  return getDialect(dialect ?? ConditionBuilder.DIALECT).qi(field);
 }
 
 // Extract properties from TObject or use the Record directly
@@ -30,13 +31,13 @@ export function exportTableInfo<
     filters: { [K in keyof F | keyof ExtraProps<EF>]?: ConditionValueOrUndefined }
   ) => void
 ): { Schema: SchemaDefinition<F>; filters: TableFilterFn; extraFilters: Record<string, TSchema> } {
-  const filters: TableFilterFn = (filterValues) => {
-    const condition = new ConditionBuilder('AND');
+  const filters: TableFilterFn = (filterValues, dialect) => {
+    const condition = new ConditionBuilder('AND', dialect);
 
     // Only auto-match real schema fields (DB columns)
     for (const field of Object.keys(Schema.fields)) {
       if (field in filterValues && filterValues[field] !== null && filterValues[field] !== undefined) {
-        condition.isEqual(qi(Schema.col(field)), filterValues[field]);
+        condition.isEqual(qi(Schema.col(field), dialect), filterValues[field]);
       }
     }
 

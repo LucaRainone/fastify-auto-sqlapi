@@ -86,7 +86,7 @@ export async function introspectMysqlTables(
 
   try {
     const [rows] = await connection.query(
-      `SELECT table_name, column_name, data_type, column_default, is_nullable
+      `SELECT table_name, column_name, data_type, column_default, is_nullable, column_key, extra
        FROM information_schema.columns
        WHERE table_schema = ?
        ORDER BY table_name, ordinal_position`,
@@ -100,6 +100,8 @@ export async function introspectMysqlTables(
       udt_name: mapMysqlType(row.DATA_TYPE || row.data_type),
       column_default: row.COLUMN_DEFAULT || row.column_default,
       is_nullable: row.IS_NULLABLE || row.is_nullable,
+      is_primary: (row.COLUMN_KEY || row.column_key) === 'PRI',
+      is_auto_increment: String(row.EXTRA || row.extra || '').includes('auto_increment'),
     }));
   } finally {
     await connection.end();

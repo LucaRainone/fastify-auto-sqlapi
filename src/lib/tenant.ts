@@ -45,7 +45,7 @@ export function buildTenantCondition(
     qualifier = db.qi(col);
   }
 
-  const cb = new ConditionBuilder('AND');
+  const cb = new ConditionBuilder('AND', db.cbDialect);
   cb.isIn(qualifier, tenantIds);
   return cb;
 }
@@ -100,7 +100,7 @@ export async function validateTenantFK(
   const foreignField = scope.through.foreignField;
   const tenantCol = scope.column;
 
-  const cb = new ConditionBuilder('AND');
+  const cb = new ConditionBuilder('AND', db.cbDialect);
   cb.isIn(db.qi(foreignField), uniqueFKs as ConditionValue[]);
   cb.isNotIn(db.qi(tenantCol), tenantIds);
   const where = cb.build(1, db.ph);
@@ -129,7 +129,7 @@ export function buildTenantDeleteWhere(
   tenant: TenantContext
 ): { where: string; values: unknown[] } {
   if (isIndirect(tenant.scope)) {
-    const innerCb = new ConditionBuilder('AND');
+    const innerCb = new ConditionBuilder('AND', db.cbDialect);
     innerCb.isIn(`${db.qi(tableName)}.${db.qi(pkCol)}`, (Array.isArray(pkValue) ? pkValue : [pkValue]) as ConditionValue[]);
     innerCb.append(buildTenantCondition(db, tenant.scope, tenant.ids));
     const innerWhere = innerCb.build(1, db.ph);
@@ -139,7 +139,7 @@ export function buildTenantDeleteWhere(
     return { where, values };
   }
 
-  const cb = new ConditionBuilder('AND');
+  const cb = new ConditionBuilder('AND', db.cbDialect);
   if (Array.isArray(pkValue)) {
     cb.isIn(db.qi(pkCol), pkValue);
   } else {
@@ -189,10 +189,11 @@ export async function enforceTenantOnWrites(
  * (indirect uses pre-check via `assertTenantOwnership`).
  */
 export function buildTenantUpdateExtra(
+  db: QueryClient,
   tenant: TenantContext | undefined
 ): ConditionBuilder | undefined {
   if (!tenant || isIndirect(tenant.scope)) return undefined;
-  const cb = new ConditionBuilder('AND');
+  const cb = new ConditionBuilder('AND', db.cbDialect);
   if (tenant.ids.length === 1) cb.isEqual(tenant.scope.column, tenant.ids[0]);
   else cb.isIn(tenant.scope.column, tenant.ids);
   return cb;
@@ -211,7 +212,7 @@ export async function assertTenantOwnership(
   pkValue: ConditionValue
 ): Promise<void> {
   if (!tenant || !isIndirect(tenant.scope)) return;
-  const cb = new ConditionBuilder('AND');
+  const cb = new ConditionBuilder('AND', db.cbDialect);
   cb.isEqual(`${db.qi(tableName)}.${db.qi(pkCol)}`, pkValue);
   cb.append(buildTenantCondition(db, tenant.scope, tenant.ids));
   const sql = `SELECT 1 FROM ${db.qi(tableName)} ${buildTenantJoin(db, tenant.scope, tableName)} WHERE ${cb.build(1, db.ph)} LIMIT 1`;
@@ -237,7 +238,7 @@ export async function assertTenantOwnsAll(
   if (!tenant || !ids.length) return;
 
   const qualifiedPk = `${db.qi(tableName)}.${db.qi(pkCol)}`;
-  const cb = new ConditionBuilder('AND');
+  const cb = new ConditionBuilder('AND', db.cbDialect);
   cb.isIn(qualifiedPk, ids);
   cb.append(buildTenantCondition(db, tenant.scope, tenant.ids));
 

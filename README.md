@@ -14,7 +14,8 @@ Point it at your database, and get a full REST API with search, advanced conditi
 - **Bulk operations** — batch insert/upsert/delete in single queries
 - **Multi-tenant** — automatic row-level isolation, zero code in handlers
 - **Validation** — structured field-level validation with cross-entity support
-- **Hooks** — `beforeInsert`, `beforeUpdate`, `afterInsert` for custom logic
+- **Hooks** — full before/after matrix (insert, update, delete, bulk delete) for custom logic
+- **Transactions** — insert/update with secondaries run atomically (rollback on failure)
 - **Swagger UI** — optional, auto-configured from your schemas
 - **Composable** — register all routes or pick only what you need
 
@@ -183,10 +184,16 @@ const TableCustomer = defineTable({
     return [];
   },
 
-  // Hooks (runs after validation) — all receive camelCase records (schema field names)
+  // Hooks (run after validation) — all receive camelCase records (schema field names).
+  // after* hooks for insert/update run INSIDE the write transaction: throwing rolls back.
   beforeInsert: async (db, req, record) => { /* camelCase; mutations propagate to INSERT */ },
-  beforeUpdate: async (db, req, fields) => { /* camelCase; PK included for reference, excluded from UPDATE SET */ },
   afterInsert: async (db, req, record, secondaryRecords) => { /* camelCase; input merged with generated PK */ },
+  beforeUpdate: async (db, req, fields) => { /* camelCase; PK included for reference, excluded from UPDATE SET */ },
+  afterUpdate: async (db, req, record, secondaryRecords, deletionRecords) => { /* after UPDATE + secondaries + deletions */ },
+  beforeDelete: async (db, req, id) => { /* throw to abort the deletion */ },
+  afterDelete: async (db, req, id) => { /* after a successful single delete */ },
+  beforeBulkDelete: async (db, req, ids) => { /* called ONCE with all ids; throw to abort the batch */ },
+  afterBulkDelete: async (db, req, deletedIds) => { /* called ONCE with the ids ACTUALLY deleted */ },
 
   // Auth (per-table)
   onRequests: [
@@ -246,6 +253,46 @@ await app.register(fastifyAutoSqlApi, {
 | `debug` | `boolean` | No | Log all SQL queries to console |
 
 For MySQL/MariaDB, register `mysql2/promise` pool instead of `@fastify/postgres` and pass `dialect: 'mysql'` or `'mariadb'`.
+
+## Security
+
+> ⚠️ **The plugin is open by default.** Registering it without any configuration exposes
+> **all operations on all tables in `DbTables`** (read AND write, including bulk delete) to
+> anyone who can reach the server. This is intentional — the plugin provides the tools and
+> does not impose an auth model — but it means **you** are responsible for locking it down
+> before exposing it.
+
+Three layers are available, combinable:
+
+**1. Authentication / authorization hooks** — `onRequests` runs before every auto-generated
+route (globally or per table):
+
+```typescript
+await app.register(fastifyAutoSqlApi, {
+  DbTables: dbTables,
+  onRequests: [async (request, reply) => {
+    await request.jwtVerify(); // or any auth check; throw/reply to block
+  }],
+});
+```
+
+**2. Per-table operation whitelist** — `operations` limits which routes are registered for a
+table. Omitted = all operations (default). Unlisted operations are not registered at all
+(they answer 404):
+
+```typescript
+const TableAuditLog = defineTable({
+  primary: 'id',
+  ...exportTableInfo(SchemaAuditLog),
+  operations: ['search', 'get'], // read-only over HTTP: no insert/update/delete/bulk
+});
+```
+
+Note: `operations` gates the HTTP routes only. The programmatic `fastify.sqlApi.*` methods
+are always available to your own code.
+
+**3. Multi-tenancy** — `getTenantId` + `tenantScope` filter every query by tenant (see
+[Multi-Tenant](#multi-tenant)).
 
 ## API Reference
 
@@ -495,7 +542,7 @@ await app.register(async (instance) => {
 
 ## Conventions
 
-- **camelCase everywhere in the API** — requests, responses, `validate`, and all hooks (`beforeInsert`, `beforeUpdate`, `afterInsert`) use schema field names
+- **camelCase everywhere in the API** — requests, responses, `validate`, and all hooks (`beforeInsert`/`afterInsert`, `beforeUpdate`/`afterUpdate`, `beforeDelete`/`afterDelete`, `beforeBulkDelete`/`afterBulkDelete`) use schema field names
 - **Conversion to DB column format is automatic** via `colMap` — supports both snake_case and camelCase DB columns (e.g. betterauth-style)
 - **Aliases identify joins** — declared in `buildRelation({ alias })`, used as keys in request/response/`secondaries`/dotted notation
 - **`joinMustExist` / `joinMultiple` / `joinGroup`** are 1:N (child→main) and use side queries / EXISTS / correlated subqueries — no row duplication

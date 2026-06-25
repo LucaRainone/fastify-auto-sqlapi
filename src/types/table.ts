@@ -1,4 +1,4 @@
-import type { Expression, ConditionBuilder, ConditionValueOrUndefined } from 'node-condition-builder';
+import type { Expression, ConditionBuilder, ConditionValueOrUndefined, DialectName as CbDialect } from 'node-condition-builder';
 import type { TSchema, Static } from '@sinclair/typebox';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { QueryClient } from '../lib/db.js';
@@ -8,9 +8,25 @@ import type { JoinDefinition } from './join.js';
 import type { TenantScope } from './tenant.js';
 import type { ValidatorFn, BulkValidatorFn } from './validation.js';
 
+/** Auto-generated HTTP operations that can be enabled per table via `ITable.operations`. */
+export type TableOperation =
+  | 'search'
+  | 'get'
+  | 'insert'
+  | 'update'
+  | 'delete'
+  | 'bulkUpsert'
+  | 'bulkDelete';
+
 export type FilterRecord = Record<string, ConditionValueOrUndefined>;
 export type ExtendedConditionFn = (condition: ConditionBuilder, filters: FilterRecord) => void;
-export type TableFilterFn = (filters: FilterRecord) => ConditionBuilder;
+/**
+ * Builds the WHERE ConditionBuilder for a table from filter values. The optional
+ * `dialect` selects identifier quoting and builder behavior per call (the engines pass
+ * the dialect of the QueryClient that runs the query); when omitted, the global
+ * `ConditionBuilder.DIALECT` is used.
+ */
+export type TableFilterFn = (filters: FilterRecord, dialect?: CbDialect) => ConditionBuilder;
 
 export interface ITable<F extends Record<string, TSchema> = Record<string, TSchema>> {
   primary: (string & keyof F) | (string & keyof F)[];
@@ -51,6 +67,19 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
     secondaryRecords?: unknown
   ) => Promise<void>;
   /**
+   * Runs after a successful update, inside the same transaction as the UPDATE +
+   * secondaries + deletions: throwing here rolls back the whole operation (when the
+   * adapter supports transactions). Receives the camelCase input record (including the
+   * PK) plus the secondaries/deletions results, mirroring `afterInsert`.
+   */
+  afterUpdate?: (
+    db: QueryClient,
+    req: FastifyRequest,
+    record: { [K in keyof F]?: Static<F[K]> | Expression | null },
+    secondaryRecords?: unknown,
+    deletionRecords?: unknown
+  ) => void | Promise<void>;
+  /**
    * Runs before a single record is deleted (DELETE /rest/:id). Throw to abort the
    * deletion (the thrown error's `statusCode`/`message` are surfaced to the client).
    * Use it to enforce referential or business rules the DB cascade would otherwise hide.
@@ -69,6 +98,15 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
     id: string | number
   ) => void | Promise<void>;
   /**
+   * Runs after a single record has been deleted (DELETE /rest/:id). Not called when the
+   * record was not found (404). Same `req` caveat as `beforeDelete`.
+   */
+  afterDelete?: (
+    db: QueryClient,
+    req: FastifyRequest,
+    id: string | number
+  ) => void | Promise<void>;
+  /**
    * Bulk counterpart of `beforeDelete`, invoked ONCE with all ids before a bulk delete
    * (POST /bulk/:table/delete). Called once — not per id — to preserve the single-query
    * optimization. Throw to abort the whole batch. `beforeDelete` is NOT called for bulk
@@ -82,6 +120,26 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
     req: FastifyRequest,
     ids: (string | number)[]
   ) => void | Promise<void>;
+  /**
+   * Bulk counterpart of `afterDelete`, invoked ONCE after a bulk delete with the ids that
+   * were ACTUALLY deleted (which may be a subset of the requested ids). Not called when
+   * nothing was deleted. Same `req` caveat as `beforeBulkDelete`.
+   */
+  afterBulkDelete?: (
+    db: QueryClient,
+    req: FastifyRequest,
+    deletedIds: (string | number)[]
+  ) => void | Promise<void>;
+  /**
+   * Whitelist of auto-generated HTTP routes for this table. When omitted, ALL operations
+   * are exposed (search, get, insert, update, delete, bulkUpsert, bulkDelete) — the
+   * default is intentionally open, see the Security section in the README. Listing only
+   * some operations skips registering the others entirely (they answer 404).
+   *
+   * Note: this gates the HTTP routes only; the programmatic `sqlApi.*` methods are not
+   * affected.
+   */
+  operations?: TableOperation[];
   defaultOrder?: string;
   excludeFromCreation?: (string & keyof F)[];
   distinctResults?: boolean;

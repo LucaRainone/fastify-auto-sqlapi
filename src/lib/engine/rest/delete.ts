@@ -22,17 +22,20 @@ export async function deleteEngine(params: DeleteParams): Promise<DeleteResult> 
   if (!tenant) {
     const affectedRows = await db.delete(tableName, { [pkCol]: id } as DbRecord);
     if (affectedRows === 0) throw httpError(404, `Record not found: ${id}`);
-    return { main: { [pk]: id } };
+  } else {
+    const { where, values } = buildTenantDeleteWhere(db, tableName, pkCol, id, tenant);
+
+    const result = await db.query(
+      `DELETE FROM ${db.qi(tableName)} WHERE ${where}`,
+      values
+    );
+
+    if (result.affectedRows === 0) throw httpError(404, `Record not found: ${id}`);
   }
 
-  const { where, values } = buildTenantDeleteWhere(db, tableName, pkCol, id, tenant);
-
-  const result = await db.query(
-    `DELETE FROM ${db.qi(tableName)} WHERE ${where}`,
-    values
-  );
-
-  if (result.affectedRows === 0) throw httpError(404, `Record not found: ${id}`);
+  if (tableConf.afterDelete) {
+    await tableConf.afterDelete(db, request as FastifyRequest, id);
+  }
 
   return { main: { [pk]: id } };
 }

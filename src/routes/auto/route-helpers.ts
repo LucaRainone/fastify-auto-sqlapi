@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { ITable, SqlApiPluginOptions, DbTables } from '../../types.js';
+import type { ITable, SqlApiPluginOptions, DbTables, TableOperation } from '../../types.js';
 
 type RequestHook = (request: FastifyRequest, reply: FastifyReply) => Promise<void | FastifyReply>;
 
@@ -29,6 +29,8 @@ interface RouteSchema {
 }
 
 export interface AutoRouteSpec {
+  /** Operation key matched against `ITable.operations` to decide whether to register the route. */
+  operation: TableOperation;
   method: 'GET' | 'POST' | 'PUT' | 'DELETE';
   /** URL builder receiving the table configuration to read `Schema.tableName`. */
   url: (tableConf: ITable) => string;
@@ -61,6 +63,9 @@ export async function registerForAllTables(
   const { DbTables } = options;
 
   for (const [tableName, tableConf] of Object.entries(DbTables)) {
+    // operations acts as a whitelist; when omitted every operation is exposed.
+    if (tableConf.operations && !tableConf.operations.includes(spec.operation)) continue;
+
     const schemas = spec.schemas(DbTables, tableName, tableConf);
 
     // Only include schema keys that are actually defined: Fastify checks for key

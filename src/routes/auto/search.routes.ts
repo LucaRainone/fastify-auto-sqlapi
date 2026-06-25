@@ -8,6 +8,7 @@ export default async function searchRoutes(
   options: SqlApiPluginOptions,
 ): Promise<void> {
   await registerForAllTables(fastify, options, {
+    operation: 'search',
     method: 'POST',
     url: (tc) => `/search/${tc.Schema.tableName}`,
     successStatus: 200,

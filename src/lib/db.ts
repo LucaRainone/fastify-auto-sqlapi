@@ -34,6 +34,21 @@ export class QueryClient {
     return this.dialect.name;
   }
 
+  /** ConditionBuilder dialect ('postgres' | 'mysql') for per-instance builders. */
+  get cbDialect(): SqlDialect['cbDialect'] {
+    return this.dialect.cbDialect;
+  }
+
+  /** Whether the dialect supports `RETURNING` (postgres/mariadb: yes, mysql: no). */
+  get supportsReturning(): boolean {
+    return this.dialect.supportsReturning;
+  }
+
+  /** Build the ` RETURNING <quoted pk>` suffix ('' when unsupported). */
+  get returningPk(): SqlDialect['returningPk'] {
+    return this.dialect.returningPk.bind(this.dialect);
+  }
+
   get dateTrunc(): SqlDialect['dateTrunc'] {
     return this.dialect.dateTrunc.bind(this.dialect);
   }
@@ -55,6 +70,40 @@ export class QueryClient {
       console.log('PARAMS:', values || []);
     }
     return this.client.query<T>(text, values);
+  }
+
+  /**
+   * Run `fn` inside a DB transaction on a dedicated connection (BEGIN/COMMIT, with
+   * ROLLBACK + rethrow on error). Requires the underlying Queryable to expose
+   * `connect()`; when it does not (legacy custom adapters), `fn` runs directly on
+   * this client without transactional guarantees.
+   *
+   * Nested calls join the outer transaction: the tx QueryClient wraps a dedicated
+   * connection that has no `connect()`, so an inner `withTransaction` is a no-op
+   * wrapper around the same connection.
+   */
+  async withTransaction<T>(fn: (tx: QueryClient) => Promise<T>): Promise<T> {
+    if (!this.client.connect) return fn(this);
+
+    const conn = await this.client.connect();
+    const tx = new QueryClient(conn, this.dialect);
+    tx.setDebug(this.debug);
+
+    try {
+      await conn.query('BEGIN');
+      const result = await fn(tx);
+      await conn.query('COMMIT');
+      return result;
+    } catch (err) {
+      try {
+        await conn.query('ROLLBACK');
+      } catch {
+        // The connection is broken: surface the original error, not the rollback failure.
+      }
+      throw err;
+    } finally {
+      await conn.release();
+    }
   }
 
   // Quote a list of fields

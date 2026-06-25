@@ -8,6 +8,7 @@ export default async function insertRoutes(
   options: SqlApiPluginOptions,
 ): Promise<void> {
   await registerForAllTables(fastify, options, {
+    operation: 'insert',
     method: 'POST',
     url: (tc) => `/rest/${tc.Schema.tableName}`,
     successStatus: 201,

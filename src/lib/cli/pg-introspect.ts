@@ -28,10 +28,19 @@ export async function introspectTables(
     await client.connect();
 
     const result = await client.query(
-      `SELECT table_name, column_name, udt_name, column_default, is_nullable
-       FROM information_schema.columns
-       WHERE table_schema = $1
-       ORDER BY table_name, ordinal_position`,
+      `SELECT c.table_name, c.column_name, c.udt_name, c.column_default, c.is_nullable,
+              (pk.column_name IS NOT NULL) AS is_primary
+       FROM information_schema.columns c
+       LEFT JOIN (
+         SELECT kcu.table_name, kcu.column_name
+         FROM information_schema.table_constraints tc
+         JOIN information_schema.key_column_usage kcu
+           ON tc.constraint_name = kcu.constraint_name
+          AND tc.table_schema = kcu.table_schema
+         WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = $1
+       ) pk ON pk.table_name = c.table_name AND pk.column_name = c.column_name
+       WHERE c.table_schema = $1
+       ORDER BY c.table_name, c.ordinal_position`,
       [schema]
     );
 

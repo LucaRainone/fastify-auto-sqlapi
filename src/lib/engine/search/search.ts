@@ -15,6 +15,7 @@ import type {
   JoinFetchRequest,
   ITable,
   SchemaDefinition,
+  TenantContext,
   TenantScopeIndirect,
   ComputedFieldContext,
   ComputedFieldExpr,
@@ -99,6 +100,28 @@ function resolveFieldRef(
 }
 
 // ─── Join lookup ────────────────────────────────────────────
+
+/**
+ * Tenant-scope a join side-query. When the joined table declares its own `tenantScope`,
+ * appends the tenant condition to `cb` (direct: `col IN ids`; indirect: condition on the
+ * through table) and, for indirect scopes, pushes the INNER JOIN clause into `joins`.
+ * No-op without a tenant context (admin) or when the join table is not tenant-scoped.
+ */
+function appendJoinTenantScope(
+  db: QueryClient,
+  joinTableConf: ITable | undefined,
+  tenant: TenantContext | undefined,
+  joinTableName: string,
+  cb: ConditionBuilder,
+  joins?: string[]
+): void {
+  const scope = joinTableConf?.tenantScope;
+  if (!tenant || !scope) return;
+  cb.append(buildTenantCondition(db, scope, tenant.ids));
+  if ('through' in scope) {
+    joins?.push(buildTenantJoin(db, scope as TenantScopeIndirect, joinTableName));
+  }
+}
 
 function findJoinByAlias(tableConf: ITable, alias: string): JoinDefinition | undefined {
   return tableConf.allowedReadJoins?.find((j) => j.alias === alias);
@@ -368,7 +391,7 @@ function buildLeftJoinClauses(
       // Note: extraFilters declared on joinTableConf are not supported here for
       // joinLeft (they would require alias-aware handlers); only schema fields
       // and computed fields apply.
-      const cb = new ConditionBuilder('AND');
+      const cb = new ConditionBuilder('AND', db.cbDialect);
       const joinTableConf = dbTables[joinSchema.tableName];
       const computed = joinTableConf?.computedFields;
 
@@ -529,7 +552,8 @@ async function executeJoinMultiple(
   dbTables: DbTables,
   tableConf: ITable,
   mainResults: Record<string, unknown>[],
-  joinMultiple: Record<string, JoinFetchRequest>
+  joinMultiple: Record<string, JoinFetchRequest>,
+  tenant?: TenantContext
 ): Promise<Record<string, Record<string, unknown>[]>> {
   const result: Record<string, Record<string, unknown>[]> = {};
 
@@ -547,6 +571,8 @@ async function executeJoinMultiple(
     const cb = buildJoinRefCondition(joinTableConf, joinSchema, ref || {}, db);
     const fkCol = joinSchema.col(joinField);
     cb.isIn(db.qi(fkCol), ids);
+    const tenantJoins: string[] = [];
+    appendJoinTenantScope(db, joinTableConf, tenant, joinSchema.tableName, cb, tenantJoins);
     let where = cb.build(1, db.ph);
     let values = cb.getValues();
 
@@ -564,6 +590,7 @@ async function executeJoinMultiple(
       columns,
       where,
       values,
+      joins: tenantJoins.length > 0 ? tenantJoins : undefined,
     });
 
     result[alias] = mapRowsToCamelCase(rows as Record<string, unknown>[], joinSchema);
@@ -576,15 +603,18 @@ async function executeJoinMultiple(
 
 async function executeJoinLeft(
   db: QueryClient,
+  dbTables: DbTables,
   tableConf: ITable,
   mainResults: Record<string, unknown>[],
-  joinLeft: Record<string, JoinFetchRequest>
+  joinLeft: Record<string, JoinFetchRequest>,
+  tenant?: TenantContext
 ): Promise<Record<string, Record<string, unknown>[]>> {
   const result: Record<string, Record<string, unknown>[]> = {};
 
   for (const [alias, ref] of Object.entries(joinLeft)) {
     const joinDef = requireJoin(tableConf, alias, true);
     const { joinSchema, joinField, mainField, selection: defaultSelection } = joinDef;
+    const joinTableConf = dbTables[joinSchema.tableName];
 
     // For joinLeft (N:1), mainField on main is the FK pointing to joinField (PK) on parent.
     // We collect the FK values from the main results and look up parents by their PK.
@@ -595,8 +625,10 @@ async function executeJoinLeft(
     }
 
     const fkCol = joinSchema.col(joinField);
-    const cb = new ConditionBuilder('AND');
+    const cb = new ConditionBuilder('AND', db.cbDialect);
     cb.isIn(db.qi(fkCol), ids);
+    const tenantJoins: string[] = [];
+    appendJoinTenantScope(db, joinTableConf, tenant, joinSchema.tableName, cb, tenantJoins);
     const where = cb.build(1, db.ph);
     const values = cb.getValues();
 
@@ -608,6 +640,7 @@ async function executeJoinLeft(
       columns,
       where,
       values,
+      joins: tenantJoins.length > 0 ? tenantJoins : undefined,
     });
 
     result[alias] = mapRowsToCamelCase(rows as Record<string, unknown>[], joinSchema);
@@ -652,7 +685,8 @@ async function executeJoinGroup(
   dbTables: DbTables,
   tableConf: ITable,
   mainResults: Record<string, unknown>[],
-  joinGroup: Record<string, JoinGroupRequest>
+  joinGroup: Record<string, JoinGroupRequest>,
+  tenant?: TenantContext
 ): Promise<Record<string, Record<string, unknown>>> {
   const result: Record<string, Record<string, unknown>> = {};
 
@@ -701,6 +735,8 @@ async function executeJoinGroup(
     const cb = buildJoinRefCondition(joinTableConf, joinSchema, groupRef, db);
     const fkCol = joinSchema.col(joinField);
     cb.isIn(db.qi(fkCol), ids);
+    const tenantJoins: string[] = [];
+    appendJoinTenantScope(db, joinTableConf, tenant, joinSchema.tableName, cb, tenantJoins);
     let where = cb.build(1, db.ph);
     let values = cb.getValues();
 
@@ -711,7 +747,8 @@ async function executeJoinGroup(
     }
 
     const groupBy = groupByParts.length > 0 ? `GROUP BY ${groupByParts.join(', ')}` : '';
-    const sql = `SELECT ${selectParts.join(', ')} FROM ${db.qi(joinSchema.tableName)} WHERE ${where} ${groupBy}`;
+    const fromJoins = tenantJoins.length > 0 ? ` ${tenantJoins.join(' ')}` : '';
+    const sql = `SELECT ${selectParts.join(', ')} FROM ${db.qi(joinSchema.tableName)}${fromJoins} WHERE ${where} ${groupBy}`;
 
     const queryResult = await db.query(sql, values);
     const rows = queryResult.rows;
@@ -788,8 +825,8 @@ function buildJoinRefCondition(
   db: QueryClient
 ): ConditionBuilder {
   const cb = (ref.filters && joinTableConf)
-    ? joinTableConf.filters(ref.filters)
-    : new ConditionBuilder('AND');
+    ? joinTableConf.filters(ref.filters, db.cbDialect)
+    : new ConditionBuilder('AND', db.cbDialect);
 
   if (ref.conditions?.length) {
     for (const c of ref.conditions) {
@@ -933,7 +970,7 @@ function appendComputedConditions(
     // (if any) reference them via stable indices set by the consumer.
     values = [...values, ...c.values];
 
-    const tmpCb = new ConditionBuilder('AND');
+    const tmpCb = new ConditionBuilder('AND', db.cbDialect);
     dispatchConditionMethod(tmpCb, c.method, c.expr, c.params);
     const startIdx = values.length + 1;
     const clauseSql = tmpCb.build(startIdx, db.ph);
@@ -974,7 +1011,7 @@ function appendAggConditions(
     );
     values = [...values, ...exprValues];
 
-    const tmpCb = new ConditionBuilder('AND');
+    const tmpCb = new ConditionBuilder('AND', db.cbDialect);
     dispatchConditionMethod(tmpCb, c.method, expr, c.params as unknown[]);
     const startIdx = values.length + 1;
     const clause = tmpCb.build(startIdx, db.ph);
@@ -993,7 +1030,8 @@ function buildJoinMustExistClauses(
   tableConf: ITable,
   joinMustExist: Record<string, JoinRefFilter>,
   currentWhere: string,
-  currentValues: unknown[]
+  currentValues: unknown[],
+  tenant?: TenantContext
 ): { where: string; values: unknown[] } {
   let where = currentWhere;
   const values = [...currentValues];
@@ -1005,6 +1043,8 @@ function buildJoinMustExistClauses(
     const refs = extractJoinRefs(db, tableConf, joinDef);
 
     const filterCondition = buildJoinRefCondition(joinTableConf, joinSchema, ref, db);
+    const tenantJoins: string[] = [];
+    appendJoinTenantScope(db, joinTableConf, tenant, joinSchema.tableName, filterCondition, tenantJoins);
     const startIdx = values.length + 1;
     let filterWhere = filterCondition.build(startIdx, db.ph);
     let filterVals: unknown[] = [...filterCondition.getValues()];
@@ -1023,11 +1063,14 @@ function buildJoinMustExistClauses(
       filterWhere = cwhere;
     }
 
+    // Qualify the FK with the join table: the EXISTS FROM may include the tenant
+    // through-join, so a bare column could become ambiguous.
     const innerWhere = filterWhere
-      ? `${refs.fkCol} = ${refs.mainTable}.${refs.mainCol} AND ${filterWhere}`
-      : `${refs.fkCol} = ${refs.mainTable}.${refs.mainCol}`;
+      ? `${refs.joinTable}.${refs.fkCol} = ${refs.mainTable}.${refs.mainCol} AND ${filterWhere}`
+      : `${refs.joinTable}.${refs.fkCol} = ${refs.mainTable}.${refs.mainCol}`;
 
-    where += ` AND EXISTS (SELECT 1 FROM ${refs.joinTable} WHERE ${innerWhere})`;
+    const existsJoins = tenantJoins.length > 0 ? ` ${tenantJoins.join(' ')}` : '';
+    where += ` AND EXISTS (SELECT 1 FROM ${refs.joinTable}${existsJoins} WHERE ${innerWhere})`;
     values.push(...filterVals);
   }
 
@@ -1054,7 +1097,7 @@ export async function searchEngine(
   if (joinLeft) for (const a of Object.keys(joinLeft)) requireJoin(tableConf, a, true);
 
   // Build main condition
-  const condition = tableConf.filters(filters || {});
+  const condition = tableConf.filters(filters || {}, db.cbDialect);
 
   // Filters that target computed fields (declared on tableConf.computedFields)
   // are applied via the side-channel pattern further down.
@@ -1091,7 +1134,7 @@ export async function searchEngine(
 
   // joinMustExist (EXISTS)
   if (joinMustExist && Object.keys(joinMustExist).length > 0) {
-    ({ where, values } = buildJoinMustExistClauses(db, dbTables, tableConf, joinMustExist, where, values));
+    ({ where, values } = buildJoinMustExistClauses(db, dbTables, tableConf, joinMustExist, where, values, tenant));
   }
 
   // Aggregation conditions (HAVING-style)
@@ -1155,15 +1198,15 @@ export async function searchEngine(
   const result: SearchResult = { main };
 
   if (joinMultiple && Object.keys(joinMultiple).length > 0) {
-    result.joinMultiple = await executeJoinMultiple(db, dbTables, tableConf, main, joinMultiple);
+    result.joinMultiple = await executeJoinMultiple(db, dbTables, tableConf, main, joinMultiple, tenant);
   }
 
   if (joinLeft && Object.keys(joinLeft).length > 0) {
-    result.joinLeft = await executeJoinLeft(db, tableConf, main, joinLeft);
+    result.joinLeft = await executeJoinLeft(db, dbTables, tableConf, main, joinLeft, tenant);
   }
 
   if (joinGroup && Object.keys(joinGroup).length > 0) {
-    result.joinGroup = await executeJoinGroup(db, dbTables, tableConf, main, joinGroup);
+    result.joinGroup = await executeJoinGroup(db, dbTables, tableConf, main, joinGroup, tenant);
   }
 
   if (pagination) {

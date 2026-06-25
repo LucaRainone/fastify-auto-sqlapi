@@ -25,23 +25,48 @@ export async function bulkDeleteEngine(params: BulkDeleteParams): Promise<BulkDe
   if (tenant) {
     ({ where, values } = buildTenantDeleteWhere(db, tableName, pkCol, ids, tenant));
   } else {
-    const cb = new ConditionBuilder('AND');
+    const cb = new ConditionBuilder('AND', db.cbDialect);
     cb.isIn(db.qi(pkCol), ids);
     where = cb.build(1, db.ph);
     values = cb.getValues();
   }
 
-  const result = await db.query(
-    `DELETE FROM ${db.qi(tableName)} WHERE ${where}`,
-    values
-  );
+  let results: BulkDeleteResult[];
 
-  // Return PK-only for each deleted record
-  if (result.affectedRows === ids.length) {
-    return ids.map((id) => ({ main: { [pk]: id } }));
+  if (db.supportsReturning) {
+    const result = await db.query(
+      `DELETE FROM ${db.qi(tableName)} WHERE ${where}${db.returningPk(db.qi(pkCol))}`,
+      values
+    );
+
+    // Happy path: everything requested was deleted
+    if (result.affectedRows === ids.length) {
+      results = ids.map((id) => ({ main: { [pk]: id } }));
+    } else {
+      // Partial delete: RETURNING tells exactly which rows went away
+      results = result.rows.map((r) => ({ main: { [pk]: (r as Record<string, unknown>)[pkCol] } }));
+    }
+  } else {
+    // No RETURNING (mysql): affectedRows alone cannot tell WHICH ids were deleted on a
+    // partial match, so look up the rows visible through the same WHERE before deleting.
+    const existing = await db.query<{ pk: unknown }>(
+      `SELECT ${db.qi(pkCol)} AS pk FROM ${db.qi(tableName)} WHERE ${where}`,
+      values
+    );
+
+    await db.query(
+      `DELETE FROM ${db.qi(tableName)} WHERE ${where}`,
+      values
+    );
+
+    results = existing.rows.map((r) => ({ main: { [pk]: r.pk } }));
   }
 
-  // Partial delete: best effort (no RETURNING on MySQL)
-  const deletedCount = result.affectedRows;
-  return ids.slice(0, deletedCount).map((id) => ({ main: { [pk]: id } }));
+  // Called once with the ACTUALLY deleted ids (possibly a subset of the requested ones)
+  if (tableConf.afterBulkDelete && results.length > 0) {
+    const deletedIds = results.map((r) => r.main[pk] as string | number);
+    await tableConf.afterBulkDelete(db, request as FastifyRequest, deletedIds);
+  }
+
+  return results;
 }

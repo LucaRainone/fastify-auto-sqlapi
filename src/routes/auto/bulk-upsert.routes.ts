@@ -8,6 +8,7 @@ export default async function bulkUpsertRoutes(
   options: SqlApiPluginOptions,
 ): Promise<void> {
   await registerForAllTables(fastify, options, {
+    operation: 'bulkUpsert',
     method: 'PUT',
     url: (tc) => `/bulk/${tc.Schema.tableName}`,
     successStatus: 200,

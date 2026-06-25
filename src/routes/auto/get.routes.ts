@@ -8,6 +8,7 @@ export default async function getRoutes(
   options: SqlApiPluginOptions,
 ): Promise<void> {
   await registerForAllTables(fastify, options, {
+    operation: 'get',
     method: 'GET',
     url: (tc) => `/rest/${tc.Schema.tableName}/:id`,
     successStatus: 200,

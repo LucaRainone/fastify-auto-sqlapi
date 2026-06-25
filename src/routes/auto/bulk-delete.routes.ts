@@ -9,6 +9,7 @@ export default async function bulkDeleteRoutes(
   options: SqlApiPluginOptions,
 ): Promise<void> {
   await registerForAllTables(fastify, options, {
+    operation: 'bulkDelete',
     method: 'POST',
     url: (tc) => `/bulk/${tc.Schema.tableName}/delete`,
     successStatus: 200,

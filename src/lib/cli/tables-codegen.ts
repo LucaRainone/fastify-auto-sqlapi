@@ -7,6 +7,8 @@ export interface ParsedSchema {
   tableName: string;
   fields: string[];
   fieldTypes: Record<string, string>;
+  /** PRIMARY KEY fields declared in the schema file (`primaryKey: [...]`), when present. */
+  primary?: string[];
 }
 
 export interface DetectedRelation {
@@ -39,17 +41,37 @@ export function parseSchemaFile(content: string): ParsedSchema | null {
 
   if (fields.length === 0) return null;
 
+  // primaryKey: ["code"] — emitted by generate-schema from DB introspection
+  let primary: string[] | undefined;
+  const pkMatch = content.match(/primaryKey:\s*\[([^\]]*)\]/);
+  if (pkMatch) {
+    primary = pkMatch[1]
+      .split(',')
+      .map((s) => s.trim().replace(/^["']|["']$/g, ''))
+      .filter(Boolean);
+    if (primary.length === 0) primary = undefined;
+  }
+
   return {
     schemaName: exportMatch[1],
     tableName: tableNameMatch[1],
     fields,
     fieldTypes,
+    primary,
   };
 }
 
 // ─── Detection ───────────────────────────────────────────────
 
-function detectPrimaryKey(schema: ParsedSchema): { pk: string; autoIncrement: boolean } {
+function detectPrimaryKey(schema: ParsedSchema): { pk: string | string[]; autoIncrement: boolean } {
+  // Preferred source: the PK introspected from the DB (primaryKey in the schema file).
+  if (schema.primary?.length) {
+    const pk = schema.primary.length === 1 ? schema.primary[0] : schema.primary;
+    const first = schema.primary[0];
+    return { pk, autoIncrement: schema.fieldTypes[first]?.includes('Optional') ?? false };
+  }
+
+  // Heuristic fallback for hand-written/legacy schema files without primaryKey.
   if (schema.fields.includes('id')) {
     return { pk: 'id', autoIncrement: schema.fieldTypes['id']?.includes('Optional') ?? false };
   }
@@ -59,6 +81,21 @@ function detectPrimaryKey(schema: ParsedSchema): { pk: string; autoIncrement: bo
     }
   }
   return { pk: schema.fields[0], autoIncrement: false };
+}
+
+/** First PK field: used for defaultOrder, relations and example snippets. */
+function pkFirst(pk: string | string[]): string {
+  return Array.isArray(pk) ? pk[0] : pk;
+}
+
+/** Render the `primary:` value for the defineTable template. */
+function formatPrimary(pk: string | string[]): string {
+  return Array.isArray(pk) ? `[${pk.map((p) => `'${p}'`).join(', ')}]` : `'${pk}'`;
+}
+
+/** All PK fields as an array, for "non-PK field" lookups in example snippets. */
+function pkFields(pk: string | string[]): string[] {
+  return Array.isArray(pk) ? pk : [pk];
 }
 
 export function detectRelations(schemas: ParsedSchema[]): DetectedRelation[] {
@@ -77,7 +114,7 @@ export function detectRelations(schemas: ParsedSchema[]): DetectedRelation[] {
         const { pk } = detectPrimaryKey(parent);
         relations.push({
           parentSchemaName: parent.schemaName,
-          parentField: pk,
+          parentField: pkFirst(pk),
           childSchemaName: schema.schemaName,
           childField: field,
         });
@@ -142,7 +179,7 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
   lines.push(``);
   lines.push(`// Fields: ${schema.fields.join(', ')}`);
   lines.push(`export const ${tableVarName} = defineTable({`);
-  lines.push(`  primary: '${pk}',`);
+  lines.push(`  primary: ${formatPrimary(pk)},`);
   lines.push(`  ...exportTableInfo(Schema),`);
 
   // Commented example with extraFilters + extendedCondition
@@ -154,10 +191,10 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
   lines.push(`  //   }`);
   lines.push(`  // ),`);
 
-  lines.push(`  defaultOrder: '${pk}',`);
+  lines.push(`  defaultOrder: '${pkFirst(pk)}',`);
 
   if (autoIncrement) {
-    lines.push(`  excludeFromCreation: ['${pk}'],`);
+    lines.push(`  excludeFromCreation: ['${pkFirst(pk)}'],`);
   } else {
     lines.push(`  // excludeFromCreation: [],`);
   }
@@ -172,14 +209,14 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
     lines.push(`  // allowedReadJoins: [],`);
   }
 
-  lines.push(`  // upsertMap: buildUpsertRules(buildUpsertRule(Schema, ['${pk}'])),`);
+  lines.push(`  // upsertMap: buildUpsertRules(buildUpsertRule(Schema, [${pkFields(pk).map((p) => `'${p}'`).join(', ')}])),`);
 
   // schemaOverrides: suggest email format if email field exists, otherwise minLength on first string field
   const emailField = schema.fields.find(f => f.toLowerCase().includes('email'));
   if (emailField) {
     lines.push(`  // schemaOverrides: { ${emailField}: Type.String({ format: 'email' }) },`);
   } else {
-    const stringField = schema.fields.find(f => f !== pk && schema.fieldTypes[f]?.includes('String'));
+    const stringField = schema.fields.find(f => !pkFields(pk).includes(f) && schema.fieldTypes[f]?.includes('String'));
     if (stringField) {
       lines.push(`  // schemaOverrides: { ${stringField}: Type.String({ minLength: 1 }) },`);
     } else {
@@ -188,7 +225,7 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
   }
 
   // validate: use first non-PK field for example
-  const exampleField = schema.fields.find(f => f !== pk) || schema.fields[0];
+  const exampleField = schema.fields.find(f => !pkFields(pk).includes(f)) || schema.fields[0];
   lines.push(`  validate: async (db, req, main, secondaries) => {`);
   lines.push(`    const errors: ValidationError[] = [];`);
   lines.push(`    // if (!main.${exampleField}) errors.push(['${exampleField}', 'required']);`);
@@ -275,12 +312,12 @@ export function generateTablesFile(schemas: ParsedSchema[]): string {
     lines.push(`// ─── ${schema.tableName} ──────────────────────────────`);
     lines.push(`// Fields: ${schema.fields.join(', ')}`);
     lines.push(`const ${tableVarName} = defineTable({`);
-    lines.push(`  primary: '${pk}',`);
+    lines.push(`  primary: ${formatPrimary(pk)},`);
     lines.push(`  ...exportTableInfo(${schema.schemaName}),`);
-    lines.push(`  defaultOrder: '${pk}',`);
+    lines.push(`  defaultOrder: '${pkFirst(pk)}',`);
 
     if (autoIncrement) {
-      lines.push(`  excludeFromCreation: ['${pk}'],`);
+      lines.push(`  excludeFromCreation: ['${pkFirst(pk)}'],`);
     } else {
       lines.push(`  // excludeFromCreation: [],`);
     }
@@ -295,10 +332,10 @@ export function generateTablesFile(schemas: ParsedSchema[]): string {
       lines.push(`  // allowedReadJoins: [],`);
     }
 
-    lines.push(`  // upsertMap: buildUpsertRules(buildUpsertRule(${schema.schemaName}, ['${pk}'])),`);
+    lines.push(`  // upsertMap: buildUpsertRules(buildUpsertRule(${schema.schemaName}, [${pkFields(pk).map((p) => `'${p}'`).join(', ')}])),`);
     lines.push(`  // schemaOverrides: {},`);
 
-    const exampleFieldLegacy = schema.fields.find(f => f !== pk) || schema.fields[0];
+    const exampleFieldLegacy = schema.fields.find(f => !pkFields(pk).includes(f)) || schema.fields[0];
     lines.push(`  validate: async (db, req, main, secondaries) => {`);
     lines.push(`    const errors: ValidationError[] = [];`);
     lines.push(`    // if (!main.${exampleFieldLegacy}) errors.push(['${exampleFieldLegacy}', 'required']);`);

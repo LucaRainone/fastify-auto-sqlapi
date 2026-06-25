@@ -9,7 +9,7 @@ export async function getEngine(params: GetParams): Promise<GetResult> {
   const { db, tableConf, id, tenant } = params;
   const pkCol = tableConf.Schema.col(primaryAsString(tableConf.primary));
 
-  const cb = new ConditionBuilder('AND');
+  const cb = new ConditionBuilder('AND', db.cbDialect);
   cb.isEqual(db.qi(pkCol), id);
   const joins: string[] = [];
 

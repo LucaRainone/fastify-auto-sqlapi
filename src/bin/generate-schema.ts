@@ -68,11 +68,11 @@ await runCli('fastify-auto-sqlapi: generating schemas', async () => {
   const generatedFiles = new Set<string>();
 
   for (const schemaName of Object.keys(tableMap)) {
-    const { name: tableName, fields, colMap } = tableMap[schemaName];
+    const { name: tableName, fields, colMap, primary } = tableMap[schemaName];
     const filename = path.join(schemasDir, `${schemaName}.ts`);
     generatedFiles.add(`${schemaName}.ts`);
 
-    const content = generateSchemaFile(schemaName, tableName, fields, colMap);
+    const content = generateSchemaFile(schemaName, tableName, fields, colMap, primary);
 
     let status = 'created';
     let color: number = CONSOLE_COLORS.green;

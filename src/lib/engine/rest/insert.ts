@@ -22,48 +22,52 @@ export async function insertEngine(params: InsertParams): Promise<InsertResult> 
     secondaries,
   );
 
-  // 2. Tenant: inject (direct) or validate FK (indirect) — enforced after user mutations
-  await enforceTenantOnWrites(db, tenant, [mainRecord]);
+  // Steps 2-5 are atomic: a failure in secondaries or afterInsert rolls back the
+  // main insert too. Degrades to non-transactional when the adapter has no connect().
+  return db.withTransaction(async (tx) => {
+    // 2. Tenant: inject (direct) or validate FK (indirect) — enforced after user mutations
+    await enforceTenantOnWrites(tx, tenant, [mainRecord]);
 
-  // 3. Insert main → returns PK-only
-  let pkResult: Record<string, unknown>;
-  const upsertKeys = tableConf.upsertMap?.get(schema);
-  if (upsertKeys) {
-    const conflictCols = upsertKeys.map((k) => schema.col(k));
-    pkResult = await db.insertOrUpdate(
-      schema.tableName,
-      mainRecord as DbRecord,
-      conflictCols,
-      pkCol
-    );
-  } else {
-    pkResult = await db.insert(
-      schema.tableName,
-      mainRecord as DbRecord,
-      pkCol
-    );
-  }
+    // 3. Insert main → returns PK-only
+    let pkResult: Record<string, unknown>;
+    const upsertKeys = tableConf.upsertMap?.get(schema);
+    if (upsertKeys) {
+      const conflictCols = upsertKeys.map((k) => schema.col(k));
+      pkResult = await tx.insertOrUpdate(
+        schema.tableName,
+        mainRecord as DbRecord,
+        conflictCols,
+        pkCol
+      );
+    } else {
+      pkResult = await tx.insert(
+        schema.tableName,
+        mainRecord as DbRecord,
+        pkCol
+      );
+    }
 
-  const mainPkCamel = camelcaseObject(pkResult, schema);
+    const mainPkCamel = camelcaseObject(pkResult, schema);
 
-  // 4. Secondaries: need full record for FK auto-fill (camelCase)
-  let secondaryResults: Record<string, Record<string, unknown>[]> | undefined;
-  if (secondaries && Object.keys(secondaries).length > 0) {
-    const mainForFK = { ...inputRecord, ...mainPkCamel };
-    secondaryResults = await processSecondaries(db, tableConf, dbTables, mainForFK, secondaries);
-  }
+    // 4. Secondaries: need full record for FK auto-fill (camelCase)
+    let secondaryResults: Record<string, Record<string, unknown>[]> | undefined;
+    if (secondaries && Object.keys(secondaries).length > 0) {
+      const mainForFK = { ...inputRecord, ...mainPkCamel };
+      secondaryResults = await processSecondaries(tx, tableConf, dbTables, mainForFK, secondaries);
+    }
 
-  // 5. afterInsert hook (camelCase — input merged with generated PK)
-  if (tableConf.afterInsert) {
-    const mainForHook = { ...inputRecord, ...mainPkCamel };
-    await tableConf.afterInsert(db, request, mainForHook as Parameters<NonNullable<typeof tableConf.afterInsert>>[2], secondaryResults);
-  }
+    // 5. afterInsert hook (camelCase — input merged with generated PK)
+    if (tableConf.afterInsert) {
+      const mainForHook = { ...inputRecord, ...mainPkCamel };
+      await tableConf.afterInsert(tx, request, mainForHook as Parameters<NonNullable<typeof tableConf.afterInsert>>[2], secondaryResults);
+    }
 
-  // 6. Return PK-only
-  const result: InsertResult = { main: mainPkCamel };
-  if (secondaryResults && Object.keys(secondaryResults).length > 0) {
-    result.secondaries = secondaryResults;
-  }
+    // 6. Return PK-only
+    const result: InsertResult = { main: mainPkCamel };
+    if (secondaryResults && Object.keys(secondaryResults).length > 0) {
+      result.secondaries = secondaryResults;
+    }
 
-  return result;
+    return result;
+  });
 }

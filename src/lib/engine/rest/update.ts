@@ -49,65 +49,80 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     stripTenantColumn(updateFields, tenant.scope);
   }
 
-  // 7. Update main
-  const hasFieldsToUpdate = Object.keys(updateFields).length > 0;
+  // Steps 7-9 are atomic: a failure in secondaries or deletions rolls back the main
+  // update too. Degrades to non-transactional when the adapter has no connect().
+  return db.withTransaction(async (tx) => {
+    // 7. Update main
+    const hasFieldsToUpdate = Object.keys(updateFields).length > 0;
 
-  const extraCondition = buildTenantUpdateExtra(tenant);
+    const extraCondition = buildTenantUpdateExtra(tx, tenant);
 
-  if (hasFieldsToUpdate) {
-    const affectedRows = await db.update(
-      schema.tableName,
-      updateFields as DbRecord,
-      { [pkCol]: pkValue } as DbRecord,
-      extraCondition
-    );
+    if (hasFieldsToUpdate) {
+      const affectedRows = await tx.update(
+        schema.tableName,
+        updateFields as DbRecord,
+        { [pkCol]: pkValue } as DbRecord,
+        extraCondition
+      );
 
-    if (affectedRows === 0) throw httpError(404, `Record not found`);
-  } else {
-    // No fields to update: verify the record exists (for secondaries/deletions)
-    let whereSql = `${db.qi(schema.tableName)}.${db.qi(pkCol)} = ${db.ph(1)}`;
-    const whereValues: unknown[] = [pkValue];
+      if (affectedRows === 0) throw httpError(404, `Record not found`);
+    } else {
+      // No fields to update: verify the record exists (for secondaries/deletions)
+      let whereSql = `${tx.qi(schema.tableName)}.${tx.qi(pkCol)} = ${tx.ph(1)}`;
+      const whereValues: unknown[] = [pkValue];
 
-    if (extraCondition) {
-      whereSql += ` AND ${extraCondition.build(2, db.ph)}`;
-      whereValues.push(...extraCondition.getValues());
+      if (extraCondition) {
+        whereSql += ` AND ${extraCondition.build(2, tx.ph)}`;
+        whereValues.push(...extraCondition.getValues());
+      }
+
+      const rows = await tx.select<Record<string, unknown>>({
+        tableName: schema.tableName,
+        where: whereSql,
+        values: whereValues,
+        limit: '1',
+      });
+
+      if (rows.length === 0) throw httpError(404, `Record not found`);
     }
 
-    const rows = await db.select<Record<string, unknown>>({
-      tableName: schema.tableName,
-      where: whereSql,
-      values: whereValues,
-      limit: '1',
-    });
+    // Build the main response (PK-only)
+    const mainResult = { [pk]: pkValue };
 
-    if (rows.length === 0) throw httpError(404, `Record not found`);
-  }
+    // 8. Secondaries (upsert/insert with FK auto-fill — camelCase)
+    let secondaryResults: Record<string, Record<string, unknown>[]> | undefined;
+    if (secondaries && Object.keys(secondaries).length > 0) {
+      const mainForFK = { ...inputRecord };
+      secondaryResults = await processSecondaries(tx, tableConf, dbTables, mainForFK, secondaries);
+    }
 
-  // Build the main response (PK-only)
-  const mainResult = { [pk]: pkValue };
+    // 9. Deletions (FK auto-fill from main like secondaries)
+    let deletionResults: Record<string, Record<string, unknown>[]> | undefined;
+    if (deletions && Object.keys(deletions).length > 0) {
+      const mainForFK = { ...inputRecord };
+      deletionResults = await processDeletions(tx, tableConf, mainForFK, deletions);
+    }
 
-  // 8. Secondaries (upsert/insert with FK auto-fill — camelCase)
-  let secondaryResults: Record<string, Record<string, unknown>[]> | undefined;
-  if (secondaries && Object.keys(secondaries).length > 0) {
-    const mainForFK = { ...inputRecord };
-    secondaryResults = await processSecondaries(db, tableConf, dbTables, mainForFK, secondaries);
-  }
+    // 10. afterUpdate hook (inside the transaction: throwing rolls everything back)
+    if (tableConf.afterUpdate) {
+      await tableConf.afterUpdate(
+        tx,
+        request,
+        inputRecord as Parameters<NonNullable<typeof tableConf.afterUpdate>>[2],
+        secondaryResults,
+        deletionResults
+      );
+    }
 
-  // 9. Deletions (FK auto-fill from main like secondaries)
-  let deletionResults: Record<string, Record<string, unknown>[]> | undefined;
-  if (deletions && Object.keys(deletions).length > 0) {
-    const mainForFK = { ...inputRecord };
-    deletionResults = await processDeletions(db, tableConf, mainForFK, deletions);
-  }
+    // 11. Return PK-only
+    const result: UpdateResult = { main: mainResult };
+    if (secondaryResults && Object.keys(secondaryResults).length > 0) {
+      result.secondaries = secondaryResults;
+    }
+    if (deletionResults && Object.keys(deletionResults).length > 0) {
+      result.deletions = deletionResults;
+    }
 
-  // 10. Return PK-only
-  const result: UpdateResult = { main: mainResult };
-  if (secondaryResults && Object.keys(secondaryResults).length > 0) {
-    result.secondaries = secondaryResults;
-  }
-  if (deletionResults && Object.keys(deletionResults).length > 0) {
-    result.deletions = deletionResults;
-  }
-
-  return result;
+    return result;
+  });
 }

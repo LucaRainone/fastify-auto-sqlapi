@@ -305,6 +305,25 @@ export const TableCustomer = defineTable({
     // Mutate fields before UPDATE. camelCase. PK is present for reference but excluded from UPDATE SET.
     fields.updatedBy = req.user.id;
   },
+  afterUpdate: async (db, req, record, secondaryRecords, deletionRecords) => {
+    // Called after UPDATE + secondaries + deletions, INSIDE the write transaction: throwing rolls back.
+  },
+  beforeDelete: async (db, req, id) => {
+    // Throw to abort the single delete. For tenant-scoped tables runs only after ownership is verified.
+  },
+  afterDelete: async (db, req, id) => {
+    // Called after a successful single delete (not on 404).
+  },
+  beforeBulkDelete: async (db, req, ids) => {
+    // Called ONCE with all ids before a bulk delete. Throw to abort the whole batch.
+  },
+  afterBulkDelete: async (db, req, deletedIds) => {
+    // Called ONCE with the ids ACTUALLY deleted (may be a subset of the requested ids).
+  },
+
+  // OPERATIONS — whitelist of auto-generated HTTP routes for this table.
+  // Omitted = ALL operations exposed (default-open!). Does not affect programmatic sqlApi.*.
+  // operations: ['search', 'get'],
 
   // AUTH — per-table request hooks
   onRequests: [
@@ -724,7 +743,7 @@ Tables without `tenantScope` are unaffected — no filtering regardless of `getT
 - **`schemaOverrides`**: override auto-generated schema fields with stricter TypeBox types (e.g. `{ email: Type.String({ format: 'email' }) }`). Overrides are merged into the body schema for insert, update, and bulk-upsert. The original Schema file is never modified. In updates, overridden fields are still wrapped in Optional (validates only when present). Overrides appear in Swagger.
 - **Validation receives camelCase**: `validate` receives the original camelCase record (as sent by the client) and secondaries. Field names match the schema definition, with full TypeScript inference (`main.startDate`, not `main.start_date`). It returns `ValidationError[]` — tuples of `[field, code]` or `[field, code, message]`. If any errors are returned, the request is rejected with 400 before hooks or SQL execute.
 - **`validateBulk` replaces `validate` in bulk**: when `validateBulk` is defined, it is called once with all items and per-item `validate` is skipped. This allows optimized batch queries instead of N individual checks. When only `validate` is defined, it runs per-item as fallback.
-- **All hooks and validators receive camelCase records**: `validate`, `beforeInsert`, `beforeUpdate`, and `afterInsert` all get records keyed by schema field names (camelCase). Mutations propagate to the SQL (plugin converts to DB column format via `colMap` after the hook). The engine internally uses `snakecaseRecord(..., schema)` after user mutations to map field names to actual DB columns.
+- **All hooks and validators receive camelCase records**: `validate` and the whole hook matrix (`beforeInsert`/`afterInsert`, `beforeUpdate`/`afterUpdate`, `beforeDelete`/`afterDelete`, `beforeBulkDelete`/`afterBulkDelete`) get records keyed by schema field names (camelCase). Mutations propagate to the SQL (plugin converts to DB column format via `colMap` after the hook). The engine internally uses `snakecaseRecord(..., schema)` after user mutations to map field names to actual DB columns.
 - **Filters validation**: TypeBox schemas use `additionalProperties: false`. By default Fastify strips unknown fields silently. For 400 errors on unknown filters: `Fastify({ ajv: { customOptions: { removeAdditional: false } } })`.
 - **Tenant filtering**: when `tenantScope` is set on a table and `getTenantId` is provided in plugin options, all CRUD operations are automatically scoped to the tenant. `getTenantId` returning `null`/`undefined` = admin (no filter). Returning an array = multi-tenant user (IN clause).
 

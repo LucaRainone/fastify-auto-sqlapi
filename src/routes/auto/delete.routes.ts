@@ -9,6 +9,7 @@ export default async function deleteRoutes(
   options: SqlApiPluginOptions,
 ): Promise<void> {
   await registerForAllTables(fastify, options, {
+    operation: 'delete',
     method: 'DELETE',
     url: (tc) => `/rest/${tc.Schema.tableName}/:id`,
     successStatus: 200,
