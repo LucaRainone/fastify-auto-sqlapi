@@ -21,12 +21,15 @@ export function UpdateTableBody(dbTables: DbTables, tableName: string): TObject 
   }
 
   const bodyProperties: Record<string, TSchema> = {
-    main: Type.Object(mainFields),
+    // additionalProperties:false makes the schema the real write whitelist — unknown keys are
+    // rejected (400) instead of silently reaching the UPDATE as columns (mass assignment).
+    main: Type.Object(mainFields, { additionalProperties: false }),
   };
 
   attachWriteJoinSections(bodyProperties, tableConf, dbTables, {
     withDeletions: true,
     secondaryFields: writeJoinBodyFields,
+    strictItems: true,
   });
 
   return Type.Object(bodyProperties);

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { BulkUpsertTableBody, BulkUpsertTableResponse } from '../../lib/schema/bulk-upsert.js';
 import { registerForAllTables, buildWriteDescription } from './route-helpers.js';
+import { DEFAULT_MAX_BULK_ITEMS } from '../../types.js';
 import type { SqlApiPluginOptions, BulkUpsertItem } from '../../types.js';
 
 export default async function bulkUpsertRoutes(
@@ -13,7 +14,7 @@ export default async function bulkUpsertRoutes(
     url: (tc) => `/bulk/${tc.Schema.tableName}`,
     successStatus: 200,
     schemas: (db, table) => ({
-      body: BulkUpsertTableBody(db, table),
+      body: BulkUpsertTableBody(db, table, options.maxBulkItems ?? DEFAULT_MAX_BULK_ITEMS),
       response: BulkUpsertTableResponse(db, table),
     }),
     summary: 'Bulk upsert',

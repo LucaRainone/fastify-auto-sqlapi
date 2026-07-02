@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { SearchTableBodyPost, SearchTableQueryString, SearchTableResponse } from '../../lib/schema/search.js';
 import { registerForAllTables } from './route-helpers.js';
+import { httpError } from '../../lib/errors.js';
+import { DEFAULT_MAX_ITEMS_PER_PAGE } from '../../types.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
 export default async function searchRoutes(
@@ -35,6 +37,12 @@ export default async function searchRoutes(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const query = request.query as Record<string, any>;
 
+      // DoS guard: bound the page size and the no-paginator LIMIT.
+      const maxRows = options.maxItemsPerPage ?? DEFAULT_MAX_ITEMS_PER_PAGE;
+      if (query.itemsPerPage != null && query.itemsPerPage > maxRows) {
+        throw httpError(400, `itemsPerPage exceeds the maximum of ${maxRows}`);
+      }
+
       const result = await fastify.sqlApi.search(tableName, {
         filters: body.filters,
         conditions: body.conditions,
@@ -51,6 +59,7 @@ export default async function searchRoutes(
         computeMax: query.computeMax,
         computeSum: query.computeSum,
         computeAvg: query.computeAvg,
+        maxRows,
       }, request);
 
       return { table: tc.Schema.tableName, ...result };

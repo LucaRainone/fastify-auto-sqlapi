@@ -35,10 +35,10 @@ Without prefix, routes are at root: `/search/customer`, `/rest/customer/:id`, et
 ```
 
 - `orderBy` — SQL ORDER BY clause (default: `defaultOrder` from table config). Supports dotted notations for joins, see below.
-- `page` + `itemsPerPage` — pagination (when either is present, response includes `pagination` object; `page` defaults to 1, `itemsPerPage` defaults to 500)
+- `page` + `itemsPerPage` — pagination (when either is present, response includes `pagination` object; `page` defaults to 1, `itemsPerPage` defaults to 500). `itemsPerPage` is capped server-side at `maxItemsPerPage` (default 1000); sending a larger value returns 400.
 - `computeMin`, `computeMax`, `computeSum`, `computeAvg` — aggregate a column, returned in `pagination.computed`
 
-### Body (all fields optional, empty `{}` returns all records)
+### Body (all fields optional, empty `{}` returns up to `maxItemsPerPage` records)
 
 ```json
 {
@@ -350,7 +350,7 @@ Add `page` or `itemsPerPage` to the query string to enable pagination:
 ?itemsPerPage=10          # page defaults to 1
 ```
 
-When either is present, the response includes a `pagination` object with total count, total pages, and the paginator values. `page` defaults to 1, `itemsPerPage` defaults to 500.
+When either is present, the response includes a `pagination` object with total count, total pages, and the paginator values. `page` defaults to 1, `itemsPerPage` defaults to 500. `itemsPerPage` is capped at `maxItemsPerPage` (default 1000) — a larger value returns 400. Even without pagination, a search returns at most `maxItemsPerPage` rows.
 
 ### Computed values (aggregations on main table)
 
@@ -503,6 +503,8 @@ Insert or update multiple records in a single request.
 
 All main records are inserted/upserted in a single SQL query. Secondaries and deletions are processed per-item. `secondaries`/`deletions` keys are **aliases**.
 
+The array is capped at `maxBulkItems` (default 1000); a longer array returns 400 — chunk client-side if you have more.
+
 **Response (200):** Array of `{ main (PK-only), secondaries? (PK-only), deletions? }`.
 
 ---
@@ -517,7 +519,7 @@ Delete multiple records by PK.
 [{ "id": 1 }, { "id": 2 }, { "id": 3 }]
 ```
 
-Each object must contain the PK field. All deletions execute as a single `DELETE WHERE pk IN (...)`.
+Each object must contain the PK field. All deletions execute as a single `DELETE WHERE pk IN (...)`. The array is capped at `maxBulkItems` (default 1000) — a longer array returns 400.
 
 **Response (200):** Array of PK-only objects.
 
@@ -531,7 +533,7 @@ Each object must contain the PK field. All deletions execute as a single `DELETE
 
 Insert, update, and bulk-upsert endpoints may return **structured field-level validation errors** (400). Two sources:
 
-1. **Schema validation** (TypeBox/Ajv) — type mismatches, missing required fields
+1. **Schema validation** (TypeBox/Ajv) — type mismatches, missing required fields, and **unknown properties** (write bodies reject any field not in the table Schema — send only real columns, don't include extra keys)
 2. **Custom validation** (`validate` / `validateBulk` on the table) — business rules, cross-entity checks
 
 Both return the same response format:

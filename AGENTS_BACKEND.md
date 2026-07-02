@@ -126,6 +126,8 @@ await app.register(fastifyAutoSqlApi, {
   prefix: '/auto',             // optional — standard Fastify prefix
   onRequests: [],              // optional — global auth hooks (run on every route)
   getTenantId: (request) => request.user?.organizationId ?? null, // optional — multi-tenant
+  maxItemsPerPage: 1000,       // optional — cap on search page size / no-paginator LIMIT (default 1000)
+  maxBulkItems: 1000,          // optional — cap on bulk array length (default 1000)
   debug: true,                 // optional — log all SQL queries and params to console
 });
 
@@ -698,6 +700,7 @@ Behavior:
 - **Insert**: auto-injects `organization_id` if single tenant; validates if already present (403 if mismatch); 400 if multi-tenant without explicit value
 - **Update**: strips `organization_id` from SET (can't change tenant), adds to WHERE condition
 - **Bulk upsert**: auto-injects on all records
+- **Upsert conflict guard** (`upsertMap` set): before the `ON CONFLICT DO UPDATE`, a probe rejects (403) any incoming conflict key that matches a row owned by another tenant — an upsert cannot overwrite or re-assign a foreign tenant's row.
 
 ### Indirect tenant (via JOIN to parent table)
 
@@ -719,7 +722,7 @@ const TableOrder = defineTable({
 Behavior:
 - **Read**: INNER JOIN to parent table + WHERE on parent's tenant column
 - **Insert/Bulk upsert**: validates FK references belong to tenant (1 batch query)
-- **Update**: pre-check via SELECT with INNER JOIN (404 if not found)
+- **Update**: pre-check via SELECT with INNER JOIN (404 if not found). If the payload also changes the through-FK (`localField`), the new value is re-validated against the tenant — moving a record into another tenant's scope is rejected (403).
 - **Delete**: subquery `DELETE WHERE pk IN (SELECT ... INNER JOIN ... WHERE tenant IN (...))`
 
 ### Multi-tenant users
@@ -760,6 +763,8 @@ Tables without `tenantScope` are unaffected — no filtering regardless of `getT
 - **`validateBulk` replaces `validate` in bulk**: when `validateBulk` is defined, it is called once with all items and per-item `validate` is skipped. This allows optimized batch queries instead of N individual checks. When only `validate` is defined, it runs per-item as fallback.
 - **All hooks and validators receive camelCase records**: `validate` and the whole hook matrix (`beforeInsert`/`afterInsert`, `beforeUpdate`/`afterUpdate`, `beforeDelete`/`afterDelete`, `beforeBulkDelete`/`afterBulkDelete`) get records keyed by schema field names (camelCase). Mutations propagate to the SQL (plugin converts to DB column format via `colMap` after the hook). The engine internally uses `snakecaseRecord(..., schema)` after user mutations to map field names to actual DB columns.
 - **Filters validation**: TypeBox schemas use `additionalProperties: false`. By default Fastify strips unknown fields silently. For 400 errors on unknown filters: `Fastify({ ajv: { customOptions: { removeAdditional: false } } })`.
+- **Write-body whitelist**: insert/update/bulk-upsert bodies (`main` + secondaries items) are `additionalProperties: false`. Unknown properties are rejected with 400 — only columns in the generated Schema (as narrowed by `schemaOverrides`/`excludeFromCreation`) can be written, so no mass assignment of unexposed columns. Trim the Schema to keep sensitive columns unwritable.
+- **Request limits**: `maxItemsPerPage` (default 1000) caps the search page size and is applied as the `LIMIT` even when no paginator is sent (so an empty-body search can't dump a whole table); over-limit `itemsPerPage` → 400. `maxBulkItems` (default 1000) caps the bulk array length via schema `maxItems` → 400. Programmatic `sqlApi.*` calls are uncapped.
 - **Tenant filtering**: when `tenantScope` is set on a table and `getTenantId` is provided in plugin options, all CRUD operations are automatically scoped to the tenant. `getTenantId` returning `null`/`undefined` = admin (no filter). Returning an array = multi-tenant user (IN clause).
 
 ---

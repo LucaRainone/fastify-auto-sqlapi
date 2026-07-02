@@ -30,6 +30,13 @@ export interface SearchParams {
    */
   selectComputed?: string[];
   tenant?: TenantContext;
+  /**
+   * Row cap applied to the main query when no `paginator` is supplied, bounding an otherwise
+   * unbounded "fetch everything" search. Ignored when a paginator is present (the page size
+   * governs the LIMIT). Left undefined by programmatic callers (trusted); the HTTP search route
+   * sets it from `maxItemsPerPage`.
+   */
+  maxRows?: number;
 }
 
 export interface PaginationResult {

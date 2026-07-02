@@ -1,6 +1,6 @@
 import { camelcaseObject } from '../../naming.js';
 import { processSecondaries, processDeletions, prepareInsertRecord } from '../write-helpers.js';
-import { enforceTenantOnWrites } from '../../tenant.js';
+import { enforceTenantOnWrites, assertTenantOwnsConflicts } from '../../tenant.js';
 import { runBulkValidation } from '../validate.js';
 import { primaryAsCols } from '../../../types.js';
 import type {
@@ -45,6 +45,8 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
   let pkRows: Record<string, unknown>[];
   if (upsertKeys) {
     const conflictCols = upsertKeys.map((k) => schema.col(k));
+    // Tenant isolation: a conflicting upsert must not overwrite rows owned by another tenant.
+    await assertTenantOwnsConflicts(db, tenant, schema.tableName, conflictCols, preparedMains);
     pkRows = await db.bulkInsertOrUpdate(
       schema.tableName,
       preparedMains,

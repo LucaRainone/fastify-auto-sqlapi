@@ -9,11 +9,14 @@ import {
   writeJoinResponseFields,
 } from './helpers.js';
 
-export function BulkUpsertTableBody(dbTables: DbTables, tableName: string) {
+export function BulkUpsertTableBody(dbTables: DbTables, tableName: string, maxItems?: number) {
   const tableConf = dbTables[tableName];
   const schema = tableConf.Schema;
 
-  const mainSchema = Type.Partial(Type.Object(applySchemaOverrides({ ...schema.fields }, tableConf)));
+  // additionalProperties:false makes the schema the real write whitelist (no mass assignment).
+  const mainSchema = Type.Partial(
+    Type.Object(applySchemaOverrides({ ...schema.fields }, tableConf), { additionalProperties: false })
+  );
 
   const itemProperties: Record<string, TSchema> = {
     main: mainSchema,
@@ -22,9 +25,10 @@ export function BulkUpsertTableBody(dbTables: DbTables, tableName: string) {
   attachWriteJoinSections(itemProperties, tableConf, dbTables, {
     withDeletions: true,
     secondaryFields: writeJoinBodyFields,
+    strictItems: true,
   });
 
-  return Type.Array(Type.Object(itemProperties));
+  return Type.Array(Type.Object(itemProperties), maxItems != null ? { maxItems } : {});
 }
 
 export function BulkUpsertTableResponse(dbTables: DbTables, tableName: string) {

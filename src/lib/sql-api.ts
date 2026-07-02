@@ -49,6 +49,8 @@ export interface SqlApiSearchParams {
   computeSum?: string;
   computeAvg?: string;
   selectComputed?: string[];
+  /** Row cap for the main query when no paginator is provided (see SearchParams.maxRows). */
+  maxRows?: number;
 }
 
 export interface SqlApiInsertParams {
@@ -127,6 +129,7 @@ export class SqlApi {
       computeSum: params.computeSum,
       computeAvg: params.computeAvg,
       selectComputed: params.selectComputed,
+      maxRows: params.maxRows,
       tenant,
     });
   }

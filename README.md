@@ -238,6 +238,8 @@ await app.register(fastifyAutoSqlApi, {
   swagger: true,                // Optional — enable Swagger UI (or pass SwaggerOptions)
   onRequests: [authMiddleware],  // Optional — global hooks applied to every route
   getTenantId: (req) => id,     // Optional — multi-tenant function
+  maxItemsPerPage: 1000,        // Optional — cap on search page size (default: 1000)
+  maxBulkItems: 1000,           // Optional — cap on bulk array length (default: 1000)
   debug: true,                  // Optional — log all SQL queries and params
 });
 ```
@@ -250,6 +252,8 @@ await app.register(fastifyAutoSqlApi, {
 | `swagger` | `boolean \| SwaggerOptions` | No | Enable Swagger UI |
 | `onRequests` | `Function[]` | No | Global auth/middleware hooks |
 | `getTenantId` | `(req) => id \| null` | No | Tenant resolver for multi-tenant |
+| `maxItemsPerPage` | `number` | No | Max search page size, and the row `LIMIT` applied when no paginator is sent (default: `1000`) |
+| `maxBulkItems` | `number` | No | Max number of items accepted by the bulk endpoints (default: `1000`) |
 | `debug` | `boolean` | No | Log all SQL queries to console |
 
 For MySQL/MariaDB, register `mysql2/promise` pool instead of `@fastify/postgres` and pass `dialect: 'mysql'` or `'mariadb'`.
@@ -293,6 +297,28 @@ are always available to your own code.
 
 **3. Multi-tenancy** — `getTenantId` + `tenantScope` filter every query by tenant (see
 [Multi-Tenant](#multi-tenant)).
+
+### Request limits
+
+Two hard caps bound how much work a single request can trigger (defense against accidental or
+malicious resource exhaustion — relevant precisely because the API is open by default):
+
+- **Search result size** — `itemsPerPage` above `maxItemsPerPage` (default `1000`) is rejected
+  with `400`. When a search omits pagination entirely, the same value is applied as a `LIMIT`, so
+  an empty-body `POST /search/:table` can never dump an entire table.
+- **Bulk array size** — the `PUT /bulk/:table` and `POST /bulk/:table/delete` bodies reject arrays
+  longer than `maxBulkItems` (default `1000`) at schema validation.
+
+Both are configurable in the plugin options. The programmatic `fastify.sqlApi.*` methods are not
+capped — they run your own trusted code.
+
+### Write whitelist
+
+Insert/update/bulk-upsert bodies reject **unknown properties** (`additionalProperties: false`):
+only columns present in the generated Schema (as narrowed by `schemaOverrides` /
+`excludeFromCreation`) can be written. An unexpected field is a `400`, never a silently-written
+column — the Schema is the write whitelist. Trim the generated Schema (or use `excludeFromCreation`)
+to keep sensitive columns out of it.
 
 ## API Reference
 
@@ -357,6 +383,8 @@ Search with filters, advanced conditions, pagination, ordering, joins, and aggre
 | `<alias>.<fn>.<field>` | `joinGroup` aliases declared in the same body | `orderBy=orders.sum.total DESC`, or `conditions: [{ field: 'orders.count.id', method: 'isGreaterOrEqual', params: [4] }]` |
 
 **Querystring** (optional): `orderBy`, `page`, `itemsPerPage`, `computeMin`, `computeMax`, `computeSum`, `computeAvg`
+
+> `itemsPerPage` is capped at `maxItemsPerPage` (default `1000`); a larger value returns `400`. A search with no `page`/`itemsPerPage` returns at most that many rows (no full-table dumps). See [Request limits](#request-limits).
 
 **Response:**
 
@@ -501,6 +529,17 @@ defineTable({
 
 Tables without `tenantScope` are unaffected.
 
+### Isolation guarantees on writes
+
+Tenant isolation is enforced on write paths, not just reads:
+
+- **Upsert conflicts are ownership-checked.** On a tenant-scoped table with an `upsertMap`, an
+  upsert (`POST /rest/:table` or `PUT /bulk/:table`) whose conflict key matches a row owned by
+  another tenant is rejected with `403` — it cannot overwrite or re-assign that row.
+- **The tenant link cannot be changed to another tenant.** For direct scopes the tenant column is
+  stripped from update payloads. For indirect scopes, changing the through-FK (`localField`) is
+  allowed only to a value the caller owns; otherwise the update returns `403`.
+
 ## Swagger
 
 Enabled by passing `swagger: true` (or a config object) to the plugin options. Requires `@fastify/swagger` and `@fastify/swagger-ui` as peer dependencies.
@@ -610,7 +649,7 @@ After registering the plugin, `app.sqlApi` is decorated on the Fastify instance 
 ## Requirements
 
 - Node.js >= 18
-- Fastify >= 4 (peer dependency)
+- Fastify >= 5 (peer dependency)
 - One of:
   - **PostgreSQL** + `pg` + `@fastify/postgres`
   - **MySQL** / **MariaDB** + `mysql2`

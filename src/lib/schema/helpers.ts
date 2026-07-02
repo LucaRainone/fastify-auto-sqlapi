@@ -75,13 +75,14 @@ export function buildJoinAliasMap(
   tableConf: ITable,
   dbTables: DbTables,
   build: JoinFieldsBuilder,
-  options: { itemsPartial?: boolean } = {}
+  options: { itemsPartial?: boolean; strictItems?: boolean } = {}
 ): Record<string, TSchema> {
   const out: Record<string, TSchema> = {};
   if (!tableConf.allowedWriteJoins?.length) return out;
+  const objOpts = options.strictItems ? { additionalProperties: false } : {};
   for (const j of tableConf.allowedWriteJoins) {
     const sc = findSecondaryTableConf(dbTables, j.joinSchema.tableName);
-    const item = Type.Object(build(j, sc));
+    const item = Type.Object(build(j, sc), objOpts);
     out[j.alias] = Type.Array(options.itemsPartial ? Type.Partial(item) : item);
   }
   return out;
@@ -100,11 +101,11 @@ export function attachWriteJoinSections(
   target: Record<string, TSchema>,
   tableConf: ITable,
   dbTables: DbTables,
-  options: { withDeletions: boolean; secondaryFields: JoinFieldsBuilder }
+  options: { withDeletions: boolean; secondaryFields: JoinFieldsBuilder; strictItems?: boolean }
 ): void {
   if (!tableConf.allowedWriteJoins?.length) return;
   target.secondaries = Type.Optional(
-    Type.Partial(Type.Object(buildJoinAliasMap(tableConf, dbTables, options.secondaryFields)))
+    Type.Partial(Type.Object(buildJoinAliasMap(tableConf, dbTables, options.secondaryFields, { strictItems: options.strictItems })))
   );
   if (options.withDeletions) {
     target.deletions = Type.Optional(

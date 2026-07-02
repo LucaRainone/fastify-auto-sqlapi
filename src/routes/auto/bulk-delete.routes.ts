@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { BulkDeleteTableBody, BulkDeleteTableResponse } from '../../lib/schema/bulk-delete.js';
 import { primaryAsString } from '../../types.js';
 import { registerForAllTables } from './route-helpers.js';
+import { DEFAULT_MAX_BULK_ITEMS } from '../../types.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
 export default async function bulkDeleteRoutes(
@@ -14,7 +15,7 @@ export default async function bulkDeleteRoutes(
     url: (tc) => `/bulk/${tc.Schema.tableName}/delete`,
     successStatus: 200,
     schemas: (db, table) => ({
-      body: BulkDeleteTableBody(db, table),
+      body: BulkDeleteTableBody(db, table, options.maxBulkItems ?? DEFAULT_MAX_BULK_ITEMS),
       response: BulkDeleteTableResponse(db, table),
     }),
     summary: 'Bulk delete',

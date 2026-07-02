@@ -293,6 +293,28 @@ interface OrderByResult {
   leftJoinAliases: Set<string>;
 }
 
+/**
+ * Pre-scan `orderBy` for the joinLeft aliases referenced in 2-parti notation (`<alias>.<field>`).
+ * Needed BEFORE building the LEFT JOIN clauses (which must know their aliases) while the actual
+ * orderBy SQL — with its parameter placeholders — is only baked later, once the LEFT JOIN value
+ * count is known. Validates each alias against `allowedReadJoins` (throws 400), mirroring
+ * `validateOrderBy`; 3-parti aggregation entries are ignored (they use joinGroup, not a LEFT JOIN).
+ */
+function collectOrderByLeftAliases(orderBy: string, tableConf: ITable): Set<string> {
+  const aliases = new Set<string>();
+  for (const part of orderBy.split(',')) {
+    const trimmed = part.trim();
+    if (/^(\w+)\.(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i.test(trimmed)) continue; // 3-parti aggregation
+    const m = trimmed.match(/^(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i);
+    if (m) {
+      const alias = m[1];
+      requireJoin(tableConf, alias, true);
+      aliases.add(alias);
+    }
+  }
+  return aliases;
+}
+
 function validateOrderBy(
   orderBy: string,
   tableConf: ITable,
@@ -454,14 +476,17 @@ async function executeMainQuery(
   orderBy?: string,
   paginator?: { page: number; itemsPerPage: number },
   extraJoins: string[] = [],
-  selectComputed?: string[]
+  selectComputed?: string[],
+  maxRows?: number
 ): Promise<Record<string, unknown>[]> {
   const tableName = tableConf.Schema.tableName;
   const order = orderBy || tableConf.defaultOrder || primaryAsString(tableConf.primary);
 
+  // With a paginator, the page size governs the LIMIT. Without one, apply `maxRows` (if set) so an
+  // unbounded search cannot dump the whole table; a plain integer is a safe, non-injectable LIMIT.
   const limit = paginator
     ? `${paginator.itemsPerPage} OFFSET ${(paginator.page - 1) * paginator.itemsPerPage}`
-    : null;
+    : (maxRows != null ? String(maxRows) : null);
 
   // Optional computed projections — bound values, if any, are NOT yet supported
   // here (would require placeholder-aware composition with WHERE values).
@@ -1145,28 +1170,22 @@ export async function searchEngine(
     }
   }
 
-  // orderBy parsing — collects 2-parti aliases that need LEFT JOIN on the main query
-  let safeOrderBy: string | undefined;
-  let orderByValues: unknown[] = [];
-  let orderByLeftAliases = new Set<string>();
-  if (orderBy) {
-    const obResult = validateOrderBy(orderBy, tableConf, db, dbTables, joinGroup, values.length + 1);
-    safeOrderBy = obResult.sql;
-    orderByValues = obResult.values;
-    orderByLeftAliases = obResult.leftJoinAliases;
-  }
-
   // Determine which joinLeft aliases need a LEFT JOIN on the main query:
   // - any alias used in 2-parti orderBy
   // - any alias in joinLeft body that has filters or conditions on the parent
-  const aliasesNeedingLeftJoin = new Set<string>(orderByLeftAliases);
+  const aliasesNeedingLeftJoin = new Set<string>();
+  if (orderBy) {
+    for (const a of collectOrderByLeftAliases(orderBy, tableConf)) aliasesNeedingLeftJoin.add(a);
+  }
   if (joinLeft) {
     for (const [alias, ref] of Object.entries(joinLeft)) {
       if (ref?.filters || ref?.conditions?.length) aliasesNeedingLeftJoin.add(alias);
     }
   }
 
-  // Build LEFT JOIN clauses + extra WHERE for filtered parents
+  // Build LEFT JOIN clauses + extra WHERE for filtered parents. Their placeholders start right
+  // after the WHERE values; the same clause SQL is reused by the pagination COUNT/compute queries,
+  // whose value array is [...WHERE, ...leftJoin] — so this base MUST stay `values.length + 1`.
   const extraJoinClauses: string[] = [...tenantJoins];
   let leftJoinValues: unknown[] = [];
   if (aliasesNeedingLeftJoin.size > 0) {
@@ -1178,13 +1197,26 @@ export async function searchEngine(
     for (const w of lj.whereExtras) where += ` AND ${w}`;
   }
 
+  // orderBy is parsed AFTER the LEFT JOIN values so aggregation-orderBy placeholders start past
+  // them (main query binds [...WHERE, ...leftJoin, ...orderBy]). Parsing it earlier with base
+  // `values.length + 1` misbinds when BOTH an aggregation orderBy and a filtered joinLeft exist.
+  let safeOrderBy: string | undefined;
+  let orderByValues: unknown[] = [];
+  if (orderBy) {
+    const obResult = validateOrderBy(
+      orderBy, tableConf, db, dbTables, joinGroup, values.length + leftJoinValues.length + 1
+    );
+    safeOrderBy = obResult.sql;
+    orderByValues = obResult.values;
+  }
+
   // Bind WHERE values + LEFT JOIN values + orderBy aggregation values for main query.
   // Pagination COUNT/compute include WHERE + LEFT JOIN values (no orderBy).
   const whereAndJoinValues = [...values, ...leftJoinValues];
   const mainValues = [...whereAndJoinValues, ...orderByValues];
 
   const main = await executeMainQuery(
-    db, tableConf, where, mainValues, safeOrderBy, paginator, extraJoinClauses, params.selectComputed
+    db, tableConf, where, mainValues, safeOrderBy, paginator, extraJoinClauses, params.selectComputed, params.maxRows
   );
 
   let pagination: PaginationResult | undefined;
