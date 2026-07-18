@@ -468,6 +468,39 @@ function buildLeftJoinClauses(
 
 // ─── Main query execution ───────────────────────────────────
 
+/**
+ * Converts a configured order (`defaultOrder` or the primary-key fallback) to SQL.
+ * Unlike the request `orderBy` (strictly validated by `validateOrderBy`), this is
+ * lenient for backward compatibility: tokens matching a camelCase schema field are
+ * mapped to their quoted DB column, computed fields (without bound values) expand
+ * to their expression, and anything else passes through unchanged as raw SQL.
+ */
+function convertConfiguredOrder(order: string, tableConf: ITable, db: QueryClient): string {
+  return order
+    .split(',')
+    .map((part) => {
+      const trimmed = part.trim();
+      const match = trimmed.match(/^(\w+)(?:\s+(ASC|DESC))?$/i);
+      if (match) {
+        const [, field, dir] = match;
+        const suffix = dir ? ` ${dir.toUpperCase()}` : '';
+        if (field in tableConf.Schema.fields) {
+          return `${db.qi(tableConf.Schema.col(field))}${suffix}`;
+        }
+        const computed = tableConf.computedFields?.[field];
+        if (computed) {
+          const ev = evaluateComputedField(
+            computed, tableConf.Schema, db, undefined,
+            `Computed field '${field}' with bound values cannot be used in defaultOrder`,
+          );
+          return `${ev.expr}${suffix}`;
+        }
+      }
+      return trimmed;
+    })
+    .join(', ');
+}
+
 async function executeMainQuery(
   db: QueryClient,
   tableConf: ITable,
@@ -480,7 +513,11 @@ async function executeMainQuery(
   maxRows?: number
 ): Promise<Record<string, unknown>[]> {
   const tableName = tableConf.Schema.tableName;
-  const order = orderBy || tableConf.defaultOrder || primaryAsString(tableConf.primary);
+  // Request orderBy arrives already validated and mapped by validateOrderBy;
+  // configured fallbacks (defaultOrder / primary key) are converted leniently here.
+  const order = orderBy || convertConfiguredOrder(
+    tableConf.defaultOrder || primaryAsString(tableConf.primary), tableConf, db
+  );
 
   // With a paginator, the page size governs the LIMIT. Without one, apply `maxRows` (if set) so an
   // unbounded search cannot dump the whole table; a plain integer is a safe, non-injectable LIMIT.

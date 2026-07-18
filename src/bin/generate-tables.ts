@@ -22,7 +22,7 @@ function printHelp(): void {
   console.log('  sqlapi-generate-tables --all');
   console.log('');
   display('Table*.ts files are only created if they do not already exist.', CONSOLE_COLORS.magenta);
-  display('dbTables.ts is always regenerated to include all schemas.', CONSOLE_COLORS.magenta);
+  display('dbTables.ts is created if missing, indexing the Table*.ts files present on disk.', CONSOLE_COLORS.magenta);
 }
 
 await runCli('fastify-auto-sqlapi: generating tables template', async () => {
@@ -97,9 +97,13 @@ await runCli('fastify-auto-sqlapi: generating tables template', async () => {
     }
   }
 
+  const tableVarOf = (schema: ParsedSchema): string =>
+    'Table' + schema.schemaName.replace(/^Schema/, '');
+
   // Generate individual Table*.ts files (skip if already exists)
+  const createdTableVars: string[] = [];
   for (const schema of targetSchemas) {
-    const tableVarName = 'Table' + schema.schemaName.replace(/^Schema/, '');
+    const tableVarName = tableVarOf(schema);
     const tableFile = path.join(tablesDir, `${tableVarName}.ts`);
 
     if (fs.existsSync(tableFile)) {
@@ -107,17 +111,34 @@ await runCli('fastify-auto-sqlapi: generating tables template', async () => {
     } else {
       const content = generateSingleTableFile(schema, allSchemas);
       fs.writeFileSync(tableFile, content);
+      createdTableVars.push(tableVarName);
       displayAsTableRow(`${tableVarName}.ts`, 'created', 60, CONSOLE_COLORS.green);
     }
   }
 
-  // Generate dbTables.ts only if it does not exist
+  // Generate dbTables.ts only if it does not exist. The index must reference only
+  // Table*.ts files actually present on disk, otherwise a subset run would emit
+  // imports for files that were never generated and the project would not compile.
   const dbTablesFile = path.join(tablesDir, 'dbTables.ts');
   if (fs.existsSync(dbTablesFile)) {
     displayAsTableRow('dbTables.ts', 'skipped (already exists)', 60, CONSOLE_COLORS.gray);
+    const indexContent = fs.readFileSync(dbTablesFile, 'utf-8');
+    const missing = createdTableVars.filter((v) => !indexContent.includes(v));
+    if (missing.length > 0) {
+      display(
+        `Remember to add the new tables to dbTables.ts: ${missing.join(', ')}`,
+        CONSOLE_COLORS.yellow
+      );
+    }
   } else {
-    const dbTablesContent = generateDbTablesIndex(allSchemas);
-    fs.writeFileSync(dbTablesFile, dbTablesContent);
+    const existingTableVars = new Set(
+      fs
+        .readdirSync(tablesDir)
+        .filter((f) => f.startsWith('Table') && f.endsWith('.ts'))
+        .map((f) => f.slice(0, -'.ts'.length))
+    );
+    const indexSchemas = allSchemas.filter((s) => existingTableVars.has(tableVarOf(s)));
+    fs.writeFileSync(dbTablesFile, generateDbTablesIndex(indexSchemas));
     displayAsTableRow('dbTables.ts', 'created', 60, CONSOLE_COLORS.green);
   }
 

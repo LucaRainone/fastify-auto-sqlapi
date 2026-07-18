@@ -2,10 +2,7 @@ import type { FastifyInstance, FastifyError } from 'fastify';
 import fp from 'fastify-plugin';
 import { ConditionBuilder } from 'node-condition-builder';
 import { getDialect } from '../../lib/dialect.js';
-import { createQueryClient } from '../../lib/db.js';
-import { pgQueryable } from '../../lib/adapters/pg-adapter.js';
-import { mysqlQueryable } from '../../lib/adapters/mysql-adapter.js';
-import { createSqlApi, type SqlApi } from '../../lib/sql-api.js';
+import { ensureSqlApiDecorator } from '../../lib/sql-api-decorator.js';
 import { setupSwagger } from '../../lib/setup-swagger.js';
 import searchRoutes from './search.routes.js';
 import getRoutes from './get.routes.js';
@@ -15,12 +12,6 @@ import deleteRoutes from './delete.routes.js';
 import bulkUpsertRoutes from './bulk-upsert.routes.js';
 import bulkDeleteRoutes from './bulk-delete.routes.js';
 import type { SqlApiPluginOptions } from '../../types.js';
-
-declare module 'fastify' {
-  interface FastifyInstance {
-    sqlApi: SqlApi;
-  }
-}
 
 type AjvValidationErrors = NonNullable<FastifyError['validation']>;
 
@@ -82,31 +73,8 @@ export default fp(async function fastifyAutoSqlApi(
   const dialect = getDialect(options.dialect || 'postgres');
   ConditionBuilder.DIALECT = dialect.cbDialect;
 
-  // Lazy-init QueryClient (internal closure — not decorated on fastify)
-  let cachedDb: ReturnType<typeof createQueryClient> | undefined;
-  function getDb() {
-    if (!cachedDb) {
-      const pool = (options.dialect === 'mysql' || options.dialect === 'mariadb')
-        ? mysqlQueryable((fastify as any).mysql)
-        : pgQueryable((fastify as any).pg);
-      cachedDb = createQueryClient(pool, options.dialect);
-      if (options.debug) cachedDb.setDebug(true);
-    }
-    return cachedDb;
-  }
-
   // SqlApi: exposed to parent scope via fp
-  let cachedSqlApi: SqlApi | undefined;
-  fastify.decorate('sqlApi', {
-    getter() {
-      if (!cachedSqlApi) {
-        cachedSqlApi = createSqlApi(getDb(), options.DbTables, {
-          getTenantId: options.getTenantId,
-        });
-      }
-      return cachedSqlApi;
-    },
-  });
+  ensureSqlApiDecorator(fastify, options);
 
   // Routes in a child scope — prefix applies here, not at fp level
   const { prefix, ...routeOptions } = options;

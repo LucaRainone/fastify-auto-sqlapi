@@ -143,7 +143,7 @@ const TableCustomer = defineTable({
   ...exportTableInfo(SchemaCustomer),
 
   // Ordering & filtering
-  defaultOrder: 'name',                     // default ORDER BY
+  defaultOrder: 'name',                     // default ORDER BY (camelCase fields map to DB columns)
   excludeFromCreation: ['id'],              // omit from INSERT (e.g. auto-increment)
   distinctResults: true,                    // SELECT DISTINCT
 

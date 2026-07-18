@@ -184,6 +184,8 @@ await app.register(async (instance) => {
 
 **Note**: After registering the plugin, `app.sqlApi` is available for custom routes — see [SqlApi](#sqlapi--programmatic-high-level-api).
 
+**Note**: Granular route plugins create their own `sqlApi` decorator automatically, so they work standalone (no main plugin required). The decorator is scoped to each route plugin: if you also need `app.sqlApi` in your own routes, register the main plugin.
+
 ---
 
 ## defineTable() — Complete Reference
@@ -234,7 +236,10 @@ export const TableCustomer = defineTable({
   ...exportTableInfo(Schema),             // Schema + auto-filter builder
 
   // OPTIONAL
-  defaultOrder: 'name',                   // ORDER BY default (supports multi: 'name ASC, id DESC')
+  defaultOrder: 'name',                   // ORDER BY default. camelCase fields are mapped to DB
+                                          // columns (e.g. 'squadIndex' -> "squad_index"); supports
+                                          // multi ('name ASC, id DESC'), computed fields, and raw
+                                          // SQL fragments (unknown tokens pass through unchanged)
   excludeFromCreation: ['id'],            // Fields omitted from INSERT — MUST include auto-increment PKs
   distinctResults: true,                  // Use SELECT DISTINCT
 

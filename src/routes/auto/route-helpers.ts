@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { ensureSqlApiDecorator } from '../../lib/sql-api-decorator.js';
 import type { ITable, SqlApiPluginOptions, DbTables, TableOperation } from '../../types.js';
 
 type RequestHook = (request: FastifyRequest, reply: FastifyReply) => Promise<void | FastifyReply>;
@@ -60,6 +61,10 @@ export async function registerForAllTables(
   options: SqlApiPluginOptions,
   spec: AutoRouteSpec,
 ): Promise<void> {
+  // Granular composition support: when a route plugin is registered without the
+  // main plugin, no ancestor has decorated `sqlApi` — create it in this scope.
+  ensureSqlApiDecorator(fastify, options);
+
   const { DbTables } = options;
 
   for (const [tableName, tableConf] of Object.entries(DbTables)) {
