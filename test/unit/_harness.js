@@ -55,6 +55,18 @@ export function checkPlaceholderIntegrity(sql, values) {
       return `value $${i} (${JSON.stringify(vals[i - 1])}) is bound but never referenced by the SQL`;
     }
   }
+
+  // Portability: MySQL binds `?` by textual order, so the same statement is only correct on
+  // both dialects when the numbered placeholders first appear in ascending order. A fragment
+  // emitted textually before the values it was numbered against would break MySQL only.
+  let expected = 1;
+  for (const ref of refs) {
+    if (ref === expected) expected++;
+    else if (ref > expected) {
+      return `placeholder $${ref} appears before $${expected}; values must be bound in the ` +
+             `order their placeholders appear (MySQL binds '?' positionally)`;
+    }
+  }
   return null;
 }
 

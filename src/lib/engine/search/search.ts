@@ -1,6 +1,7 @@
 import type { QueryClient } from '../../db.js';
 import { ConditionBuilder, Expression, type ConditionValue } from 'node-condition-builder';
 import { camelcaseObject } from '../../naming.js';
+import { QueryParams } from '../query-params.js';
 import { buildTenantCondition, buildTenantJoin } from '../../tenant.js';
 import { assertReadable, assertFiltersReadable, readableSelectColumns } from '../../read-access.js';
 import { primaryAsString } from '../../../types.js';
@@ -290,6 +291,11 @@ function aggExpr(fn: AggFn, qualifiedCol: string): string {
   return fn.distinct ? `COUNT(DISTINCT ${qualifiedCol})` : `${fn.sql}(${qualifiedCol})`;
 }
 
+/**
+ * Correlated aggregate subquery for `<alias>.<fn>.<field>`, as an Expression carrying the
+ * values of its optional filter. Markers are `?`, so whoever embeds it — a ConditionBuilder
+ * or an ORDER BY list — decides the placeholder positions.
+ */
 function buildAggOrderExpr(
   db: QueryClient,
   dbTables: DbTables,
@@ -297,9 +303,8 @@ function buildAggOrderExpr(
   alias: string,
   fn: string,
   field: string,
-  joinGroup: Record<string, JoinGroupRequest> | undefined,
-  startIdx: number
-): { expr: string; values: unknown[] } {
+  joinGroup: Record<string, JoinGroupRequest> | undefined
+): Expression {
   const aggFn = AGG_FN[fn];
   if (!aggFn) err400(`Invalid aggregation function: ${fn}`);
 
@@ -331,17 +336,17 @@ function buildAggOrderExpr(
       { filters: groupReq.filters, conditions: groupReq.conditions },
       db,
     );
-    const built = cb.build(startIdx, db.ph);
-    if (built) {
-      filterWhere = ` AND ${built}`;
-      filterVals = cb.getValues();
+    const fragment = cb.toExpression();
+    if (fragment.value) {
+      filterWhere = ` AND ${fragment.value}`;
+      filterVals = [...fragment.values];
     }
   }
 
   const qualifiedCol = `${refs.joinTable}.${db.qi(fieldCol)}`;
   const expr = `COALESCE((SELECT ${aggExpr(aggFn, qualifiedCol)} FROM ${refs.joinTable} WHERE ${refs.joinTable}.${refs.fkCol} = ${refs.mainTable}.${refs.mainCol}${filterWhere}), 0)`;
 
-  return { expr, values: filterVals };
+  return new Expression(expr, filterVals);
 }
 
 // ─── orderBy parsing & validation ───────────────────────────
@@ -399,12 +404,11 @@ function validateOrderBy(
         err400('Cannot combine distinctResults with aggregation orderBy');
       }
       const [, alias, fn, field, dir] = dotted3;
-      const { expr, values } = buildAggOrderExpr(
-        db, dbTables, tableConf, alias, fn, field, joinGroup, currentIdx
-      );
-      outParts.push(`${expr} ${(dir || 'ASC').toUpperCase()}`);
-      outValues.push(...values);
-      currentIdx += values.length;
+      const expr = buildAggOrderExpr(db, dbTables, tableConf, alias, fn, field, joinGroup);
+      const aggVals = [...expr.values];
+      outParts.push(`${renderRef(expr, currentIdx, db)} ${(dir || 'ASC').toUpperCase()}`);
+      outValues.push(...aggVals);
+      currentIdx += aggVals.length;
       continue;
     }
 
@@ -1027,16 +1031,14 @@ function applyComputedFilters(
 }
 
 function appendAggConditions(
-  currentWhere: string,
-  currentValues: unknown[],
+  params: QueryParams,
   conditions: SearchCondition[],
   db: QueryClient,
   dbTables: DbTables,
   tableConf: ITable,
   joinGroup: Record<string, JoinGroupRequest> | undefined
-): { where: string; values: unknown[] } {
-  let where = currentWhere;
-  let values = [...currentValues];
+): string {
+  let where = '';
 
   for (const c of conditions) {
     if (!c.field.includes('.')) continue;
@@ -1051,35 +1053,28 @@ function appendAggConditions(
     }
     const [alias, fn, field] = parts;
 
-    const { expr, values: exprValues } = buildAggOrderExpr(
-      db, dbTables, tableConf, alias, fn, field, joinGroup, values.length + 1
-    );
-    values = [...values, ...exprValues];
-
+    // The aggregate carries the values of its own filter; passing it as the left-hand side
+    // lets the ConditionBuilder place those and the compared value in one step.
+    const expr = buildAggOrderExpr(db, dbTables, tableConf, alias, fn, field, joinGroup);
     const tmpCb = new ConditionBuilder('AND', db.cbDialect);
     dispatchConditionMethod(tmpCb, c.method, expr, c.params as unknown[]);
-    const startIdx = values.length + 1;
-    const clause = tmpCb.build(startIdx, db.ph);
-    where += ` AND ${clause}`;
-    values.push(...tmpCb.getValues());
+    where += ` AND ${params.emitCondition(tmpCb, db)}`;
   }
 
-  return { where, values };
+  return where;
 }
 
 // ─── joinMustExist (EXISTS subquery filter on main) ─────────
 
 function buildJoinMustExistClauses(
+  params: QueryParams,
   db: QueryClient,
   dbTables: DbTables,
   tableConf: ITable,
   joinMustExist: Record<string, JoinRefFilter>,
-  currentWhere: string,
-  currentValues: unknown[],
   tenant?: TenantContext
-): { where: string; values: unknown[] } {
-  let where = currentWhere;
-  const values = [...currentValues];
+): string {
+  let where = '';
 
   for (const [alias, ref] of Object.entries(joinMustExist)) {
     const joinDef = requireJoin(tableConf, alias, false);
@@ -1090,11 +1085,7 @@ function buildJoinMustExistClauses(
     const filterCondition = buildJoinRefCondition(joinTableConf, joinSchema, ref, db);
     const tenantJoins: string[] = [];
     appendJoinTenantScope(db, joinTableConf, tenant, joinSchema.tableName, filterCondition, tenantJoins);
-    // The sub-condition (computed fields included) is built by the ConditionBuilder, which
-    // numbers its placeholders from where the outer values end.
-    const startIdx = values.length + 1;
-    const filterWhere = filterCondition.build(startIdx, db.ph);
-    const filterVals: unknown[] = [...filterCondition.getValues()];
+    const filterWhere = params.emitCondition(filterCondition, db);
 
     // Qualify the FK with the join table: the EXISTS FROM may include the tenant
     // through-join, so a bare column could become ambiguous.
@@ -1104,10 +1095,9 @@ function buildJoinMustExistClauses(
 
     const existsJoins = tenantJoins.length > 0 ? ` ${tenantJoins.join(' ')}` : '';
     where += ` AND EXISTS (SELECT 1 FROM ${refs.joinTable}${existsJoins} WHERE ${innerWhere})`;
-    values.push(...filterVals);
   }
 
-  return { where, values };
+  return where;
 }
 
 // ─── searchEngine entrypoint ────────────────────────────────
@@ -1153,20 +1143,21 @@ export async function searchEngine(
     }
   }
 
-  let where = condition.build(1, db.ph);
-  let values: unknown[] = [...condition.getValues()];
+  // From here the statement is assembled fragment by fragment. `bound` owns the values and
+  // hands each fragment the placeholder index it must start from, so no offset is computed
+  // at any call site. Fragments must be emitted in the order their placeholders appear in
+  // the final SQL — MySQL binds `?` positionally.
+  const bound = new QueryParams();
+  let where = bound.emitCondition(condition, db);
 
   // joinMustExist (EXISTS)
   if (joinMustExist && Object.keys(joinMustExist).length > 0) {
-    ({ where, values } = buildJoinMustExistClauses(db, dbTables, tableConf, joinMustExist, where, values, tenant));
+    where += buildJoinMustExistClauses(bound, db, dbTables, tableConf, joinMustExist, tenant);
   }
 
   // Aggregation conditions (HAVING-style)
-  if (conditions?.length) {
-    const hasAggConditions = conditions.some((c) => c.field.includes('.'));
-    if (hasAggConditions) {
-      ({ where, values } = appendAggConditions(where, values, conditions, db, dbTables, tableConf, joinGroup));
-    }
+  if (conditions?.length && conditions.some((c) => c.field.includes('.'))) {
+    where += appendAggConditions(bound, conditions, db, dbTables, tableConf, joinGroup);
   }
 
   // Determine which joinLeft aliases need a LEFT JOIN on the main query:
@@ -1182,37 +1173,30 @@ export async function searchEngine(
     }
   }
 
-  // Build LEFT JOIN clauses + extra WHERE for filtered parents. Their placeholders start right
-  // after the WHERE values; the same clause SQL is reused by the pagination COUNT/compute queries,
-  // whose value array is [...WHERE, ...leftJoin] — so this base MUST stay `values.length + 1`.
+  // LEFT JOIN clauses + extra WHERE for filtered parents.
   const extraJoinClauses: string[] = [...tenantJoins];
-  let leftJoinValues: unknown[] = [];
   if (aliasesNeedingLeftJoin.size > 0) {
-    const lj = buildLeftJoinClauses(
-      db, dbTables, tableConf, aliasesNeedingLeftJoin, joinLeft, values.length + 1
+    const lj = bound.emit((startIndex) =>
+      buildLeftJoinClauses(db, dbTables, tableConf, aliasesNeedingLeftJoin, joinLeft, startIndex)
     );
     extraJoinClauses.push(...lj.joinClauses);
-    leftJoinValues = lj.values;
     for (const w of lj.whereExtras) where += ` AND ${w}`;
   }
 
-  // orderBy is parsed AFTER the LEFT JOIN values so aggregation-orderBy placeholders start past
-  // them (main query binds [...WHERE, ...leftJoin, ...orderBy]). Parsing it earlier with base
-  // `values.length + 1` misbinds when BOTH an aggregation orderBy and a filtered joinLeft exist.
+  // The pagination COUNT and the compute* queries reuse the WHERE and its joins but drop the
+  // ORDER BY, so they bind everything up to this point and nothing after it.
+  const whereAndJoinValues = bound.snapshot();
+
+  // ORDER BY is emitted last, so an aggregation-orderBy numbers its placeholders past the
+  // WHERE and LEFT JOIN values.
   let safeOrderBy: string | undefined;
-  let orderByValues: unknown[] = [];
   if (orderBy) {
-    const obResult = validateOrderBy(
-      orderBy, tableConf, db, dbTables, joinGroup, values.length + leftJoinValues.length + 1
-    );
-    safeOrderBy = obResult.sql;
-    orderByValues = obResult.values;
+    safeOrderBy = bound.emit((startIndex) =>
+      validateOrderBy(orderBy, tableConf, db, dbTables, joinGroup, startIndex)
+    ).sql;
   }
 
-  // Bind WHERE values + LEFT JOIN values + orderBy aggregation values for main query.
-  // Pagination COUNT/compute include WHERE + LEFT JOIN values (no orderBy).
-  const whereAndJoinValues = [...values, ...leftJoinValues];
-  const mainValues = [...whereAndJoinValues, ...orderByValues];
+  const mainValues = bound.snapshot();
 
   const main = await executeMainQuery(
     db, tableConf, where, mainValues, safeOrderBy, paginator, extraJoinClauses, params.selectComputed, params.maxRows
