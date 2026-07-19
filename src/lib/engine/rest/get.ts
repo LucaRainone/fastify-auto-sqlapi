@@ -2,6 +2,7 @@ import { ConditionBuilder } from 'node-condition-builder';
 import { camelcaseObject } from '../../naming.js';
 import { buildTenantCondition, buildTenantJoin } from '../../tenant.js';
 import { httpError } from '../../errors.js';
+import { readableSelectColumns } from '../../read-access.js';
 import { primaryAsString } from '../../../types.js';
 import type { GetParams, GetResult, TenantScopeIndirect } from '../../../types.js';
 
@@ -25,6 +26,7 @@ export async function getEngine(params: GetParams): Promise<GetResult> {
 
   const rows = await db.select({
     tableName: tableConf.Schema.tableName,
+    columns: readableSelectColumns(tableConf, tableConf.Schema, db),
     where,
     values,
     limit: '1',

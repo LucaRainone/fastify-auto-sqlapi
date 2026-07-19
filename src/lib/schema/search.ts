@@ -1,6 +1,20 @@
 import { Type, type TObject, type TSchema } from '@sinclair/typebox';
 import { ALLOWED_METHODS } from '../condition-methods.js';
-import type { DbTables } from '../../types.js';
+import { readableFieldNames } from '../read-access.js';
+import type { DbTables, ITable, SchemaDefinition } from '../../types.js';
+
+/** Schema fields minus the ones hidden by `readExclude`. */
+function readableFields(
+  schema: SchemaDefinition,
+  tableConf: ITable | undefined
+): Record<string, TSchema> {
+  if (!tableConf?.readExclude?.length) return { ...schema.fields };
+  const out: Record<string, TSchema> = {};
+  for (const field of readableFieldNames(tableConf, schema)) {
+    out[field] = schema.fields[field];
+  }
+  return out;
+}
 
 const JoinGroupResultItem = Type.Object({
   sum: Type.Optional(Type.Record(Type.String(), Type.Any())),
@@ -42,7 +56,7 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
   }
 
   const filterFields = {
-    ...schema.fields,
+    ...readableFields(schema, tableConf),
     ...tableConf.extraFilters,
     ...computedTypes,
   };
@@ -77,7 +91,7 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
       }
 
       const joinFilterFields = joinTableConf
-        ? { ...joinSchema.fields, ...joinTableConf.extraFilters, ...joinComputedTypes }
+        ? { ...readableFields(joinSchema, joinTableConf), ...joinTableConf.extraFilters, ...joinComputedTypes }
         : { ...joinSchema.fields };
 
       const joinRefShape = {
@@ -164,9 +178,10 @@ export function SearchTableResponse(dbTables: DbTables, tableName: string): TObj
     }
   }
 
+  const mainReadable = readableFields(tableConf.Schema, tableConf);
   const mainItem = Object.keys(computedTypes).length > 0
-    ? Type.Partial(Type.Object({ ...tableConf.Schema.fields, ...computedTypes }))
-    : Type.Partial(Type.Object(tableConf.Schema.fields));
+    ? Type.Partial(Type.Object({ ...mainReadable, ...computedTypes }))
+    : Type.Partial(Type.Object(mainReadable));
 
   const joinMultipleProps: Record<string, ReturnType<typeof Type.Array>> = {};
   const joinLeftProps: Record<string, ReturnType<typeof Type.Array>> = {};
@@ -175,7 +190,9 @@ export function SearchTableResponse(dbTables: DbTables, tableName: string): TObj
   if (tableConf.allowedReadJoins) {
     for (const joinDef of tableConf.allowedReadJoins) {
       const { joinSchema, alias, unique } = joinDef;
-      const itemArray = Type.Array(Type.Partial(Type.Object(joinSchema.fields)));
+      const itemArray = Type.Array(
+        Type.Partial(Type.Object(readableFields(joinSchema, dbTables[joinSchema.tableName])))
+      );
       if (unique) {
         joinLeftProps[alias] = itemArray;
       } else {

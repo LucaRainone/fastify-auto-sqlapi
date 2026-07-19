@@ -64,7 +64,31 @@ export function defineTable<F extends Record<string, TSchema>>(
   validateAliasUniqueness(config.allowedReadJoins, 'allowedReadJoins');
   validateAliasUniqueness(config.allowedWriteJoins, 'allowedWriteJoins');
   validateComputedFields(config as unknown as ITable);
+  validateReadExclude(config as unknown as ITable);
   return config;
+}
+
+function validateReadExclude(config: ITable): void {
+  const excluded = config.readExclude;
+  if (!excluded?.length) return;
+
+  const schemaFields = Object.keys(config.Schema.fields);
+  const pkFields = Array.isArray(config.primary) ? config.primary : [config.primary];
+
+  for (const field of excluded) {
+    if (!schemaFields.includes(field)) {
+      throw new Error(
+        `defineTable: readExclude field '${field}' is not a schema field on ` +
+        `table '${config.Schema.tableName}'.`
+      );
+    }
+    if (pkFields.includes(field)) {
+      throw new Error(
+        `defineTable: readExclude cannot hide the primary key field '${field}' on ` +
+        `table '${config.Schema.tableName}' — reads and joins rely on it.`
+      );
+    }
+  }
 }
 
 function validateComputedFields(config: ITable): void {

@@ -2,6 +2,7 @@ import type { QueryClient } from '../../db.js';
 import { ConditionBuilder, type ConditionValue } from 'node-condition-builder';
 import { camelcaseObject } from '../../naming.js';
 import { buildTenantCondition, buildTenantJoin } from '../../tenant.js';
+import { assertReadable, assertFiltersReadable, readableSelectColumns } from '../../read-access.js';
 import { primaryAsString } from '../../../types.js';
 import type {
   DbTables,
@@ -24,12 +25,17 @@ import type {
 
 // ─── Schema field validation ────────────────────────────────
 
-function validateSchemaField(field: string, schema: SchemaDefinition): string {
+function validateSchemaField(
+  field: string,
+  schema: SchemaDefinition,
+  tableConf?: ITable
+): string {
   if (!(field in schema.fields)) {
     const err = new Error(`Unknown field: ${field}`) as Error & { statusCode: number };
     err.statusCode = 400;
     throw err;
   }
+  assertReadable(tableConf, field);
   return schema.col(field);
 }
 
@@ -84,6 +90,7 @@ function resolveFieldRef(
   alias?: string
 ): ResolvedFieldRef {
   if (field in schema.fields) {
+    assertReadable(tableConf, field);
     const col = db.qi(schema.col(field));
     const expr = alias ? `${db.qi(alias)}.${col}` : col;
     return { expr, values: [], computed: false };
@@ -208,10 +215,24 @@ function mapRowsToCamelCase(
   });
 }
 
-/** Build the SELECT columns list for a join fetch: '*' or comma-separated quoted columns. */
-function buildSelectionColumns(selection: string, joinSchema: SchemaDefinition, db: QueryClient): string {
-  if (selection === '*') return '*';
-  return selection.split(',').map((c) => db.qi(joinSchema.col(c.trim()))).join(', ');
+/**
+ * Build the SELECT columns list for a join fetch: '*' or comma-separated quoted columns.
+ * A default '*' selection narrows to the join table's readable columns when it declares
+ * `readExclude`; an explicit selection naming an excluded field is rejected with 400.
+ */
+function buildSelectionColumns(
+  selection: string,
+  joinSchema: SchemaDefinition,
+  db: QueryClient,
+  joinTableConf?: ITable
+): string {
+  if (selection === '*') {
+    return readableSelectColumns(joinTableConf, joinSchema, db) ?? '*';
+  }
+  return selection
+    .split(',')
+    .map((c) => db.qi(validateSchemaField(c.trim(), joinSchema, joinTableConf)))
+    .join(', ');
 }
 
 // ─── Aggregation orderBy / conditions ───────────────────────
@@ -353,7 +374,9 @@ function validateOrderBy(
     if (dotted2) {
       const [, alias, field, dir] = dotted2;
       const joinDef = requireJoin(tableConf, alias, true);
-      const col = validateSchemaField(field, joinDef.joinSchema);
+      const col = validateSchemaField(
+        field, joinDef.joinSchema, dbTables[joinDef.joinSchema.tableName]
+      );
       // Reference the LEFT JOIN'd table via its alias (SQL identifier).
       outParts.push(`${db.qi(alias)}.${db.qi(col)} ${(dir || 'ASC').toUpperCase()}`);
       leftJoinAliases.add(alias);
@@ -417,6 +440,8 @@ function buildLeftJoinClauses(
       const joinTableConf = dbTables[joinSchema.tableName];
       const computed = joinTableConf?.computedFields;
 
+      assertFiltersReadable(ref.filters as Record<string, unknown> | undefined, joinTableConf);
+
       if (ref.filters) {
         for (const [field, value] of Object.entries(ref.filters)) {
           if (value === null || value === undefined) continue;
@@ -439,6 +464,7 @@ function buildLeftJoinClauses(
             err400(`Invalid condition method: ${c.method}`);
           }
           if (c.field in joinSchema.fields) {
+            assertReadable(dbTables[joinSchema.tableName], c.field);
             const col = `${aliasIdent}.${db.qi(joinSchema.col(c.field))}`;
             dispatchConditionMethod(cb, c.method, col, (c.params as unknown[]) ?? []);
           } else if (computed?.[c.field]) {
@@ -525,11 +551,14 @@ async function executeMainQuery(
     ? `${paginator.itemsPerPage} OFFSET ${(paginator.page - 1) * paginator.itemsPerPage}`
     : (maxRows != null ? String(maxRows) : null);
 
+  // Base projection: '*' unless the table hides fields via readExclude.
+  const readableColumns = readableSelectColumns(tableConf, tableConf.Schema, db);
+
   // Optional computed projections — bound values, if any, are NOT yet supported
   // here (would require placeholder-aware composition with WHERE values).
-  let columns: string | undefined;
+  let columns: string | undefined = readableColumns;
   if (selectComputed?.length) {
-    const projections = ['*'];
+    const projections = [readableColumns ?? '*'];
     for (const name of selectComputed) {
       const fn = tableConf.computedFields?.[name];
       if (!fn) err400(`Unknown computed field in selectComputed: '${name}'`);
@@ -645,7 +674,7 @@ async function executeJoinMultiple(
     }
 
     const selection = ref?.selection ?? defaultSelection;
-    const columns = buildSelectionColumns(selection, joinSchema, db);
+    const columns = buildSelectionColumns(selection, joinSchema, db, joinTableConf);
 
     const rows = await db.select({
       tableName: joinSchema.tableName,
@@ -695,7 +724,7 @@ async function executeJoinLeft(
     const values = cb.getValues();
 
     const selection = ref?.selection ?? defaultSelection;
-    const columns = buildSelectionColumns(selection, joinSchema, db);
+    const columns = buildSelectionColumns(selection, joinSchema, db, joinTableConf);
 
     const rows = await db.select({
       tableName: joinSchema.tableName,
@@ -777,7 +806,7 @@ async function executeJoinGroup(
       if (!fields) return;
       const fn = AGG_FN[kind];
       for (const f of fields) {
-        const col = validateSchemaField(f, joinSchema);
+        const col = validateSchemaField(f, joinSchema, joinTableConf);
         selectParts.push(`${aggExpr(fn, db.qi(col))} as "${kind}_${f}"`);
       }
     };
@@ -886,6 +915,8 @@ function buildJoinRefCondition(
   ref: JoinRefFilter,
   db: QueryClient
 ): ConditionBuilder {
+  assertFiltersReadable(ref.filters as Record<string, unknown> | undefined, joinTableConf);
+
   const cb = (ref.filters && joinTableConf)
     ? joinTableConf.filters(ref.filters, db.cbDialect)
     : new ConditionBuilder('AND', db.cbDialect);
@@ -899,7 +930,7 @@ function buildJoinRefCondition(
       // by `collectJoinRefComputedClauses` since ConditionBuilder cannot bind values
       // for an LHS expression.
       if (joinTableConf?.computedFields?.[c.field]) continue;
-      const col = db.qi(validateSchemaField(c.field, joinSchema));
+      const col = db.qi(validateSchemaField(c.field, joinSchema, joinTableConf));
       dispatchConditionMethod(cb, c.method, col, (c.params as unknown[]) ?? []);
     }
   }
@@ -1159,6 +1190,7 @@ export async function searchEngine(
   if (joinLeft) for (const a of Object.keys(joinLeft)) requireJoin(tableConf, a, true);
 
   // Build main condition
+  assertFiltersReadable(filters as Record<string, unknown> | undefined, tableConf);
   const condition = tableConf.filters(filters || {}, db.cbDialect);
 
   // Filters that target computed fields (declared on tableConf.computedFields)

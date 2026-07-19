@@ -140,6 +140,19 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
    * affected.
    */
   operations?: TableOperation[];
+  /**
+   * Fields hidden from every read: they are not projected by search/get, not included
+   * in the read response schemas, and omitted from this table's default join selection
+   * when it is the target of a join.
+   *
+   * Referencing an excluded field from filters, conditions, orderBy, aggregations or an
+   * explicit join selection is rejected with 400 — hiding a field from the output while
+   * letting it be filtered would still leak its value by bisection.
+   *
+   * Write paths are NOT affected: a field can be writable but never readable (e.g. a
+   * password hash). Primary-key fields cannot be excluded.
+   */
+  readExclude?: (string & keyof F)[];
   defaultOrder?: string;
   excludeFromCreation?: (string & keyof F)[];
   distinctResults?: boolean;

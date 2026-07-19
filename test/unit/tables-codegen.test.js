@@ -120,8 +120,8 @@ describe('generateTablesFile', () => {
     const order = parseSchemaFile(orderSchemaContent);
     const output = generateTablesFile([customer, order]);
 
-    assert.ok(output.includes("import {SchemaCustomer} from './SchemaCustomer'"));
-    assert.ok(output.includes("import {SchemaCustomerOrder} from './SchemaCustomerOrder'"));
+    assert.ok(output.includes("import {SchemaCustomer} from './SchemaCustomer.js'"));
+    assert.ok(output.includes("import {SchemaCustomerOrder} from './SchemaCustomerOrder.js'"));
     assert.ok(output.includes("const TableCustomer = defineTable({"));
     assert.ok(output.includes("const TableCustomerOrder = defineTable({"));
     assert.ok(output.includes("primary: 'id'"));
@@ -183,7 +183,9 @@ describe('generateSingleTableFile', () => {
     const output = generateSingleTableFile(customer, [customer]);
 
     assert.ok(output.includes("from 'fastify-auto-sqlapi'"));
-    assert.ok(output.includes("import {SchemaCustomer as Schema} from '../schemas/SchemaCustomer'"));
+    assert.ok(output.includes("import {SchemaCustomer as Schema} from '../schemas/SchemaCustomer.js'"));
+    // readExclude is suggested (commented) so the option is discoverable
+    assert.ok(output.includes('// readExclude: []'));
     assert.ok(output.includes("export const TableCustomer = defineTable({"));
     assert.ok(output.includes("primary: 'id'"));
     assert.ok(output.includes("...exportTableInfo(Schema)"));
@@ -216,7 +218,7 @@ describe('generateSingleTableFile', () => {
     const order = parseSchemaFile(orderSchemaContent);
     const output = generateSingleTableFile(customer, [customer, order]);
 
-    assert.ok(output.includes("// import {SchemaCustomerOrder} from '../schemas/SchemaCustomerOrder'"));
+    assert.ok(output.includes("// import {SchemaCustomerOrder} from '../schemas/SchemaCustomerOrder.js'"));
   });
 
   it('includes commented relation imports for child table', () => {
@@ -224,7 +226,7 @@ describe('generateSingleTableFile', () => {
     const order = parseSchemaFile(orderSchemaContent);
     const output = generateSingleTableFile(order, [customer, order]);
 
-    assert.ok(output.includes("// import {SchemaCustomer} from '../schemas/SchemaCustomer'"));
+    assert.ok(output.includes("// import {SchemaCustomer} from '../schemas/SchemaCustomer.js'"));
   });
 
   it('includes buildRelation comment for parent table with children', () => {
@@ -259,8 +261,8 @@ describe('generateDbTablesIndex', () => {
     const order = parseSchemaFile(orderSchemaContent);
     const output = generateDbTablesIndex([customer, order]);
 
-    assert.ok(output.includes("import {TableCustomer} from './TableCustomer'"));
-    assert.ok(output.includes("import {TableCustomerOrder} from './TableCustomerOrder'"));
+    assert.ok(output.includes("import {TableCustomer} from './TableCustomer.js'"));
+    assert.ok(output.includes("import {TableCustomerOrder} from './TableCustomerOrder.js'"));
     assert.ok(output.includes("export const dbTables: DbTables = {"));
     assert.ok(output.includes("customer: TableCustomer,"));
     assert.ok(output.includes("customer_order: TableCustomerOrder,"));
@@ -277,7 +279,7 @@ describe('generateDbTablesIndex', () => {
     const customer = parseSchemaFile(customerSchemaContent);
     const output = generateDbTablesIndex([customer]);
 
-    assert.ok(output.includes("import {TableCustomer} from './TableCustomer'"));
+    assert.ok(output.includes("import {TableCustomer} from './TableCustomer.js'"));
     assert.ok(output.includes("customer: TableCustomer,"));
     assert.ok(!output.includes('TableCustomerOrder'));
   });

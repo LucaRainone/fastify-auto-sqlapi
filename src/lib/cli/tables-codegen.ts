@@ -161,11 +161,11 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
   // Imports
   lines.push(`import {defineTable, exportTableInfo, Type} from 'fastify-auto-sqlapi';`);
   lines.push(`import type {ValidationError} from 'fastify-auto-sqlapi';`);
-  lines.push(`import {${schema.schemaName} as Schema} from '../schemas/${schema.schemaName}';`);
+  lines.push(`import {${schema.schemaName} as Schema} from '../schemas/${schema.schemaName}.js';`);
 
   // Commented imports for related schemas
   for (const relSchema of relatedSchemas) {
-    lines.push(`// import {${relSchema}} from '../schemas/${relSchema}';`);
+    lines.push(`// import {${relSchema}} from '../schemas/${relSchema}.js';`);
   }
 
   lines.push(``);
@@ -198,6 +198,9 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
   } else {
     lines.push(`  // excludeFromCreation: [],`);
   }
+
+  // Hide columns from every read (writes still accept them, e.g. a password hash)
+  lines.push(`  // readExclude: [],`);
 
   if (parentRels.length > 0) {
     lines.push(`  // allowedReadJoins: [`);
@@ -258,7 +261,7 @@ export function generateDbTablesIndex(schemas: ParsedSchema[]): string {
 
   for (const schema of schemas) {
     const tableVarName = 'Table' + schema.schemaName.replace(/^Schema/, '');
-    lines.push(`import {${tableVarName}} from './${tableVarName}';`);
+    lines.push(`import {${tableVarName}} from './${tableVarName}.js';`);
   }
 
   lines.push(``);
@@ -299,7 +302,7 @@ export function generateTablesFile(schemas: ParsedSchema[]): string {
 
   // Schema imports
   for (const schema of schemas) {
-    lines.push(`import {${schema.schemaName}} from './${schema.schemaName}';`);
+    lines.push(`import {${schema.schemaName}} from './${schema.schemaName}.js';`);
   }
 
   // Table definitions

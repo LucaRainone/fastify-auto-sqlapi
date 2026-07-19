@@ -145,6 +145,7 @@ const TableCustomer = defineTable({
   // Ordering & filtering
   defaultOrder: 'name',                     // default ORDER BY (camelCase fields map to DB columns)
   excludeFromCreation: ['id'],              // omit from INSERT (e.g. auto-increment)
+  readExclude: ['passwordHash'],            // hide from all reads (writes unaffected)
   distinctResults: true,                    // SELECT DISTINCT
 
   // Relations — alias defaults to joinSchema.tableName. Override with `{ alias: '...' }`
@@ -319,6 +320,21 @@ only columns present in the generated Schema (as narrowed by `schemaOverrides` /
 `excludeFromCreation`) can be written. An unexpected field is a `400`, never a silently-written
 column — the Schema is the write whitelist. Trim the generated Schema (or use `excludeFromCreation`)
 to keep sensitive columns out of it.
+
+### Read visibility
+
+`readExclude` hides columns from every read while leaving writes untouched — the case for a
+password hash or an access token: writable, never readable.
+
+```typescript
+readExclude: ['accessToken'],
+```
+
+Excluded fields are not selected by search/get, are omitted from read response schemas and from
+the table's default join selection, and cannot be referenced from `filters`, `conditions`,
+`orderBy`, aggregations or an explicit join `selection` (`400`). That last part is the point:
+letting a hidden field be filtered would leak its value by bisection. Primary keys cannot be
+excluded.
 
 ## API Reference
 
