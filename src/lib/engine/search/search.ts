@@ -1,5 +1,5 @@
 import type { QueryClient } from '../../db.js';
-import { ConditionBuilder, type ConditionValue } from 'node-condition-builder';
+import { ConditionBuilder, Expression, type ConditionValue } from 'node-condition-builder';
 import { camelcaseObject } from '../../naming.js';
 import { buildTenantCondition, buildTenantJoin } from '../../tenant.js';
 import { assertReadable, assertFiltersReadable, readableSelectColumns } from '../../read-access.js';
@@ -71,14 +71,12 @@ function buildComputedContext(
 }
 
 /**
- * Resolve a field reference in a request body to a SQL expression. If `field`
- * is a schema column, returns the quoted column name. If `field` is a computed
- * registered on `tableConf.computedFields`, evaluates the function and returns
- * its expr + bound values. If neither matches, throws 400.
+ * Resolve a field reference in a request body to a SQL operand. A schema column becomes
+ * the quoted column name; a computed field becomes an Expression carrying its own bound
+ * values, so it can be handed straight to a ConditionBuilder. Throws 400 if neither.
  */
 interface ResolvedFieldRef {
-  expr: string;
-  values: unknown[];
+  expr: string | Expression;
   computed: boolean;
 }
 
@@ -93,14 +91,13 @@ function resolveFieldRef(
     assertReadable(tableConf, field);
     const col = db.qi(schema.col(field));
     const expr = alias ? `${db.qi(alias)}.${col}` : col;
-    return { expr, values: [], computed: false };
+    return { expr, computed: false };
   }
 
   const fn = tableConf?.computedFields?.[field];
   if (fn) {
     const ctx = buildComputedContext(db, schema, alias);
-    const out = fn(ctx);
-    return { expr: out.expr, values: out.values ?? [], computed: true };
+    return { expr: computedExpression(field, fn(ctx)), computed: true };
   }
 
   err400(`Unknown field: ${field}`);
@@ -177,23 +174,65 @@ function extractJoinRefs(db: QueryClient, tableConf: ITable, joinDef: JoinDefini
 }
 
 /**
- * Evaluate a computed field. When `allowBoundValues=false`, throws 400 if the computed binds
- * any parameters — used in positions where parameter binding cannot be coordinated (orderBy,
- * compute*, joinLeft.filters, etc).
+ * Evaluate a computed field into an Expression carrying its own bound values.
+ *
+ * Inside a WHERE clause the ConditionBuilder assigns the placeholder indexes, so bound
+ * values are always safe there. `allowBoundValues=false` is for the positions that sit
+ * *before* the WHERE values in the parameter order (SELECT projections, aggregations),
+ * where they cannot be placed correctly; those still reject with 400.
  */
 function evaluateComputedField(
+  name: string,
   fn: ComputedFieldFn,
   schema: SchemaDefinition,
   db: QueryClient,
   alias: string | undefined,
   message: string,
   allowBoundValues = false,
-): ComputedFieldExpr {
-  const ev = fn(buildComputedContext(db, schema, alias));
+): Expression {
+  const ev: ComputedFieldExpr = fn(buildComputedContext(db, schema, alias));
   if (!allowBoundValues && (ev.values?.length ?? 0) > 0) {
     err400(message);
   }
-  return ev;
+  return computedExpression(name, ev);
+}
+
+/**
+ * Build the Expression for a computed field, checking that it marks each bound value
+ * with a `?`.
+ *
+ * A mismatch is always a table-configuration bug and would otherwise produce a query that
+ * binds values nobody references — silently returning wrong rows. Expressions without
+ * bound values are exempt: they are emitted verbatim, so a `?` there is a literal operator
+ * (PostgreSQL jsonb) rather than a marker.
+ */
+function computedExpression(name: string, ev: ComputedFieldExpr): Expression {
+  const values = ev.values ?? [];
+  if (values.length > 0) {
+    const markers = (ev.expr.match(/\\\?|\?/g) ?? []).filter((m) => m === '?').length;
+    if (markers !== values.length) {
+      throw new Error(
+        `Computed field '${name}' declares ${values.length} bound value(s) but its expression ` +
+        `contains ${markers} '?' marker(s). Mark each bound value with '?' (use '\\?' for a ` +
+        `literal question mark) so the engine can assign placeholder positions.`
+      );
+    }
+  }
+  return new Expression(ev.expr, values);
+}
+
+/** Bound values carried by a resolved field reference. */
+function refValues(expr: string | Expression): unknown[] {
+  return expr instanceof Expression ? [...expr.values] : [];
+}
+
+/** Render a resolved field reference to SQL, binding any values from `startIndex`. */
+function renderRef(
+  expr: string | Expression,
+  startIndex: number,
+  db: QueryClient
+): string {
+  return expr instanceof Expression ? expr.render(startIndex, db.ph) : expr;
 }
 
 /** Map rows from snake_case columns to camelCase fields, preserving any computed-field columns
@@ -390,9 +429,12 @@ function validateOrderBy(
     }
     const [, field, dir] = plain!;
     const ref = resolveFieldRef(field, tableConf.Schema, tableConf, db);
-    outParts.push(`${ref.expr} ${(dir || 'ASC').toUpperCase()}`);
-    outValues.push(...ref.values);
-    currentIdx += ref.values.length;
+    // A computed field binds its own values here: ORDER BY is emitted after the WHERE, so
+    // its placeholders continue from `currentIdx`.
+    const refVals = refValues(ref.expr);
+    outParts.push(`${renderRef(ref.expr, currentIdx, db)} ${(dir || 'ASC').toUpperCase()}`);
+    outValues.push(...refVals);
+    currentIdx += refVals.length;
   }
 
   return { sql: outParts.join(', '), values: outValues, leftJoinAliases };
@@ -448,12 +490,10 @@ function buildLeftJoinClauses(
           if (field in joinSchema.fields) {
             cb.isEqual(`${aliasIdent}.${db.qi(joinSchema.col(field))}`, value);
           } else if (computed?.[field]) {
-            // Computed field on the parent table: build expr with alias-qualified columns.
-            const ev = evaluateComputedField(
-              computed[field], joinSchema, db, alias,
-              `Computed field '${field}' with bound values is not supported in joinLeft.filters`,
-            );
-            cb.isEqual(ev.expr, value);
+            // Computed field on the parent table: expr with alias-qualified columns. Bound
+            // values are placed by this ConditionBuilder, whose SQL lands in the WHERE.
+            const expr = evaluateComputedField(field, computed[field], joinSchema, db, alias, '', true);
+            cb.isEqual(expr, value);
           }
         }
       }
@@ -468,11 +508,8 @@ function buildLeftJoinClauses(
             const col = `${aliasIdent}.${db.qi(joinSchema.col(c.field))}`;
             dispatchConditionMethod(cb, c.method, col, (c.params as unknown[]) ?? []);
           } else if (computed?.[c.field]) {
-            const ev = evaluateComputedField(
-              computed[c.field], joinSchema, db, alias,
-              `Computed field '${c.field}' with bound values is not supported in joinLeft.conditions`,
-            );
-            dispatchConditionMethod(cb, c.method, ev.expr, (c.params as unknown[]) ?? []);
+            const expr = evaluateComputedField(c.field, computed[c.field], joinSchema, db, alias, '', true);
+            dispatchConditionMethod(cb, c.method, expr, (c.params as unknown[]) ?? []);
           } else {
             err400(`Unknown field: ${c.field}`);
           }
@@ -516,10 +553,10 @@ function convertConfiguredOrder(order: string, tableConf: ITable, db: QueryClien
         const computed = tableConf.computedFields?.[field];
         if (computed) {
           const ev = evaluateComputedField(
-            computed, tableConf.Schema, db, undefined,
+            field, computed, tableConf.Schema, db, undefined,
             `Computed field '${field}' with bound values cannot be used in defaultOrder`,
           );
-          return `${ev.expr}${suffix}`;
+          return `${ev.value}${suffix}`;
         }
       }
       return trimmed;
@@ -563,10 +600,10 @@ async function executeMainQuery(
       const fn = tableConf.computedFields?.[name];
       if (!fn) err400(`Unknown computed field in selectComputed: '${name}'`);
       const out = evaluateComputedField(
-        fn!, tableConf.Schema, db, undefined,
+        name, fn!, tableConf.Schema, db, undefined,
         `Computed field '${name}' with bound values cannot be used in selectComputed`,
       );
-      projections.push(`${out.expr} AS ${db.qi(name)}`);
+      projections.push(`${out.value} AS ${db.qi(name)}`);
     }
     columns = projections.join(', ');
   }
@@ -617,11 +654,13 @@ async function buildPagination(
   for (const { key, field, fn } of computations) {
     if (field) {
       const ref = resolveFieldRef(field, tableConf.Schema, tableConf, db);
-      if (ref.values.length > 0) {
+      // The aggregate sits in the SELECT list, before the WHERE values: a computed that
+      // binds parameters cannot be placed here.
+      if (refValues(ref.expr).length > 0) {
         err400(`Computed field '${field}' with bound values cannot be used in compute${key.charAt(0).toUpperCase() + key.slice(1)}`);
       }
       const result = await db.query<{ value: unknown }>(
-        `SELECT ${fn}(${ref.expr}) as value FROM ${db.qi(tableName)}${joinClause} WHERE ${where}`,
+        `SELECT ${fn}(${renderRef(ref.expr, 1, db)}) as value FROM ${db.qi(tableName)}${joinClause} WHERE ${where}`,
         values
       );
       computed[key] = { [field]: result.rows[0].value };
@@ -664,14 +703,8 @@ async function executeJoinMultiple(
     cb.isIn(db.qi(fkCol), ids);
     const tenantJoins: string[] = [];
     appendJoinTenantScope(db, joinTableConf, tenant, joinSchema.tableName, cb, tenantJoins);
-    let where = cb.build(1, db.ph);
-    let values = cb.getValues();
-
-    // Side-channel: computed-field clauses on the join table
-    const computedClauses = collectJoinRefComputedClauses(joinTableConf, ref || {}, db);
-    if (computedClauses.length > 0) {
-      ({ where, values } = appendComputedConditions(where, values, computedClauses, db));
-    }
+    const where = cb.build(1, db.ph);
+    const values = cb.getValues();
 
     const selection = ref?.selection ?? defaultSelection;
     const columns = buildSelectionColumns(selection, joinSchema, db, joinTableConf);
@@ -762,9 +795,9 @@ function buildByExpression(
   const fn = joinTableConf?.computedFields?.[by];
   if (fn) {
     return evaluateComputedField(
-      fn, joinSchema, db, undefined,
+      by, fn, joinSchema, db, undefined,
       `Computed field '${by}' with bound values cannot be used in aggregations.by`,
-    ).expr;
+    ).value;
   }
   err400(`Unknown field: ${by}`);
 }
@@ -828,14 +861,8 @@ async function executeJoinGroup(
     cb.isIn(db.qi(fkCol), ids);
     const tenantJoins: string[] = [];
     appendJoinTenantScope(db, joinTableConf, tenant, joinSchema.tableName, cb, tenantJoins);
-    let where = cb.build(1, db.ph);
-    let values = cb.getValues();
-
-    // Side-channel: computed-field clauses on the join table
-    const computedClauses = collectJoinRefComputedClauses(joinTableConf, groupRef, db);
-    if (computedClauses.length > 0) {
-      ({ where, values } = appendComputedConditions(where, values, computedClauses, db));
-    }
+    const where = cb.build(1, db.ph);
+    const values = cb.getValues();
 
     const groupBy = groupByParts.length > 0 ? `GROUP BY ${groupByParts.join(', ')}` : '';
     const fromJoins = tenantJoins.length > 0 ? ` ${tenantJoins.join(' ')}` : '';
@@ -895,7 +922,7 @@ import {
 function dispatchConditionMethod(
   cb: ConditionBuilder,
   method: string,
-  colOrExpr: string,
+  colOrExpr: string | Expression,
   params: unknown[]
 ): void {
   if (SINGLE_VALUE_SET.has(method)) {
@@ -921,63 +948,32 @@ function buildJoinRefCondition(
     ? joinTableConf.filters(ref.filters, db.cbDialect)
     : new ConditionBuilder('AND', db.cbDialect);
 
+  // Equality filters targeting the join table's computed fields
+  const computed = joinTableConf?.computedFields;
+  if (computed && ref.filters) {
+    for (const [name, value] of Object.entries(ref.filters)) {
+      if (value === null || value === undefined) continue;
+      if (!computed[name]) continue;
+      const expr = evaluateComputedField(name, computed[name], joinTableConf!.Schema, db, undefined, '', true);
+      cb.isEqual(expr, value as ConditionValue);
+    }
+  }
+
   if (ref.conditions?.length) {
     for (const c of ref.conditions) {
       if (!ALLOWED_SET.has(c.method)) {
         err400(`Invalid condition method: ${c.method}`);
       }
-      // Skip computed-field conditions here — they are processed via side-channel
-      // by `collectJoinRefComputedClauses` since ConditionBuilder cannot bind values
-      // for an LHS expression.
-      if (joinTableConf?.computedFields?.[c.field]) continue;
-      const col = db.qi(validateSchemaField(c.field, joinSchema, joinTableConf));
-      dispatchConditionMethod(cb, c.method, col, (c.params as unknown[]) ?? []);
+      // Computed fields resolve to an Expression carrying their own bound values, which
+      // the ConditionBuilder places together with the compared value.
+      const operand = computed?.[c.field]
+        ? evaluateComputedField(c.field, computed[c.field], joinTableConf!.Schema, db, undefined, '', true)
+        : db.qi(validateSchemaField(c.field, joinSchema, joinTableConf));
+      dispatchConditionMethod(cb, c.method, operand, (c.params as unknown[]) ?? []);
     }
   }
 
   return cb;
-}
-
-/**
- * Side-channel: gather equality + operator clauses targeting computed fields
- * declared on the join table's `computedFields`. To be appended to a WHERE
- * after the main `cb.build()` with correct placeholder offsets.
- */
-function collectJoinRefComputedClauses(
-  joinTableConf: ITable | undefined,
-  ref: JoinRefFilter,
-  db: QueryClient
-): Array<{ method: string; expr: string; values: unknown[]; params: unknown[] }> {
-  const out: Array<{ method: string; expr: string; values: unknown[]; params: unknown[] }> = [];
-  const computed = joinTableConf?.computedFields;
-  if (!computed) return out;
-
-  // Equality filters on computed names
-  if (ref.filters) {
-    for (const [name, value] of Object.entries(ref.filters)) {
-      if (value === null || value === undefined) continue;
-      if (!computed[name]) continue;
-      const ev = evaluateComputedField(computed[name], joinTableConf!.Schema, db, undefined, '', true);
-      out.push({ method: 'isEqual', expr: ev.expr, values: ev.values ?? [], params: [value] });
-    }
-  }
-
-  // Operator conditions on computed names
-  if (ref.conditions?.length) {
-    for (const c of ref.conditions) {
-      if (!computed[c.field]) continue;
-      if (!ALLOWED_SET.has(c.method)) err400(`Invalid condition method: ${c.method}`);
-      const ev = evaluateComputedField(computed[c.field], joinTableConf!.Schema, db, undefined, '', true);
-      out.push({
-        method: c.method,
-        expr: ev.expr,
-        values: ev.values ?? [],
-        params: (c.params as unknown[]) ?? [],
-      });
-    }
-  }
-
-  return out;
 }
 
 /**
@@ -992,9 +988,7 @@ function applyConditions(
   schema: SchemaDefinition,
   tableConf: ITable,
   db: QueryClient
-): Array<{ method: string; expr: string; values: unknown[]; params: unknown[] }> {
-  const computedClauses: Array<{ method: string; expr: string; values: unknown[]; params: unknown[] }> = [];
-
+): void {
   for (const c of conditions) {
     // Skip dot-notation fields — those become aggregation conditions processed later
     if (c.field.includes('.')) continue;
@@ -1003,75 +997,33 @@ function applyConditions(
       err400(`Invalid condition method: ${c.method}`);
     }
 
+    // A computed field resolves to an Expression carrying its own bound values; the
+    // ConditionBuilder places them, so no placeholder offset is computed here.
     const ref = resolveFieldRef(c.field, schema, tableConf, db);
-    if (!ref.computed) {
-      dispatchConditionMethod(condition, c.method, ref.expr, c.params as unknown[]);
-    } else {
-      computedClauses.push({
-        method: c.method,
-        expr: ref.expr,
-        values: ref.values,
-        params: (c.params as unknown[]) ?? [],
-      });
-    }
+    dispatchConditionMethod(condition, c.method, ref.expr, c.params as unknown[]);
   }
-
-  return computedClauses;
 }
 
 /**
- * Equality filters targeting computed fields: when `filters.<computedName>` is
- * set on the request body and the computed exists on `tableConf.computedFields`,
- * generate a side-channel clause `<expr> = ?` with the user value as parameter.
- * This complements the auto-generated equality on schema fields done by
- * `tableConf.filters()`.
+ * Equality filters targeting computed fields: `filters.<computedName>` becomes
+ * `<expr> = <value>` on the same ConditionBuilder used for schema fields, which
+ * `tableConf.filters()` has already populated.
  */
-function collectComputedFilterClauses(
+function applyComputedFilters(
+  condition: ConditionBuilder,
   filters: Record<string, unknown>,
   tableConf: ITable,
   db: QueryClient
-): Array<{ method: string; expr: string; values: unknown[]; params: unknown[] }> {
-  const out: Array<{ method: string; expr: string; values: unknown[]; params: unknown[] }> = [];
+): void {
   const computed = tableConf.computedFields;
-  if (!computed) return out;
+  if (!computed) return;
 
   for (const [name, value] of Object.entries(filters)) {
     if (value === null || value === undefined) continue;
     if (!computed[name]) continue;
-    const ref = evaluateComputedField(computed[name], tableConf.Schema, db, undefined, '', true);
-    out.push({ method: 'isEqual', expr: ref.expr, values: ref.values ?? [], params: [value] });
+    const expr = evaluateComputedField(name, computed[name], tableConf.Schema, db, undefined, '', true);
+    condition.isEqual(expr, value as ConditionValue);
   }
-  return out;
-}
-
-/**
- * Append computed-field condition clauses (side-channel from applyConditions)
- * to the current WHERE, coordinating placeholder indices with the running
- * `values` array.
- */
-function appendComputedConditions(
-  currentWhere: string,
-  currentValues: unknown[],
-  clauses: Array<{ method: string; expr: string; values: unknown[]; params: unknown[] }>,
-  db: QueryClient
-): { where: string; values: unknown[] } {
-  let where = currentWhere;
-  let values = [...currentValues];
-
-  for (const c of clauses) {
-    // Append the computed's own bound values first; the expr placeholders
-    // (if any) reference them via stable indices set by the consumer.
-    values = [...values, ...c.values];
-
-    const tmpCb = new ConditionBuilder('AND', db.cbDialect);
-    dispatchConditionMethod(tmpCb, c.method, c.expr, c.params);
-    const startIdx = values.length + 1;
-    const clauseSql = tmpCb.build(startIdx, db.ph);
-    where += ` AND ${clauseSql}`;
-    values.push(...tmpCb.getValues());
-  }
-
-  return { where, values };
 }
 
 function appendAggConditions(
@@ -1138,23 +1090,11 @@ function buildJoinMustExistClauses(
     const filterCondition = buildJoinRefCondition(joinTableConf, joinSchema, ref, db);
     const tenantJoins: string[] = [];
     appendJoinTenantScope(db, joinTableConf, tenant, joinSchema.tableName, filterCondition, tenantJoins);
+    // The sub-condition (computed fields included) is built by the ConditionBuilder, which
+    // numbers its placeholders from where the outer values end.
     const startIdx = values.length + 1;
-    let filterWhere = filterCondition.build(startIdx, db.ph);
-    let filterVals: unknown[] = [...filterCondition.getValues()];
-
-    // Side-channel: computed-field clauses
-    const computedClauses = collectJoinRefComputedClauses(joinTableConf, ref, db);
-    if (computedClauses.length > 0) {
-      let cwhere = filterWhere;
-      let cvalues = filterVals;
-      ({ where: cwhere, values: cvalues } = appendComputedConditions(
-        cwhere, [...values, ...cvalues], computedClauses, db
-      ));
-      // appendComputedConditions starts with currentValues; we need just the
-      // delta belonging to this EXISTS subquery to update filterVals.
-      filterVals = cvalues.slice(values.length);
-      filterWhere = cwhere;
-    }
+    const filterWhere = filterCondition.build(startIdx, db.ph);
+    const filterVals: unknown[] = [...filterCondition.getValues()];
 
     // Qualify the FK with the join table: the EXISTS FROM may include the tenant
     // through-join, so a bare column could become ambiguous.
@@ -1193,16 +1133,15 @@ export async function searchEngine(
   assertFiltersReadable(filters as Record<string, unknown> | undefined, tableConf);
   const condition = tableConf.filters(filters || {}, db.cbDialect);
 
-  // Filters that target computed fields (declared on tableConf.computedFields)
-  // are applied via the side-channel pattern further down.
-  let computedFilterClauses: Array<{ method: string; expr: string; values: unknown[]; params: unknown[] }> = [];
+  // Filters and conditions targeting computed fields go on the same ConditionBuilder:
+  // a computed resolves to an Expression carrying its own values, and the builder is
+  // what assigns every placeholder index.
   if (filters && tableConf.computedFields) {
-    computedFilterClauses = collectComputedFilterClauses(filters, tableConf, db);
+    applyComputedFilters(condition, filters, tableConf, db);
   }
 
-  let computedConditionClauses: Array<{ method: string; expr: string; values: unknown[]; params: unknown[] }> = [];
   if (conditions?.length) {
-    computedConditionClauses = applyConditions(condition, conditions, tableConf.Schema, tableConf, db);
+    applyConditions(condition, conditions, tableConf.Schema, tableConf, db);
   }
 
   // Tenant
@@ -1216,15 +1155,6 @@ export async function searchEngine(
 
   let where = condition.build(1, db.ph);
   let values: unknown[] = [...condition.getValues()];
-
-  // Append computed filter (equality) and condition (operator) clauses with
-  // correct placeholder offsets.
-  if (computedFilterClauses.length > 0) {
-    ({ where, values } = appendComputedConditions(where, values, computedFilterClauses, db));
-  }
-  if (computedConditionClauses.length > 0) {
-    ({ where, values } = appendComputedConditions(where, values, computedConditionClauses, db));
-  }
 
   // joinMustExist (EXISTS)
   if (joinMustExist && Object.keys(joinMustExist).length > 0) {

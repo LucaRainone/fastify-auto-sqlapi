@@ -260,3 +260,60 @@ The engine rejects, with `statusCode: 400`, any of:
 - `orderBy` 2-parti `<alias>.<field>` whose alias is not in `joinLeft`-eligible (i.e. `unique:true`) declarations
 - `orderBy` 3-parti `<alias>.<fn>.<field>` whose alias or `(fn, field)` pair is not declared in `joinGroup` for the same request
 - `defineTable` with two `allowedReadJoins`/`allowedWriteJoins` entries resolving to the same alias (thrown at startup, not at request time)
+
+---
+
+# Breaking Change — computed field placeholders use `?` markers
+
+`ComputedFieldExpr.expr` must now mark each bound value with `?`. The engine assigns the
+placeholder positions. Writing `$1` (or `db.ph(n)`) inside the expression no longer works and
+is rejected with a descriptive error.
+
+## Why this changed
+
+A computed field cannot know its own placeholder offset: the position depends on how many
+values the rest of the query bound before it. The previous contract asked the *consumer* to
+supply "stable indices", which is not knowable — so any computed that declared `values` and
+was used together with another filter produced a query that referenced the wrong parameter:
+
+```
+WHERE ("name" = $1) AND (CASE WHEN "role" = $1 THEN ... END = $3)
+values: ['Mario', 'admin', 500]
+```
+
+`$2` ('admin') was bound but never referenced, while the expression read `$1` ('Mario'). The
+query did not fail — it silently returned the wrong rows.
+
+## Migration
+
+```typescript
+// Before — placeholder guessed by the caller (silently misbound)
+bonus: ({ db, qiCol }) => ({
+  expr: `CASE WHEN ${qiCol('role')} = ${db.ph(1)} THEN ${qiCol('salary')} ELSE 0 END`,
+  values: ['admin'],
+  type: Type.Number(),
+}),
+
+// After — `?` marker, position assigned by the engine
+bonus: ({ qiCol }) => ({
+  expr: `CASE WHEN ${qiCol('role')} = ? THEN ${qiCol('salary')} ELSE 0 END`,
+  values: ['admin'],
+  type: Type.Number(),
+}),
+```
+
+Computed fields that declare **no** bound values (the majority: JSON extraction, concat,
+`dateTrunc`, arithmetic) are unaffected and need no change. Their SQL is emitted verbatim, so
+a literal `?` — the PostgreSQL jsonb operator — keeps working. In an expression that *does*
+carry values, escape a literal question mark as `\?`.
+
+A mismatch between the number of `?` markers and `values.length` now raises a descriptive
+error instead of producing a wrong query.
+
+## What this unlocks
+
+Bound values now work in every position that lands in the `WHERE` clause or in `ORDER BY`,
+including `joinLeft.filters` / `joinLeft.conditions` and `orderBy`, which previously rejected
+them with 400. They remain rejected in `selectComputed`, `computeMin/Max/Sum/Avg`,
+`joinGroup.aggregations.by` and `defaultOrder`, where the expression precedes the `WHERE`
+values in the parameter order.

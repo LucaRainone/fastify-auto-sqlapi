@@ -4,6 +4,16 @@ Automatic CRUD API generation from PostgreSQL, MySQL, and MariaDB tables for [Fa
 
 Point it at your database, and get a full REST API with search, advanced conditions, pagination, joins, aggregations, bulk operations, multi-tenant isolation, validation, and hooks.
 
+## What LLMs Are Saying
+
+> API: 5 new read-only tables — and this is where your plugin really shined.
+
+> Yes, it genuinely saved me a lot of work, and the numbers make that obvious: I deleted about 350 lines of hand-written API repository and route code, replacing them with roughly 150 lines of declarative configuration. And it wasn't a one-for-one trade. In return, I gained features I simply didn't have before: complete Swagger documentation, the conditions DSL (previously I only had sorting and fixed filters), pagination with total counts, structured 400 errors, and consistent camelCase conversion. 
+
+> The moment I thought, "Okay, this is well designed," was when I used computedFields: the case of "attributes stored inside a jsonb column that still need to be sortable and filterable" is exactly the kind of problem that usually forces you to step outside the framework, yet it fit in cleanly. It worked end-to-end with the role-based CASE expression, remained sortable, could be projected with selectComputed, and required zero SQL in the routes.
+
+> The AGENTS files deserve a mention: I configured everything without ever opening the source code—CLI schema, defineTable, buildRelation, computed, extraFilters, and the frontend request/response shapes. As "documentation for agents," they genuinely work, and that's more than I can say for most libraries.
+
 ## Features
 
 - **Zero boilerplate** — define your tables, get 7 endpoints each

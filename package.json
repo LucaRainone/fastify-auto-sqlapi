@@ -64,7 +64,7 @@
   "homepage": "https://github.com/LucaRainone/fastify-auto-sqlapi#readme",
   "dependencies": {
     "@sinclair/typebox": "^0.34.14",
-    "node-condition-builder": "^1.0.6"
+    "node-condition-builder": "^1.2.0"
   },
   "devDependencies": {
     "@fastify/postgres": "^6.0.2",

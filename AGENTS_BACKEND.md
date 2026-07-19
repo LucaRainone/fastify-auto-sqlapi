@@ -485,10 +485,20 @@ type ComputedFieldFn = (ctx: {
   db: QueryClient;                                 // dialect-aware (qi, ph, dialectName, dateTrunc, ...)
   qiCol(field: string, opts?: { qualifier?: string }): string;
 }) => {
-  expr: string;                                    // SQL fragment
-  values: unknown[];                               // bound values (see limitations below)
+  expr: string;                                    // SQL fragment; mark each bound value with `?`
+  values: unknown[];                               // one entry per `?` marker in expr
   type: TSchema;                                   // REQUIRED — used by Swagger and body validation
 };
+```
+
+**Bound values use `?` markers.** The engine assigns the placeholder positions — never write `$1` or `db.ph(n)` yourself. Use `\?` for a literal question mark (PostgreSQL jsonb operator). A computed whose marker count does not match `values.length` is rejected with a descriptive error, because it would bind values the query never references:
+
+```typescript
+bonus: ({ qiCol }) => ({
+  expr: `CASE WHEN ${qiCol('role')} = ? THEN ${qiCol('salary')} ELSE 0 END`,
+  values: ['admin'],
+  type: Type.Number(),
+}),
 ```
 
 `qiCol(field)` returns a properly-quoted column reference, optionally prefixed by an alias qualifier — the engine passes the alias automatically when the computed is invoked inside a `joinLeft` LEFT JOIN, so the same function works both inline on the main query and as a parent-side column.
@@ -505,8 +515,9 @@ For `joinLeft` specifically, the computed expr is automatically alias-prefixed b
 
 ### Limitations (first round, by design)
 
-- **Bound `values` in computed expressions** are supported only on `filters`/`conditions` (main and `joinMustExist`/`joinMultiple`/`joinGroup`). They are rejected with 400 on `selectComputed`, `computeMin/Max/Sum/Avg`, `orderBy`, and `joinLeft.filters`/`conditions` — those paths require placeholder coordination not done in the first round. Most use cases (JSON extraction, concat, dateTrunc, simple ops) need no placeholders.
-- **Computed CAN be used in `joinGroup.aggregations.by`** (just pass the computed name as a string). Bound `values` are not supported in this position (rejected with 400). The existing FK-correlation rule for `orderBy <alias>.<fn>.<field>` still applies: 3-parti aggregation orderBy on a `by` that isn't the correlation FK is rejected — by definition a computed-by produces multiple groups per main row, so this is never valid.
+- **Bound `values` in computed expressions** work anywhere the expression lands in the `WHERE` clause or in `ORDER BY`: `filters` and `conditions` (main, `joinMustExist`, `joinMultiple`, `joinGroup`, `joinLeft`) and `orderBy`. The ConditionBuilder assigns the placeholder positions there, so no coordination is needed from the caller.
+- They are still rejected with 400 on `selectComputed`, `computeMin/Max/Sum/Avg`, `joinGroup.aggregations.by` and `defaultOrder`. Those expressions are emitted in the `SELECT` / `GROUP BY` list, which precedes the `WHERE` values in the parameter order — there is no correct position for them there. Most use cases (JSON extraction, concat, dateTrunc, simple ops) need no bound values at all.
+- **Computed CAN be used in `joinGroup.aggregations.by`** (just pass the computed name as a string). Bound `values` are not supported in this position (rejected with 400 — it is emitted in the `SELECT`/`GROUP BY` list). The existing FK-correlation rule for `orderBy <alias>.<fn>.<field>` still applies: 3-parti aggregation orderBy on a `by` that isn't the correlation FK is rejected — by definition a computed-by produces multiple groups per main row, so this is never valid.
 - **Computed cannot be used as aggregation function** (`sum`/`min`/`max`/...). The values inside `aggregations.sum: ['<name>']` must be schema field names. To aggregate on a derived expression, declare the derivation as a computed and pass the computed name as the field, BUT only via `computeMin/Max/Sum/Avg` (top-level main aggregates), not the joinGroup ones.
 - **No chained computed** (a computed referencing another computed). Flat-only.
 - **Read-only**. Computed fields are not usable in insert/update bodies — the consumer's `expr` is for SELECT/WHERE/ORDER BY, never for writes.

@@ -15,10 +15,20 @@ export interface ComputedFieldContext {
 
 /**
  * Result returned by a ComputedFieldFn.
- *  - `expr`: SQL fragment usable as a scalar expression.
- *  - `values`: bound parameter values (always parameterized — never interpolate
- *    user-derived data into `expr`).
+ *  - `expr`: SQL fragment usable as a scalar expression. Mark each bound value with `?`
+ *    (use `\?` for a literal question mark, e.g. the PostgreSQL jsonb operator). The engine
+ *    assigns the placeholder positions — never write `$1` / `db.ph(n)` yourself, and never
+ *    interpolate user-derived data into the SQL.
+ *  - `values`: bound parameter values, one per `?` marker in `expr`. A mismatch between
+ *    markers and values is rejected: it would bind values the query never references.
  *  - `type`: TypeBox schema for Swagger filters and main response (REQUIRED).
+ *
+ * Example:
+ *   ({ qiCol }) => ({
+ *     expr: `CASE WHEN ${qiCol('role')} = ? THEN ${qiCol('salary')} ELSE 0 END`,
+ *     values: ['admin'],
+ *     type: Type.Number(),
+ *   })
  */
 export interface ComputedFieldExpr {
   expr: string;
