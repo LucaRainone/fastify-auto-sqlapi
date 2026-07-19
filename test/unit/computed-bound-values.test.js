@@ -222,7 +222,7 @@ describe('computed fields with bound values - placeholder binding', () => {
     const call = mockPg.calls[0];
     const resolved = resolvePlaceholders(call);
     assert.match(resolved, /"name" = "Mario"/, `plain filter misbound: ${resolved}`);
-    assert.match(resolved, /ORDER BY CASE WHEN "role" = "admin"/, `orderBy computed misbound: ${resolved}`);
+    assert.match(resolved, /ORDER BY CASE WHEN "employee"."role" = "admin"/, `orderBy computed misbound: ${resolved}`);
   });
 
   it('binds correctly with several computed references at once', async () => {

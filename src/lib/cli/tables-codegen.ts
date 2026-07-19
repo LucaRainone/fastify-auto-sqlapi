@@ -187,7 +187,9 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
   lines.push(`  //   Schema,`);
   lines.push(`  //   extraFiltersValidation,`);
   lines.push(`  //   (condition, filters) => {`);
-  lines.push(`  //     if (filters.q) condition.isILike(Schema.col('${schema.fields.includes('name') ? 'name' : schema.fields[0]}'), \`%\${filters.q}%\`);`);
+  lines.push(`  //     // Prefix columns with the table name: the query may carry joins, and a`);
+  lines.push(`  //     // bare column shared with a joined table would be ambiguous.`);
+  lines.push(`  //     if (filters.q) condition.isILike(\`\${Schema.tableName}.\${Schema.col('${schema.fields.includes('name') ? 'name' : schema.fields[0]}')}\`, \`%\${filters.q}%\`);`);
   lines.push(`  //   }`);
   lines.push(`  // ),`);
 

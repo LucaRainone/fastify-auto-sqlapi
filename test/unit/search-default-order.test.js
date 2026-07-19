@@ -53,7 +53,7 @@ describe('searchEngine - defaultOrder camelCase mapping', () => {
     });
 
     const sql = mockPg.calls[0].text;
-    assert.ok(sql.includes('ORDER BY "squad_index"'), `expected mapped column in: ${sql}`);
+    assert.ok(sql.includes('ORDER BY "article"."squad_index"'), `expected mapped column in: ${sql}`);
   });
 
   it('maps multi-field defaultOrder with directions', async () => {
@@ -67,7 +67,7 @@ describe('searchEngine - defaultOrder camelCase mapping', () => {
 
     const sql = mockPg.calls[0].text;
     assert.ok(
-      sql.includes('ORDER BY "created_at" DESC, "id" ASC'),
+      sql.includes('ORDER BY "article"."created_at" DESC, "article"."id" ASC'),
       `expected mapped multi-field order in: ${sql}`
     );
   });
@@ -104,7 +104,7 @@ describe('searchEngine - defaultOrder camelCase mapping', () => {
     });
 
     const sql = mockPg.calls[0].text;
-    assert.ok(sql.includes('ORDER BY "squad_index"'), `expected mapped PK fallback in: ${sql}`);
+    assert.ok(sql.includes('ORDER BY "squad_member"."squad_index"'), `expected mapped PK fallback in: ${sql}`);
   });
 
   it('supports computed fields (without bound values) in defaultOrder', async () => {
@@ -126,7 +126,7 @@ describe('searchEngine - defaultOrder camelCase mapping', () => {
     });
 
     const sql = mockPg.calls[0].text;
-    assert.ok(sql.includes('ORDER BY UPPER("title") DESC'), `expected computed expr in: ${sql}`);
+    assert.ok(sql.includes('ORDER BY UPPER("article"."title") DESC'), `expected computed expr in: ${sql}`);
   });
 
   it('request orderBy still takes precedence over defaultOrder', async () => {
@@ -140,7 +140,7 @@ describe('searchEngine - defaultOrder camelCase mapping', () => {
     });
 
     const sql = mockPg.calls[0].text;
-    assert.ok(sql.includes('ORDER BY "title" DESC'), `expected request orderBy in: ${sql}`);
+    assert.ok(sql.includes('ORDER BY "article"."title" DESC'), `expected request orderBy in: ${sql}`);
     assert.ok(!sql.includes('squad_index'), 'defaultOrder must not leak into the query');
   });
 });

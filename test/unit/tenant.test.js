@@ -95,10 +95,10 @@ describe('buildTenantCondition', () => {
     const mockPg = createMockPg();
     const db = new QueryClient(mockPg);
     const scope = { column: 'organization_id' };
-    const cb = buildTenantCondition(db, scope, [42]);
+    const cb = buildTenantCondition(db, scope, [42], 'project');
     const sql = cb.build(3, db.ph);
     const values = cb.getValues();
-    assert.ok(sql.includes('"organization_id" IN ($3)'));
+    assert.ok(sql.includes('"project"."organization_id" IN ($3)'));
     assert.deepEqual(values, [42]);
   });
 
@@ -106,10 +106,10 @@ describe('buildTenantCondition', () => {
     const mockPg = createMockPg();
     const db = new QueryClient(mockPg);
     const scope = { column: 'organization_id' };
-    const cb = buildTenantCondition(db, scope, [1, 2, 3]);
+    const cb = buildTenantCondition(db, scope, [1, 2, 3], 'project');
     const sql = cb.build(5, db.ph);
     const values = cb.getValues();
-    assert.ok(sql.includes('"organization_id" IN ($5, $6, $7)'));
+    assert.ok(sql.includes('"project"."organization_id" IN ($5, $6, $7)'));
     assert.deepEqual(values, [1, 2, 3]);
   });
 
@@ -121,7 +121,7 @@ describe('buildTenantCondition', () => {
       column: 'organization_id',
       through: { schema: throughSchema, localField: 'customer_id', foreignField: 'id' },
     };
-    const cb = buildTenantCondition(db, scope, [10]);
+    const cb = buildTenantCondition(db, scope, [10], 'task');
     const sql = cb.build(1, db.ph);
     const values = cb.getValues();
     assert.ok(sql.includes('"customer"."organization_id" IN ($1)'));
@@ -136,7 +136,7 @@ describe('buildTenantCondition', () => {
       column: 'organization_id',
       through: { schema: throughSchema, localField: 'customer_id', foreignField: 'id' },
     };
-    const cb = buildTenantCondition(db, scope, [10, 20]);
+    const cb = buildTenantCondition(db, scope, [10, 20], 'task');
     const sql = cb.build(1, db.ph);
     const values = cb.getValues();
     assert.ok(sql.includes('"customer"."organization_id" IN ($1, $2)'));

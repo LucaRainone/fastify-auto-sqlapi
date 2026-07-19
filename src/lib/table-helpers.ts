@@ -34,10 +34,13 @@ export function exportTableInfo<
   const filters: TableFilterFn = (filterValues, dialect) => {
     const condition = new ConditionBuilder('AND', dialect);
 
-    // Only auto-match real schema fields (DB columns)
+    // Only auto-match real schema fields (DB columns). Columns are table-qualified:
+    // the statement may carry joins (LEFT JOIN parents, tenant through-joins), and a
+    // bare column shared with a joined table would be ambiguous.
+    const table = qi(Schema.tableName, dialect);
     for (const field of Object.keys(Schema.fields)) {
       if (field in filterValues && filterValues[field] !== null && filterValues[field] !== undefined) {
-        condition.isEqual(qi(Schema.col(field), dialect), filterValues[field]);
+        condition.isEqual(`${table}.${qi(Schema.col(field), dialect)}`, filterValues[field]);
       }
     }
 

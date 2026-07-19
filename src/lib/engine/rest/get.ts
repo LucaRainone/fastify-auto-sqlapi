@@ -11,11 +11,13 @@ export async function getEngine(params: GetParams): Promise<GetResult> {
   const pkCol = tableConf.Schema.col(primaryAsString(tableConf.primary));
 
   const cb = new ConditionBuilder('AND', db.cbDialect);
-  cb.isEqual(db.qi(pkCol), id);
+  // Table-qualified: the tenant scope may add a through-join, and a bare PK column
+  // shared with the through table would be ambiguous.
+  cb.isEqual(`${db.qi(tableConf.Schema.tableName)}.${db.qi(pkCol)}`, id);
   const joins: string[] = [];
 
   if (tenant) {
-    cb.append(buildTenantCondition(db, tenant.scope, tenant.ids));
+    cb.append(buildTenantCondition(db, tenant.scope, tenant.ids, tableConf.Schema.tableName));
     if ('through' in tenant.scope) {
       joins.push(buildTenantJoin(db, tenant.scope as TenantScopeIndirect, tableConf.Schema.tableName));
     }

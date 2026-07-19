@@ -112,7 +112,7 @@ describe('searchEngine - main query', () => {
       orderBy: 'name DESC',
     });
 
-    assert.ok(mockPg.calls[0].text.includes('ORDER BY "name" DESC'));
+    assert.ok(mockPg.calls[0].text.includes('ORDER BY "customer"."name" DESC'));
   });
 
   it('applies multi-field orderBy', async () => {
@@ -127,7 +127,7 @@ describe('searchEngine - main query', () => {
       orderBy: 'id DESC, name ASC',
     });
 
-    assert.ok(mockPg.calls[0].text.includes('ORDER BY "id" DESC, "name" ASC'));
+    assert.ok(mockPg.calls[0].text.includes('ORDER BY "customer"."id" DESC, "customer"."name" ASC'));
   });
 
   it('rejects invalid orderBy field', async () => {

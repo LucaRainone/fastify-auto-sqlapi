@@ -78,7 +78,7 @@ const combinedBody = {
 describe(`[${DIALECT}] aggregation orderBy + filtered joinLeft (misbinding regression)`, () => {
   let app;
   let db;
-  let acmeOrgId;
+  let annaId;
 
   before(async () => {
     ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
@@ -99,19 +99,19 @@ describe(`[${DIALECT}] aggregation orderBy + filtered joinLeft (misbinding regre
       { name: 'Globex', city: 'Milan' },
     ]);
     const [acmeId, globexId] = orgs.map((o) => o.id);
-    acmeOrgId = acmeId;
 
     // Pending-total sums, Acme customers only: Luigi 300 > Mario 100 > Anna 0 (no orders).
     // Peach (Globex) has the highest pending sum, so a leaked filter shows up in the order.
-    // Globex is also seeded after Acme: computeMax=organizationId flips from Acme's id to
-    // Globex's if the joinLeft filter is misapplied to the COUNT/compute queries.
+    // Peach is also seeded last: her id is the global max, so pagination's computeMax=id
+    // changes if the joinLeft filter is misapplied to the COUNT/compute queries.
     const customers = await seedRows(db, 'customer', [
       { name: 'Mario', email: 'mario@test.it', is_active: true, organization_id: acmeId },
       { name: 'Luigi', email: 'luigi@test.it', is_active: true, organization_id: acmeId },
       { name: 'Anna', email: 'anna@test.it', is_active: false, organization_id: acmeId },
       { name: 'Peach', email: 'peach@test.it', is_active: true, organization_id: globexId },
     ]);
-    const [marioId, luigiId, , peachId] = customers.map((c) => c.id);
+    const [marioId, luigiId, annaIdSeeded, peachId] = customers.map((c) => c.id);
+    annaId = annaIdSeeded;
 
     await seedRows(db, 'customer_order', [
       { customer_id: marioId, total: 100, status: 'pending' },
@@ -161,16 +161,14 @@ describe(`[${DIALECT}] aggregation orderBy + filtered joinLeft (misbinding regre
     // The pagination COUNT and computeMax reuse the WHERE with a snapshot of its values,
     // excluding the ORDER BY's 'pending'. A wrong snapshot fails outright on Postgres
     // (parameter count mismatch) and miscounts on MySQL; a leaked joinLeft filter would
-    // surface as total 4 and max organizationId = Globex's.
-    // computeMax targets organizationId because the compute query renders the column
-    // unqualified: a column the joined table also has (id, name) would be ambiguous here.
+    // surface as total 4 and max id = Peach's.
     const body = await search(
-      `orderBy=${encodeURIComponent('orders.sum.total DESC')}&page=1&itemsPerPage=2&computeMax=organizationId`,
+      `orderBy=${encodeURIComponent('orders.sum.total DESC')}&page=1&itemsPerPage=2&computeMax=id`,
       combinedBody
     );
     assert.deepEqual(body.main.map((c) => c.name), ['Luigi', 'Mario']);
     assert.equal(body.pagination.total, 3);
     assert.equal(body.pagination.pages, 2);
-    assert.equal(Number(body.pagination.computed.max.organizationId), acmeOrgId);
+    assert.equal(Number(body.pagination.computed.max.id), annaId);
   });
 });

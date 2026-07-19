@@ -65,7 +65,9 @@ function buildComputedContext(
         err400(`Unknown field referenced by computed expression: ${field}`);
       }
       const col = db.qi(schema.col(field));
-      const qualifier = opts?.qualifier ?? alias;
+      // Default to the owning table: the statement may carry joins, and a bare
+      // column shared with a joined table would be ambiguous.
+      const qualifier = opts?.qualifier ?? alias ?? schema.tableName;
       return qualifier ? `${db.qi(qualifier)}.${col}` : col;
     },
   };
@@ -91,7 +93,9 @@ function resolveFieldRef(
   if (field in schema.fields) {
     assertReadable(tableConf, field);
     const col = db.qi(schema.col(field));
-    const expr = alias ? `${db.qi(alias)}.${col}` : col;
+    // Qualified with the alias or the owning table — never bare, so the reference
+    // stays unambiguous when the statement carries joins.
+    const expr = `${db.qi(alias ?? schema.tableName)}.${col}`;
     return { expr, computed: false };
   }
 
@@ -122,7 +126,7 @@ function appendJoinTenantScope(
 ): void {
   const scope = joinTableConf?.tenantScope;
   if (!tenant || !scope) return;
-  cb.append(buildTenantCondition(db, scope, tenant.ids));
+  cb.append(buildTenantCondition(db, scope, tenant.ids, joinTableName));
   if ('through' in scope) {
     joins?.push(buildTenantJoin(db, scope as TenantScopeIndirect, joinTableName));
   }
@@ -269,9 +273,10 @@ function buildSelectionColumns(
   if (selection === '*') {
     return readableSelectColumns(joinTableConf, joinSchema, db) ?? '*';
   }
+  const table = db.qi(joinSchema.tableName);
   return selection
     .split(',')
-    .map((c) => db.qi(validateSchemaField(c.trim(), joinSchema, joinTableConf)))
+    .map((c) => `${table}.${db.qi(validateSchemaField(c.trim(), joinSchema, joinTableConf))}`)
     .join(', ');
 }
 
@@ -552,7 +557,7 @@ function convertConfiguredOrder(order: string, tableConf: ITable, db: QueryClien
         const [, field, dir] = match;
         const suffix = dir ? ` ${dir.toUpperCase()}` : '';
         if (field in tableConf.Schema.fields) {
-          return `${db.qi(tableConf.Schema.col(field))}${suffix}`;
+          return `${db.qi(tableConf.Schema.tableName)}.${db.qi(tableConf.Schema.col(field))}${suffix}`;
         }
         const computed = tableConf.computedFields?.[field];
         if (computed) {
@@ -704,7 +709,7 @@ async function executeJoinMultiple(
 
     const cb = buildJoinRefCondition(joinTableConf, joinSchema, ref || {}, db);
     const fkCol = joinSchema.col(joinField);
-    cb.isIn(db.qi(fkCol), ids);
+    cb.isIn(`${db.qi(joinSchema.tableName)}.${db.qi(fkCol)}`, ids);
     const tenantJoins: string[] = [];
     appendJoinTenantScope(db, joinTableConf, tenant, joinSchema.tableName, cb, tenantJoins);
     const where = cb.build(1, db.ph);
@@ -754,7 +759,7 @@ async function executeJoinLeft(
 
     const fkCol = joinSchema.col(joinField);
     const cb = new ConditionBuilder('AND', db.cbDialect);
-    cb.isIn(db.qi(fkCol), ids);
+    cb.isIn(`${db.qi(joinSchema.tableName)}.${db.qi(fkCol)}`, ids);
     const tenantJoins: string[] = [];
     appendJoinTenantScope(db, joinTableConf, tenant, joinSchema.tableName, cb, tenantJoins);
     const where = cb.build(1, db.ph);
@@ -794,7 +799,7 @@ function buildByExpression(
     err400(`Invalid 'by' specification: expected a field or computed name`);
   }
   if (by in joinSchema.fields) {
-    return db.qi(joinSchema.col(by));
+    return `${db.qi(joinSchema.tableName)}.${db.qi(joinSchema.col(by))}`;
   }
   const fn = joinTableConf?.computedFields?.[by];
   if (fn) {
@@ -844,7 +849,7 @@ async function executeJoinGroup(
       const fn = AGG_FN[kind];
       for (const f of fields) {
         const col = validateSchemaField(f, joinSchema, joinTableConf);
-        selectParts.push(`${aggExpr(fn, db.qi(col))} as "${kind}_${f}"`);
+        selectParts.push(`${aggExpr(fn, `${db.qi(joinSchema.tableName)}.${db.qi(col)}`)} as "${kind}_${f}"`);
       }
     };
     addAgg('distinctCount', aggregations.distinctCount);
@@ -862,7 +867,7 @@ async function executeJoinGroup(
     const groupRef = { filters: groupFilters, conditions: groupConditions };
     const cb = buildJoinRefCondition(joinTableConf, joinSchema, groupRef, db);
     const fkCol = joinSchema.col(joinField);
-    cb.isIn(db.qi(fkCol), ids);
+    cb.isIn(`${db.qi(joinSchema.tableName)}.${db.qi(fkCol)}`, ids);
     const tenantJoins: string[] = [];
     appendJoinTenantScope(db, joinTableConf, tenant, joinSchema.tableName, cb, tenantJoins);
     const where = cb.build(1, db.ph);
@@ -972,7 +977,7 @@ function buildJoinRefCondition(
       // the ConditionBuilder places together with the compared value.
       const operand = computed?.[c.field]
         ? evaluateComputedField(c.field, computed[c.field], joinTableConf!.Schema, db, undefined, '', true)
-        : db.qi(validateSchemaField(c.field, joinSchema, joinTableConf));
+        : `${db.qi(joinSchema.tableName)}.${db.qi(validateSchemaField(c.field, joinSchema, joinTableConf))}`;
       dispatchConditionMethod(cb, c.method, operand, (c.params as unknown[]) ?? []);
     }
   }
@@ -1137,7 +1142,7 @@ export async function searchEngine(
   // Tenant
   const tenantJoins: string[] = [];
   if (tenant) {
-    condition.append(buildTenantCondition(db, tenant.scope, tenant.ids));
+    condition.append(buildTenantCondition(db, tenant.scope, tenant.ids, tableConf.Schema.tableName));
     if ('through' in tenant.scope) {
       tenantJoins.push(buildTenantJoin(db, tenant.scope as TenantScopeIndirect, tableConf.Schema.tableName));
     }

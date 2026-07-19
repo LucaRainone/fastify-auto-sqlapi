@@ -100,7 +100,7 @@ describe('orderBy - aggregation on joinGroup', () => {
     });
 
     const sql = mockPg.calls[0].text;
-    assert.ok(sql.match(/ORDER BY "name" ASC/));
+    assert.ok(sql.match(/ORDER BY "user"."name" ASC/));
   });
 
   it('supports multi-part orderBy mixing plain and aggregation', async () => {
@@ -571,7 +571,7 @@ describe('executeJoinGroups - avg and count', () => {
     });
 
     const groupSql = mockPg.calls[1].text;
-    assert.ok(groupSql.includes('AVG("duration")'));
+    assert.ok(groupSql.includes('AVG("session"."duration")'));
     assert.ok(result.joinGroup.session.avg);
     assert.equal(result.joinGroup.session.avg.duration, 150);
   });
@@ -590,7 +590,7 @@ describe('executeJoinGroups - avg and count', () => {
     });
 
     const groupSql = mockPg.calls[1].text;
-    assert.ok(groupSql.includes('COUNT("id")'));
+    assert.ok(groupSql.includes('COUNT("session"."id")'));
     assert.equal(result.joinGroup.session.count.id, 5);
   });
 });
