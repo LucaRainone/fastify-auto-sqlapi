@@ -25,8 +25,13 @@ export type ExtendedConditionFn = (condition: ConditionBuilder, filters: FilterR
  * `dialect` selects identifier quoting and builder behavior per call (the engines pass
  * the dialect of the QueryClient that runs the query); when omitted, the global
  * `ConditionBuilder.DIALECT` is used.
+ *
+ * `qualifier` is the raw (unquoted) table name or alias to prefix columns with; it
+ * defaults to the table's own name. The engines pass an alias when the condition lands
+ * inside a correlated subquery whose FROM is aliased — there the bare table name would
+ * resolve against the OUTER query.
  */
-export type TableFilterFn = (filters: FilterRecord, dialect?: CbDialect) => ConditionBuilder;
+export type TableFilterFn = (filters: FilterRecord, dialect?: CbDialect, qualifier?: string) => ConditionBuilder;
 
 export interface ITable<F extends Record<string, TSchema> = Record<string, TSchema>> {
   primary: (string & keyof F) | (string & keyof F)[];

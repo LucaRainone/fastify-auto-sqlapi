@@ -115,21 +115,34 @@ function resolveFieldRef(
  * appends the tenant condition to `cb` (direct: `col IN ids`; indirect: condition on the
  * through table) and, for indirect scopes, pushes the INNER JOIN clause into `joins`.
  * No-op without a tenant context (admin) or when the join table is not tenant-scoped.
+ *
+ * `joinTableRef` is the raw name the join table goes by in the statement: its table name
+ * in plain side-queries, or the subquery alias inside an aliased, correlated EXISTS.
  */
 function appendJoinTenantScope(
   db: QueryClient,
   joinTableConf: ITable | undefined,
   tenant: TenantContext | undefined,
-  joinTableName: string,
+  joinTableRef: string,
   cb: ConditionBuilder,
   joins?: string[]
 ): void {
   const scope = joinTableConf?.tenantScope;
   if (!tenant || !scope) return;
-  cb.append(buildTenantCondition(db, scope, tenant.ids, joinTableName));
+  cb.append(buildTenantCondition(db, scope, tenant.ids, joinTableRef));
   if ('through' in scope) {
-    joins?.push(buildTenantJoin(db, scope as TenantScopeIndirect, joinTableName));
+    joins?.push(buildTenantJoin(db, scope as TenantScopeIndirect, joinTableRef));
   }
+}
+
+/**
+ * Alias for the FROM of a correlated subquery (EXISTS, aggregate). The subquery must not
+ * say `FROM <table>` bare: on a self-referencing relation the inner table would shadow the
+ * outer one and the correlation would silently compare each row with itself. The request
+ * alias is used, suffixed when it would itself collide with the outer table's name.
+ */
+function subqueryAlias(alias: string, tableConf: ITable): string {
+  return alias === tableConf.Schema.tableName ? `${alias}_sub` : alias;
 }
 
 function findJoinByAlias(tableConf: ITable, alias: string): JoinDefinition | undefined {
@@ -331,6 +344,11 @@ function buildAggOrderExpr(
   const fieldCol = validateSchemaField(field, joinSchema);
   const refs = extractJoinRefs(db, tableConf, joinDef);
 
+  // The subquery FROM is aliased so the correlation to the outer table survives a
+  // self-referencing relation; everything inside references the alias.
+  const subAlias = subqueryAlias(alias, tableConf);
+  const subRef = db.qi(subAlias);
+
   let filterWhere = '';
   let filterVals: unknown[] = [];
   const joinTableConf = dbTables[joinSchema.tableName];
@@ -340,6 +358,7 @@ function buildAggOrderExpr(
       joinSchema,
       { filters: groupReq.filters, conditions: groupReq.conditions },
       db,
+      subAlias,
     );
     const fragment = cb.toExpression();
     if (fragment.value) {
@@ -348,8 +367,8 @@ function buildAggOrderExpr(
     }
   }
 
-  const qualifiedCol = `${refs.joinTable}.${db.qi(fieldCol)}`;
-  const expr = `COALESCE((SELECT ${aggExpr(aggFn, qualifiedCol)} FROM ${refs.joinTable} WHERE ${refs.joinTable}.${refs.fkCol} = ${refs.mainTable}.${refs.mainCol}${filterWhere}), 0)`;
+  const qualifiedCol = `${subRef}.${db.qi(fieldCol)}`;
+  const expr = `COALESCE((SELECT ${aggExpr(aggFn, qualifiedCol)} FROM ${refs.joinTable} AS ${subRef} WHERE ${subRef}.${refs.fkCol} = ${refs.mainTable}.${refs.mainCol}${filterWhere}), 0)`;
 
   return new Expression(expr, filterVals);
 }
@@ -949,12 +968,17 @@ function buildJoinRefCondition(
   joinTableConf: ITable | undefined,
   joinSchema: SchemaDefinition,
   ref: JoinRefFilter,
-  db: QueryClient
+  db: QueryClient,
+  qualifier?: string
 ): ConditionBuilder {
   assertFiltersReadable(ref.filters as Record<string, unknown> | undefined, joinTableConf);
 
+  // Bare table name for plain side-queries; the subquery alias when the condition lands
+  // inside an aliased, correlated FROM (there the table name would resolve to the outer query).
+  const colQualifier = qualifier ?? joinSchema.tableName;
+
   const cb = (ref.filters && joinTableConf)
-    ? joinTableConf.filters(ref.filters, db.cbDialect)
+    ? joinTableConf.filters(ref.filters, db.cbDialect, colQualifier)
     : new ConditionBuilder('AND', db.cbDialect);
 
   // Equality filters targeting the join table's computed fields
@@ -963,7 +987,7 @@ function buildJoinRefCondition(
     for (const [name, value] of Object.entries(ref.filters)) {
       if (value === null || value === undefined) continue;
       if (!computed[name]) continue;
-      const expr = evaluateComputedField(name, computed[name], joinTableConf!.Schema, db, undefined, '', true);
+      const expr = evaluateComputedField(name, computed[name], joinTableConf!.Schema, db, colQualifier, '', true);
       cb.isEqual(expr, value as ConditionValue);
     }
   }
@@ -976,8 +1000,8 @@ function buildJoinRefCondition(
       // Computed fields resolve to an Expression carrying their own bound values, which
       // the ConditionBuilder places together with the compared value.
       const operand = computed?.[c.field]
-        ? evaluateComputedField(c.field, computed[c.field], joinTableConf!.Schema, db, undefined, '', true)
-        : `${db.qi(joinSchema.tableName)}.${db.qi(validateSchemaField(c.field, joinSchema, joinTableConf))}`;
+        ? evaluateComputedField(c.field, computed[c.field], joinTableConf!.Schema, db, colQualifier, '', true)
+        : `${db.qi(colQualifier)}.${db.qi(validateSchemaField(c.field, joinSchema, joinTableConf))}`;
       dispatchConditionMethod(cb, c.method, operand, (c.params as unknown[]) ?? []);
     }
   }
@@ -1087,19 +1111,22 @@ function buildJoinMustExistClauses(
     const joinTableConf = dbTables[joinSchema.tableName];
     const refs = extractJoinRefs(db, tableConf, joinDef);
 
-    const filterCondition = buildJoinRefCondition(joinTableConf, joinSchema, ref, db);
+    // The EXISTS FROM is aliased so the correlation to the outer table survives a
+    // self-referencing relation; everything inside references the alias.
+    const subAlias = subqueryAlias(alias, tableConf);
+    const subRef = db.qi(subAlias);
+
+    const filterCondition = buildJoinRefCondition(joinTableConf, joinSchema, ref, db, subAlias);
     const tenantJoins: string[] = [];
-    appendJoinTenantScope(db, joinTableConf, tenant, joinSchema.tableName, filterCondition, tenantJoins);
+    appendJoinTenantScope(db, joinTableConf, tenant, subAlias, filterCondition, tenantJoins);
     const filterWhere = params.emitCondition(filterCondition, db);
 
-    // Qualify the FK with the join table: the EXISTS FROM may include the tenant
-    // through-join, so a bare column could become ambiguous.
     const innerWhere = filterWhere
-      ? `${refs.joinTable}.${refs.fkCol} = ${refs.mainTable}.${refs.mainCol} AND ${filterWhere}`
-      : `${refs.joinTable}.${refs.fkCol} = ${refs.mainTable}.${refs.mainCol}`;
+      ? `${subRef}.${refs.fkCol} = ${refs.mainTable}.${refs.mainCol} AND ${filterWhere}`
+      : `${subRef}.${refs.fkCol} = ${refs.mainTable}.${refs.mainCol}`;
 
     const existsJoins = tenantJoins.length > 0 ? ` ${tenantJoins.join(' ')}` : '';
-    where += ` AND EXISTS (SELECT 1 FROM ${refs.joinTable}${existsJoins} WHERE ${innerWhere})`;
+    where += ` AND EXISTS (SELECT 1 FROM ${refs.joinTable} AS ${subRef}${existsJoins} WHERE ${innerWhere})`;
   }
 
   return where;

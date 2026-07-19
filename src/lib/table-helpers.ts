@@ -31,13 +31,14 @@ export function exportTableInfo<
     filters: { [K in keyof F | keyof ExtraProps<EF>]?: ConditionValueOrUndefined }
   ) => void
 ): { Schema: SchemaDefinition<F>; filters: TableFilterFn; extraFilters: Record<string, TSchema> } {
-  const filters: TableFilterFn = (filterValues, dialect) => {
+  const filters: TableFilterFn = (filterValues, dialect, qualifier) => {
     const condition = new ConditionBuilder('AND', dialect);
 
     // Only auto-match real schema fields (DB columns). Columns are table-qualified:
     // the statement may carry joins (LEFT JOIN parents, tenant through-joins), and a
-    // bare column shared with a joined table would be ambiguous.
-    const table = qi(Schema.tableName, dialect);
+    // bare column shared with a joined table would be ambiguous. A caller-provided
+    // qualifier (a subquery alias) takes precedence over the table name.
+    const table = qi(qualifier ?? Schema.tableName, dialect);
     for (const field of Object.keys(Schema.fields)) {
       if (field in filterValues && filterValues[field] !== null && filterValues[field] !== undefined) {
         condition.isEqual(`${table}.${qi(Schema.col(field), dialect)}`, filterValues[field]);

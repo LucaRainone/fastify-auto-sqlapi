@@ -71,6 +71,30 @@ export function checkPlaceholderIntegrity(sql, values) {
 }
 
 /**
+ * When a statement carries a JOIN, every quoted column reference must be table-qualified:
+ * a bare column that a joined table also has is rejected by the database at best, and
+ * silently resolved against the wrong table at worst. Single-table statements may keep
+ * bare columns. Table sources (`FROM|JOIN <t>`) and aliases (`AS <a>`) are legitimately
+ * bare and are excluded. Known blind spot: a correlated subquery with no JOIN keyword
+ * anywhere in the statement is not checked. Returns an error message, or null.
+ */
+export function checkColumnQualification(sql) {
+  if (!/\bJOIN\b/i.test(sql)) return null;
+  const s = sql.replace(/'(?:[^']|'')*'/g, "''"); // ignore string literals
+
+  for (const q of ['"', '`']) {
+    let t = s
+      .replace(new RegExp(`\\b(FROM|JOIN|INTO|UPDATE)\\s+${q}[^${q}]+${q}`, 'gi'), '$1 __t__')
+      .replace(new RegExp(`\\bAS\\s+${q}[^${q}]+${q}`, 'gi'), 'AS __a__');
+    const m = new RegExp(`(^|[^.${q}\\w])${q}([^${q}]+)${q}(?!\\.)`).exec(t);
+    if (m) {
+      return `bare column ${q}${m[2]}${q} in a JOIN-bearing statement — qualify it with its table or alias`;
+    }
+  }
+  return null;
+}
+
+/**
  * Substitute every `$n` with the value actually bound at that position, so a test can assert
  * what the database really receives instead of pattern-matching the raw SQL string.
  */
@@ -81,12 +105,13 @@ export function resolvePlaceholders(call) {
 /**
  * Fake pg driver. `responses` are returned in order; exhausted calls yield an empty result.
  *
- * Every query is checked for placeholder integrity and the call rejects on violation, so the
- * failure points at the offending query. Violations are also collected on `.violations` for
- * cases where a caller swallows the error. Pass `{ checkPlaceholders: false }` to opt out.
+ * Every query is checked for placeholder integrity and column qualification, and the call
+ * rejects on violation, so the failure points at the offending query. Violations are also
+ * collected on `.violations` for cases where a caller swallows the error. Pass
+ * `{ checkPlaceholders: false }` / `{ checkQualification: false }` to opt out.
  */
 export function createMockPg(responses = [], opts = {}) {
-  const { checkPlaceholders = true } = opts;
+  const { checkPlaceholders = true, checkQualification = true } = opts;
   let callIndex = 0;
   const calls = [];
   const violations = [];
@@ -106,6 +131,16 @@ export function createMockPg(responses = [], opts = {}) {
             new Error(
               `Placeholder integrity violation: ${problem}\n  SQL: ${normalized}\n  values: ${JSON.stringify(values)}`
             )
+          );
+        }
+      }
+
+      if (checkQualification) {
+        const problem = checkColumnQualification(normalized);
+        if (problem) {
+          violations.push({ sql: normalized, values, problem });
+          return Promise.reject(
+            new Error(`Column qualification violation: ${problem}\n  SQL: ${normalized}`)
           );
         }
       }
