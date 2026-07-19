@@ -29,7 +29,9 @@ Point it at your database, and get a full REST API with search, advanced conditi
 - **Swagger UI** — optional, auto-configured from your schemas
 - **Composable** — register all routes or pick only what you need
 
-> ⚠️ **Migrating from a previous version?** The join API was redesigned. See **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)** for the full migration guide.
+> ⚠️ **Upgrading?** See **[CHANGELOG.md](./CHANGELOG.md)** for what changed in each release, and
+> **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)** for migration guides. If you use `computedFields`
+> with bound values, read the 0.1.6 entry — earlier versions could return wrong rows.
 
 ## Quick Start
 

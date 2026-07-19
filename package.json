@@ -20,7 +20,9 @@
     "dist",
     "AGENTS.md",
     "AGENTS_BACKEND.md",
-    "AGENTS_FRONTEND.md"
+    "AGENTS_FRONTEND.md",
+    "CHANGELOG.md",
+    "BREAKING_CHANGES.md"
   ],
   "scripts": {
     "clean": "rm -rf dist",
