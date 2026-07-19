@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createMockPg } from './_harness.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
@@ -19,19 +20,6 @@ function createMockSchema(tableName, fields) {
   return { col: (f) => toUnderscore(f), fields, validation: Type.Object(fields), tableName, partialValidation: Type.Object(fields) };
 }
 
-function createMockPg(responses = []) {
-  let i = 0;
-  const calls = [];
-  return {
-    calls,
-    query(text, values) {
-      calls.push({ text: text.replace(/\s+/g, ' ').trim(), values });
-      const r = responses[i] || { rows: [], affectedRows: 0 };
-      i++;
-      return Promise.resolve(r);
-    },
-  };
-}
 
 const userFields = { id: Type.Number(), name: Type.String(), active: Type.Boolean(), orgId: Type.Number() };
 const sessionFields = { id: Type.Number(), userId: Type.Number(), duration: Type.Number(), status: Type.String() };

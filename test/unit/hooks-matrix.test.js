@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createMockPg } from './_harness.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
@@ -26,19 +27,6 @@ function createMockSchema(tableName, fields) {
   };
 }
 
-function createMockPg(responses = []) {
-  let callIndex = 0;
-  const calls = [];
-  return {
-    calls,
-    query(text, values) {
-      calls.push({ text: norm(text), values });
-      const response = responses[callIndex] || { rows: [], affectedRows: 0 };
-      callIndex++;
-      return Promise.resolve(response);
-    },
-  };
-}
 
 /** Tx-capable mock pool: data queries answered from `responses`, tx statements recorded. */
 function createTxMockPool(responses = []) {
