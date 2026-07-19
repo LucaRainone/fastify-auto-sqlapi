@@ -50,6 +50,15 @@ CREATE TABLE product_translation (
   FOREIGN KEY (product_id) REFERENCES product(id)
 );
 
+-- Unique parent of customer (via customer.organization_id, no DB-level FK on purpose).
+-- Enables combining a unique joinLeft and a multiple joinGroup on the same main table
+-- (see test/integration/agg-orderby-joinleft.test.js).
+CREATE TABLE organization (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  city VARCHAR(255)
+);
+
 -- betterauth-style table: camelCase column names (backtick-quoted in MySQL preserves case)
 CREATE TABLE `userAccount` (
   `id` VARCHAR(64) PRIMARY KEY,

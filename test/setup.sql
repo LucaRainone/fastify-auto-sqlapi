@@ -48,6 +48,15 @@ CREATE TABLE product_translation (
   PRIMARY KEY (product_id, lang)
 );
 
+-- Unique parent of customer (via customer.organization_id, no DB-level FK on purpose).
+-- Enables combining a unique joinLeft and a multiple joinGroup on the same main table
+-- (see test/integration/agg-orderby-joinleft.test.js).
+CREATE TABLE organization (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  city VARCHAR(255)
+);
+
 -- betterauth-style table: camelCase column names (quoted identifiers preserve case in PG)
 CREATE TABLE "userAccount" (
   "id" TEXT PRIMARY KEY,
