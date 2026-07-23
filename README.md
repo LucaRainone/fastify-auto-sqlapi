@@ -39,48 +39,67 @@ Point it at your database, and get a full REST API with search, advanced conditi
 
 ```bash
 npm install fastify-auto-sqlapi fastify @fastify/postgres
+# MySQL/MariaDB: npm install fastify-auto-sqlapi fastify mysql2
 ```
 
 ### 2. Create the config file
 
-Create `sqlapi.config.ts` in your project root. This is used only by the CLI generators, not at runtime.
+Create `sqlapi.config.ts` (or `.mjs`/`.js`) in your project root. This is used only by the
+CLI generators, not at runtime.
 
 ```typescript
 export default {
-  outputDir: './src/schemas',  // where to generate Schema files
-  schema: 'public',            // PostgreSQL schema to introspect
+  outputDir: './src/db',       // base dir for generated files (default: './src/db')
+  schema: 'public',            // PostgreSQL schema to introspect (default: 'public')
+  // dialect: 'mysql',         // 'postgres' (default) | 'mysql' | 'mariadb'
+  // envFile: '.env.local',    // env file to load (default: '.env')
 };
 ```
 
-The DB connection is read from environment variables:
+The DB connection is read from environment variables (a `.env` file in the project root is
+loaded automatically, without overriding variables already set):
 
 ```bash
 # Either a full connection string:
-DATABASE_URL=postgres://user:pass@localhost:5432/mydb
+DATABASE_URL=postgres://user:pass@localhost:5432/mydb   # or mysql://...
 
-# Or individual vars:
+# Or individual vars (PostgreSQL):
 POSTGRES_HOST=127.0.0.1
 POSTGRES_PORT=5432
 POSTGRES_USER=myuser
 POSTGRES_PASSWORD=mypassword
 POSTGRES_DB=mydb
+
+# Or individual vars (MySQL/MariaDB):
+MYSQL_HOST=127.0.0.1
+MYSQL_PORT=3306
+MYSQL_USER=myuser
+MYSQL_PASSWORD=mypassword
+MYSQL_DB=mydb
 ```
 
 ### 3. Generate schemas from your database
 
 ```bash
-npx sqlapi-generate-schema
+npx sqlapi-generate-schema                  # all tables
+npx sqlapi-generate-schema --tables customer,order   # only some
+npx sqlapi-generate-schema --dialect mysql  # override the config dialect
 ```
 
-This introspects your tables and generates one TypeBox schema file per table (e.g. `SchemaCustomer.ts`, `SchemaOrder.ts`). These files are auto-generated — don't edit them.
+This introspects your tables and generates one TypeBox schema file per table in
+`<outputDir>/schemas/` (e.g. `SchemaCustomer.ts`, `SchemaOrder.ts`). These files are
+auto-generated — don't edit them; re-run the command after a DB change.
 
 ### 4. Generate the tables template
 
 ```bash
-npx sqlapi-generate-tables
+npx sqlapi-generate-tables --all            # or: npx sqlapi-generate-tables customer order
 ```
 
-This creates a `tables.ts` file with a `defineTable()` call for each table. It auto-detects primary keys, foreign key relations, and lays out all available options as commented code. **This file is yours to customize.**
+This creates in `<outputDir>/tables/` one `Table*.ts` file per table — a `defineTable()`
+call with auto-detected primary keys, foreign key relations, and all available options as
+commented code — plus a `dbTables.ts` index. **These files are yours to customize**: the
+generator never overwrites an existing file, so re-running it only adds files for new tables.
 
 ### 5. Register the plugin
 
@@ -88,7 +107,7 @@ This creates a `tables.ts` file with a `defineTable()` call for each table. It a
 import Fastify from 'fastify';
 import fastifyPostgres from '@fastify/postgres';
 import { fastifyAutoSqlApi } from 'fastify-auto-sqlapi';
-import { dbTables } from './src/schemas/tables.js';
+import { dbTables } from './src/db/tables/dbTables.js';
 
 const app = Fastify();
 
@@ -156,7 +175,8 @@ const TableCustomer = defineTable({
 
   // Ordering & filtering
   defaultOrder: 'name',                     // default ORDER BY (camelCase fields map to DB columns)
-  excludeFromCreation: ['id'],              // omit from INSERT (e.g. auto-increment)
+  excludeFromCreation: ['id'],              // client-sent values ignored on INSERT (auto-increment,
+                                            // DB defaults); beforeInsert can still set them
   readExclude: ['passwordHash'],            // hide from all reads (writes unaffected)
   distinctResults: true,                    // SELECT DISTINCT
 
@@ -269,7 +289,20 @@ await app.register(fastifyAutoSqlApi, {
 | `maxBulkItems` | `number` | No | Max number of items accepted by the bulk endpoints (default: `1000`) |
 | `debug` | `boolean` | No | Log all SQL queries to console |
 
-For MySQL/MariaDB, register `mysql2/promise` pool instead of `@fastify/postgres` and pass `dialect: 'mysql'` or `'mariadb'`.
+The plugin picks up the connection from the Fastify instance: `fastify.pg` for PostgreSQL
+(what `@fastify/postgres` decorates) or `fastify.mysql` for MySQL/MariaDB. For MySQL,
+decorate a `mysql2/promise` pool (e.g. via `@fastify/mysql` with `promise: true`, or manually)
+and pass `dialect: 'mysql'` or `'mariadb'`:
+
+```typescript
+import mysql from 'mysql2/promise';
+
+const pool = mysql.createPool({ host: '127.0.0.1', user: 'myuser', password: '...', database: 'mydb' });
+app.decorate('mysql', pool);
+app.addHook('onClose', async () => { await pool.end(); });
+
+await app.register(fastifyAutoSqlApi, { DbTables: dbTables, dialect: 'mysql' });
+```
 
 ## Security
 
@@ -527,7 +560,8 @@ Returns `{ main: { ... } }` or 404.
 
 ### DELETE /rest/{table}/:id
 
-Returns the deleted record or 404.
+**Response (200):** `{ main: { <pk>: ... } }` (PK-only, like all write responses), or `404` if
+the record does not exist.
 
 ### PUT /bulk/{table}
 
