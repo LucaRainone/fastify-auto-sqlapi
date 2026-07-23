@@ -7,7 +7,7 @@ All notable changes to this project are documented here. This project follows
 
 Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)**.
 
-## [Unreleased]
+## [0.1.10]
 
 ### Added
 
