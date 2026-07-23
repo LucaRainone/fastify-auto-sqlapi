@@ -7,6 +7,37 @@ All notable changes to this project are documented here. This project follows
 
 Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)**.
 
+## [Unreleased]
+
+### Added
+
+- **Architecture Decision Records** in `docs/adr/` (shipped in the npm package so agents
+  consuming the library can read them): no-ORM/raw-SQL, open-by-default, non-transactional
+  bulk operations, always-updatable fields (no `excludeFromUpdate`), insert-pipeline
+  ordering, raw DB errors. Linked from README ("Design Decisions") and AGENTS.md.
+
+### Fixed
+
+- **`excludeFromCreation` no longer strips values set by `beforeInsert`.** The exclusion list
+  was applied after the hook, so a server-generated value assigned in `beforeInsert` (the
+  documented pattern for TEXT primary keys, `createdAt`, audit columns) was silently removed
+  from the INSERT — a table with `excludeFromCreation: ['id']` and an id-generating hook
+  failed with a not-null violation. The client payload is now sanitized *before* the hook
+  runs, in both the single insert and the bulk upsert path: client-supplied values on
+  excluded fields are still ignored, hook-assigned ones reach the SQL. For the same reason,
+  secondary records now drop excluded fields *before* the engine's FK auto-fill, so listing
+  the FK column in a secondary table's `excludeFromCreation` no longer erases the injected
+  parent key.
+
+### Documentation
+
+- Clarified that `excludeFromCreation` is an ergonomics tool for creation, not a field-level
+  security mechanism: it deliberately does not apply to updates, where every Schema field is
+  writable by default. Field-level update rules (sensitive flags, roles, ownership/tenant
+  columns) are product logic to enforce via `beforeUpdate`/`validate` or dedicated endpoints —
+  see the new "Field-level update rules" section in the README and the matching pattern in
+  AGENTS_BACKEND.md.
+
 ## [0.1.7]
 
 ### Fixed

@@ -14,6 +14,8 @@ The plugin generates REST endpoints (search, get, insert, update, delete, bulk u
 
 - **[AGENTS_FRONTEND.md](./AGENTS_FRONTEND.md)** — Generated endpoints overview, search (POST with body filters, conditions/advanced filters using ConditionBuilder methods, query params for ordering/pagination/aggregation), `joinMustExist` (EXISTS-based filtering by related tables), `joinMultiple` (fetch child rows), `joinGroup` (aggregations), `joinLeft` (embed N:1 parent inline), GET, INSERT (with secondaries), UPDATE (with secondaries + deletions), DELETE, bulk upsert, bulk delete, response shapes (PK-only), **validation errors** (structured field-level 400 responses), pagination, computed values.
 
+- **[docs/adr/](./docs/adr/README.md)** — Architecture Decision Records. **Read before proposing a "fix" to a deliberate behavior**: open-by-default, non-transactional bulk, always-updatable fields, raw DB errors, insert-pipeline ordering. These are recorded decisions with rationale, not gaps.
+
 ## Quick Reference
 
 ### Generated endpoints

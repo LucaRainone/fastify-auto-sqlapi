@@ -56,6 +56,7 @@ function createTestDbTables(mockPg, opts = {}) {
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
       ...(opts.upsertMap ? { upsertMap: opts.upsertMap } : {}),
+      ...(opts.beforeInsert ? { beforeInsert: opts.beforeInsert } : {}),
     },
     customer_order: {
       primary: 'id',
@@ -309,6 +310,38 @@ describe('bulkUpsertEngine - hooks', () => {
     // Item 2: no secondaries, merged record
     assert.equal(hookCalls[1].record.id, 20);
     assert.equal(hookCalls[1].secondaryRecords, undefined);
+  });
+
+  it('keeps values assigned by beforeInsert to excludeFromCreation fields', async () => {
+    const mockPg = createMockPg([
+      // Single bulk insert for both mains (PK-only)
+      { rows: [{ id: 41 }, { id: 42 }], affectedRows: 2 },
+    ]);
+    let nextId = 40;
+    const { DbTables, db } = createTestDbTables(mockPg, {
+      excludeFromCreation: ['id'],
+      beforeInsert: async (_db, _req, record) => {
+        // The client-supplied id must already be stripped when the hook runs
+        assert.equal(record.id, undefined);
+        record.id = ++nextId;
+      },
+    });
+
+    await bulkUpsertEngine({
+      db,
+      tableConf: DbTables.customer,
+      dbTables: DbTables,
+      request: mockRequest,
+      items: [
+        { main: { id: 900, name: 'Mario', email: 'mario@test.it' } },
+        { main: { id: 901, name: 'Luigi', email: 'luigi@test.it' } },
+      ],
+    });
+
+    const call = mockPg.calls[0];
+    assert.ok(call.text.includes('"id"'), 'hook-generated ids must be in the INSERT');
+    assert.ok(call.values.includes(41) && call.values.includes(42), 'INSERT must bind the hook-generated ids');
+    assert.ok(!call.values.includes(900) && !call.values.includes(901), 'client-supplied ids must be ignored');
   });
 });
 

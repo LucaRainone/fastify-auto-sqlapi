@@ -16,6 +16,13 @@ export function findWriteJoin(
   return tableConf.allowedWriteJoins?.find((j) => j.alias === alias);
 }
 
+/**
+ * Drop `excludeFromCreation` columns from a snake_case (DB-format) record.
+ *
+ * Exclusion is a whitelist on CLIENT input: call this on the client payload only,
+ * BEFORE any server-side value is assigned (beforeInsert mutations, FK auto-fill),
+ * so engine/hook-generated values on those fields reach the SQL.
+ */
 export function removeExcludedFields(
   record: Record<string, unknown>,
   tableConf: ITable
@@ -27,6 +34,21 @@ export function removeExcludedFields(
     delete result[col];
   }
   return result;
+}
+
+/**
+ * Same whitelist as `removeExcludedFields`, but for a camelCase record (schema
+ * field names) and in place. Used on the client payload before the beforeInsert
+ * hook runs.
+ */
+export function removeExcludedFieldsCamel(
+  record: Record<string, unknown>,
+  tableConf: ITable
+): void {
+  if (!tableConf.excludeFromCreation?.length) return;
+  for (const field of tableConf.excludeFromCreation) {
+    delete record[field];
+  }
 }
 
 export function findSecondaryTableConf(
@@ -48,10 +70,11 @@ interface PrepareCtx {
 /**
  * Prepare a single record for INSERT/UPSERT:
  *   1. shallow camelCase copy of `input`
- *   2. runValidation (camelCase)
- *   3. beforeInsert hook (caller can mutate the camelCase copy)
- *   4. snakecaseRecord → DB format
- *   5. removeExcludedFields
+ *   2. runValidation (camelCase — sees the client payload as sent)
+ *   3. drop excludeFromCreation fields (client-input whitelist; applied BEFORE the
+ *      hook so values it assigns — e.g. a server-generated id — reach the INSERT)
+ *   4. beforeInsert hook (caller can mutate the camelCase copy)
+ *   5. snakecaseRecord → DB format
  *
  * Returns both `camel` (input + hook mutations, used for FK auto-fill / afterInsert) and
  * `snake` (DB-ready record). The original `input` is left intact.
@@ -69,6 +92,7 @@ export async function prepareInsertRecord(
   if (!options?.skipValidate) {
     await runValidation(ctx.db, ctx.request, ctx.tableConf, camel, secondaries);
   }
+  removeExcludedFieldsCamel(camel, ctx.tableConf);
   if (ctx.tableConf.beforeInsert) {
     await ctx.tableConf.beforeInsert(
       ctx.db,
@@ -76,8 +100,7 @@ export async function prepareInsertRecord(
       camel as Parameters<NonNullable<typeof ctx.tableConf.beforeInsert>>[2]
     );
   }
-  let snake = snakecaseRecord(camel, ctx.tableConf.Schema);
-  snake = removeExcludedFields(snake, ctx.tableConf);
+  const snake = snakecaseRecord(camel, ctx.tableConf.Schema);
   return { camel, snake };
 }
 
@@ -107,16 +130,17 @@ export async function processSecondaries(
     const preparedRecords = records.map((rec) => {
       let prepared = snakecaseRecord(rec, joinSchema);
 
+      // Remove excluded fields from the client payload BEFORE the FK auto-fill:
+      // an excluded FK column must not strip the engine-injected value below.
+      if (secondaryTableConf) {
+        prepared = removeExcludedFields(prepared, secondaryTableConf);
+      }
+
       // Auto-fill FK from main record
       const mainValue = Array.isArray(mainField)
         ? mainRecord[mainField[0]]
         : mainRecord[mainField as string];
       prepared[joinCol] = mainValue;
-
-      // Remove excluded fields
-      if (secondaryTableConf) {
-        prepared = removeExcludedFields(prepared, secondaryTableConf);
-      }
 
       return prepared;
     });

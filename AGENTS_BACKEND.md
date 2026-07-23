@@ -773,7 +773,7 @@ Tables without `tenantScope` are unaffected — no filtering regardless of `getT
 
 - **camelCase in API, any case in DB**: all request/response fields are camelCase. The plugin converts via `col()` and `colMap`. For snake_case DB columns (default), conversion is automatic. For camelCase DB columns (e.g. betterauth), the CLI generates a `colMap` that preserves the original column names — no conversion needed. Manual schemas without `colMap` fall back to `toUnderscore()`.
 - **All fields Optional in response**: `RETURNING *` may return any subset. Response schemas use `Type.Partial`.
-- **`excludeFromCreation`**: **IMPORTANT** — auto-increment PKs (e.g. `id` serial/auto_increment) MUST be listed here, otherwise INSERT will try to send them and fail. The CLI auto-detects this and adds it by default. Also useful for `createdAt`/`updatedAt` columns managed by DB defaults or hooks.
+- **`excludeFromCreation`**: **IMPORTANT** — auto-increment PKs (e.g. `id` serial/auto_increment) MUST be listed here, otherwise INSERT will try to send them and fail. The CLI auto-detects this and adds it by default. Also useful for `createdAt`/`updatedAt` columns managed by DB defaults or hooks. It strips **client-supplied** values only: the payload is sanitized before `beforeInsert` runs, so a value the hook assigns to an excluded field (e.g. a server-generated TEXT id) DOES reach the INSERT. Same for the engine's FK auto-fill on secondaries — an excluded FK column does not suppress it. It is an **ergonomics tool for creation, NOT a field-level security mechanism**: it does not apply to updates — every Schema field is updatable by default, by design. Field-level update rules (`isAdmin`, roles, owner/tenant columns, state fields) are product logic: enforce them in `beforeUpdate` (silent strip) or `validate` (loud 400), or move the privileged transition to a dedicated endpoint and keep it off the auto routes via `operations`.
 - **`readExclude`**: fields hidden from every read — not projected by search/get, omitted from read response schemas and from this table's default (`*`) join selection when it is a join target. Referencing one from `filters`, `conditions`, `orderBy`, `joinGroup` aggregations or an explicit join `selection` returns 400: hiding a field from output while allowing it to be filtered would leak its value by bisection. **Writes are unaffected** — insert/update/bulk still accept the field, so a column can be writable but never readable (password hash, access token). Primary keys cannot be excluded. Complementary to trimming the Schema, which removes the column from reads *and* writes.
 - **`upsertMap`**: when present for a schema, INSERT becomes upsert. PostgreSQL: `ON CONFLICT (...) DO UPDATE`. MySQL/MariaDB: `ON DUPLICATE KEY UPDATE`. Applies to both main and secondary tables.
 - **`schemaOverrides`**: override auto-generated schema fields with stricter TypeBox types (e.g. `{ email: Type.String({ format: 'email' }) }`). Overrides are merged into the body schema for insert, update, and bulk-upsert. The original Schema file is never modified. In updates, overridden fields are still wrapped in Optional (validates only when present). Overrides appear in Swagger.
@@ -893,6 +893,31 @@ const TableCustomer = defineTable({
   },
 });
 ```
+
+### Protect sensitive fields on update (isAdmin, roles, ownership)
+
+Every Schema field is updatable by default — the plugin does not impose field-level rules
+(see `excludeFromCreation` in Key Conventions). Encode yours in the hooks:
+
+```typescript
+const TableUser = defineTable({
+  primary: 'id',
+  ...exportTableInfo(SchemaUser),
+  // Silent strip: non-admins simply cannot touch the flag
+  beforeUpdate: async (db, req, fields) => {
+    if (!req.user.isAdmin) delete fields.isAdmin;
+  },
+  // Or loud 400 via validate:
+  // validate: async (db, req, main) => {
+  //   if (main.isAdmin !== undefined && !req.user.isAdmin)
+  //     return [['isAdmin', 'forbidden']];
+  //   return [];
+  // },
+});
+```
+
+For privileged transitions (promote to admin, move across tenants) prefer a dedicated
+endpoint with its own auth/audit, and keep the operation off the auto routes via `operations`.
 
 ### Full-text search filter
 

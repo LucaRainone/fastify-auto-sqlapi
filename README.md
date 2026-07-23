@@ -333,6 +333,42 @@ only columns present in the generated Schema (as narrowed by `schemaOverrides` /
 column — the Schema is the write whitelist. Trim the generated Schema (or use `excludeFromCreation`)
 to keep sensitive columns out of it.
 
+### Field-level update rules are product logic — use the hooks
+
+`excludeFromCreation` is an **ergonomics tool for creation**, not a security mechanism: it
+exists so auto-generated values (serial PKs, DB-default timestamps) don't have to be sent —
+or validated — on insert. It deliberately does **not** apply to updates: every field in the
+Schema is updatable by default, because whether a field may change is a product decision the
+plugin cannot make for you (a super admin may legitimately fix an `updatedAt`; in one product
+users may move themselves across tenants, in another nobody may).
+
+So watch out for **sensitive flags and ownership fields** — `isAdmin`, `role`, tenant/owner
+columns, state fields: if they are in the Schema, the auto-generated update route will accept
+them. Encode your rules with the tools made for it:
+
+```typescript
+// Silent strip: non-admins simply cannot touch the flag
+beforeUpdate: async (db, req, fields) => {
+  if (!req.user.isAdmin) delete fields.isAdmin;
+},
+
+// Loud 400: touching the flag without permission is an error
+validate: async (db, req, main) => {
+  if (main.isAdmin !== undefined && !req.user.isAdmin)
+    return [['isAdmin', 'forbidden']];
+  return [];
+},
+```
+
+For privileged state transitions (promoting an admin, moving a record across tenants) consider
+a dedicated endpoint with its own auth and audit instead of the auto-generated CRUD route —
+`operations` lets you keep the sensitive operation off the auto routes entirely.
+
+Note on tenants: when `tenantScope` is active, tenant-scoped callers can never move a record to
+another tenant (the tenant column is enforced server-side); admin callers (`getTenantId` →
+`null`) are unrestricted. That is the isolation contract of the opt-in tenancy feature, not a
+field-level rule.
+
 ### Read visibility
 
 `readExclude` hides columns from every read while leaving writes untouched — the case for a
@@ -620,6 +656,14 @@ await app.register(async (instance) => {
   await instance.register(bulkDeleteRoutes, opts);
 }, { prefix: '/admin' });
 ```
+
+## Design Decisions
+
+Deliberate, non-obvious choices — open-by-default, non-transactional bulk operations,
+always-updatable fields, raw DB errors, insert-pipeline ordering — are recorded as
+[Architecture Decision Records in `docs/adr/`](./docs/adr/README.md), each with its
+rationale and the alternatives that were rejected. Read them before filing an issue that
+proposes changing one of these behaviors.
 
 ## Conventions
 

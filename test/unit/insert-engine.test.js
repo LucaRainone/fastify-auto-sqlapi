@@ -58,6 +58,7 @@ function createTestDbTables(mockPg, opts = {}) {
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
       ...(opts.upsertMap ? { upsertMap: opts.upsertMap } : {}),
+      ...(opts.validate ? { validate: opts.validate } : {}),
       ...(opts.beforeInsert ? { beforeInsert: opts.beforeInsert } : {}),
       ...(opts.afterInsert ? { afterInsert: opts.afterInsert } : {}),
     },
@@ -130,6 +131,61 @@ describe('insertEngine - main insert', () => {
 
     // created_at should NOT be in the INSERT values
     assert.ok(!mockPg.calls[0].text.includes('created_at'));
+  });
+
+  it('keeps values assigned by beforeInsert to excludeFromCreation fields', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 42 }], affectedRows: 1 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg, {
+      excludeFromCreation: ['id'],
+      beforeInsert: async (_db, _req, record) => {
+        // The client-supplied id must already be stripped when the hook runs
+        assert.equal(record.id, undefined);
+        record.id = 42;
+      },
+    });
+
+    await insertEngine({
+      db,
+      tableConf: DbTables.customer,
+      dbTables: DbTables,
+      request: mockRequest,
+      record: { id: 999, name: 'Mario', email: 'mario@test.it' },
+    });
+
+    const call = mockPg.calls[0];
+    assert.ok(call.text.includes('"id"'), 'hook-generated id must be in the INSERT');
+    assert.ok(call.values.includes(42), 'INSERT must bind the hook-generated id');
+    assert.ok(!call.values.includes(999), 'client-supplied id must be ignored');
+  });
+
+  it('validate sees the client payload as sent; the strip happens between validate and beforeInsert', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 1 }], affectedRows: 1 },
+    ]);
+    let idSeenByValidate;
+    const { DbTables, db } = createTestDbTables(mockPg, {
+      excludeFromCreation: ['id'],
+      validate: async (_db, _req, main) => {
+        idSeenByValidate = main.id;
+        return [];
+      },
+      beforeInsert: async (_db, _req, record) => {
+        assert.equal(record.id, undefined, 'hook must not see the client-supplied id');
+      },
+    });
+
+    await insertEngine({
+      db,
+      tableConf: DbTables.customer,
+      dbTables: DbTables,
+      request: mockRequest,
+      record: { id: 999, name: 'Mario', email: 'mario@test.it' },
+    });
+
+    // Documented contract: validate receives the record "as sent by the client"
+    assert.equal(idSeenByValidate, 999);
   });
 
   it('does not include secondaries in result when not requested', async () => {
@@ -276,6 +332,32 @@ describe('insertEngine - hooks', () => {
     assert.ok(hookArgs.secondaryRecords.customer_order);
     assert.equal(hookArgs.secondaryRecords.customer_order.length, 1);
   });
+
+  it('afterInsert does not see client-supplied values on excluded fields', async () => {
+    let recordSeen = null;
+    const mockPg = createMockPg([
+      { rows: [{ id: 1 }], affectedRows: 1 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg, {
+      excludeFromCreation: ['createdAt'],
+      afterInsert: async (_db, _req, record) => {
+        recordSeen = record;
+      },
+    });
+
+    await insertEngine({
+      db,
+      tableConf: DbTables.customer,
+      dbTables: DbTables,
+      request: mockRequest,
+      record: { name: 'Mario', email: 'mario@test.it', createdAt: '2024-01-01' },
+    });
+
+    assert.ok(recordSeen);
+    // The client value was never written, so the hook must not see it either
+    assert.equal(recordSeen.createdAt, undefined);
+    assert.equal(recordSeen.name, 'Mario');
+  });
 });
 
 describe('insertEngine - secondaries', () => {
@@ -315,6 +397,34 @@ describe('insertEngine - secondaries', () => {
     assert.ok(result.secondaries);
     assert.equal(result.secondaries.customer_order.length, 2);
     assert.equal(result.secondaries.customer_order[0].id, 10);
+  });
+
+  it('auto-fills the FK even when listed in the secondary excludeFromCreation', async () => {
+    const mockPg = createMockPg([
+      // Main insert (PK-only)
+      { rows: [{ id: 42 }], affectedRows: 1 },
+      // Bulk insert orders (PK-only)
+      { rows: [{ id: 10 }], affectedRows: 1 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg, {
+      secondaryExclude: ['customerId'],
+    });
+
+    await insertEngine({
+      db,
+      tableConf: DbTables.customer,
+      dbTables: DbTables,
+      request: mockRequest,
+      record: { name: 'Mario', email: 'mario@test.it' },
+      secondaries: {
+        customer_order: [{ customerId: 7, total: 100, status: 'pending' }],
+      },
+    });
+
+    const bulkCall = mockPg.calls[1];
+    assert.ok(bulkCall.text.includes('customer_id'), 'FK column must be in the INSERT');
+    assert.ok(bulkCall.values.includes(42), 'engine FK auto-fill must survive the exclusion');
+    assert.ok(!bulkCall.values.includes(7), 'client-supplied FK must be ignored');
   });
 
   it('ignores secondaries not in allowedWriteJoins', async () => {
@@ -412,5 +522,32 @@ describe('insertEngine - upsert', () => {
 
     const bulkCall = mockPg.calls[1];
     assert.ok(bulkCall.text.includes('ON CONFLICT'));
+  });
+
+  it('keeps values assigned by beforeInsert to excludeFromCreation fields on the upsert path', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 42 }], affectedRows: 1 },
+    ]);
+    const { DbTables, db, customerSchema } = createTestDbTables(mockPg, {
+      excludeFromCreation: ['id'],
+      beforeInsert: async (_db, _req, record) => {
+        assert.equal(record.id, undefined);
+        record.id = 42;
+      },
+    });
+    DbTables.customer.upsertMap = new Map([[customerSchema, ['email']]]);
+
+    await insertEngine({
+      db,
+      tableConf: DbTables.customer,
+      dbTables: DbTables,
+      request: mockRequest,
+      record: { id: 999, name: 'Mario', email: 'mario@test.it' },
+    });
+
+    const call = mockPg.calls[0];
+    assert.ok(call.text.includes('ON CONFLICT'));
+    assert.ok(call.values.includes(42), 'upsert must bind the hook-generated id');
+    assert.ok(!call.values.includes(999), 'client-supplied id must be ignored');
   });
 });
