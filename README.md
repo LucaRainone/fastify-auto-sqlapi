@@ -4,18 +4,9 @@ Automatic CRUD API generation from PostgreSQL, MySQL, and MariaDB tables for [Fa
 
 Point it at your database, and get a full REST API with search, advanced conditions, pagination, joins, aggregations, bulk operations, multi-tenant isolation, validation, and hooks.
 
-## What LLMs Are Saying
-
-> API: 5 new read-only tables — and this is where your plugin really shined.
-
-> Yes, it genuinely saved me a lot of work, and the numbers make that obvious: I deleted about 350 lines of hand-written API repository and route code, replacing them with roughly 150 lines of declarative configuration. And it wasn't a one-for-one trade. In return, I gained features I simply didn't have before: complete Swagger documentation, the conditions DSL (previously I only had sorting and fixed filters), pagination with total counts, structured 400 errors, and consistent camelCase conversion. 
-
-> The moment I thought, "Okay, this is well designed," was when I used computedFields: the case of "attributes stored inside a jsonb column that still need to be sortable and filterable" is exactly the kind of problem that usually forces you to step outside the framework, yet it fit in cleanly. It worked end-to-end with the role-based CASE expression, remained sortable, could be projected with selectComputed, and required zero SQL in the routes.
-
-> The AGENTS files deserve a mention: I configured everything without ever opening the source code—CLI schema, defineTable, buildRelation, computed, extraFilters, and the frontend request/response shapes. As "documentation for agents," they genuinely work, and that's more than I can say for most libraries.
-
 ## Features
 
+- **Agent-ready** — `AGENTS.md` and the ADRs ship *inside* the npm package, so a coding agent can configure the library without reading the source or guessing intent
 - **Zero boilerplate** — define your tables, get 7 endpoints each
 - **No ORM** — raw SQL via `pg` + parameterized queries
 - **TypeBox validation** — request/response schemas auto-generated from your DB
@@ -32,6 +23,38 @@ Point it at your database, and get a full REST API with search, advanced conditi
 > ⚠️ **Upgrading?** See **[CHANGELOG.md](./CHANGELOG.md)** for what changed in each release, and
 > **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)** for migration guides. If you use `computedFields`
 > with bound values, read the 0.1.6 entry — earlier versions could return wrong rows.
+
+
+## Working with coding agents
+
+The library is documented for two readers. Humans get this README; agents get task-oriented
+files that ship in the published package, so they are already on disk after `npm install`:
+
+| File                                   | Contents                                                          |
+| -------------------------------------- | ----------------------------------------------------------------- |
+| `AGENTS.md`                            | Entry point: what the library does, which file to read for what   |
+| `AGENTS_BACKEND.md`                    | `defineTable` reference, hooks, tenancy, computed fields, CLI      |
+| `AGENTS_FRONTEND.md`                   | Request/response shapes for every endpoint                        |
+| `docs/adr/`                            | Why the non-obvious behaviours are what they are                  |
+
+Point your agent at them once:
+
+> Read `node_modules/fastify-auto-sqlapi/AGENTS.md` before touching anything under `src/db/`.
+
+Three design choices make the generated code predictable enough for an agent to write it
+unsupervised:
+
+- **Configuration is declarative and local.** A table is one `defineTable()` call — nothing to
+  wire across files, so a diff is reviewable at a glance.
+- **One naming convention.** camelCase in requests, responses, hooks and validators; the
+  mapping to DB columns is automatic. There is no second convention to remember, and no
+  layer where the agent has to guess which one applies.
+- **Errors are machine-readable.** A 400 carries `fields: [{ path, code, message }]`, so a
+  failing request tells the agent exactly what to fix instead of requiring a guess.
+
+The ADRs matter more than they look: they answer the "why is it like this?" questions
+(open-by-default, non-transactional bulk, always-updatable fields) that an agent would
+otherwise resolve by inventing a workaround — or by proposing to change intentional behaviour.
 
 ## Quick Start
 
