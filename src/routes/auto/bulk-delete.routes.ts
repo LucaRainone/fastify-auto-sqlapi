@@ -11,6 +11,7 @@ export default async function bulkDeleteRoutes(
 ): Promise<void> {
   await registerForAllTables(fastify, options, {
     operation: 'bulkDelete',
+    singlePkOnly: true,
     method: 'POST',
     url: (tc) => `/bulk/${tc.Schema.tableName}/delete`,
     successStatus: 200,

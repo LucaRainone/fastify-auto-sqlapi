@@ -9,6 +9,7 @@ export default async function getRoutes(
 ): Promise<void> {
   await registerForAllTables(fastify, options, {
     operation: 'get',
+    singlePkOnly: true,
     method: 'GET',
     url: (tc) => `/rest/${tc.Schema.tableName}/:id`,
     successStatus: 200,

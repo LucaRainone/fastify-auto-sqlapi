@@ -513,6 +513,13 @@ Search with filters, advanced conditions, pagination, ordering, joins, and aggre
 
 Returns `{ main: { ... } }` or 404.
 
+> **Composite primary keys:** `GET /rest/:id`, `DELETE /rest/:id` and `POST /bulk/:table/delete`
+> address a record by a single PK value, so they are **not registered** for tables whose
+> primary key spans multiple columns (a match on the first column alone could hit many rows —
+> for the deletes, destructively). Explicitly listing one of these operations in `operations`
+> for such a table throws at startup. Use `search` with all PK fields in the filters, `update`
+> (which matches every PK column), or a custom route.
+
 ### POST /rest/{table}
 
 **Body:**
@@ -540,7 +547,7 @@ Returns `{ main: { ... } }` or 404.
 > ),
 > // → PUT /rest/product { "main": {...}, "secondaries": { "translations": [{ "lang": "en", "name": "Bike" }] } }
 > ```
-> Expose a composite-PK table as a standalone CRUD table only when it stands on its own (M:N link tables, natural keys) — composite PKs are fully supported there too.
+> Expose a composite-PK table as a standalone CRUD table only when it stands on its own (M:N link tables, natural keys) — search, insert, update and bulk upsert fully support composite PKs; the by-single-id routes (get, delete, bulkDelete) are skipped for them (see the note under GET).
 
 **Response (201):** `{ main: { ... }, secondaries: { ... } }`
 

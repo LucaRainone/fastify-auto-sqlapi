@@ -317,3 +317,66 @@ including `joinLeft.filters` / `joinLeft.conditions` and `orderBy`, which previo
 them with 400. They remain rejected in `selectComputed`, `computeMin/Max/Sum/Avg`,
 `joinGroup.aggregations.by` and `defaultOrder`, where the expression precedes the `WHERE`
 values in the parameter order.
+
+# Breaking Change — by-single-id operations disabled for composite primary keys
+
+Since **0.1.11**, tables whose `primary` is an array of more than one field no longer expose
+the operations that address a record by a single PK value:
+
+- `GET /rest/:table/:id` and `DELETE /rest/:table/:id` are **not registered** (404);
+- `POST /bulk/:table/delete` is **not registered** (404);
+- explicitly listing `get`, `delete` or `bulkDelete` in `ITable.operations` for such a table
+  now **throws at startup** with a descriptive error;
+- the programmatic `sqlApi.get/delete/bulkDelete` reject with `400`.
+
+Search, insert, update and bulk upsert are unaffected — they already matched every PK column.
+
+## Why this changed
+
+These operations matched on the **first** PK column alone. On `primary: ['agentId', 'teamId']`:
+
+- `DELETE /rest/t/1` deleted **every** row with `agent_id = 1` — not one record;
+- `GET /rest/t/1` returned an arbitrary row among those sharing `agent_id = 1`;
+- bulk delete removed every row matching each listed first-column value.
+
+A single `:id` cannot address a composite key; silently matching a prefix of the key is data
+loss waiting to happen, so the operations are refused loudly instead.
+
+## Who is affected
+
+Only consumers with composite-PK tables **and** clients calling get/delete/bulk-delete on
+them. If your composite table's first PK column happens to be unique on its own, these
+endpoints previously behaved correctly for you — they are now gone and you must migrate.
+
+## Migration
+
+- **Read one record** → `search` with every PK field in the filters:
+
+  ```typescript
+  await fetch('/auto/search/agent_team', {
+    method: 'POST',
+    body: JSON.stringify({ filters: { agentId: 1, teamId: 2 } }),
+  });
+  ```
+
+- **Delete one record** → a custom route using the low-level `QueryClient`, matching the
+  full key:
+
+  ```typescript
+  import { createQueryClient, pgQueryable } from 'fastify-auto-sqlapi';
+
+  const db = createQueryClient(pgQueryable(app.pg), 'postgres');
+
+  app.delete('/agent-team/:agentId/:teamId', async (req) => {
+    const { agentId, teamId } = req.params;
+    await db.delete('agent_team', { agent_id: agentId, team_id: teamId });
+    return { main: { agentId, teamId } };
+  });
+  ```
+
+- **Row removal as part of an edit flow** → `update` on the parent with `deletions` (write
+  joins), or bulk upsert — both match every PK column.
+
+- **First PK column is truly unique on its own?** Then the composite declaration was
+  redundant: declare `primary: 'id'` (single) and keep the second column as a plain field —
+  every by-id operation comes back.

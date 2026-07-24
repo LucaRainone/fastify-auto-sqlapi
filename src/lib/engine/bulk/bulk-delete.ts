@@ -1,11 +1,18 @@
 import { ConditionBuilder, type ConditionValue } from 'node-condition-builder';
 import type { FastifyRequest } from 'fastify';
 import { buildTenantDeleteWhere, assertTenantOwnsAll } from '../../tenant.js';
-import { primaryAsString } from '../../../types.js';
+import { primaryAsString, isCompositePrimary } from '../../../types.js';
+import { httpError } from '../../errors.js';
 import type { BulkDeleteParams, BulkDeleteResult } from '../../../types.js';
 
 export async function bulkDeleteEngine(params: BulkDeleteParams): Promise<BulkDeleteResult[]> {
   const { db, tableConf, ids, tenant, request } = params;
+  if (isCompositePrimary(tableConf.primary)) {
+    throw httpError(
+      400,
+      `Table "${tableConf.Schema.tableName}" has a composite primary key: bulk delete matches on "${primaryAsString(tableConf.primary)}" alone and could remove multiple rows per id. Use a custom query.`
+    );
+  }
   if (!ids.length) return [];
 
   const pk = primaryAsString(tableConf.primary);

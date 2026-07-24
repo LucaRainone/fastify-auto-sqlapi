@@ -3,11 +3,17 @@ import { camelcaseObject } from '../../naming.js';
 import { buildTenantCondition, buildTenantJoin } from '../../tenant.js';
 import { httpError } from '../../errors.js';
 import { readableSelectColumns } from '../../read-access.js';
-import { primaryAsString } from '../../../types.js';
+import { primaryAsString, isCompositePrimary } from '../../../types.js';
 import type { GetParams, GetResult, TenantScopeIndirect } from '../../../types.js';
 
 export async function getEngine(params: GetParams): Promise<GetResult> {
   const { db, tableConf, id, tenant } = params;
+  if (isCompositePrimary(tableConf.primary)) {
+    throw httpError(
+      400,
+      `Table "${tableConf.Schema.tableName}" has a composite primary key: get-by-id would match on "${primaryAsString(tableConf.primary)}" alone. Use search with all PK fields.`
+    );
+  }
   const pkCol = tableConf.Schema.col(primaryAsString(tableConf.primary));
 
   const cb = new ConditionBuilder('AND', db.cbDialect);

@@ -7,6 +7,26 @@ All notable changes to this project are documented here. This project follows
 
 Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)**.
 
+## [0.1.11]
+
+### Breaking
+
+- **⚠️ By-single-id operations are disabled for composite-PK tables.** `GET /rest/:id`,
+  `DELETE /rest/:id` and `POST /bulk/:table/delete` matched on the **first** PK column alone:
+  on a table with `primary: ['agentId', 'teamId']`, `DELETE /rest/t/1` deleted **every** row
+  with `agentId = 1`, not one record. These routes are no longer registered for composite-PK
+  tables (404); explicitly listing one of them in `operations` now throws at startup, and the
+  programmatic `sqlApi.get/delete/bulkDelete` reject with 400. Search, insert, update and
+  bulk upsert are unaffected — they already handled every PK column. If your composite table's
+  first PK column happens to be unique, these endpoints previously worked for you and are now
+  gone — see
+  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--by-single-id-operations-disabled-for-composite-primary-keys)
+  for the migration paths.
+
+### Added
+
+- ADR 0007: table generation is explicit — `--all` is a migration helper, not the default.
+
 ## [0.1.10]
 
 ### Added

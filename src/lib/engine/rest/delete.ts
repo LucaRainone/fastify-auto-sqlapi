@@ -2,11 +2,17 @@ import type { FastifyRequest } from 'fastify';
 import type { ConditionValue } from 'node-condition-builder';
 import { buildTenantDeleteWhere, assertTenantOwnsAll } from '../../tenant.js';
 import { httpError } from '../../errors.js';
-import { primaryAsString } from '../../../types.js';
+import { primaryAsString, isCompositePrimary } from '../../../types.js';
 import type { DeleteParams, DeleteResult, DbRecord } from '../../../types.js';
 
 export async function deleteEngine(params: DeleteParams): Promise<DeleteResult> {
   const { db, tableConf, id, tenant, request } = params;
+  if (isCompositePrimary(tableConf.primary)) {
+    throw httpError(
+      400,
+      `Table "${tableConf.Schema.tableName}" has a composite primary key: delete-by-id would match on "${primaryAsString(tableConf.primary)}" alone and could remove multiple rows. Use a custom query.`
+    );
+  }
   const pk = primaryAsString(tableConf.primary);
   const pkCol = tableConf.Schema.col(pk);
   const tableName = tableConf.Schema.tableName;

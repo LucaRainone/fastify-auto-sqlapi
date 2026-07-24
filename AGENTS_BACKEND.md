@@ -227,6 +227,8 @@ export const TableAgentTeamLink = defineTable({
 
 When `primary` is an array, RETURNING clauses include all PK columns, and response shapes contain all PK fields.
 
+**By-single-id operations are not available for composite PKs**: `get`, `delete` and `bulkDelete` address a record by one PK value, so their routes are skipped for composite-PK tables (matching on the first column alone could hit many rows — destructively for the deletes). Explicitly listing one of them in `operations` throws at startup, and the programmatic `sqlApi.get/delete/bulkDelete` reject with 400. Use `search` (all PK fields as filters), `update` (matches every PK column), or a custom route.
+
 ### All keys
 
 ```typescript
@@ -380,7 +382,7 @@ upsertMap: buildUpsertRules(
 // → PUT /rest/product { "main": {...}, "secondaries": { "translations": [{ "lang": "en", "name": "Bike" }] } }
 ```
 
-Expose a composite-PK table as a standalone CRUD table only when it stands on its own (M:N link tables, natural keys) — composite PKs are fully supported there too.
+Expose a composite-PK table as a standalone CRUD table only when it stands on its own (M:N link tables, natural keys) — search, insert, update and bulk upsert fully support composite PKs; the by-single-id routes (get, delete, bulkDelete) are skipped for them.
 
 **Aliasing the same table twice**: declare two `buildRelation` entries with different `alias`. Example: a `session` table referencing `user` for both `createdBy` and `updatedBy`:
 

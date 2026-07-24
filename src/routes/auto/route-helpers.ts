@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { ensureSqlApiDecorator } from '../../lib/sql-api-decorator.js';
+import { isCompositePrimary } from '../../types.js';
 import type { ITable, SqlApiPluginOptions, DbTables, TableOperation } from '../../types.js';
 
 type RequestHook = (request: FastifyRequest, reply: FastifyReply) => Promise<void | FastifyReply>;
@@ -32,6 +33,13 @@ interface RouteSchema {
 export interface AutoRouteSpec {
   /** Operation key matched against `ITable.operations` to decide whether to register the route. */
   operation: TableOperation;
+  /**
+   * Set when the route addresses records by a single PK value (get, delete, bulkDelete).
+   * Tables with a composite primary key skip these routes: matching on the first PK column
+   * alone would touch every row sharing that value. Explicitly listing the operation in
+   * `ITable.operations` for such a table throws at registration.
+   */
+  singlePkOnly?: boolean;
   method: 'GET' | 'POST' | 'PUT' | 'DELETE';
   /** URL builder receiving the table configuration to read `Schema.tableName`. */
   url: (tableConf: ITable) => string;
@@ -70,6 +78,19 @@ export async function registerForAllTables(
   for (const [tableName, tableConf] of Object.entries(DbTables)) {
     // operations acts as a whitelist; when omitted every operation is exposed.
     if (tableConf.operations && !tableConf.operations.includes(spec.operation)) continue;
+
+    // Single-PK routes cannot address composite-PK tables — skip them (default) or,
+    // when the consumer explicitly asked for the operation, fail loudly at startup.
+    if (spec.singlePkOnly && isCompositePrimary(tableConf.primary)) {
+      if (tableConf.operations?.includes(spec.operation)) {
+        throw new Error(
+          `Table "${tableName}" has a composite primary key (${(tableConf.primary as string[]).join(', ')}): ` +
+          `operation "${spec.operation}" addresses records by a single PK value and cannot be exposed. ` +
+          `Remove it from "operations", or handle the table via search/update or a custom route.`
+        );
+      }
+      continue;
+    }
 
     const schemas = spec.schemas(DbTables, tableName, tableConf);
 

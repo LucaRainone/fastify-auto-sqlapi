@@ -173,6 +173,15 @@ export function primaryAsString(pk: string | string[]): string {
   return Array.isArray(pk) ? pk[0] : pk;
 }
 
+/**
+ * True when the primary key spans more than one column. Operations that address a
+ * record by a single PK value (get, delete, bulkDelete) cannot work on such tables:
+ * matching on the first column alone would hit every row sharing that value.
+ */
+export function isCompositePrimary(pk: string | string[]): boolean {
+  return Array.isArray(pk) && pk.length > 1;
+}
+
 export function primaryAsCols(pk: string | string[], colFn: (f: string) => string): string | string[] {
   return Array.isArray(pk) ? pk.map(colFn) : colFn(pk);
 }

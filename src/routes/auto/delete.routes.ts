@@ -10,6 +10,7 @@ export default async function deleteRoutes(
 ): Promise<void> {
   await registerForAllTables(fastify, options, {
     operation: 'delete',
+    singlePkOnly: true,
     method: 'DELETE',
     url: (tc) => `/rest/${tc.Schema.tableName}/:id`,
     successStatus: 200,
