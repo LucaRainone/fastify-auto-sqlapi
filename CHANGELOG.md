@@ -23,8 +23,38 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--by-single-id-operations-disabled-for-composite-primary-keys)
   for the migration paths.
 
+### Fixed
+
+- **⚠️ NULL values were serialized as `0` / `""` in read responses.** The generator mapped
+  nullable columns to `Type.Optional(T)`, which means "key may be absent" — not "value may
+  be null" — so fast-json-stringify coerced every NULL to the type's zero value (a NULL FK
+  was served as `0`). Nullable columns are now generated as `Type.Optional(Nullable(T))`,
+  where the new exported `Nullable()` helper emits the JSON-Schema type-array form
+  (`type: ['integer', 'null']`). **Regenerate your schemas** (`sqlapi-generate-schema`) to
+  pick up the fix. Note: the type-array form is deliberate — a `Type.Union([T, Type.Null()])`
+  would NOT fix it, because Fastify's default Ajv `coerceTypes` corrupts values through
+  union branches (`null` → `0` with the Null branch last, `0`/`""` → `null` with it first);
+  with a type array no coercion happens. As a side effect, writes now accept an explicit
+  `null` to set a column to NULL.
+- **`maxItemsPerPage` below 500 broke every request without an explicit `itemsPerPage`.**
+  The search querystring schema declared a fixed `default: 500`; Ajv injects defaults before
+  the cap check runs, so any lower cap rejected the injected default with 400. The schema is
+  now parameterized: `default = min(500, maxItemsPerPage)` and the cap doubles as the schema
+  `maximum` (structured 400 instead of a plain error). The `SearchTableQuery(cap)` builder is
+  exported; `SearchTableQueryString` remains as the default-cap variant.
+
+### Changed
+
+- **`filters` with an explicit `null` now filter by `IS NULL`.** Previously a null filter
+  was silently dropped — a request asking "field is null" returned unfiltered results. An
+  explicit `null` on a schema field now builds `WHERE col IS NULL` (undefined/absent keys
+  are still ignored). `conditions` + `isNull` keeps working as before.
+
 ### Added
 
+- `Nullable(schema)` export: marks a TypeBox schema nullable via the JSON-Schema type-array
+  form — the only representation safe under Fastify's default Ajv/fast-json-stringify on
+  both input validation and response serialization.
 - ADR 0007: table generation is explicit — `--all` is a migration helper, not the default.
 
 ## [0.1.10]

@@ -53,7 +53,7 @@ describe('exportTableInfo', () => {
     assert.ok(sql.includes('email'));
   });
 
-  it('filters() skips null and undefined values', () => {
+  it('filters() maps an explicit null to IS NULL and skips undefined', () => {
     const schema = createMockSchema('customer', {
       id: Type.Number(),
       name: Type.String(),
@@ -61,8 +61,12 @@ describe('exportTableInfo', () => {
     const { filters } = exportTableInfo(schema);
 
     const condition = filters({ id: null, name: undefined });
-    const values = condition.getValues();
-    assert.equal(values.length, 0);
+    const sql = condition.build(1, (i) => `$${i}`);
+
+    // IS NULL binds no value — assert on the SQL, not only on the values array
+    assert.equal(condition.getValues().length, 0);
+    assert.match(sql, /"id" IS NULL/);
+    assert.ok(!sql.includes('name'), 'undefined keys must be ignored');
   });
 
   it('filters() does not auto-apply extraFilters (they go through extendedCondition)', () => {

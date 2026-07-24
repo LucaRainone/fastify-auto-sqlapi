@@ -56,8 +56,12 @@ describe('convertColType', () => {
     assert.equal(convertColType('_int4', notNull), 'Type.Array(Type.Integer())');
   });
 
-  it('wraps nullable in Optional', () => {
-    assert.equal(convertColType('int4', nullable), 'Type.Optional(Type.Integer())');
+  it('wraps nullable in Optional(Nullable(...)) — type-array form', () => {
+    // Optional alone means "key may be absent": serializing a NULL value against a
+    // plain type coerces it (0 / "" / false). A Union with Null is no better: Ajv's
+    // coerceTypes corrupts null/0/"" through the branches. Nullable() emits the
+    // type-array form, the only one safe on both input and output.
+    assert.equal(convertColType('int4', nullable), 'Type.Optional(Nullable(Type.Integer()))');
   });
 
   it('wraps column with default in Optional', () => {
@@ -78,7 +82,7 @@ describe('buildTableMap', () => {
     assert.ok(map.SchemaCustomer);
     assert.equal(map.SchemaCustomer.name, 'customer');
     assert.equal(map.SchemaCustomer.fields.id, 'Type.Integer()');
-    assert.equal(map.SchemaCustomer.fields.fullName, 'Type.Optional(Type.String())');
+    assert.equal(map.SchemaCustomer.fields.fullName, 'Type.Optional(Nullable(Type.String()))');
 
     assert.ok(map.SchemaProduct);
     assert.equal(map.SchemaProduct.name, 'product');

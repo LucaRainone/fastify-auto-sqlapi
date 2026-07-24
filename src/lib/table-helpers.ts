@@ -40,8 +40,16 @@ export function exportTableInfo<
     // qualifier (a subquery alias) takes precedence over the table name.
     const table = qi(qualifier ?? Schema.tableName, dialect);
     for (const field of Object.keys(Schema.fields)) {
-      if (field in filterValues && filterValues[field] !== null && filterValues[field] !== undefined) {
-        condition.isEqual(`${table}.${qi(Schema.col(field), dialect)}`, filterValues[field]);
+      if (!(field in filterValues) || filterValues[field] === undefined) continue;
+      const col = `${table}.${qi(Schema.col(field), dialect)}`;
+      // An explicit null filters by IS NULL: equality with NULL never matches, and
+      // silently dropping the filter would return unfiltered results for a request
+      // that asked for "field is null".
+      if (filterValues[field] === null) {
+        // Second arg is CB's enable-guard: without `true` the call is a no-op.
+        condition.isNull(col, true);
+      } else {
+        condition.isEqual(col, filterValues[field]);
       }
     }
 

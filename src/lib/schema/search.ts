@@ -1,6 +1,7 @@
 import { Type, type TObject, type TSchema } from '@sinclair/typebox';
 import { ALLOWED_METHODS } from '../condition-methods.js';
 import { readableFieldNames } from '../read-access.js';
+import { DEFAULT_MAX_ITEMS_PER_PAGE } from '../../types.js';
 import type { DbTables, ITable, SchemaDefinition } from '../../types.js';
 
 /** Schema fields minus the ones hidden by `readExclude`. */
@@ -147,16 +148,33 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
   return Type.Object(bodyProperties as Record<string, ReturnType<typeof Type.Optional>>);
 }
 
-export const SearchTableQueryString = Type.Object({
-  orderBy: Type.Optional(Type.String()),
-  page: Type.Optional(Type.Integer({ minimum: 1 })),
-  itemsPerPage: Type.Optional(Type.Integer({ minimum: 1, default: 500 })),
-  computeMin: Type.Optional(Type.String()),
-  computeMax: Type.Optional(Type.String()),
-  computeSum: Type.Optional(Type.String()),
-  computeAvg: Type.Optional(Type.String()),
-  // selectComputed list goes in the body (POST), not querystring — see SearchTableBodyPost.
-});
+/**
+ * Querystring schema, parameterized on the plugin's `maxItemsPerPage`.
+ *
+ * The `itemsPerPage` default MUST NOT exceed the cap: Ajv injects the default before any
+ * runtime check runs, so a fixed default of 500 combined with `maxItemsPerPage: 100` would
+ * make every request without an explicit `itemsPerPage` fail with 400. The default is
+ * therefore `min(500, cap)` and the cap doubles as the schema `maximum` (structured 400).
+ */
+export function SearchTableQuery(maxItemsPerPage: number = DEFAULT_MAX_ITEMS_PER_PAGE): TObject {
+  return Type.Object({
+    orderBy: Type.Optional(Type.String()),
+    page: Type.Optional(Type.Integer({ minimum: 1 })),
+    itemsPerPage: Type.Optional(Type.Integer({
+      minimum: 1,
+      maximum: maxItemsPerPage,
+      default: Math.min(500, maxItemsPerPage),
+    })),
+    computeMin: Type.Optional(Type.String()),
+    computeMax: Type.Optional(Type.String()),
+    computeSum: Type.Optional(Type.String()),
+    computeAvg: Type.Optional(Type.String()),
+    // selectComputed list goes in the body (POST), not querystring — see SearchTableBodyPost.
+  });
+}
+
+/** Default-cap variant, kept for granular composition and backward compatibility. */
+export const SearchTableQueryString = SearchTableQuery();
 
 export function SearchTableResponse(dbTables: DbTables, tableName: string): TObject {
   const tableConf = dbTables[tableName];

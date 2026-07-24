@@ -775,6 +775,7 @@ Tables without `tenantScope` are unaffected — no filtering regardless of `getT
 
 - **camelCase in API, any case in DB**: all request/response fields are camelCase. The plugin converts via `col()` and `colMap`. For snake_case DB columns (default), conversion is automatic. For camelCase DB columns (e.g. betterauth), the CLI generates a `colMap` that preserves the original column names — no conversion needed. Manual schemas without `colMap` fall back to `toUnderscore()`.
 - **All fields Optional in response**: `RETURNING *` may return any subset. Response schemas use `Type.Partial`.
+- **Nullable columns use `Nullable(T)` (type-array form)**: the generator emits `Type.Optional(Nullable(T))` for nullable columns — `Nullable` (exported by the package) produces `{ type: ['integer', 'null'] }`. Do NOT replace it with `Type.Union([T, Type.Null()])`: under Fastify's default Ajv `coerceTypes` a union corrupts values through its branches (`null` → `0` with the Null branch last, `0`/`""` → `null` with it first), while the type array validates and serializes NULL correctly. A bare `Type.Optional(T)` is also wrong: NULL serializes as `0`/`""`. In `filters`, an explicit `null` on a schema field builds `WHERE col IS NULL`.
 - **`excludeFromCreation`**: **IMPORTANT** — auto-increment PKs (e.g. `id` serial/auto_increment) MUST be listed here, otherwise INSERT will try to send them and fail. The CLI auto-detects this and adds it by default. Also useful for `createdAt`/`updatedAt` columns managed by DB defaults or hooks. It strips **client-supplied** values only: the payload is sanitized before `beforeInsert` runs, so a value the hook assigns to an excluded field (e.g. a server-generated TEXT id) DOES reach the INSERT. Same for the engine's FK auto-fill on secondaries — an excluded FK column does not suppress it. It is an **ergonomics tool for creation, NOT a field-level security mechanism**: it does not apply to updates — every Schema field is updatable by default, by design. Field-level update rules (`isAdmin`, roles, owner/tenant columns, state fields) are product logic: enforce them in `beforeUpdate` (silent strip) or `validate` (loud 400), or move the privileged transition to a dedicated endpoint and keep it off the auto routes via `operations`.
 - **`readExclude`**: fields hidden from every read — not projected by search/get, omitted from read response schemas and from this table's default (`*`) join selection when it is a join target. Referencing one from `filters`, `conditions`, `orderBy`, `joinGroup` aggregations or an explicit join `selection` returns 400: hiding a field from output while allowing it to be filtered would leak its value by bisection. **Writes are unaffected** — insert/update/bulk still accept the field, so a column can be writable but never readable (password hash, access token). Primary keys cannot be excluded. Complementary to trimming the Schema, which removes the column from reads *and* writes.
 - **`upsertMap`**: when present for a schema, INSERT becomes upsert. PostgreSQL: `ON CONFLICT (...) DO UPDATE`. MySQL/MariaDB: `ON DUPLICATE KEY UPDATE`. Applies to both main and secondary tables.
@@ -894,6 +895,53 @@ const TableCustomer = defineTable({
     fields.updatedAt = db.expression('NOW()');
   },
 });
+```
+
+### PostgreSQL driver type parsers (numeric/int8 as strings, timestamp shifts)
+
+The `pg` driver — not the plugin — returns `numeric`/`int8` as **strings** (precision
+safety), parses `date` into a JS `Date` at local midnight, and interprets
+`timestamp without time zone` in the server's local timezone. The plugin deliberately does
+not touch `pg.types` (global process state — see the design principles). If your API should
+return numbers and stable date strings, configure the parsers once at startup, before
+creating the pool:
+
+```typescript
+import pg from 'pg';
+
+pg.types.setTypeParser(pg.types.builtins.INT8, (v) => parseInt(v, 10));
+pg.types.setTypeParser(pg.types.builtins.NUMERIC, (v) => parseFloat(v));
+// Keep dates/timestamps as verbatim strings (no local-timezone Date conversion).
+// Recommended when the DB stores UTC in `timestamp without time zone` (several ERPs do).
+pg.types.setTypeParser(pg.types.builtins.DATE, (v) => v);
+pg.types.setTypeParser(pg.types.builtins.TIMESTAMP, (v) => v);
+```
+
+Note: HTTP responses already coerce a numeric string like `"42"` to a number when the
+schema says integer — the parsers matter for programmatic `sqlApi.*` results, arithmetic in
+hooks, and timestamp correctness.
+
+### Translated jsonb fields (multi-language columns)
+
+Some applications (several ERPs among them) store translatable columns as jsonb:
+`{"en_US": "Bike", "it_IT": "Bici"}`. Expose the translation as a computed field — usable
+in `filters`, `conditions`, `orderBy` and (opt-in) projected via `selectComputed`:
+
+```typescript
+const LANG = process.env.APP_LANG || 'en_US';
+
+const TableProductTemplate = defineTable({
+  primary: 'id',
+  ...exportTableInfo(SchemaProductTemplate),
+  computedFields: {
+    displayName: ({ qiCol }) => ({
+      expr: `${qiCol('name')}->>'${LANG}'`,
+      type: Type.String(),
+    }),
+  },
+});
+// → POST /search/product_template { "filters": { "displayName": "Bike" } }
+//   or body { "selectComputed": ["displayName"] } to project it in the response
 ```
 
 ### Protect sensitive fields on update (isAdmin, roles, ownership)

@@ -737,6 +737,8 @@ proposes changing one of these behaviors.
 - **`joinMustExist` / `joinMultiple` / `joinGroup`** are 1:N (child→main) and use side queries / EXISTS / correlated subqueries — no row duplication
 - **`joinLeft`** is N:1 (parent→main) and adds a real `LEFT JOIN` on demand (only when filtering/ordering by parent)
 - **All response fields are Optional** — response schemas use `Type.Partial` since `RETURNING *` may return any subset
+- **Nullable columns use `Nullable(T)`** — the generator emits the JSON-Schema type-array form (`type: ['integer', 'null']`) via the exported `Nullable()` helper. This is deliberate: a bare `Type.Optional(T)` serializes NULL as `0`/`""`, and a `Type.Union([T, Type.Null()])` gets corrupted by Ajv's default type coercion (`null` ↔ `0`/`""` through the branches). In `filters`, an explicit `null` filters by `IS NULL`
+- **The `pg` driver returns `numeric`/`int8` as strings** and parses timestamps into local-timezone `Date`s — driver defaults the plugin deliberately does not override (global state). See "PostgreSQL driver type parsers" in AGENTS_BACKEND.md for the recommended one-time setup
 
 ## Re-exports
 
@@ -755,6 +757,7 @@ import {
   buildRelation,
   buildUpsertRule,
   buildUpsertRules,
+  Nullable,               // type-array nullable schema (see Conventions)
 
   // DB layer
   QueryClient,            // raw SQL query helper

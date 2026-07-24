@@ -74,7 +74,7 @@ The keys inside `joinMustExist`, `joinMultiple`, `joinGroup`, `joinLeft` are **a
 
 ### Filters
 
-Pass any schema field as a key in `filters`. The plugin auto-applies `WHERE col = value` for each. Extra filters (defined via `extraFiltersValidation` in the table config) are also accepted but handled by custom logic.
+Pass any schema field as a key in `filters`. The plugin auto-applies `WHERE col = value` for each. An explicit `null` on a nullable field filters by `WHERE col IS NULL` (for `IS NOT NULL` or other operators use `conditions` with `isNull`/`isNotNull`). Extra filters (defined via `extraFiltersValidation` in the table config) are also accepted but handled by custom logic.
 
 ### Conditions (advanced filters)
 

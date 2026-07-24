@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { SearchTableBodyPost, SearchTableQueryString, SearchTableResponse } from '../../lib/schema/search.js';
+import { SearchTableBodyPost, SearchTableQuery, SearchTableResponse } from '../../lib/schema/search.js';
 import { registerForAllTables } from './route-helpers.js';
 import { httpError } from '../../lib/errors.js';
 import { DEFAULT_MAX_ITEMS_PER_PAGE } from '../../types.js';
@@ -16,7 +16,7 @@ export default async function searchRoutes(
     successStatus: 200,
     schemas: (db, table) => ({
       body: SearchTableBodyPost(db, table),
-      querystring: SearchTableQueryString,
+      querystring: SearchTableQuery(options.maxItemsPerPage ?? DEFAULT_MAX_ITEMS_PER_PAGE),
       response: SearchTableResponse(db, table),
     }),
     summary: 'Search',
@@ -53,7 +53,7 @@ export default async function searchRoutes(
         selectComputed: body.selectComputed,
         orderBy: query.orderBy,
         paginator: (query.page || query.itemsPerPage)
-          ? { page: query.page || 1, itemsPerPage: query.itemsPerPage || 500 }
+          ? { page: query.page || 1, itemsPerPage: query.itemsPerPage || Math.min(500, maxRows) }
           : undefined,
         computeMin: query.computeMin,
         computeMax: query.computeMax,

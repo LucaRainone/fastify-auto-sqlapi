@@ -19,6 +19,7 @@ export { mysqlQueryable } from './lib/adapters/mysql-adapter.js';
 
 // Table helpers
 export { exportTableInfo, defineTable, buildRelation, buildUpsertRule, buildUpsertRules } from './lib/table-helpers.js';
+export { Nullable } from './lib/nullable.js';
 
 // Tenant
 export { resolveTenant } from './lib/tenant.js';
@@ -36,7 +37,7 @@ export { setupSwagger } from './lib/setup-swagger.js';
 
 // Search
 export { searchEngine } from './lib/engine/search/search.js';
-export { SearchTableBodyPost, SearchTableQueryString, SearchTableResponse } from './lib/schema/search.js';
+export { SearchTableBodyPost, SearchTableQuery, SearchTableQueryString, SearchTableResponse } from './lib/schema/search.js';
 export { default as searchRoutes } from './routes/auto/search.routes.js';
 
 // Insert
