@@ -529,7 +529,7 @@ For `joinLeft` specifically, the computed expr is automatically alias-prefixed b
 
 ## ConditionBuilder API
 
-Used in `extendedCondition` callbacks, hooks, and exposed via the `conditions` field in the search API (see [AGENTS_FRONTEND.md](./AGENTS_FRONTEND.md#conditions-advanced-filters)).
+Used in `extendedCondition` callbacks, hooks, and exposed via the `conditions` field in the search API (methods and params arity in [AGENTS_FRONTEND.md](./AGENTS_FRONTEND.md)).
 
 ```typescript
 const cb = new ConditionBuilder('AND');  // or 'OR'
