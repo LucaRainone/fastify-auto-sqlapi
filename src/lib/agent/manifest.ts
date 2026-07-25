@@ -88,7 +88,7 @@ export function tableOperations(tableConf: ITable): TableOperation[] {
  * Build the machine-readable description of every table exposed by this deployment:
  * fields (type/required/nullable), enabled operations, join aliases, computed fields,
  * extra filters, tenant scoping. Derived entirely from `DbTables`, so it is always in
- * sync with the running configuration. Pairs with AGENT_CLIENT.md (the request grammar)
+ * sync with the running configuration. Pairs with AGENTS_FRONTEND.md (the request grammar)
  * to give an LLM client everything it needs to drive the API.
  */
 export function buildAgentManifest(dbTables: DbTables): AgentManifest {

@@ -728,9 +728,9 @@ chat: whatever requests the LLM invents, they pass through the same tenant scopi
 `readExclude`, `operations` whitelist, validation and request caps as any HTTP client —
 direct-DB firepower, backoffice constraints. Three pieces make this practical:
 
-**1. The grammar** — [`AGENT_CLIENT.md`](./AGENT_CLIENT.md) (ships in the npm package) is a
-compact, LLM-oriented reference of how to call the API: search with all four join families,
-ordering, pagination, writes, error shapes. Put it in the system prompt.
+**1. The grammar** — [`AGENTS_FRONTEND.md`](./AGENTS_FRONTEND.md) (ships in the npm package)
+is a compact, LLM-oriented reference of how to call the API: search with all four join
+families, ordering, pagination, writes, error shapes. Put it in the system prompt.
 
 **2. The vocabulary** — enable the manifest endpoint to describe *this deployment's* tables:
 

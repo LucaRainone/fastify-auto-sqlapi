@@ -23,7 +23,7 @@ export default async function agentManifestRoutes(
     schema: {
       tags: ['SqlAPI-agent'],
       summary: 'Agent manifest (JSON)',
-      description: 'Machine-readable description of every exposed table: fields, operations, join aliases, computed fields. Pair with AGENT_CLIENT.md.',
+      description: 'Machine-readable description of every exposed table: fields, operations, join aliases, computed fields. Pair with AGENTS_FRONTEND.md.',
     },
   }, async () => manifest);
 

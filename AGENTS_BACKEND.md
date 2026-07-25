@@ -1070,7 +1070,7 @@ await app.register(async (instance) => {
 }, { prefix: '/agent' });
 ```
 
-System prompt = `AGENT_CLIENT.md` (request grammar, ships in the package) + the output of
+System prompt = `AGENTS_FRONTEND.md` (request grammar, ships in the package) + the output of
 `GET /agent/manifest.md` (this deployment's tables/fields/aliases). On the main plugin the
 manifest is enabled with the `agentManifest: true` option. Validation strategy: either a
 loose generic tool (`table` enum from the manifest, free body) with the structured 400

@@ -55,8 +55,11 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 - **LLM / agent client support.** The plugin doubles as the enforcement layer for a chat
   agent operating on your data (tenant scoping, `readExclude`, `operations`, caps apply to
   whatever the model invents). New pieces:
-  - `AGENT_CLIENT.md` — compact LLM-oriented request grammar (search with all join
-    families, ordering, pagination, writes, error shapes); ships in the npm package.
+  - `AGENTS_FRONTEND.md` rewritten as a compact LLM-oriented request grammar (search with
+    all join families, ordering, pagination, writes, error shapes) — usable both by coding
+    agents and as the system prompt of a runtime agent client. Same filename and package
+    path as before, so existing references keep working; the verbose tutorial-style
+    content it replaces is fully covered by the grammar plus Swagger.
   - `agentManifest: true` plugin option → `GET {prefix}/agent/manifest` (JSON) and
     `/agent/manifest.md` (markdown for the system prompt): per-table fields with
     type/required/nullable, enabled operations, join aliases with direction, computed
