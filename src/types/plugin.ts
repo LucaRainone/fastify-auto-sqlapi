@@ -31,6 +31,13 @@ export interface SqlApiPluginOptions {
    * Defaults to {@link DEFAULT_MAX_BULK_ITEMS}.
    */
   maxBulkItems?: number;
+  /**
+   * Register `GET /agent/manifest` (JSON) and `GET /agent/manifest.md` (markdown): a
+   * machine-readable description of every exposed table (fields, operations, join
+   * aliases, computed fields), for LLM/agent clients. Opt-in, like `swagger`. The
+   * routes run behind the same global `onRequests` hooks as the data routes.
+   */
+  agentManifest?: boolean;
 }
 
 /** Default row cap for search (page size and no-paginator LIMIT). Override via `maxItemsPerPage`. */

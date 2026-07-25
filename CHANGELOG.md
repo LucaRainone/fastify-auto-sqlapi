@@ -52,6 +52,22 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Added
 
+- **LLM / agent client support.** The plugin doubles as the enforcement layer for a chat
+  agent operating on your data (tenant scoping, `readExclude`, `operations`, caps apply to
+  whatever the model invents). New pieces:
+  - `AGENT_CLIENT.md` — compact LLM-oriented request grammar (search with all join
+    families, ordering, pagination, writes, error shapes); ships in the npm package.
+  - `agentManifest: true` plugin option → `GET {prefix}/agent/manifest` (JSON) and
+    `/agent/manifest.md` (markdown for the system prompt): per-table fields with
+    type/required/nullable, enabled operations, join aliases with direction, computed
+    fields, extra filters — always in sync with the running config, behind the same
+    global `onRequests`. Also exported programmatically (`buildAgentManifest`,
+    `renderAgentManifestMd`) and as a granular route plugin (`agentManifestRoutes`).
+  - `agentToolSchemas(dbTables, table)` — the exact JSON Schemas the routes validate
+    with, per enabled operation, for strict provider-side tool definitions.
+  - README "LLM / agent clients" section and AGENTS_BACKEND.md pattern: read-only agent
+    surface via granular composition, loose-tool + structured-400 retry loop vs strict
+    tools.
 - `Nullable(schema)` export: marks a TypeBox schema nullable via the JSON-Schema type-array
   form — the only representation safe under Fastify's default Ajv/fast-json-stringify on
   both input validation and response serialization.

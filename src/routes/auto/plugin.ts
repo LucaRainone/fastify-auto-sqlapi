@@ -11,6 +11,7 @@ import updateRoutes from './update.routes.js';
 import deleteRoutes from './delete.routes.js';
 import bulkUpsertRoutes from './bulk-upsert.routes.js';
 import bulkDeleteRoutes from './bulk-delete.routes.js';
+import agentManifestRoutes from './agent-manifest.routes.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
 type AjvValidationErrors = NonNullable<FastifyError['validation']>;
@@ -122,5 +123,8 @@ export default fp(async function fastifyAutoSqlApi(
     await instance.register(deleteRoutes, routeOptions);
     await instance.register(bulkUpsertRoutes, routeOptions);
     await instance.register(bulkDeleteRoutes, routeOptions);
+    if (options.agentManifest) {
+      await instance.register(agentManifestRoutes, routeOptions);
+    }
   }, { prefix });
 }, { name: 'fastify-auto-sqlapi' });

@@ -1053,6 +1053,30 @@ await app.register(async (instance) => {
 }, { prefix: '/admin' });
 ```
 
+### LLM / agent surface (read-only + manifest)
+
+Give a chat agent direct data access with the plugin as enforcement layer (tenant scoping,
+`readExclude`, caps still apply to whatever the model invents). Read-only surface + the
+manifest endpoint, agent-specific auth:
+
+```typescript
+import { searchRoutes, getRoutes, agentManifestRoutes } from 'fastify-auto-sqlapi';
+
+await app.register(async (instance) => {
+  const opts = { DbTables: dbTables, onRequests: [agentAuth] };
+  await instance.register(searchRoutes, opts);
+  await instance.register(getRoutes, opts);
+  await instance.register(agentManifestRoutes, opts);   // GET /agent/manifest(.md)
+}, { prefix: '/agent' });
+```
+
+System prompt = `AGENT_CLIENT.md` (request grammar, ships in the package) + the output of
+`GET /agent/manifest.md` (this deployment's tables/fields/aliases). On the main plugin the
+manifest is enabled with the `agentManifest: true` option. Validation strategy: either a
+loose generic tool (`table` enum from the manifest, free body) with the structured 400
+`fields[]` as the retry signal, or strict provider-side tools via
+`agentToolSchemas(dbTables, table)` — the exact JSON Schemas the routes validate with.
+
 ---
 
 ## FAQ / Gotchas

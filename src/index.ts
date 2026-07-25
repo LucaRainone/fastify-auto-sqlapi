@@ -21,6 +21,16 @@ export { mysqlQueryable } from './lib/adapters/mysql-adapter.js';
 export { exportTableInfo, defineTable, buildRelation, buildUpsertRule, buildUpsertRules } from './lib/table-helpers.js';
 export { Nullable } from './lib/nullable.js';
 
+// Agent / LLM client helpers
+export {
+  buildAgentManifest,
+  renderAgentManifestMd,
+  type AgentManifest,
+  type ManifestTable,
+} from './lib/agent/manifest.js';
+export { agentToolSchemas, type AgentToolSchemas } from './lib/agent/tool-schemas.js';
+export { default as agentManifestRoutes } from './routes/auto/agent-manifest.routes.js';
+
 // Tenant
 export { resolveTenant } from './lib/tenant.js';
 

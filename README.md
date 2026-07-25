@@ -721,6 +721,60 @@ await app.register(async (instance) => {
 }, { prefix: '/admin' });
 ```
 
+## LLM / agent clients
+
+The plugin is a natural enforcement layer for an agent that operates on your data through
+chat: whatever requests the LLM invents, they pass through the same tenant scoping,
+`readExclude`, `operations` whitelist, validation and request caps as any HTTP client —
+direct-DB firepower, backoffice constraints. Three pieces make this practical:
+
+**1. The grammar** — [`AGENT_CLIENT.md`](./AGENT_CLIENT.md) (ships in the npm package) is a
+compact, LLM-oriented reference of how to call the API: search with all four join families,
+ordering, pagination, writes, error shapes. Put it in the system prompt.
+
+**2. The vocabulary** — enable the manifest endpoint to describe *this deployment's* tables:
+
+```typescript
+await app.register(fastifyAutoSqlApi, {
+  DbTables: dbTables,
+  agentManifest: true,   // GET {prefix}/agent/manifest (JSON) + /agent/manifest.md
+});
+```
+
+`GET /agent/manifest.md` returns a compact markdown block per table — fields with
+type/required/nullable, enabled operations, join aliases (with direction), computed fields,
+extra filters — always in sync with the running config, behind the same `onRequests` auth.
+Fetch it at session start: grammar + vocabulary is everything the model needs. The same data
+is available programmatically via `buildAgentManifest(dbTables)` /
+`renderAgentManifestMd(manifest)`.
+
+**3. The guardrails** — writes are often too dangerous to hand to a model. Register a
+read-only surface with granular composition and give the agent only that:
+
+```typescript
+import { searchRoutes, getRoutes, agentManifestRoutes } from 'fastify-auto-sqlapi';
+
+await app.register(async (instance) => {
+  const opts = { DbTables: dbTables, onRequests: [agentAuth] };
+  await instance.register(searchRoutes, opts);
+  await instance.register(getRoutes, opts);
+  await instance.register(agentManifestRoutes, opts);
+}, { prefix: '/agent' });   // reads only: no insert/update/delete routes exist here
+```
+
+**Validation strategy** — two options, per table or per deployment:
+
+- *Loose tool + retry loop* (recommended default): expose a generic tool
+  (`table` as enum from the manifest, `body` as free object) and let the plugin validate.
+  A failed request returns a structured 400 with `fields: [{path, code, message}]` — feed
+  it back to the model and it self-corrects in one round trip. Cheap prompts, no schema
+  duplication.
+- *Strict tools*: `agentToolSchemas(dbTables, 'customer')` returns the exact JSON Schemas
+  the routes validate with (body + querystring for search, bodies for writes, only for the
+  operations enabled on that table) — plug them into provider-side tool definitions when
+  you want invalid calls rejected before they leave the model. Costs prompt size; best for
+  a few hot tables.
+
 ## Design Decisions
 
 Deliberate, non-obvious choices — open-by-default, non-transactional bulk operations,
