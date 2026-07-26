@@ -4,3 +4,4 @@ dist
 .env
 test/manual/output
 llm-private*.md
+.claude
