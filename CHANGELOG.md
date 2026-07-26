@@ -75,6 +75,9 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   form — the only representation safe under Fastify's default Ajv/fast-json-stringify on
   both input validation and response serialization.
 - ADR 0007: table generation is explicit — `--all` is a migration helper, not the default.
+- ADR 0008: agent client interface — static grammar (`AGENTS_FRONTEND.md`, same filename by
+  design) + runtime manifest split, density as a feature, loose validation with the
+  structured 400 as the default tool strategy.
 
 ## [0.1.10]
 

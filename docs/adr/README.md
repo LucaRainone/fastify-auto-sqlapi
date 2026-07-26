@@ -22,6 +22,7 @@ not by editing history.
 | [0005](./0005-insert-pipeline-sanitize-before-hooks.md) | Insert pipeline: client payload sanitized before `beforeInsert` |
 | [0006](./0006-raw-db-errors.md) | Raw DB errors surface as 500 — no SQLSTATE→HTTP mapping |
 | [0007](./0007-explicit-table-generation.md) | Table generation is explicit — `--all` is a migration helper, not the default |
+| [0008](./0008-agent-client-interface.md) | Agent client interface: static grammar + runtime manifest |
 
 ## When to write one
 
