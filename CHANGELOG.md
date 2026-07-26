@@ -42,6 +42,16 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   `aggregations: { by: '<excludedField>', count: [...] }` returned the hidden field's
   distinct values verbatim in `rows[].by`. The field now goes through the same
   `validateSchemaField` guard as aggregation fields (400).
+- **Security: HAVING-style conditions and 3-part aggregation `orderBy` could probe
+  read-excluded fields.** `buildAggOrderExpr` validated the aggregation field without the
+  join table's config, skipping the `readExclude` check. The downstream validation in the
+  joinGroup execution masked it — except when the main result set was empty, where that
+  validation is skipped entirely: a condition like `player.sum.<hiddenField> > X` answered
+  400 when at least one row matched and 200 when none did, a binary oracle allowing
+  bisection of the hidden field's aggregates. The check now fires at condition-build time.
+  Found by a full audit of every field-referencing input against `readExclude` (all other
+  paths verified guarded: filters, conditions, orderBy 1/2-part, selections, aggregation
+  fields, compute*, GET).
 - **`maxItemsPerPage` below 500 broke every request without an explicit `itemsPerPage`.**
   The search querystring schema declared a fixed `default: 500`; Ajv injects defaults before
   the cap check runs, so any lower cap rejected the injected default with 400. The schema is

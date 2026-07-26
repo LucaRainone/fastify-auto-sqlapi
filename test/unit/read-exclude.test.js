@@ -231,6 +231,40 @@ describe('readExclude - joined tables', () => {
     );
   });
 
+  it('rejects HAVING-style conditions on an excluded field even with empty main results (bisection oracle)', async () => {
+    // Empty main result set: executeJoinGroup's own validation is skipped
+    // (ids.length === 0), so the guard must fire at condition-build time —
+    // otherwise 400-vs-200 becomes a binary oracle on the hidden aggregate.
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 0 },
+    ]);
+    const DbTables = createDbTables();
+
+    await assert.rejects(
+      () => searchEngine(DbTables, {
+        db: new QueryClient(mockPg),
+        tableConf: DbTables.team,
+        conditions: [{ field: 'player.sum.hiddenPotential', method: 'isGreater', params: [100] }],
+        joinGroup: { player: { aggregations: { sum: ['hiddenPotential'] } } },
+      }),
+      (err) => err.statusCode === 400 && /hiddenPotential/.test(err.message)
+    );
+  });
+
+  it('rejects 3-part aggregation orderBy on an excluded field with 400', async () => {
+    const DbTables = createDbTables();
+
+    await assert.rejects(
+      () => searchEngine(DbTables, {
+        db: new QueryClient(createMockPg([{ rows: [], affectedRows: 0 }])),
+        tableConf: DbTables.team,
+        orderBy: 'player.sum.hiddenPotential DESC',
+        joinGroup: { player: { aggregations: { sum: ['hiddenPotential'] } } },
+      }),
+      (err) => err.statusCode === 400 && /hiddenPotential/.test(err.message)
+    );
+  });
+
   it('rejects joinLeft filters and 2-part orderBy on an excluded parent field with 400', async () => {
     const DbTables = createDbTables();
 

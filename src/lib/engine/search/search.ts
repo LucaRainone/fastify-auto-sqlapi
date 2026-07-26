@@ -341,7 +341,10 @@ function buildAggOrderExpr(
     err400(`Cannot order by aggregation on joinGroup with 'by' clause on non-FK column: ${alias} (grouped by '${groupReq.aggregations.by}', correlation FK is '${joinField}')`);
   }
 
-  const fieldCol = validateSchemaField(field, joinSchema);
+  // Pass the join table's conf: without it validateSchemaField skips the readExclude
+  // check, and a HAVING-style condition on a hidden field becomes a 400-vs-200 oracle
+  // (executeJoinGroup's own validation is skipped when the main result set is empty).
+  const fieldCol = validateSchemaField(field, joinSchema, dbTables[joinSchema.tableName]);
   const refs = extractJoinRefs(db, tableConf, joinDef);
 
   // The subquery FROM is aliased so the correlation to the outer table survives a
