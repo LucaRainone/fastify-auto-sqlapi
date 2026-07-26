@@ -818,7 +818,10 @@ function buildByExpression(
     err400(`Invalid 'by' specification: expected a field or computed name`);
   }
   if (by in joinSchema.fields) {
-    return `${db.qi(joinSchema.tableName)}.${db.qi(joinSchema.col(by))}`;
+    // validateSchemaField also enforces readExclude: GROUP BY on a hidden field
+    // would return its distinct values verbatim in `rows[].by`.
+    const col = validateSchemaField(by, joinSchema, joinTableConf);
+    return `${db.qi(joinSchema.tableName)}.${db.qi(col)}`;
   }
   const fn = joinTableConf?.computedFields?.[by];
   if (fn) {

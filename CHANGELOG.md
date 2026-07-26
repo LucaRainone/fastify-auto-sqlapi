@@ -36,6 +36,12 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   union branches (`null` → `0` with the Null branch last, `0`/`""` → `null` with it first);
   with a type array no coercion happens. As a side effect, writes now accept an explicit
   `null` to set a column to NULL.
+- **Security: `aggregations.by` bypassed `readExclude`.** Every other reference to a
+  read-excluded field (filters, conditions, orderBy, aggregation fields, join selections)
+  is rejected with 400, but the `joinGroup` GROUP BY field was resolved without the check —
+  `aggregations: { by: '<excludedField>', count: [...] }` returned the hidden field's
+  distinct values verbatim in `rows[].by`. The field now goes through the same
+  `validateSchemaField` guard as aggregation fields (400).
 - **`maxItemsPerPage` below 500 broke every request without an explicit `itemsPerPage`.**
   The search querystring schema declared a fixed `default: 500`; Ajv injects defaults before
   the cap check runs, so any lower cap rejected the injected default with 400. The schema is

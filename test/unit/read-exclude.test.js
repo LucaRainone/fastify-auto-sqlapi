@@ -215,6 +215,22 @@ describe('readExclude - joined tables', () => {
     );
   });
 
+  it('rejects joinGroup aggregations.by on an excluded field with 400 (GROUP BY would leak distinct values)', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 1, name: 'Alpha' }], affectedRows: 1 },
+    ]);
+    const DbTables = createDbTables();
+
+    await assert.rejects(
+      () => searchEngine(DbTables, {
+        db: new QueryClient(mockPg),
+        tableConf: DbTables.team,
+        joinGroup: { player: { aggregations: { by: 'hiddenPotential', count: ['id'] } } },
+      }),
+      (err) => err.statusCode === 400 && /hiddenPotential/.test(err.message)
+    );
+  });
+
   it('rejects joinLeft filters and 2-part orderBy on an excluded parent field with 400', async () => {
     const DbTables = createDbTables();
 
