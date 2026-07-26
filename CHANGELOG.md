@@ -7,6 +7,33 @@ All notable changes to this project are documented here. This project follows
 
 Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)**.
 
+## [0.1.12]
+
+### Fixed
+
+- **Security: `aggregations.by` bypassed `readExclude`.** Every other reference to a
+  read-excluded field (filters, conditions, orderBy, aggregation fields, join selections)
+  is rejected with 400, but the `joinGroup` GROUP BY field was resolved without the check —
+  `aggregations: { by: '<excludedField>', count: [...] }` returned the hidden field's
+  distinct values verbatim in `rows[].by`. The field now goes through the same
+  `validateSchemaField` guard as aggregation fields (400).
+- **Security: HAVING-style conditions and 3-part aggregation `orderBy` could probe
+  read-excluded fields.** `buildAggOrderExpr` validated the aggregation field without the
+  join table's config, skipping the `readExclude` check. The downstream validation in the
+  joinGroup execution masked it — except when the main result set was empty, where that
+  validation is skipped entirely: a condition like `player.sum.<hiddenField> > X` answered
+  400 when at least one row matched and 200 when none did, a binary oracle allowing
+  bisection of the hidden field's aggregates. The check now fires at condition-build time.
+  Found by a full audit of every field-referencing input against `readExclude` (all other
+  paths verified guarded: filters, conditions, orderBy 1/2-part, selections, aggregation
+  fields, compute*, GET).
+
+### Added
+
+- ADR 0008: agent client interface — static grammar (`AGENTS_FRONTEND.md`, same filename by
+  design) + runtime manifest split, density as a feature, loose validation with the
+  structured 400 as the default tool strategy.
+
 ## [0.1.11]
 
 ### Breaking
@@ -36,22 +63,6 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   union branches (`null` → `0` with the Null branch last, `0`/`""` → `null` with it first);
   with a type array no coercion happens. As a side effect, writes now accept an explicit
   `null` to set a column to NULL.
-- **Security: `aggregations.by` bypassed `readExclude`.** Every other reference to a
-  read-excluded field (filters, conditions, orderBy, aggregation fields, join selections)
-  is rejected with 400, but the `joinGroup` GROUP BY field was resolved without the check —
-  `aggregations: { by: '<excludedField>', count: [...] }` returned the hidden field's
-  distinct values verbatim in `rows[].by`. The field now goes through the same
-  `validateSchemaField` guard as aggregation fields (400).
-- **Security: HAVING-style conditions and 3-part aggregation `orderBy` could probe
-  read-excluded fields.** `buildAggOrderExpr` validated the aggregation field without the
-  join table's config, skipping the `readExclude` check. The downstream validation in the
-  joinGroup execution masked it — except when the main result set was empty, where that
-  validation is skipped entirely: a condition like `player.sum.<hiddenField> > X` answered
-  400 when at least one row matched and 200 when none did, a binary oracle allowing
-  bisection of the hidden field's aggregates. The check now fires at condition-build time.
-  Found by a full audit of every field-referencing input against `readExclude` (all other
-  paths verified guarded: filters, conditions, orderBy 1/2-part, selections, aggregation
-  fields, compute*, GET).
 - **`maxItemsPerPage` below 500 broke every request without an explicit `itemsPerPage`.**
   The search querystring schema declared a fixed `default: 500`; Ajv injects defaults before
   the cap check runs, so any lower cap rejected the injected default with 400. The schema is
@@ -91,9 +102,6 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   form — the only representation safe under Fastify's default Ajv/fast-json-stringify on
   both input validation and response serialization.
 - ADR 0007: table generation is explicit — `--all` is a migration helper, not the default.
-- ADR 0008: agent client interface — static grammar (`AGENTS_FRONTEND.md`, same filename by
-  design) + runtime manifest split, density as a feature, loose validation with the
-  structured 400 as the default tool strategy.
 
 ## [0.1.10]
 
