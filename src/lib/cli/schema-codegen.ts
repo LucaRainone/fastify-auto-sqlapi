@@ -103,6 +103,34 @@ export function buildTableMap(rows: ColumnInfo[]): TableMap {
   }, {});
 }
 
+/**
+ * Remove from `tableMap` the tables matching any of the `excludeTables` config patterns.
+ * Patterns are matched against the DB table name (not the generated schema name);
+ * `*` is the only wildcard — everything else is literal.
+ * Returns the names of the excluded tables, in map order.
+ */
+export function applyExcludeTables(tableMap: TableMap, excludeTables?: string[]): string[] {
+  if (excludeTables === undefined) return [];
+  if (!Array.isArray(excludeTables) || excludeTables.some((p) => typeof p !== 'string')) {
+    throw new Error('Invalid config: "excludeTables" must be an array of strings.');
+  }
+  if (excludeTables.length === 0) return [];
+
+  const regexes = excludeTables.map(
+    (pattern) => new RegExp(`^${pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replaceAll('\\*', '.*')}$`)
+  );
+
+  const excluded: string[] = [];
+  for (const schemaName of Object.keys(tableMap)) {
+    const tableName = tableMap[schemaName].name;
+    if (regexes.some((re) => re.test(tableName))) {
+      excluded.push(tableName);
+      delete tableMap[schemaName];
+    }
+  }
+  return excluded;
+}
+
 export function generateSchemaFile(
   schemaName: string,
   tableName: string,

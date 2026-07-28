@@ -7,6 +7,16 @@ All notable changes to this project are documented here. This project follows
 
 Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)**.
 
+## [Unreleased]
+
+### Added
+
+- **`excludeTables` config option** — blacklist for `sqlapi-generate-schema`. Tables
+  listed in `excludeTables` in `sqlapi.config.ts` (exact names or `*` globs, e.g.
+  `knex_*`) are skipped during schema generation; their previously generated schema files
+  are removed as orphans on the next full run, like those of dropped tables (ADR 0009).
+  Does not apply to `sqlapi-generate-tables`, which is already explicit (ADR 0007).
+
 ## [0.1.12]
 
 ### Fixed

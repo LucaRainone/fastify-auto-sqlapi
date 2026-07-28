@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { loadConfig } from '../lib/cli/config.js';
 import { buildConnectionString, introspectTables } from '../lib/cli/pg-introspect.js';
 import { buildMysqlConnectionConfig, introspectMysqlTables } from '../lib/cli/mysql-introspect.js';
-import { buildTableMap, generateSchemaFile } from '../lib/cli/schema-codegen.js';
+import { applyExcludeTables, buildTableMap, generateSchemaFile } from '../lib/cli/schema-codegen.js';
 import { loadEnvFile, CONSOLE_COLORS, display, displayAsTableRow, parseArgs, runCli } from './utils.js';
 import type { ColumnInfo, DialectName } from '../types.js';
 
@@ -44,6 +44,15 @@ await runCli('fastify-auto-sqlapi: generating schemas', async () => {
   }
 
   const tableMap = buildTableMap(rows);
+
+  // Config blacklist: excluded tables are invisible to the generator, so their
+  // schema files (if any) fall through to the orphan cleanup below.
+  const excluded = applyExcludeTables(tableMap, config.excludeTables);
+  if (excluded.length) {
+    display(`Excluded by config (excludeTables): ${excluded.join(', ')}`, CONSOLE_COLORS.gray);
+  }
+  // Note: no early return when everything is excluded — the orphan cleanup below
+  // must still run to remove the schema files of freshly excluded tables.
 
   // Filter tables if --tables flag is provided
   const tableNames = cliArgs.tables;

@@ -5,6 +5,12 @@ export interface SqlApiConfig {
   schema?: string;
   dialect?: DialectName;
   envFile?: string;
+  /**
+   * Tables to skip during schema generation (`sqlapi-generate-schema`).
+   * Matched against the DB table name; `*` is a wildcard (e.g. "knex_*").
+   * Excluded schemas already on disk are removed as orphans on the next full run.
+   */
+  excludeTables?: string[];
 }
 
 export interface ColumnInfo {

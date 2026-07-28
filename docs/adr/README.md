@@ -23,6 +23,7 @@ not by editing history.
 | [0006](./0006-raw-db-errors.md) | Raw DB errors surface as 500 — no SQLSTATE→HTTP mapping |
 | [0007](./0007-explicit-table-generation.md) | Table generation is explicit — `--all` is a migration helper, not the default |
 | [0008](./0008-agent-client-interface.md) | Agent client interface: static grammar + runtime manifest |
+| [0009](./0009-schema-exclusion-config-blacklist.md) | Schema exclusion is a config blacklist — excluded schemas are removed as orphans |
 
 ## When to write one
 

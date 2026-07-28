@@ -76,6 +76,7 @@ export default {
   schema: 'public',            // PostgreSQL schema to introspect (default: 'public')
   // dialect: 'mysql',         // 'postgres' (default) | 'mysql' | 'mariadb'
   // envFile: '.env.local',    // env file to load (default: '.env')
+  // excludeTables: ['knex_*'], // tables to skip in schema generation ('*' = wildcard)
 };
 ```
 
@@ -112,6 +113,12 @@ npx sqlapi-generate-schema --dialect mysql  # override the config dialect
 This introspects your tables and generates one TypeBox schema file per table in
 `<outputDir>/schemas/` (e.g. `SchemaCustomer.ts`, `SchemaOrder.ts`). These files are
 auto-generated — don't edit them; re-run the command after a DB change.
+
+To keep some tables out of schema generation (migration bookkeeping, PostGIS internals, …)
+list them in `excludeTables` in the config — exact table names or `*` globs (e.g.
+`knex_*`). Excluded tables are invisible to the generator: their schemas are not created,
+and any previously generated schema file is removed as an orphan on the next full run,
+like that of a dropped table.
 
 ### 4. Generate the tables template
 
