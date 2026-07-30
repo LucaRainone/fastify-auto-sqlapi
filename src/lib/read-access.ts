@@ -37,6 +37,50 @@ export function assertFiltersReadable(
   }
 }
 
+/**
+ * Throws 400 when a filter map carries a key the engine would never visit.
+ *
+ * Filters are matched against the schema fields, the table's `extraFilters` and its computed
+ * fields; anything else used to be dropped without a word, so a mistyped key returned MORE
+ * rows than the caller asked for and nothing said so. That is the dangerous direction to fail
+ * in — filters are also how consumers narrow visibility — and it contradicted every
+ * neighbouring path, where an unknown field in `selection`, `conditions`, `orderBy` or an
+ * aggregation is already a 400.
+ *
+ * `schema` is the schema the relation was declared with, which for a join may be a trimmed
+ * copy: a field outside it is unknown here exactly as it is for `selection`.
+ *
+ * `allowExtraFilters` is false on the joinLeft path, whose condition is built inline
+ * (`buildLeftJoinClauses`) and never runs the table's `extendedCondition`.
+ *
+ * Call AFTER `assertFiltersReadable`, so a read-excluded field keeps its own message
+ * instead of being reported as unknown.
+ */
+export function assertKnownFilterKeys(
+  filters: Record<string, unknown> | undefined,
+  schema: SchemaDefinition,
+  tableConf: ITable | undefined,
+  allowExtraFilters = true
+): void {
+  if (!filters) return;
+  for (const [key, value] of Object.entries(filters)) {
+    // `undefined` means "filter not supplied" everywhere else in the engine; an absent
+    // filter cannot be a wrong one. `null` does filter (IS NULL) and is validated.
+    if (value === undefined) continue;
+    if (key in schema.fields) continue;
+    if (tableConf?.computedFields?.[key]) continue;
+    if (tableConf?.extraFilters && key in tableConf.extraFilters) {
+      if (allowExtraFilters) continue;
+      throw httpError(
+        400,
+        `Filter '${key}' is an extraFilter: extraFilters are not applied on joinLeft ` +
+        `(only schema fields and computed fields are). Use joinMustExist on the same relation.`
+      );
+    }
+    throw httpError(400, `Unknown filter field: ${key}`);
+  }
+}
+
 /** Schema field names that may be read, in schema declaration order. */
 export function readableFieldNames(
   tableConf: ITable | undefined,

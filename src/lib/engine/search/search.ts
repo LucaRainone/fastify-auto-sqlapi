@@ -3,7 +3,12 @@ import { ConditionBuilder, Expression, type ConditionValue } from 'node-conditio
 import { camelcaseObject } from '../../naming.js';
 import { QueryParams } from '../query-params.js';
 import { buildTenantCondition, buildTenantJoin } from '../../tenant.js';
-import { assertReadable, assertFiltersReadable, readableSelectColumns } from '../../read-access.js';
+import {
+  assertReadable,
+  assertFiltersReadable,
+  assertKnownFilterKeys,
+  readableSelectColumns,
+} from '../../read-access.js';
 import { primaryAsString } from '../../../types.js';
 import type {
   DbTables,
@@ -15,6 +20,7 @@ import type {
   JoinGroupRequest,
   JoinRefFilter,
   JoinFetchRequest,
+  FilterRecord,
   ITable,
   SchemaDefinition,
   TenantContext,
@@ -147,6 +153,32 @@ function subqueryAlias(alias: string, tableConf: ITable): string {
 
 function findJoinByAlias(tableConf: ITable, alias: string): JoinDefinition | undefined {
   return tableConf.allowedReadJoins?.find((j) => j.alias === alias);
+}
+
+/**
+ * Validate the filter keys of every join reference in a request map.
+ *
+ * Runs up front, before any query: the executors skip their side-query entirely when the
+ * main result set is empty (`ids.length === 0`), so validating there alone would make the
+ * same request answer 400 or 200 depending on the data it happens to match.
+ *
+ * Unknown aliases are left to `requireJoin`, which reports them with its own message.
+ */
+function assertJoinFilterKeys(
+  dbTables: DbTables,
+  tableConf: ITable,
+  refs: Record<string, { filters?: FilterRecord }> | undefined,
+  allowExtraFilters: boolean
+): void {
+  if (!refs) return;
+  for (const [alias, ref] of Object.entries(refs)) {
+    const joinDef = findJoinByAlias(tableConf, alias);
+    if (!joinDef) continue;
+    const joinTableConf = dbTables[joinDef.joinSchema.tableName];
+    const filters = ref?.filters as Record<string, unknown> | undefined;
+    assertFiltersReadable(filters, joinTableConf);
+    assertKnownFilterKeys(filters, joinDef.joinSchema, joinTableConf, allowExtraFilters);
+  }
 }
 
 function requireJoin(tableConf: ITable, alias: string, requireUnique: boolean): JoinDefinition {
@@ -508,7 +540,9 @@ function buildLeftJoinClauses(
       // (so SQL references the LEFT JOIN'd table, not a bare table name).
       // Note: extraFilters declared on joinTableConf are not supported here for
       // joinLeft (they would require alias-aware handlers); only schema fields
-      // and computed fields apply.
+      // and computed fields apply. `assertJoinFilterKeys` rejects them up front rather
+      // than letting them through as a silent no-op, and the generated body schema does
+      // not advertise them for unique:true relations.
       const cb = new ConditionBuilder('AND', db.cbDialect);
       const joinTableConf = dbTables[joinSchema.tableName];
       const computed = joinTableConf?.computedFields;
@@ -978,6 +1012,8 @@ function buildJoinRefCondition(
   qualifier?: string
 ): ConditionBuilder {
   assertFiltersReadable(ref.filters as Record<string, unknown> | undefined, joinTableConf);
+  // Filter keys are checked by assertJoinFilterKeys, up front in searchEngine — this side
+  // query may never run, so it is not a place a request can be rejected from.
 
   // Bare table name for plain side-queries; the subquery alias when the condition lands
   // inside an aliased, correlated FROM (there the table name would resolve to the outer query).
@@ -1157,8 +1193,17 @@ export async function searchEngine(
   if (joinGroup) for (const a of Object.keys(joinGroup)) requireJoin(tableConf, a, false);
   if (joinLeft) for (const a of Object.keys(joinLeft)) requireJoin(tableConf, a, true);
 
+  // Join filter keys, validated before any query so the outcome never depends on whether
+  // the main query returned rows. joinLeft is the odd one: its condition is built inline
+  // and never runs the target's extendedCondition, so extraFilters are not accepted there.
+  assertJoinFilterKeys(dbTables, tableConf, joinMustExist, true);
+  assertJoinFilterKeys(dbTables, tableConf, joinMultiple, true);
+  assertJoinFilterKeys(dbTables, tableConf, joinGroup, true);
+  assertJoinFilterKeys(dbTables, tableConf, joinLeft, false);
+
   // Build main condition
   assertFiltersReadable(filters as Record<string, unknown> | undefined, tableConf);
+  assertKnownFilterKeys(filters as Record<string, unknown> | undefined, tableConf.Schema, tableConf);
   const condition = tableConf.filters(filters || {}, db.cbDialect);
 
   // Filters and conditions targeting computed fields go on the same ConditionBuilder:

@@ -17,6 +17,19 @@ function readableFields(
   return out;
 }
 
+/**
+ * A `filters` map.
+ *
+ * Deliberately NOT `additionalProperties: false`, unlike the write bodies. Fastify runs Ajv
+ * with `removeAdditional: true`, so a closed schema would silently *strip* an unknown filter
+ * key before the handler ever sees it — reproducing the very bug it looks like it fixes, and
+ * leaving the engine's rejection unreachable over HTTP. Unknown keys are rejected by
+ * `assertKnownFilterKeys` in the engine instead, which also covers `sqlApi.search()`.
+ */
+function filtersObject(fields: Record<string, TSchema>): TObject {
+  return Type.Partial(Type.Object(fields));
+}
+
 const JoinGroupResultItem = Type.Object({
   sum: Type.Optional(Type.Record(Type.String(), Type.Any())),
   min: Type.Optional(Type.Record(Type.String(), Type.Any())),
@@ -61,7 +74,7 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
     ...tableConf.extraFilters,
     ...computedTypes,
   };
-  const filtersSchema = Type.Optional(Type.Partial(Type.Object(filterFields)));
+  const filtersSchema = Type.Optional(filtersObject(filterFields));
 
   // Per-alias entries split by unique flag:
   //  - unique:false → joinMustExist / joinMultiple / joinGroup
@@ -91,25 +104,33 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
         }
       }
 
-      const joinFilterFields = joinTableConf
-        ? { ...readableFields(joinSchema, joinTableConf), ...joinTableConf.extraFilters, ...joinComputedTypes }
+      const joinSchemaFields = joinTableConf
+        ? { ...readableFields(joinSchema, joinTableConf), ...joinComputedTypes }
         : { ...joinSchema.fields };
 
+      // `extraFilters` are only honoured where the engine delegates to the join table's
+      // own `filters()` — buildJoinRefCondition, i.e. the unique:false paths. joinLeft
+      // builds its condition inline (buildLeftJoinClauses) and handles schema and computed
+      // fields only, so advertising extraFilters there would promise a silent no-op.
+      const joinFilterFields = { ...joinSchemaFields, ...(joinTableConf?.extraFilters ?? {}) };
+
       const joinRefShape = {
-        filters: Type.Optional(Type.Partial(Type.Object(joinFilterFields))),
+        filters: Type.Optional(filtersObject(joinFilterFields)),
         conditions: Type.Optional(Type.Array(conditionItemSchema)),
       };
 
-      const joinFetchShape = {
-        ...joinRefShape,
-        selection: Type.Optional(Type.String()),
-      };
-
       if (unique) {
-        joinLeftProps[alias] = Type.Object(joinFetchShape);
+        joinLeftProps[alias] = Type.Object({
+          filters: Type.Optional(filtersObject(joinSchemaFields)),
+          conditions: Type.Optional(Type.Array(conditionItemSchema)),
+          selection: Type.Optional(Type.String()),
+        });
       } else {
         joinMustExistProps[alias] = Type.Object(joinRefShape);
-        joinMultipleProps[alias] = Type.Object(joinFetchShape);
+        joinMultipleProps[alias] = Type.Object({
+          ...joinRefShape,
+          selection: Type.Optional(Type.String()),
+        });
         joinGroupProps[alias] = Type.Object({
           aggregations: Type.Object({
             by: Type.Optional(Type.String()),
@@ -120,7 +141,7 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
             avg: Type.Optional(Type.Array(Type.String())),
             count: Type.Optional(Type.Array(Type.String())),
           }),
-          filters: Type.Optional(Type.Partial(Type.Object(joinFilterFields))),
+          filters: Type.Optional(filtersObject(joinFilterFields)),
           conditions: Type.Optional(Type.Array(conditionItemSchema)),
         });
       }

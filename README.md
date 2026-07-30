@@ -423,6 +423,45 @@ are always available to your own code.
 **3. Multi-tenancy** — `getTenantId` + `tenantScope` filter every query by tenant (see
 [Multi-Tenant](#multi-tenant)).
 
+### A declared join is a read grant
+
+⚠️ **Neither of the first two layers follows a join.** `onRequests` and `operations` are
+properties of the routes generated *for* a table; a join is resolved inside the query of the
+**host** table's route, so the target's hooks never run and its `operations` whitelist does not
+apply. A table with `operations: []` — no HTTP routes at all — is still fully readable through
+any relation pointing at it.
+
+So `allowedReadJoins` is a security decision: declaring a relation grants read access to the
+target table under the **host** table's authorization.
+
+What does follow a join: `readExclude`, `tenantScope`, and the schema the relation was declared
+with. To expose a table broadly while keeping some columns narrow, declare the relation against
+a trimmed copy of its Schema **and** give it an explicit `selection`:
+
+```typescript
+const SchemaUserPublic = {
+  ...SchemaUser,
+  fields: { id: SchemaUser.fields.id, name: SchemaUser.fields.name },
+};
+
+allowedReadJoins: [
+  buildRelation(SchemaAgent, 'userId', SchemaUserPublic, 'id', {
+    unique: true,
+    selection: 'id, name',   // not redundant — see below
+  }),
+],
+```
+
+Every read surface validates against that schema — `selection`, `filters`, `conditions`,
+`orderBy`, aggregations — so `email` becomes `400 Unknown field` everywhere, not just in the
+projection. The explicit `selection` matters because a relation left at the default `'*'` emits
+a literal `SELECT *` when the target declares no `readExclude`: the extra columns are then
+dropped only by the response serializer, and are still present on the programmatic
+`sqlApi.search()` path.
+
+Full rationale, and the alternatives that were rejected, in
+[ADR 0010](./docs/adr/0010-joins-do-not-run-route-guards.md).
+
 ### Request limits
 
 Two hard caps bound how much work a single request can trigger (defense against accidental or
@@ -439,11 +478,14 @@ capped — they run your own trusted code.
 
 ### Write whitelist
 
-Insert/update/bulk-upsert bodies reject **unknown properties** (`additionalProperties: false`):
-only columns present in the generated Schema (as narrowed by `schemaOverrides` /
-`excludeFromCreation`) can be written. An unexpected field is a `400`, never a silently-written
-column — the Schema is the write whitelist. Trim the generated Schema (or use `excludeFromCreation`)
-to keep sensitive columns out of it.
+Insert/update/bulk-upsert bodies are `additionalProperties: false`: only columns present in the
+generated Schema (as narrowed by `schemaOverrides` / `excludeFromCreation`) can be written. The
+Schema is the write whitelist. Trim the generated Schema (or use `excludeFromCreation`) to keep
+sensitive columns out of it.
+
+An unexpected field is **stripped, not rejected**: Fastify runs Ajv with `removeAdditional: true`,
+so the request succeeds and the column is simply never written. Mass assignment is prevented
+either way, but do not expect a `400` to tell a client its extra field was ignored.
 
 ### Field-level update rules are product logic — use the hooks
 
@@ -543,12 +585,12 @@ Search with filters, advanced conditions, pagination, ordering, joins, and aggre
 }
 ```
 
-- **`filters`** — equality-based, flat key/value. Supports schema fields + `extraFilters`.
+- **`filters`** — equality-based, flat key/value. Supports schema fields, `extraFilters` and computed fields. A key that is none of those is a `400 Unknown filter field: <key>` — a mistyped filter must never come back as a wider result set. An explicit `null` filters by `IS NULL`; `undefined` means "not supplied" and is ignored.
 - **`conditions`** — array of `{ field, method, params }`. Methods: `isEqual`, `isNotEqual`, `isGreater`, `isGreaterOrEqual`, `isLess`, `isLessOrEqual`, `isLike`, `isILike`, `isIn`, `isNotIn`, `isBetween`, `isNotBetween`, `isNull`, `isNotNull`.
 - **`joinMustExist`** — EXISTS-based filter: "main rows where at least one related row matches". Accepts `{ filters, conditions }` (both optional). Aliases must come from `allowedReadJoins` declarations with `unique: false`.
 - **`joinMultiple`** — fetches related child rows in a side query. Accepts `{ filters, conditions, selection }`. Same `unique: false` aliases.
 - **`joinGroup`** — aggregations on the related table. Supports `sum`, `min`, `max`, `avg`, `count`, `distinctCount`, and optional `by` for GROUP BY (a schema field name or a computed-field name declared on the join table — e.g. for date bucketing declare a computed using `db.dateTrunc('month', qiCol('orderDate'))`). Accepts `{ filters, conditions }`. Same `unique: false` aliases.
-- **`joinLeft`** — embeds an N:1 parent. Real `LEFT JOIN` is added on demand (only when the request has `filters`/`conditions` on the parent or uses 2-parti `orderBy` on this alias). Aliases must be declared with `unique: true`. Accepts `{ filters, conditions, selection }`.
+- **`joinLeft`** — embeds an N:1 parent. Real `LEFT JOIN` is added on demand (only when the request has `filters`/`conditions` on the parent or uses 2-parti `orderBy` on this alias). Aliases must be declared with `unique: true`. Accepts `{ filters, conditions, selection }`. Its `filters` accept schema and computed fields only: the parent's `extraFilters` need an alias-aware `extendedCondition`, so they are rejected with a `400` here instead of being silently ignored — use `joinMustExist` on the same relation when you need one.
 
 **Dot-notation in `orderBy` and `conditions`**:
 

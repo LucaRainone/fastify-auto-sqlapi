@@ -160,6 +160,8 @@ export function renderAgentManifestMd(manifest: AgentManifest): string {
     'serverGenerated fields: omit on insert (values from client are ignored).',
     'readJoins aliases: `1:N` → joinMustExist/joinMultiple/joinGroup; `N:1` → joinLeft.',
     'writeJoins aliases: keys for `secondaries`/`deletions` in writes.',
+    'filters: unknown keys are rejected (400), never ignored. extraFilters do not apply ' +
+      'under joinLeft — use joinMustExist on the same relation.',
     '',
   ];
 

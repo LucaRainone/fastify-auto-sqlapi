@@ -24,6 +24,7 @@ not by editing history.
 | [0007](./0007-explicit-table-generation.md) | Table generation is explicit — `--all` is a migration helper, not the default |
 | [0008](./0008-agent-client-interface.md) | Agent client interface: static grammar + runtime manifest |
 | [0009](./0009-schema-exclusion-config-blacklist.md) | Schema exclusion is a config blacklist — excluded schemas are removed as orphans |
+| [0010](./0010-joins-do-not-run-route-guards.md) | A declared join is a read grant — joins do not run the target table's route guards |
 
 ## When to write one
 

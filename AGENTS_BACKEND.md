@@ -367,6 +367,23 @@ buildRelation(mainSchema, mainField, joinSchema, joinField, options?)
 
 **When to declare an explicit `alias`**: only when (a) you join the same table multiple times in the same `allowedReadJoins`/`allowedWriteJoins`, or (b) you want a friendlier name in the public API surface than the SQL table name (e.g. `'orders'` instead of `'customer_order'`). Otherwise omit it — the default is `joinSchema.tableName`.
 
+**⚠️ A relation in `allowedReadJoins` is a read grant on the target table.** The join runs inside the query of the *host* table's route, so the target's `onRequests` never fire and its `operations` whitelist does not apply — a table with `operations: []` is still fully readable through any relation pointing at it. What does cross a join: `readExclude`, `tenantScope`, and the schema the relation was declared with.
+
+To expose a table broadly but keep some of its columns narrow, declare the relation against a **trimmed copy of the Schema** and give it an explicit `selection`:
+
+```typescript
+const SchemaUserPublic = {
+  ...SchemaUser,
+  fields: { id: SchemaUser.fields.id, name: SchemaUser.fields.name },
+};
+
+allowedReadJoins: [
+  buildRelation(SchemaAgent, 'userId', SchemaUserPublic, 'id', { unique: true, selection: 'id, name' }),
+],
+```
+
+Every read surface validates against that schema — `selection`, `filters`, `conditions`, `orderBy`, aggregations — so a field outside it is `400 Unknown field` everywhere, not just in the projection. Do not skip the explicit `selection`: a relation left at the default `'*'` emits a literal `SELECT *` when the target has no `readExclude`, and the extra columns are then removed only by the response serializer — they still reach a caller of `sqlApi.search()`. See [ADR 0010](./docs/adr/0010-joins-do-not-run-route-guards.md).
+
 **Choosing `unique`**: if `joinField` is the PK (or part of the composite PK) of `joinSchema`, the relation is N:1 — you almost certainly want `unique: true` so the alias is usable in `joinLeft`.
 
 **Owned child tables (translations, `*_info` details): use a writeJoin, not a standalone table.** A table that only exists as a child of a parent — e.g. `product_info` with composite PK `(product_id, lang)` — should be an `allowedWriteJoins` on the parent, not its own `DbTables` entry. The engine auto-fills the FK (`product_id`); add it to `upsertMap` (conflict key = the composite PK) to upsert children passing only their own fields. Avoids redundant endpoints/validators.
@@ -430,6 +447,10 @@ export const TableCustomer = defineTable({
 ```
 
 `extraFilters` accepts either a `Type.Object({...})` or a plain `Record<string, TSchema>`. Extra filter fields appear in Swagger but are NOT auto-applied as `WHERE col = value` — they are handled exclusively by the `extendedCondition` callback. The `filters` parameter in the callback is fully typed with autocomplete for all schema fields + extra filter keys.
+
+**Not available on `joinLeft`.** `extendedCondition` writes its own column references, which cannot be qualified with the `LEFT JOIN` alias the parent gets there, so `buildLeftJoinClauses` handles schema and computed fields only. The generated body schema does not advertise the parent's `extraFilters` under `joinLeft.<alias>.filters`, and sending one is a `400` rather than a silent no-op. Use `joinMustExist` on the same relation when you need an extra filter on the parent.
+
+**Unknown filter keys are a `400`** (`Unknown filter field: <key>`), on the main table and on every join. A filter that does not match a schema field, an `extraFilters` key or a computed field is rejected instead of dropped: silently ignoring it would return *more* rows than the caller asked for. The check lives in the engine, so it applies to `sqlApi.search()` too, and it runs before any query — the outcome never depends on whether the main query matched rows.
 
 ---
 
@@ -777,7 +798,7 @@ Tables without `tenantScope` are unaffected — no filtering regardless of `getT
 - **All fields Optional in response**: `RETURNING *` may return any subset. Response schemas use `Type.Partial`.
 - **Nullable columns use `Nullable(T)` (type-array form)**: the generator emits `Type.Optional(Nullable(T))` for nullable columns — `Nullable` (exported by the package) produces `{ type: ['integer', 'null'] }`. Do NOT replace it with `Type.Union([T, Type.Null()])`: under Fastify's default Ajv `coerceTypes` a union corrupts values through its branches (`null` → `0` with the Null branch last, `0`/`""` → `null` with it first), while the type array validates and serializes NULL correctly. A bare `Type.Optional(T)` is also wrong: NULL serializes as `0`/`""`. In `filters`, an explicit `null` on a schema field builds `WHERE col IS NULL`.
 - **`excludeFromCreation`**: **IMPORTANT** — auto-increment PKs (e.g. `id` serial/auto_increment) MUST be listed here, otherwise INSERT will try to send them and fail. The CLI auto-detects this and adds it by default. Also useful for `createdAt`/`updatedAt` columns managed by DB defaults or hooks. It strips **client-supplied** values only: the payload is sanitized before `beforeInsert` runs, so a value the hook assigns to an excluded field (e.g. a server-generated TEXT id) DOES reach the INSERT. Same for the engine's FK auto-fill on secondaries — an excluded FK column does not suppress it. It is an **ergonomics tool for creation, NOT a field-level security mechanism**: it does not apply to updates — every Schema field is updatable by default, by design. Field-level update rules (`isAdmin`, roles, owner/tenant columns, state fields) are product logic: enforce them in `beforeUpdate` (silent strip) or `validate` (loud 400), or move the privileged transition to a dedicated endpoint and keep it off the auto routes via `operations`.
-- **`readExclude`**: fields hidden from every read — not projected by search/get, omitted from read response schemas and from this table's default (`*`) join selection when it is a join target. Referencing one from `filters`, `conditions`, `orderBy`, `joinGroup` aggregations or an explicit join `selection` returns 400: hiding a field from output while allowing it to be filtered would leak its value by bisection. **Writes are unaffected** — insert/update/bulk still accept the field, so a column can be writable but never readable (password hash, access token). Primary keys cannot be excluded. Complementary to trimming the Schema, which removes the column from reads *and* writes.
+- **`readExclude`**: fields hidden from every read — not projected by search/get, omitted from read response schemas and from this table's default (`*`) join selection when it is a join target. Referencing one from `filters`, `conditions`, `orderBy`, `joinGroup` aggregations or an explicit join `selection` returns 400: hiding a field from output while allowing it to be filtered would leak its value by bisection. **Writes are unaffected** — insert/update/bulk still accept the field, so a column can be writable but never readable (password hash, access token). Primary keys cannot be excluded. Complementary to trimming the Schema, which removes the column from reads *and* writes. It is **per table and static**: a column hidden here is hidden from every caller, including admins. To keep a column readable on the table's own routes but not through a relation, trim the Schema the *relation* is declared with instead — see the read-grant warning under [buildRelation](#buildrelation-signature).
 - **`upsertMap`**: when present for a schema, INSERT becomes upsert. PostgreSQL: `ON CONFLICT (...) DO UPDATE`. MySQL/MariaDB: `ON DUPLICATE KEY UPDATE`. Applies to both main and secondary tables.
 - **`schemaOverrides`**: override auto-generated schema fields with stricter TypeBox types (e.g. `{ email: Type.String({ format: 'email' }) }`). Overrides are merged into the body schema for insert, update, and bulk-upsert. The original Schema file is never modified. In updates, overridden fields are still wrapped in Optional (validates only when present). Overrides appear in Swagger.
 - **Validation receives camelCase**: `validate` receives the original camelCase record (as sent by the client) and secondaries. Field names match the schema definition, with full TypeScript inference (`main.startDate`, not `main.start_date`). It returns `ValidationError[]` — tuples of `[field, code]` or `[field, code, message]`. If any errors are returned, the request is rejected with 400 before hooks or SQL execute.

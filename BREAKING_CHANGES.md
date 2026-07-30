@@ -380,3 +380,78 @@ endpoints previously behaved correctly for you — they are now gone and you mus
 - **First PK column is truly unique on its own?** Then the composite declaration was
   redundant: declare `primary: 'id'` (single) and keep the second column as a plain field —
   every by-id operation comes back.
+
+---
+
+# Breaking Change — unknown filter keys are rejected
+
+`filters` keys that match nothing are now a `400`, on the main table and on every join family.
+Previously they were dropped without a word.
+
+## Why this changed
+
+The engine only ever visited filter keys matching a schema field, an `extraFilters` entry or a
+computed field. Anything else — a typo, a renamed column, a field that exists on the table but
+not on the trimmed Schema a relation was declared with — was never looked at, and the query ran
+as if the filter had not been sent.
+
+That fails in the dangerous direction. A rejected filter returns *more* rows than the caller
+asked for, and nothing in the response says so; in an application where filters are also how
+visibility is narrowed, a typo becomes a data exposure. It was also the odd one out: an unknown
+field in `selection`, `conditions`, `orderBy` or a `joinGroup` aggregation has always been a
+400.
+
+## What changed
+
+| Request | Before | After |
+|---|---|---|
+| `filters: { nosuchfield: 'x' }` | `200`, filter ignored | `400 Unknown filter field: nosuchfield` |
+| `joinMultiple.<alias>.filters: { nosuchfield: 1 }` | `200`, filter ignored | `400 Unknown filter field: nosuchfield` |
+| `joinLeft.<alias>.filters: { <extraFilter> }` | `200`, filter ignored | `400 Filter '<key>' is an extraFilter: …` |
+| `filters: { knownField: undefined }` | ignored | ignored (unchanged) |
+| `filters: { knownField: null }` | `IS NULL` | `IS NULL` (unchanged) |
+
+Two related fixes ship with it:
+
+- The check runs in the engine, not in the route schema, so `sqlApi.search()` behaves the same
+  as the HTTP routes. (A closed `additionalProperties: false` schema would not have worked:
+  Fastify runs Ajv with `removeAdditional: true`, so it would have *stripped* the key and
+  reproduced the same silent behaviour one layer up.)
+- Join filters are validated **before any query runs**. They used to be validated inside the
+  side query, which is skipped entirely when the main result set is empty — so the same request
+  answered 400 or 200 depending on the data it matched.
+
+## Who is affected
+
+Callers that send filter keys the target table does not declare. Over-sending is the common
+case: a frontend that spreads a whole form state into `filters`, or reuses one filter object
+across two tables.
+
+## Migration
+
+Send only keys the table declares. `GET /agent/manifest` and the Swagger body schema both list
+them per table (schema fields + `extraFilters` + computed fields).
+
+For a form-state object, filter it before sending rather than relying on the server to ignore
+the extras:
+
+```typescript
+const ALLOWED = ['name', 'status', 'createdFrom'] as const;
+const filters = Object.fromEntries(
+  Object.entries(formState).filter(([k, v]) => ALLOWED.includes(k) && v !== '')
+);
+```
+
+Passing `undefined` for an absent value is still safe and needs no filtering: only keys with a
+defined value are validated.
+
+## joinLeft and extraFilters
+
+`joinLeft.<alias>.filters` used to advertise the parent table's `extraFilters` in Swagger and
+accept them at runtime, applying nothing: `buildLeftJoinClauses` builds its condition inline and
+never runs the target's `extendedCondition`, whose column references cannot be qualified with
+the `LEFT JOIN` alias the parent gets there. They are no longer advertised, and sending one
+returns a `400` naming the reason.
+
+Use `joinMustExist` on the same relation when you need an extra filter on the parent — that path
+delegates to the target's own `filters()` and does run `extendedCondition`.

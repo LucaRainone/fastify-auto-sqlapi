@@ -9,7 +9,39 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ## [Unreleased]
 
+### Changed
+
+- **Unknown `filters` keys are now rejected with `400 Unknown filter field: <key>`** instead
+  of being dropped in silence — on the main table and on every join family. The engine only
+  ever visited keys matching a schema field, an `extraFilters` entry or a computed field, so a
+  mistyped filter name came back as an unfiltered (wider) result set with no error: the
+  dangerous direction to fail in, and inconsistent with `selection`, `conditions`, `orderBy`
+  and aggregations, which have always answered 400. The check lives in the engine, so it
+  covers `sqlApi.search()` as well as the HTTP routes. `undefined` values still mean "filter
+  not supplied" and are ignored; an explicit `null` still filters by `IS NULL`. See
+  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--unknown-filter-keys-are-rejected).
+- **`joinLeft.<alias>.filters` no longer advertises the parent's `extraFilters`.** They were
+  present in the generated body schema and in Swagger, but `buildLeftJoinClauses` never runs
+  the target's `extendedCondition` (its column references cannot be qualified with the
+  `LEFT JOIN` alias), so the filter applied nothing. They are now rejected with a `400` naming
+  the reason and pointing at `joinMustExist` on the same relation.
+
+### Fixed
+
+- **Join filter validation no longer depends on the main result set.** `joinMultiple` /
+  `joinLeft` / `joinGroup` skip their side query entirely when the main query matched no rows,
+  so filter-key and `readExclude` checks on the join were skipped with it — the same request
+  answered 400 or 200 depending on the data. Join filters are now validated up front, before
+  any query runs.
+
 ### Added
+
+- **[ADR 0010](./docs/adr/0010-joins-do-not-run-route-guards.md)** — a declared join is a read
+  grant: `onRequests` and `operations` are route-level and do not follow a join, so
+  `allowedReadJoins` grants read access to the target table under the *host* table's
+  authorization. Documents what does cross a join (`readExclude`, `tenantScope`, the relation's
+  schema), the trimmed-schema + explicit-`selection` pattern for column-level narrowing, and
+  the rejected alternatives (`canBeJoined` hook, `selection` as a ceiling).
 
 - **`excludeTables` config option** — blacklist for `sqlapi-generate-schema`. Tables
   listed in `excludeTables` in `sqlapi.config.ts` (exact names or `*` globs, e.g.
