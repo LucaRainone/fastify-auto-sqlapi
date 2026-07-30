@@ -1,14 +1,63 @@
 # fastify-auto-sqlapi
 
-Automatic CRUD API generation from PostgreSQL, MySQL, and MariaDB tables for [Fastify](https://fastify.dev/). No ORM, no magic — just raw SQL, with TypeBox validation and Swagger docs out of the box.
+**Your database already knows its tables, columns and relations. This plugin turns that knowledge into a complete REST API inside your [Fastify](https://fastify.dev/) app.**
 
-Point it at your database, and get a full REST API with search, advanced conditions, pagination, joins, aggregations, bulk operations, multi-tenant isolation, validation, and hooks.
+Two CLI commands introspect PostgreSQL / MySQL / MariaDB and generate typed schemas; one `register()` call turns each table *you choose to expose* into seven endpoints: search with filters, advanced conditions, relation joins and aggregations; validated writes with nested child records; bulk upsert/delete; multi-tenant isolation; Swagger docs. Related tables don't need endpoints of their own — reads reach them through joins, writes through nested children — so a whole subgraph can live behind a single exposed table. What's left to write is what makes your product yours — auth, business rules, custom logic — as plain TypeScript hooks next to your other routes.
+
+One request, to show the point — *"active customers with over 500 total in completed orders, with their order stats, biggest spenders first"*:
+
+```jsonc
+// POST /api/search/customer?orderBy=orders.sum.total DESC&page=1&itemsPerPage=20
+{
+  "filters": { "status": "active" },
+  "joinGroup": {
+    "orders": {
+      "filters": { "status": "completed" },
+      "aggregations": { "sum": ["total"], "count": ["id"] }
+    }
+  },
+  "conditions": [{ "field": "orders.sum.total", "method": "isGreater", "params": [500] }]
+}
+```
+
+Under the hood this is a fixed, request-shaped number of set-based queries — the main select plus one per requested join alias (EXISTS clauses and correlated subqueries ride inside them), **never one per returned row**. There are no lazy relations to accidentally loop over: the N+1 problem is structurally absent, not something you remember to avoid.
+
+Writes read the same way — *"sync these clients and their tags: update the ones that exist, insert the missing ones, don't duplicate a tag"*:
+
+```jsonc
+// PUT /api/bulk/customer — all mains in one SQL; child FKs auto-filled from each parent
+[
+  { "main": { "email": "mario@acme.it", "name": "Mario" },
+    "secondaries": { "tags": [{ "tag": "vip" }, { "tag": "newsletter" }] } },
+  { "main": { "email": "luigi@acme.it", "name": "Luigi" } }
+]
+// → 200 [{ "main": { "id": 1 }, "secondaries": { "tags": [{ "id": 10 }, { "id": 11 }] } },
+//        { "main": { "id": 2 } }]
+```
+
+Conflict keys are declared server-side (`upsertMap`: here customer on `email`, tag on `(customerId, tag)`), so re-sending the same payload updates rows instead of duplicating them — client-side sync without hand-written diffing.
+
+And multi-tenancy is one plugin option (`getTenantId: (req) => req.user.organizationId`), enforced on reads *and* writes with zero code in handlers. Rows of other tenants are simply invisible (`404`); here a caller in org B tries to re-point one of their own orders to a customer belonging to org A:
+
+```jsonc
+// PUT /api/rest/order — order 7 is mine, customer 41 belongs to another tenant
+{ "main": { "id": 7, "customerId": 41 } }
+// → 403 Forbidden — cross-tenant references are rejected server-side
+```
+
+No endpoint written by hand, no resolvers, no query language on the server — and these requests are schema-validated, Swagger-documented, size-capped and tenant-isolated like every other one.
+
+## Not an ORM, not GraphQL — a third thing
+
+- **Not an ORM.** An ORM is a library *your* code uses to talk to the database — you still hand-write every endpoint on top of it. This plugin generates the endpoints themselves. And there is no ORM underneath either: no models, no migrations, no second schema to keep in sync. The database is the single source of truth (the CLI reads it from `information_schema`), and every request runs as plain parameterized SQL you can read with `debug: true`.
+- **Not GraphQL.** GraphQL buys client-driven flexibility with a heavy toolchain: a schema layer, hand-written resolvers (and their N+1 traps), mutations written one by one, client libraries, and query-cost analysis to stop hostile requests. This plugin covers what most projects actually reach for GraphQL for — filter, paginate, join related data, aggregate, in one round trip — with a fixed JSON grammar over plain REST: curl-able, Swagger-documented, bounded by design (join depth is fixed, page and bulk sizes are capped). The write side — nested children, upserts, bulk — is generated too, which GraphQL never gives you for free. What you give up: arbitrarily deep nesting, per-field selection on the main table, subscriptions. If you need those, you need GraphQL; most CRUD backends don't.
+- **Not a hosted black box.** PostgREST / Hasura / Supabase give you an instant API as a separate service, configured from the outside. This is a plugin inside your own app: hooks, validation and auth are TypeScript functions in your codebase, and you can always drop down to `app.sqlApi.*` or raw SQL in a custom route — same engine, no lock-in.
 
 ## Features
 
+- **Zero boilerplate** — 7 endpoints per exposed table; related tables can stay behind joins and nested writes instead of getting endpoints of their own
+- **No ORM** — raw SQL via `pg` + parameterized queries; set-based joins, so no N+1 by construction
 - **Agent-ready** — `AGENTS.md` and the ADRs ship *inside* the npm package, so a coding agent can configure the library without reading the source or guessing intent
-- **Zero boilerplate** — define your tables, get 7 endpoints each
-- **No ORM** — raw SQL via `pg` + parameterized queries
 - **TypeBox validation** — request/response schemas auto-generated from your DB
 - **Joins** — four explicit families (`joinMustExist`, `joinMultiple`, `joinGroup`, `joinLeft`) with alias support
 - **Computed fields** — declare virtual fields as SQL expressions in `defineTable`; usable like schema fields in filters/orderBy/conditions, and opt-in projected in the response via `selectComputed`. Covers JSON extraction, derived columns, dialect-aware date bucketing
@@ -24,37 +73,6 @@ Point it at your database, and get a full REST API with search, advanced conditi
 > **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)** for migration guides. If you use `computedFields`
 > with bound values, read the 0.1.6 entry — earlier versions could return wrong rows.
 
-
-## Working with coding agents
-
-The library is documented for two readers. Humans get this README; agents get task-oriented
-files that ship in the published package, so they are already on disk after `npm install`:
-
-| File                                   | Contents                                                          |
-| -------------------------------------- | ----------------------------------------------------------------- |
-| `AGENTS.md`                            | Entry point: what the library does, which file to read for what   |
-| `AGENTS_BACKEND.md`                    | `defineTable` reference, hooks, tenancy, computed fields, CLI      |
-| `AGENTS_FRONTEND.md`                   | Request/response shapes for every endpoint                        |
-| `docs/adr/`                            | Why the non-obvious behaviours are what they are                  |
-
-Point your agent at them once:
-
-> Read `node_modules/fastify-auto-sqlapi/AGENTS.md` before touching anything under `src/db/`.
-
-Three design choices make the generated code predictable enough for an agent to write it
-unsupervised:
-
-- **Configuration is declarative and local.** A table is one `defineTable()` call — nothing to
-  wire across files, so a diff is reviewable at a glance.
-- **One naming convention.** camelCase in requests, responses, hooks and validators; the
-  mapping to DB columns is automatic. There is no second convention to remember, and no
-  layer where the agent has to guess which one applies.
-- **Errors are machine-readable.** A 400 carries `fields: [{ path, code, message }]`, so a
-  failing request tells the agent exactly what to fix instead of requiring a guess.
-
-The ADRs matter more than they look: they answer the "why is it like this?" questions
-(open-by-default, non-transactional bulk, always-updatable fields) that an agent would
-otherwise resolve by inventing a workaround — or by proposing to change intentional behaviour.
 
 ## Quick Start
 
@@ -167,6 +185,37 @@ That's it. For a table called `customer`, you now have:
 | `POST` | `/api/bulk/customer/delete` | Bulk delete (array of PKs) |
 
 > **Note:** Search uses `POST` because filters are passed as JSON in the request body.
+
+## Working with coding agents
+
+The library is documented for two readers. Humans get this README; agents get task-oriented
+files that ship in the published package, so they are already on disk after `npm install`:
+
+| File                                   | Contents                                                          |
+| -------------------------------------- | ----------------------------------------------------------------- |
+| `AGENTS.md`                            | Entry point: what the library does, which file to read for what   |
+| `AGENTS_BACKEND.md`                    | `defineTable` reference, hooks, tenancy, computed fields, CLI      |
+| `AGENTS_FRONTEND.md`                   | Request/response shapes for every endpoint                        |
+| `docs/adr/`                            | Why the non-obvious behaviours are what they are                  |
+
+Point your agent at them once:
+
+> Read `node_modules/fastify-auto-sqlapi/AGENTS.md` before touching anything under `src/db/`.
+
+Three design choices make the generated code predictable enough for an agent to write it
+unsupervised:
+
+- **Configuration is declarative and local.** A table is one `defineTable()` call — nothing to
+  wire across files, so a diff is reviewable at a glance.
+- **One naming convention.** camelCase in requests, responses, hooks and validators; the
+  mapping to DB columns is automatic. There is no second convention to remember, and no
+  layer where the agent has to guess which one applies.
+- **Errors are machine-readable.** A 400 carries `fields: [{ path, code, message }]`, so a
+  failing request tells the agent exactly what to fix instead of requiring a guess.
+
+The ADRs matter more than they look: they answer the "why is it like this?" questions
+(open-by-default, non-transactional bulk, always-updatable fields) that an agent would
+otherwise resolve by inventing a workaround — or by proposing to change intentional behaviour.
 
 ## Table Configuration
 
