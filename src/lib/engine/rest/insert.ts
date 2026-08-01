@@ -56,7 +56,9 @@ export async function insertEngine(params: InsertParams): Promise<InsertResult> 
     let secondaryResults: Record<string, Record<string, unknown>[]> | undefined;
     if (secondaries && Object.keys(secondaries).length > 0) {
       const mainForFK = { ...inputRecord, ...mainPkCamel };
-      secondaryResults = await processSecondaries(tx, tableConf, dbTables, mainForFK, secondaries);
+      secondaryResults = await processSecondaries(
+        { db: tx, tableConf, dbTables, mainRecord: mainForFK, tenant }, secondaries
+      );
     }
 
     // 5. afterInsert hook (camelCase — input merged with generated PK)

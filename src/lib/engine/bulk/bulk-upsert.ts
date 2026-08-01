@@ -37,7 +37,7 @@ async function finalizeUpsertedItem(
   inputMain: Record<string, unknown>,
   pkRow: Record<string, unknown>
 ): Promise<BulkUpsertResult> {
-  const { db, tableConf, dbTables, request } = params;
+  const { db, tableConf, dbTables, request, tenant } = params;
 
   // pkRow comes from SQL RETURNING or mysql insertId synthesis — keys are DB column names;
   // camelcaseObject maps them back to schema fields (full composite PK).
@@ -48,12 +48,16 @@ async function finalizeUpsertedItem(
   const mainForFK = { ...inputMain, ...mainPkCamel };
 
   if (item.secondaries && Object.keys(item.secondaries).length > 0) {
-    const sec = await processSecondaries(db, tableConf, dbTables, mainForFK, item.secondaries);
+    const sec = await processSecondaries(
+      { db, tableConf, dbTables, mainRecord: mainForFK, tenant }, item.secondaries
+    );
     if (Object.keys(sec).length > 0) result.secondaries = sec;
   }
 
   if (item.deletions && Object.keys(item.deletions).length > 0) {
-    const del = await processDeletions(db, tableConf, mainForFK, item.deletions);
+    const del = await processDeletions(
+      { db, tableConf, dbTables, mainRecord: mainForFK, tenant }, item.deletions
+    );
     if (Object.keys(del).length > 0) result.deletions = del;
   }
 

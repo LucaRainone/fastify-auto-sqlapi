@@ -11,6 +11,7 @@ import { ConditionBuilder, Expression } from 'node-condition-builder';
 import type { QueryClient } from '../../db.js';
 import type { QueryParams } from '../query-params.js';
 import { ALLOWED_SET } from '../../condition-methods.js';
+import { tenantForTable, buildTenantRowGuard } from '../../tenant.js';
 import { err400, validateSchemaField } from './fields.js';
 import { requireJoin, extractJoinRefs, subqueryAlias } from './joins.js';
 import { buildJoinRefCondition, dispatchConditionMethod } from './conditions.js';
@@ -19,6 +20,7 @@ import type {
   ITable,
   JoinGroupRequest,
   SearchCondition,
+  TenantContext,
 } from '../../../types.js';
 
 export interface AggFn { sql: string; distinct: boolean }
@@ -40,6 +42,11 @@ export function aggExpr(fn: AggFn, qualifiedCol: string): string {
  * Correlated aggregate subquery for `<alias>.<fn>.<field>`, as an Expression carrying the
  * values of its optional filter. Markers are `?`, so whoever embeds it — a ConditionBuilder
  * or an ORDER BY list — decides the placeholder positions.
+ *
+ * The subquery carries the join table's own tenant scope, exactly as `executeJoinGroup` does
+ * for the aggregations it returns. Without it, ordering and HAVING-style filtering would count
+ * child rows of other tenants, disagreeing with the scoped `result.joinGroup` for the same
+ * alias and leaking their existence.
  */
 export function buildAggOrderExpr(
   db: QueryClient,
@@ -48,7 +55,8 @@ export function buildAggOrderExpr(
   alias: string,
   fn: string,
   field: string,
-  joinGroup: Record<string, JoinGroupRequest> | undefined
+  joinGroup: Record<string, JoinGroupRequest> | undefined,
+  tenant?: TenantContext
 ): Expression {
   const aggFn = AGG_FN[fn];
   if (!aggFn) err400(`Invalid aggregation function: ${fn}`);
@@ -82,6 +90,18 @@ export function buildAggOrderExpr(
   let filterWhere = '';
   let filterVals: unknown[] = [];
   const joinTableConf = dbTables[joinSchema.tableName];
+
+  // Tenant scope first: it is emitted before the request's own filter, so its values must be
+  // bound in that order too.
+  const guard = buildTenantRowGuard(db, tenantForTable(tenant, joinTableConf), subAlias);
+  let tenantWhere = '';
+  const tenantVals: unknown[] = [];
+  if (guard) {
+    const rendered = guard.toExpression();
+    tenantWhere = ` AND ${rendered.value}`;
+    tenantVals.push(...rendered.values);
+  }
+
   if (groupReq.filters || groupReq.conditions?.length) {
     const cb = buildJoinRefCondition(
       joinTableConf,
@@ -98,9 +118,9 @@ export function buildAggOrderExpr(
   }
 
   const qualifiedCol = `${subRef}.${db.qi(fieldCol)}`;
-  const expr = `COALESCE((SELECT ${aggExpr(aggFn, qualifiedCol)} FROM ${refs.joinTable} AS ${subRef} WHERE ${subRef}.${refs.fkCol} = ${refs.mainTable}.${refs.mainCol}${filterWhere}), 0)`;
+  const expr = `COALESCE((SELECT ${aggExpr(aggFn, qualifiedCol)} FROM ${refs.joinTable} AS ${subRef} WHERE ${subRef}.${refs.fkCol} = ${refs.mainTable}.${refs.mainCol}${tenantWhere}${filterWhere}), 0)`;
 
-  return new Expression(expr, filterVals);
+  return new Expression(expr, [...tenantVals, ...filterVals]);
 }
 
 /** HAVING-style conditions: the dotted `<alias>.<fn>.<field>` entries of `conditions`. */
@@ -110,7 +130,8 @@ export function appendAggConditions(
   db: QueryClient,
   dbTables: DbTables,
   tableConf: ITable,
-  joinGroup: Record<string, JoinGroupRequest> | undefined
+  joinGroup: Record<string, JoinGroupRequest> | undefined,
+  tenant?: TenantContext
 ): string {
   let where = '';
 
@@ -129,7 +150,7 @@ export function appendAggConditions(
 
     // The aggregate carries the values of its own filter; passing it as the left-hand side
     // lets the ConditionBuilder place those and the compared value in one step.
-    const expr = buildAggOrderExpr(db, dbTables, tableConf, alias, fn, field, joinGroup);
+    const expr = buildAggOrderExpr(db, dbTables, tableConf, alias, fn, field, joinGroup, tenant);
     const tmpCb = new ConditionBuilder('AND', db.cbDialect);
     dispatchConditionMethod(tmpCb, c.method, expr, c.params);
     where += ` AND ${params.emitCondition(tmpCb, db)}`;

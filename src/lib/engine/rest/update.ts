@@ -118,14 +118,18 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     let secondaryResults: Record<string, Record<string, unknown>[]> | undefined;
     if (secondaries && Object.keys(secondaries).length > 0) {
       const mainForFK = { ...inputRecord };
-      secondaryResults = await processSecondaries(tx, tableConf, dbTables, mainForFK, secondaries);
+      secondaryResults = await processSecondaries(
+        { db: tx, tableConf, dbTables, mainRecord: mainForFK, tenant }, secondaries
+      );
     }
 
     // 9. Deletions (FK auto-fill from main like secondaries)
     let deletionResults: Record<string, Record<string, unknown>[]> | undefined;
     if (deletions && Object.keys(deletions).length > 0) {
       const mainForFK = { ...inputRecord };
-      deletionResults = await processDeletions(tx, tableConf, mainForFK, deletions);
+      deletionResults = await processDeletions(
+        { db: tx, tableConf, dbTables, mainRecord: mainForFK, tenant }, deletions
+      );
     }
 
     // 10. afterUpdate hook (inside the transaction: throwing rolls everything back)

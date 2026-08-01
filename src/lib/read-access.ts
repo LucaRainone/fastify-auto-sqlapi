@@ -12,6 +12,30 @@ import { httpError } from './errors.js';
  * a field can be writable but never readable (e.g. a password hash).
  */
 
+/**
+ * Own-property membership for a field map.
+ *
+ * `key in map` and `map[key]` both walk `Object.prototype`, so `constructor`, `toString`,
+ * `valueOf`, `hasOwnProperty` and `__proto__` satisfy every "is this a known field" check and
+ * reach the SQL builders, where they render as `undefined` or a column that does not exist.
+ * Every allowlist below — and every field lookup in the search engine — goes through these two
+ * helpers so an inherited name is simply unknown.
+ */
+export function hasOwnField(
+  map: Record<string, unknown> | undefined,
+  key: string
+): boolean {
+  return map !== undefined && Object.hasOwn(map, key);
+}
+
+/** The value at `key`, but only when it is the map's own property. */
+export function ownField<T>(
+  map: Record<string, T> | undefined,
+  key: string
+): T | undefined {
+  return map !== undefined && Object.hasOwn(map, key) ? map[key] : undefined;
+}
+
 function isReadExcluded(tableConf: ITable | undefined, field: string): boolean {
   return tableConf?.readExclude?.includes(field) ?? false;
 }
@@ -67,9 +91,9 @@ export function assertKnownFilterKeys(
     // `undefined` means "filter not supplied" everywhere else in the engine; an absent
     // filter cannot be a wrong one. `null` does filter (IS NULL) and is validated.
     if (value === undefined) continue;
-    if (key in schema.fields) continue;
-    if (tableConf?.computedFields?.[key]) continue;
-    if (tableConf?.extraFilters && key in tableConf.extraFilters) {
+    if (hasOwnField(schema.fields, key)) continue;
+    if (ownField(tableConf?.computedFields, key)) continue;
+    if (hasOwnField(tableConf?.extraFilters, key)) {
       if (allowExtraFilters) continue;
       throw httpError(
         400,

@@ -12,6 +12,8 @@ import {
   assertReadable,
   readableSelectColumns,
   explicitSelectColumns,
+  hasOwnField,
+  ownField,
 } from '../../read-access.js';
 import type {
   ITable,
@@ -28,7 +30,7 @@ export function validateSchemaField(
   schema: SchemaDefinition,
   tableConf?: ITable
 ): string {
-  if (!(field in schema.fields)) {
+  if (!hasOwnField(schema.fields, field)) {
     const err = new Error(`Unknown field: ${field}`) as Error & { statusCode: number };
     err.statusCode = 400;
     throw err;
@@ -58,7 +60,7 @@ function buildComputedContext(
   return {
     db,
     qiCol(field: string, opts?: { qualifier?: string }): string {
-      if (!(field in schema.fields)) {
+      if (!hasOwnField(schema.fields, field)) {
         err400(`Unknown field referenced by computed expression: ${field}`);
       }
       const col = db.qi(schema.col(field));
@@ -87,7 +89,7 @@ export function resolveFieldRef(
   db: QueryClient,
   alias?: string
 ): ResolvedFieldRef {
-  if (field in schema.fields) {
+  if (hasOwnField(schema.fields, field)) {
     assertReadable(tableConf, field);
     const col = db.qi(schema.col(field));
     // Qualified with the alias or the owning table — never bare, so the reference
@@ -96,7 +98,7 @@ export function resolveFieldRef(
     return { expr, computed: false };
   }
 
-  const fn = tableConf?.computedFields?.[field];
+  const fn = ownField(tableConf?.computedFields, field);
   if (fn) {
     const ctx = buildComputedContext(db, schema, alias);
     return { expr: computedExpression(field, fn(ctx)), computed: true };

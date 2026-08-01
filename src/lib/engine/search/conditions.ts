@@ -5,9 +5,9 @@
  * module shared with the TypeBox schema builders — the dispatch below is kept out of it so
  * that module keeps its zero dependencies.
  */
-import { ConditionBuilder, Expression, type ConditionValue } from 'node-condition-builder';
+import { ConditionBuilder, Expression } from 'node-condition-builder';
 import type { QueryClient } from '../../db.js';
-import { assertFiltersReadable } from '../../read-access.js';
+import { assertFiltersReadable, ownField } from '../../read-access.js';
 import {
   ALLOWED_SET, SINGLE_VALUE_SET, BETWEEN_SET, IN_SET, NULL_SET,
 } from '../../condition-methods.js';
@@ -18,6 +18,7 @@ import {
   resolveFieldRef,
 } from './fields.js';
 import type {
+  ComputedFieldFn,
   FilterRecord,
   ITable,
   JoinRefFilter,
@@ -25,43 +26,75 @@ import type {
   SearchCondition,
 } from '../../../types.js';
 
+/**
+ * Apply one condition method to a builder, after checking the request actually supplied the
+ * operands that method needs.
+ *
+ * `params` is optional in the request schema, so `{field, method}` with no params is a
+ * well-formed request that reaches here — reading `params[0]` off it throws a TypeError the
+ * error handler can only report as a 500. Arity is checked here rather than at the four call
+ * sites so no path can skip it.
+ */
 export function dispatchConditionMethod(
   cb: ConditionBuilder,
   method: string,
   colOrExpr: string | Expression,
-  params: unknown[]
+  params: unknown[] | undefined
 ): void {
+  if (params !== undefined && !Array.isArray(params)) {
+    err400(`Condition method '${method}': 'params' must be an array`);
+  }
+  const args = params ?? [];
+  const require = (n: number): void => {
+    if (args.length < n) {
+      err400(`Condition method '${method}' requires ${n} param(s), got ${args.length}`);
+    }
+  };
+
   if (SINGLE_VALUE_SET.has(method)) {
-    (cb[method as keyof ConditionBuilder] as Function)(colOrExpr, params[0]);
+    require(1);
+    (cb[method as keyof ConditionBuilder] as Function)(colOrExpr, args[0]);
   } else if (BETWEEN_SET.has(method)) {
-    (cb[method as keyof ConditionBuilder] as Function)(colOrExpr, params[0], params[1]);
+    require(2);
+    (cb[method as keyof ConditionBuilder] as Function)(colOrExpr, args[0], args[1]);
   } else if (IN_SET.has(method)) {
-    (cb[method as keyof ConditionBuilder] as Function)(colOrExpr, params[0]);
+    require(1);
+    // An explicit `undefined` stays a documented no-op; any other non-array would make the
+    // builder iterate a non-iterable.
+    if (args[0] !== undefined && !Array.isArray(args[0])) {
+      err400(`Condition method '${method}' requires an array as its first param`);
+    }
+    (cb[method as keyof ConditionBuilder] as Function)(colOrExpr, args[0]);
   } else if (NULL_SET.has(method)) {
     (cb[method as keyof ConditionBuilder] as Function)(colOrExpr, true);
   }
 }
 
 /**
- * Equality filters targeting the join table's *computed* fields. Plain column filters are
- * already handled by `joinTableConf.filters`, so anything not computed is skipped here.
+ * Equality filters targeting *computed* fields: `filters.<computedName>` becomes
+ * `<expr> = <value>` on the builder `tableConf.filters()` has already populated with the plain
+ * column filters. A name that is not a declared computed field is skipped — it was either
+ * handled there or rejected up front by `assertKnownFilterKeys`.
+ *
+ * `qualifier` prefixes the columns the computed expression references: the join's qualifier
+ * inside a side query, undefined on the main table (where the schema's own name is used).
  */
-function applyJoinRefComputedFilters(
+function applyComputedEqualityFilters(
   cb: ConditionBuilder,
   filters: FilterRecord,
-  joinTableConf: ITable | undefined,
-  joinSchema: SchemaDefinition,
+  computed: Record<string, ComputedFieldFn> | undefined,
+  schema: SchemaDefinition,
   db: QueryClient,
-  colQualifier: string
+  qualifier?: string
 ): void {
-  const computed = joinTableConf?.computedFields;
   if (!computed) return;
 
   for (const [name, value] of Object.entries(filters)) {
     if (value === null || value === undefined) continue;
-    const fn = computed[name];
+    const fn = ownField(computed, name);
     if (!fn) continue;
-    cb.isEqual(evaluateComputedField(name, fn, joinSchema, db, colQualifier, '', true), value);
+    const expr = evaluateComputedField(name, fn, schema, db, qualifier, '', true);
+    cb.isEqual(expr, value);
   }
 }
 
@@ -82,7 +115,7 @@ function applyJoinRefConditions(
     }
     // Computed fields resolve to an Expression carrying their own bound values, which the
     // ConditionBuilder places together with the compared value.
-    const fn = computed?.[c.field];
+    const fn = ownField(computed, c.field);
     const operand = fn
       ? evaluateComputedField(c.field, fn, joinSchema, db, colQualifier, '', true)
       : `${db.qi(colQualifier)}.${db.qi(validateSchemaField(c.field, joinSchema, joinTableConf))}`;
@@ -110,7 +143,9 @@ export function buildJoinRefCondition(
     : new ConditionBuilder('AND', db.cbDialect);
 
   if (ref.filters) {
-    applyJoinRefComputedFilters(cb, ref.filters, joinTableConf, joinSchema, db, colQualifier);
+    applyComputedEqualityFilters(
+      cb, ref.filters, joinTableConf?.computedFields, joinSchema, db, colQualifier
+    );
   }
   if (ref.conditions?.length) {
     applyJoinRefConditions(cb, ref.conditions, joinTableConf, joinSchema, db, colQualifier);
@@ -147,24 +182,14 @@ export function applyConditions(
   }
 }
 
-/**
- * Equality filters targeting computed fields: `filters.<computedName>` becomes
- * `<expr> = <value>` on the same ConditionBuilder used for schema fields, which
- * `tableConf.filters()` has already populated.
- */
+/** Computed-field equality filters on the main table. */
 export function applyComputedFilters(
   condition: ConditionBuilder,
-  filters: Record<string, unknown>,
+  filters: FilterRecord,
   tableConf: ITable,
   db: QueryClient
 ): void {
-  const computed = tableConf.computedFields;
-  if (!computed) return;
-
-  for (const [name, value] of Object.entries(filters)) {
-    if (value === null || value === undefined) continue;
-    if (!computed[name]) continue;
-    const expr = evaluateComputedField(name, computed[name], tableConf.Schema, db, undefined, '', true);
-    condition.isEqual(expr, value as ConditionValue);
-  }
+  applyComputedEqualityFilters(
+    condition, filters, tableConf.computedFields, tableConf.Schema, db
+  );
 }

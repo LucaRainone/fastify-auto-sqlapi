@@ -9,7 +9,7 @@
 import { ConditionBuilder, Expression, type ConditionValue } from 'node-condition-builder';
 import type { QueryClient } from '../../db.js';
 import type { QueryParams } from '../query-params.js';
-import { assertReadable, assertFiltersReadable } from '../../read-access.js';
+import { assertReadable, assertFiltersReadable, hasOwnField, ownField } from '../../read-access.js';
 import { ALLOWED_SET } from '../../condition-methods.js';
 import {
   err400,
@@ -24,6 +24,7 @@ import {
   requireJoin,
   extractJoinRefs,
 } from './joins.js';
+import { tenantForTable, buildTenantRowGuard } from '../../tenant.js';
 import { dispatchConditionMethod, buildJoinRefCondition } from './conditions.js';
 import { AGG_FN, aggExpr } from './aggregations.js';
 import type {
@@ -42,8 +43,12 @@ import type {
 
 // ─── joinLeft: LEFT JOIN clause builder ─────────────────────
 
-interface LeftJoinBuild {
+interface LeftJoinOnBuild {
   joinClauses: string[];
+  values: unknown[];
+}
+
+interface LeftJoinFilterBuild {
   whereExtras: string[];
   values: unknown[];
 }
@@ -69,12 +74,12 @@ function resolveJoinLeftField(
   scope: JoinLeftFieldScope
 ): Expression | null {
   const { db, alias, aliasIdent, joinSchema, computed } = scope;
-  if (field in joinSchema.fields) {
+  if (hasOwnField(joinSchema.fields, field)) {
     // Wrapped so this helper has a single return type. A value-less Expression renders
     // verbatim (see renderField), so the emitted SQL is identical to the raw identifier.
     return new Expression(`${aliasIdent}.${db.qi(joinSchema.col(field))}`);
   }
-  const fn = computed?.[field];
+  const fn = ownField(computed, field);
   if (fn) {
     // Bound values are allowed: this ConditionBuilder's SQL lands in the WHERE clause.
     return evaluateComputedField(field, fn, joinSchema, db, alias, '', true);
@@ -106,9 +111,9 @@ function applyJoinLeftConditions(
     if (!ALLOWED_SET.has(c.method)) {
       err400(`Invalid condition method: ${c.method}`);
     }
-    if (c.field in scope.joinSchema.fields) {
+    if (hasOwnField(scope.joinSchema.fields, c.field)) {
       assertReadable(dbTables[scope.joinSchema.tableName], c.field);
-    } else if (!scope.computed?.[c.field]) {
+    } else if (!ownField(scope.computed, c.field)) {
       err400(`Unknown field: ${c.field}`);
     }
     const ref = resolveJoinLeftField(c.field, scope);
@@ -116,15 +121,69 @@ function applyJoinLeftConditions(
   }
 }
 
-export function buildLeftJoinClauses(
+/**
+ * The LEFT JOIN clauses themselves, each carrying the joined table's own tenant scope.
+ *
+ * The scope belongs in the ON clause, not the WHERE. In the WHERE it would discard main rows
+ * whose parent belongs to another tenant, silently turning the LEFT JOIN into an INNER JOIN.
+ * In the ON clause a foreign parent simply fails to match and reads as NULL, which closes the
+ * oracle: the parent rows are already withheld from the response (`executeJoinLeft` scopes its
+ * own side query), so an unscoped join would let a caller filter on values it cannot see and
+ * recover them one predicate at a time.
+ *
+ * Emitted before the WHERE fragments because that is where it lands in the statement — MySQL
+ * binds `?` positionally.
+ */
+export function buildLeftJoinOnClauses(
+  db: QueryClient,
+  dbTables: DbTables,
+  tableConf: ITable,
+  aliasesNeedingJoin: Set<string>,
+  startIdx: number,
+  tenant?: TenantContext
+): LeftJoinOnBuild {
+  const joinClauses: string[] = [];
+  const values: unknown[] = [];
+  let currentIdx = startIdx;
+
+  for (const alias of aliasesNeedingJoin) {
+    const joinDef = requireJoin(tableConf, alias, true);
+    const refs = extractJoinRefs(db, tableConf, joinDef);
+    const aliasIdent = db.qi(alias);
+
+    // The guard references the join through its ALIAS: one table may be joined under several
+    // aliases, and each predicate must bind to the row this clause produced.
+    const guard = buildTenantRowGuard(
+      db,
+      tenantForTable(tenant, dbTables[joinDef.joinSchema.tableName]),
+      alias
+    );
+
+    let scoped = '';
+    if (guard) {
+      scoped = ` AND ${guard.build(currentIdx, db.ph)}`;
+      const guardValues = guard.getValues();
+      values.push(...guardValues);
+      currentIdx += guardValues.length;
+    }
+
+    joinClauses.push(
+      `LEFT JOIN ${refs.joinTable} AS ${aliasIdent} ON ${aliasIdent}.${refs.fkCol} = ${refs.mainTable}.${refs.mainCol}${scoped}`
+    );
+  }
+
+  return { joinClauses, values };
+}
+
+/** The WHERE fragments a `joinLeft` request's own filters and conditions contribute. */
+export function buildLeftJoinFilters(
   db: QueryClient,
   dbTables: DbTables,
   tableConf: ITable,
   aliasesNeedingJoin: Set<string>,
   joinLeft: Record<string, JoinFetchRequest> | undefined,
   startIdx: number
-): LeftJoinBuild {
-  const joinClauses: string[] = [];
+): LeftJoinFilterBuild {
   const whereExtras: string[] = [];
   const values: unknown[] = [];
   let currentIdx = startIdx;
@@ -132,12 +191,7 @@ export function buildLeftJoinClauses(
   for (const alias of aliasesNeedingJoin) {
     const joinDef = requireJoin(tableConf, alias, true);
     const { joinSchema } = joinDef;
-    const refs = extractJoinRefs(db, tableConf, joinDef);
     const aliasIdent = db.qi(alias);
-
-    joinClauses.push(
-      `LEFT JOIN ${refs.joinTable} AS ${aliasIdent} ON ${aliasIdent}.${refs.fkCol} = ${refs.mainTable}.${refs.mainCol}`
-    );
 
     const ref = joinLeft?.[alias];
     if (!ref || !(ref.filters || ref.conditions?.length)) continue;
@@ -170,7 +224,7 @@ export function buildLeftJoinClauses(
     }
   }
 
-  return { joinClauses, whereExtras, values };
+  return { whereExtras, values };
 }
 
 // ─── Row-returning join families (side query per alias) ─────
@@ -316,13 +370,13 @@ function buildByExpression(
   if (typeof by !== 'string') {
     err400(`Invalid 'by' specification: expected a field or computed name`);
   }
-  if (by in joinSchema.fields) {
+  if (hasOwnField(joinSchema.fields, by)) {
     // validateSchemaField also enforces readExclude: GROUP BY on a hidden field
     // would return its distinct values verbatim in `rows[].by`.
     const col = validateSchemaField(by, joinSchema, joinTableConf);
     return `${db.qi(joinSchema.tableName)}.${db.qi(col)}`;
   }
-  const fn = joinTableConf?.computedFields?.[by];
+  const fn = ownField(joinTableConf?.computedFields, by);
   if (fn) {
     return evaluateComputedField(
       by, fn, joinSchema, db, undefined,

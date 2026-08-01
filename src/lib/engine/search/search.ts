@@ -6,7 +6,9 @@ import {
   assertFiltersReadable,
   assertKnownFilterKeys,
   readableSelectColumns,
+  ownField,
 } from '../../read-access.js';
+import { MAX_CONDITIONS, MAX_ORDER_BY_PARTS } from '../../condition-methods.js';
 import { primaryAsString } from '../../../types.js';
 import {
   err400,
@@ -21,7 +23,8 @@ import { collectOrderByLeftAliases, validateOrderBy, convertConfiguredOrder } fr
 import { applyConditions, applyComputedFilters } from './conditions.js';
 import { appendAggConditions } from './aggregations.js';
 import {
-  buildLeftJoinClauses,
+  buildLeftJoinOnClauses,
+  buildLeftJoinFilters,
   executeJoinMultiple,
   executeJoinLeft,
   executeJoinGroup,
@@ -34,6 +37,37 @@ import type {
   PaginationResult,
   ITable,
 } from '../../../types.js';
+
+/**
+ * Guard the request shapes that reach SQL as text rather than as bound values.
+ *
+ * `paginator` is rendered straight into LIMIT/OFFSET: `Paginator` is a compile-time type only,
+ * and `sqlApi.search()` is a documented public API a consumer may hand an unvalidated
+ * querystring, so the integer check has to exist at runtime.
+ *
+ * The complexity caps are also declared by the request schemas; these are the backstop that
+ * covers programmatic callers, which no schema validates.
+ */
+function assertRequestWithinLimits(params: SearchParams): void {
+  const { paginator, conditions, orderBy } = params;
+
+  if (paginator) {
+    for (const key of ['page', 'itemsPerPage'] as const) {
+      const value: unknown = paginator[key];
+      if (!Number.isInteger(value) || (value as number) < 1) {
+        err400(`Invalid paginator: '${key}' must be an integer >= 1`);
+      }
+    }
+  }
+
+  if (conditions && conditions.length > MAX_CONDITIONS) {
+    err400(`Too many conditions: ${conditions.length} (max ${MAX_CONDITIONS})`);
+  }
+
+  if (orderBy && orderBy.split(',').length > MAX_ORDER_BY_PARTS) {
+    err400(`Too many orderBy parts: max ${MAX_ORDER_BY_PARTS}`);
+  }
+}
 
 // ─── Main query execution ───────────────────────────────────
 
@@ -70,7 +104,7 @@ async function executeMainQuery(
   if (selectComputed?.length) {
     const projections = [readableColumns ?? '*'];
     for (const name of selectComputed) {
-      const fn = tableConf.computedFields?.[name];
+      const fn = ownField(tableConf.computedFields, name);
       if (!fn) err400(`Unknown computed field in selectComputed: '${name}'`);
       const out = evaluateComputedField(
         name, fn, tableConf.Schema, db, undefined,
@@ -261,15 +295,28 @@ export async function searchEngine(
     computeMin, computeMax, computeSum, computeAvg, tenant,
   } = params;
 
+  assertRequestWithinLimits(params);
   assertJoinRequestsAllowed(dbTables, params);
 
   const { condition, tenantJoins } = buildMainCondition(params);
+  const aliasesNeedingLeftJoin = collectLeftJoinAliases(params);
 
   // From here the statement is assembled fragment by fragment. `bound` owns the values and
   // hands each fragment the placeholder index it must start from, so no offset is computed
   // at any call site. Fragments must be emitted in the order their placeholders appear in
   // the final SQL — MySQL binds `?` positionally.
   const bound = new QueryParams();
+
+  // LEFT JOIN clauses come first: they sit before the WHERE in the statement, and their ON
+  // clause carries the joined table's tenant scope.
+  const extraJoinClauses: string[] = [...tenantJoins];
+  if (aliasesNeedingLeftJoin.size > 0) {
+    const on = bound.emit((startIndex) =>
+      buildLeftJoinOnClauses(db, dbTables, tableConf, aliasesNeedingLeftJoin, startIndex, tenant)
+    );
+    extraJoinClauses.push(...on.joinClauses);
+  }
+
   let where = bound.emitCondition(condition, db);
 
   // joinMustExist (EXISTS)
@@ -279,18 +326,14 @@ export async function searchEngine(
 
   // Aggregation conditions (HAVING-style)
   if (conditions?.length && conditions.some((c) => c.field.includes('.'))) {
-    where += appendAggConditions(bound, conditions, db, dbTables, tableConf, joinGroup);
+    where += appendAggConditions(bound, conditions, db, dbTables, tableConf, joinGroup, tenant);
   }
 
-  const aliasesNeedingLeftJoin = collectLeftJoinAliases(params);
-
-  // LEFT JOIN clauses + extra WHERE for filtered parents.
-  const extraJoinClauses: string[] = [...tenantJoins];
+  // Extra WHERE for the parents the request filters on.
   if (aliasesNeedingLeftJoin.size > 0) {
     const lj = bound.emit((startIndex) =>
-      buildLeftJoinClauses(db, dbTables, tableConf, aliasesNeedingLeftJoin, joinLeft, startIndex)
+      buildLeftJoinFilters(db, dbTables, tableConf, aliasesNeedingLeftJoin, joinLeft, startIndex)
     );
-    extraJoinClauses.push(...lj.joinClauses);
     for (const w of lj.whereExtras) where += ` AND ${w}`;
   }
 
@@ -303,7 +346,7 @@ export async function searchEngine(
   let safeOrderBy: string | undefined;
   if (orderBy) {
     safeOrderBy = bound.emit((startIndex) =>
-      validateOrderBy(orderBy, tableConf, db, dbTables, joinGroup, startIndex)
+      validateOrderBy(orderBy, tableConf, db, dbTables, joinGroup, startIndex, tenant)
     ).sql;
   }
 

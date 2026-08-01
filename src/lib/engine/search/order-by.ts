@@ -17,8 +17,9 @@ import {
   evaluateComputedField,
 } from './fields.js';
 import { requireJoin } from './joins.js';
+import { hasOwnField, ownField } from '../../read-access.js';
 import { buildAggOrderExpr } from './aggregations.js';
-import type { DbTables, ITable, JoinGroupRequest } from '../../../types.js';
+import type { DbTables, ITable, JoinGroupRequest, TenantContext } from '../../../types.js';
 
 export interface OrderByResult {
   sql: string;
@@ -55,7 +56,8 @@ export function validateOrderBy(
   db: QueryClient,
   dbTables: DbTables,
   joinGroup: Record<string, JoinGroupRequest> | undefined,
-  startIdx: number
+  startIdx: number,
+  tenant?: TenantContext
 ): OrderByResult {
   const parts = orderBy.split(',');
   const outParts: string[] = [];
@@ -73,7 +75,7 @@ export function validateOrderBy(
         err400('Cannot combine distinctResults with aggregation orderBy');
       }
       const [, alias, fn, field, dir] = dotted3;
-      const expr = buildAggOrderExpr(db, dbTables, tableConf, alias, fn, field, joinGroup);
+      const expr = buildAggOrderExpr(db, dbTables, tableConf, alias, fn, field, joinGroup, tenant);
       const aggVals = [...expr.values];
       outParts.push(`${renderRef(expr, currentIdx, db)} ${(dir || 'ASC').toUpperCase()}`);
       outValues.push(...aggVals);
@@ -133,10 +135,10 @@ export function convertConfiguredOrder(
       if (match) {
         const [, field, dir] = match;
         const suffix = dir ? ` ${dir.toUpperCase()}` : '';
-        if (field in tableConf.Schema.fields) {
+        if (hasOwnField(tableConf.Schema.fields, field)) {
           return `${db.qi(tableConf.Schema.tableName)}.${db.qi(tableConf.Schema.col(field))}${suffix}`;
         }
-        const computed = tableConf.computedFields?.[field];
+        const computed = ownField(tableConf.computedFields, field);
         if (computed) {
           const ev = evaluateComputedField(
             field, computed, tableConf.Schema, db, undefined,

@@ -104,8 +104,18 @@ export function attachWriteJoinSections(
   options: { withDeletions: boolean; secondaryFields: JoinFieldsBuilder; strictItems?: boolean }
 ): void {
   if (!tableConf.allowedWriteJoins?.length) return;
+
+  // additionalProperties:false closes the alias container itself, not just the items: an alias
+  // the table does not declare must be a validation error, never a key that reaches the engine.
+  const aliasMap = { additionalProperties: false };
+
   target.secondaries = Type.Optional(
-    Type.Partial(Type.Object(buildJoinAliasMap(tableConf, dbTables, options.secondaryFields, { strictItems: options.strictItems })))
+    Type.Partial(
+      Type.Object(
+        buildJoinAliasMap(tableConf, dbTables, options.secondaryFields, { strictItems: options.strictItems }),
+        aliasMap
+      )
+    )
   );
   if (options.withDeletions) {
     target.deletions = Type.Optional(
@@ -116,7 +126,8 @@ export function attachWriteJoinSections(
             dbTables,
             ({ joinSchema }) => joinSchema.fields,
             { itemsPartial: true },
-          )
+          ),
+          aliasMap
         )
       )
     );

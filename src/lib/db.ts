@@ -329,10 +329,17 @@ export class QueryClient {
 
   async delete(
     table: string,
-    where: DbRecord
+    where: DbRecord,
+    extraCondition?: ConditionBuilder
   ): Promise<number> {
     const values: unknown[] = [];
     const { fields, placeholders } = this.#params(where, values);
+
+    let extraWhere = '';
+    if (extraCondition) {
+      extraWhere = ` AND ${extraCondition.build(values.length + 1, this.dialect.ph)}`;
+      values.push(...extraCondition.getValues());
+    }
 
     const whereClause = fields
       .map((f, i) => `${this.dialect.qi(f)} = ${placeholders[i]}`)
@@ -340,7 +347,7 @@ export class QueryClient {
 
     const result = await this.query(
       `DELETE FROM ${this.dialect.qi(table)}
-       WHERE ${whereClause}`,
+       WHERE ${whereClause}${extraWhere}`,
       values
     );
     return result.affectedRows;

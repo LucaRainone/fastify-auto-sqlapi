@@ -1,5 +1,5 @@
 import { Type, type TObject, type TSchema } from '@sinclair/typebox';
-import { ALLOWED_METHODS } from '../condition-methods.js';
+import { ALLOWED_METHODS, MAX_CONDITIONS, MAX_ORDER_BY_LENGTH } from '../condition-methods.js';
 import { readableFieldNames } from '../read-access.js';
 import { DEFAULT_MAX_ITEMS_PER_PAGE } from '../../types.js';
 import type { DbTables, ITable, SchemaDefinition } from '../../types.js';
@@ -90,13 +90,13 @@ function buildJoinBodyProps(
 
     const joinRefShape = {
       filters: Type.Optional(filtersObject(joinFilterFields)),
-      conditions: Type.Optional(Type.Array(conditionItemSchema)),
+      conditions: Type.Optional(Type.Array(conditionItemSchema, { maxItems: MAX_CONDITIONS })),
     };
 
     if (unique) {
       props.joinLeft[alias] = Type.Object({
         filters: Type.Optional(filtersObject(joinSchemaFields)),
-        conditions: Type.Optional(Type.Array(conditionItemSchema)),
+        conditions: Type.Optional(Type.Array(conditionItemSchema, { maxItems: MAX_CONDITIONS })),
         selection: Type.Optional(Type.String()),
       });
       continue;
@@ -118,7 +118,7 @@ function buildJoinBodyProps(
         count: Type.Optional(Type.Array(Type.String())),
       }),
       filters: Type.Optional(filtersObject(joinFilterFields)),
-      conditions: Type.Optional(Type.Array(conditionItemSchema)),
+      conditions: Type.Optional(Type.Array(conditionItemSchema, { maxItems: MAX_CONDITIONS })),
     });
   }
 
@@ -185,7 +185,7 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
 
   const bodyProperties: Record<string, unknown> = {
     filters: filtersSchema,
-    conditions: Type.Optional(Type.Array(conditionItemSchema)),
+    conditions: Type.Optional(Type.Array(conditionItemSchema, { maxItems: MAX_CONDITIONS })),
   };
 
   if (Object.keys(computedTypes).length > 0) {
@@ -214,7 +214,7 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
  */
 export function SearchTableQuery(maxItemsPerPage: number = DEFAULT_MAX_ITEMS_PER_PAGE): TObject {
   return Type.Object({
-    orderBy: Type.Optional(Type.String()),
+    orderBy: Type.Optional(Type.String({ maxLength: MAX_ORDER_BY_LENGTH })),
     page: Type.Optional(Type.Integer({ minimum: 1 })),
     itemsPerPage: Type.Optional(Type.Integer({
       minimum: 1,

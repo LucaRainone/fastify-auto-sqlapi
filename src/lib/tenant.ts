@@ -53,6 +53,58 @@ export function buildTenantCondition(
   return cb;
 }
 
+/**
+ * Re-target a tenant context onto a related table: the caller's tenant ids paired with that
+ * table's OWN scope. A child table declares its own `tenantScope`, which may differ in shape
+ * from the main table's, so a write to it must be checked against its own column/through-FK.
+ *
+ * Returns undefined for the two cases that must stay unscoped — no tenant context (admin) and
+ * a table that declares no scope — mirroring `appendJoinTenantScope` on the read side.
+ */
+export function tenantForTable(
+  tenant: TenantContext | undefined,
+  tableConf: ITable | undefined
+): TenantContext | undefined {
+  const scope = tableConf?.tenantScope;
+  if (!tenant || !scope) return undefined;
+  return { ids: tenant.ids, scope };
+}
+
+/**
+ * Tenant guard as a self-contained boolean fragment, for the positions where the scope cannot
+ * be expressed as an extra INNER JOIN: a child DELETE, a LEFT JOIN's ON clause, and the
+ * correlated subquery of an aggregation. A direct scope compares the table's own column; an
+ * indirect one tests the through table with a correlated EXISTS rather than a join.
+ *
+ * `tableRef` is the name the scoped rows go by in that statement — the table name in a DELETE,
+ * the join alias in an ON clause, the subquery alias inside a correlated SELECT. Returns
+ * undefined without a tenant context (admin).
+ */
+export function buildTenantRowGuard(
+  db: QueryClient,
+  tenant: TenantContext | undefined,
+  tableRef: string
+): ConditionBuilder | undefined {
+  if (!tenant) return undefined;
+
+  const cb = new ConditionBuilder('AND', db.cbDialect);
+  if (!isIndirect(tenant.scope)) {
+    cb.append(buildTenantCondition(db, tenant.scope, tenant.ids, tableRef));
+    return cb;
+  }
+
+  const { through, column } = tenant.scope;
+  const throughRef = db.qi(through.schema.tableName);
+  const markers = tenant.ids.map(() => '?').join(', ');
+  cb.raw(
+    `EXISTS (SELECT 1 FROM ${throughRef} WHERE ` +
+      `${throughRef}.${db.qi(through.foreignField)} = ${db.qi(tableRef)}.${db.qi(through.localField)} AND ` +
+      `${throughRef}.${db.qi(column)} IN (${markers}))`,
+    tenant.ids
+  );
+  return cb;
+}
+
 export function buildTenantJoin(
   db: QueryClient,
   scope: TenantScopeIndirect,
