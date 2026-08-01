@@ -78,6 +78,17 @@ export default tseslint.config(
     },
   },
 
+  // Git hooks: plain ESM, outside any tsconfig, so no type-aware rules.
+  {
+    files: ['scripts/**/*.mjs'],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      ecmaVersion: 2023,
+      sourceType: 'module',
+      globals: { process: 'readonly', console: 'readonly' },
+    },
+  },
+
   // Tests are the specification: they legitimately repeat literals and structure,
   // so the duplication rules are off here. No type-aware linting (plain .js).
   {

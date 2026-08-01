@@ -10,6 +10,15 @@
             "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/block-git-write.mjs\""
           }
         ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/guard-new-src-file.mjs\""
+          }
+        ]
       }
     ]
   }
