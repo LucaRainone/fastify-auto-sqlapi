@@ -9,6 +9,11 @@
  *   routes/ -> lib/engine/ -> lib/   request handling -> operations -> primitives
  *   types/                           leaf: type declarations only
  */
+// Known-and-accepted findings are silenced by default and surfaced by
+// `npm run depcruise:strict` (DEPCRUISE_STRICT=1), so the default run is zero-tolerance.
+const STRICT = process.env.DEPCRUISE_STRICT === '1';
+const DEFERRED = STRICT ? 'warn' : 'ignore';
+
 export default {
   forbidden: [
     {
@@ -21,15 +26,15 @@ export default {
     },
     {
       name: 'no-circular-types',
-      severity: 'warn',
+      severity: DEFERRED,
       comment:
-        'Type-only cycles through src/types.ts are harmless at runtime but blur the types-are-a-leaf boundary. Pre-existing debt (13): warn, do not add more.',
+        'Type-only cycles through src/types.ts are harmless at runtime but blur the types-are-a-leaf boundary. Pre-existing debt (13), visible under depcruise:strict.',
       from: {},
       to: { circular: true },
     },
     {
       name: 'no-orphans',
-      severity: 'warn',
+      severity: 'error',
       comment: 'A module nobody imports is dead code an agent cannot find, so it gets rewritten.',
       from: { orphan: true, pathNot: ['^src/index\\.ts$'] },
       to: {},

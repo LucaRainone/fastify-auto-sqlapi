@@ -1,8 +1,8 @@
 {
   "minTokens": 50,
   "threshold": 3.3,
-  "reporters": ["console", "json"],
-  "output": ".jscpd",
+  "reporters": ["threshold"],
+  "noTips": true,
   "absolute": false,
   "ignore": [
     "**/node_modules/**",

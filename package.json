@@ -28,12 +28,17 @@
   "scripts": {
     "clean": "rm -rf dist",
     "build": "rm -rf dist && tsc",
-    "lint": "eslint . --max-warnings 241",
+    "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
+    "lint:strict": "LINT_STRICT=1 eslint .",
     "typecheck": "tsc --noEmit",
     "dup": "jscpd src",
-    "knip": "knip --max-issues 22 --treat-config-hints-as-errors",
+    "dup:strict": "jscpd src --reporters console",
+    "knip": "knip --exclude exports,types,nsExports,nsTypes --max-issues 0 --treat-config-hints-as-errors",
+    "knip:strict": "knip",
     "depcruise": "depcruise src --config .dependency-cruiser.mjs --output-type err",
+    "depcruise:strict": "DEPCRUISE_STRICT=1 depcruise src --config .dependency-cruiser.mjs --output-type err",
+    "debt": "npm run lint:strict; npm run dup:strict; npm run depcruise:strict; npm run knip:strict",
     "check": "npm run lint && npm run typecheck",
     "verify": "npm run check && npm run build && npm run dup && npm run depcruise && npm run knip && npm run test:unit",
     "prepublishOnly": "npm run build && npm run test:unit",
@@ -75,6 +80,7 @@
   "homepage": "https://github.com/LucaRainone/fastify-auto-sqlapi#readme",
   "dependencies": {
     "@sinclair/typebox": "^0.34.14",
+    "fastify-plugin": "^5.1.0",
     "node-condition-builder": "^1.2.0"
   },
   "devDependencies": {
