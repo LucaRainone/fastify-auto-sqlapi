@@ -13,11 +13,11 @@ const STRICT = process.env.LINT_STRICT === '1';
 const DEBT_SEVERITY = STRICT ? 'error' : 'off';
 
 const DEFERRED_RULES = [
-  '@typescript-eslint/no-unsafe-assignment', // 44
-  '@typescript-eslint/no-unsafe-member-access', // 34
+  '@typescript-eslint/no-unsafe-assignment', // 34
+  '@typescript-eslint/no-unsafe-member-access', // 9
   '@typescript-eslint/no-unsafe-argument', // 32
-  '@typescript-eslint/no-unsafe-call', // 15
-  '@typescript-eslint/no-unsafe-return', // 2
+  '@typescript-eslint/no-unsafe-call', // 5
+  '@typescript-eslint/no-unsafe-return', // 1
   '@typescript-eslint/no-unsafe-function-type', // 4
   '@typescript-eslint/no-explicit-any', // 3
   '@typescript-eslint/no-base-to-string', // 1
