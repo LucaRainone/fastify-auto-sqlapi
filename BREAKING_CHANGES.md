@@ -144,7 +144,7 @@ Real `LEFT JOIN` for N:1 (parent) relationships. The parent rows are returned in
 
 The engine attaches a real `LEFT JOIN <parentTable> AS <alias>` to the main query **only when needed**:
 - when the request includes `filters` or `conditions` on the parent (effectively turns into INNER JOIN behavior on those aliases — main rows whose parent doesn't match are excluded);
-- when `orderBy` uses 2-parti dotted notation referring to a parent field (`alias.field`).
+- when `orderBy` uses 2-part dotted notation referring to a parent field (`alias.field`).
 
 Otherwise only a side query `WHERE pk IN (distinct fk values)` is issued — no LEFT JOIN, no row duplication. Either way, the response shape is the same.
 
@@ -158,7 +158,7 @@ Otherwise only a side query `WHERE pk IN (distinct fk values)` is issued — no 
 | `<alias>.<field>` | `joinLeft` (`unique: true` aliases) | orders main query by a parent field via LEFT JOIN |
 | `<alias>.<fn>.<field>` | `joinGroup` (declared in the same body) | orders main query by an aggregation via correlated scalar subquery |
 
-Ambiguity: 2-parti and 3-parti are disambiguated by counting dots. The 2-parti is rejected unless the alias is in `joinLeft` allowlist; 3-parti is rejected unless the alias is in the request `joinGroup` declaration.
+Ambiguity: 2-part and 3-part are disambiguated by counting dots. The 2-part is rejected unless the alias is in `joinLeft` allowlist; 3-part is rejected unless the alias is in the request `joinGroup` declaration.
 
 ## Response shape
 
@@ -248,7 +248,7 @@ If you used the join table's name as the secondaries key, change it to the new a
 
 `<table>.<fn>.<field>` still works for joinGroup, but `<table>` must now be the alias declared in `buildRelation`. If the alias differs from the old `tableName`, update the string.
 
-If you need to order by a parent field, **add a `joinLeft`-eligible relation** (with `unique: true`) and use 2-parti notation `alias.field` (NEW capability — not available before).
+If you need to order by a parent field, **add a `joinLeft`-eligible relation** (with `unique: true`) and use 2-part notation `alias.field` (NEW capability — not available before).
 
 ## Validation summary (400 responses)
 
@@ -257,8 +257,8 @@ The engine rejects, with `statusCode: 400`, any of:
 - `joinLeft` referencing an alias declared with `unique: false`
 - `joinMultiple`/`joinMustExist`/`joinGroup` referencing an alias declared with `unique: true`
 - request keys referencing an alias not declared in `allowedReadJoins`
-- `orderBy` 2-parti `<alias>.<field>` whose alias is not in `joinLeft`-eligible (i.e. `unique:true`) declarations
-- `orderBy` 3-parti `<alias>.<fn>.<field>` whose alias or `(fn, field)` pair is not declared in `joinGroup` for the same request
+- `orderBy` 2-part `<alias>.<field>` whose alias is not in `joinLeft`-eligible (i.e. `unique:true`) declarations
+- `orderBy` 3-part `<alias>.<fn>.<field>` whose alias or `(fn, field)` pair is not declared in `joinGroup` for the same request
 - `defineTable` with two `allowedReadJoins`/`allowedWriteJoins` entries resolving to the same alias (thrown at startup, not at request time)
 
 ---

@@ -850,7 +850,7 @@ function createSessionDbTables(mockPg) {
 }
 
 describe('searchEngine - joinLeft (N:1 parent)', () => {
-  it('does NOT add LEFT JOIN when no filter or 2-parti orderBy is requested', async () => {
+  it('does NOT add LEFT JOIN when no filter or 2-part orderBy is requested', async () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, user_id: 7, active: true }], affectedRows: 1 },
       { rows: [{ id: 7, name: 'Alice', role: 'admin' }], affectedRows: 1 },
@@ -889,7 +889,7 @@ describe('searchEngine - joinLeft (N:1 parent)', () => {
     assert.ok(mockPg.calls[0].values.includes('admin'));
   });
 
-  it('adds LEFT JOIN when 2-parti orderBy uses joinLeft alias', async () => {
+  it('adds LEFT JOIN when 2-part orderBy uses joinLeft alias', async () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, user_id: 7, active: true }], affectedRows: 1 },
       { rows: [{ id: 7, name: 'Alice', role: 'admin' }], affectedRows: 1 },
@@ -1032,7 +1032,7 @@ describe('searchEngine - computed fields', () => {
     assert.ok(mockPg.calls[0].values.includes('active'));
   });
 
-  it('orderBy by computed (1-parte) emits the expr in ORDER BY', async () => {
+  it('orderBy by computed (1-part) emits the expr in ORDER BY', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
     const { DbTables, db } = createComputedDbTables(mockPg);
 

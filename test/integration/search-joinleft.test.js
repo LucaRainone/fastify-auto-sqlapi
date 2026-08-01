@@ -108,7 +108,7 @@ describe(`[${DIALECT}] joinLeft (N:1 parent) integration`, () => {
     assert.ok(body.main.every((o) => o.customerId === customerIds[0]));
   });
 
-  it('joinLeft with orderBy 2-parti on parent field', async () => {
+  it('joinLeft with orderBy 2-part on parent field', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/auto/search/customer_order?orderBy=customer.name+ASC',
@@ -124,7 +124,7 @@ describe(`[${DIALECT}] joinLeft (N:1 parent) integration`, () => {
     assert.equal(firstCustomer.name, 'Luigi Verdi');
   });
 
-  it('rejects orderBy 2-parti on non-joinLeft alias with 400', async () => {
+  it('rejects orderBy 2-part on non-joinLeft alias with 400', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/auto/search/customer_order?orderBy=bogus.name+ASC',

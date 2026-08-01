@@ -40,7 +40,7 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
   extraFilters: Record<string, TSchema>;
   /**
    * Virtual fields produced by a SQL expression. Usable like schema fields in
-   * `filters`, `conditions` (non-dotted), `orderBy` (1-parte),
+   * `filters`, `conditions` (non-dotted), `orderBy` (1-part),
    * `computeMin/Max/Sum/Avg`, and (opt-in) in `selectComputed` for the main
    * response. Each entry MUST declare `type` for Swagger and validation.
    *

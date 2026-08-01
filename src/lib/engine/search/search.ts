@@ -419,22 +419,22 @@ function buildAggOrderExpr(
 interface OrderByResult {
   sql: string;
   values: unknown[];
-  /** Aliases referenced in 2-parti notation (joinLeft) — need a LEFT JOIN. */
+  /** Aliases referenced in 2-part notation (joinLeft) — need a LEFT JOIN. */
   leftJoinAliases: Set<string>;
 }
 
 /**
- * Pre-scan `orderBy` for the joinLeft aliases referenced in 2-parti notation (`<alias>.<field>`).
+ * Pre-scan `orderBy` for the joinLeft aliases referenced in 2-part notation (`<alias>.<field>`).
  * Needed BEFORE building the LEFT JOIN clauses (which must know their aliases) while the actual
  * orderBy SQL — with its parameter placeholders — is only baked later, once the LEFT JOIN value
  * count is known. Validates each alias against `allowedReadJoins` (throws 400), mirroring
- * `validateOrderBy`; 3-parti aggregation entries are ignored (they use joinGroup, not a LEFT JOIN).
+ * `validateOrderBy`; 3-part aggregation entries are ignored (they use joinGroup, not a LEFT JOIN).
  */
 function collectOrderByLeftAliases(orderBy: string, tableConf: ITable): Set<string> {
   const aliases = new Set<string>();
   for (const part of orderBy.split(',')) {
     const trimmed = part.trim();
-    if (/^(\w+)\.(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i.test(trimmed)) continue; // 3-parti aggregation
+    if (/^(\w+)\.(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i.test(trimmed)) continue; // 3-part aggregation
     const m = /^(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i.exec(trimmed);
     if (m) {
       const alias = m[1];
@@ -462,7 +462,7 @@ function validateOrderBy(
   for (const part of parts) {
     const trimmed = part.trim();
 
-    // 3-parti: <alias>.<fn>.<field> [ASC|DESC] (aggregation via joinGroup)
+    // 3-part: <alias>.<fn>.<field> [ASC|DESC] (aggregation via joinGroup)
     const dotted3 = /^(\w+)\.(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i.exec(trimmed);
     if (dotted3) {
       if (tableConf.distinctResults) {
@@ -477,7 +477,7 @@ function validateOrderBy(
       continue;
     }
 
-    // 2-parti: <alias>.<field> [ASC|DESC] (joinLeft inline ordering)
+    // 2-part: <alias>.<field> [ASC|DESC] (joinLeft inline ordering)
     const dotted2 = /^(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i.exec(trimmed);
     if (dotted2) {
       const [, alias, field, dir] = dotted2;
@@ -491,7 +491,7 @@ function validateOrderBy(
       continue;
     }
 
-    // 1-parte: <field> [ASC|DESC] — schema field or computed
+    // 1-part: <field> [ASC|DESC] — schema field or computed
     const plain = /^(\w+)(?:\s+(ASC|DESC))?$/i.exec(trimmed);
     if (!plain) {
       err400(`Invalid orderBy: ${trimmed}`);
@@ -1254,7 +1254,7 @@ export async function searchEngine(
   }
 
   // Determine which joinLeft aliases need a LEFT JOIN on the main query:
-  // - any alias used in 2-parti orderBy
+  // - any alias used in 2-part orderBy
   // - any alias in joinLeft body that has filters or conditions on the parent
   const aliasesNeedingLeftJoin = new Set<string>();
   if (orderBy) {

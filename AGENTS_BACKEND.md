@@ -462,7 +462,7 @@ export const TableCustomer = defineTable({
 
 ## Computed Fields (extension system)
 
-`computedFields` lets you declare **virtual fields** as SQL expressions on a per-table basis. Each computed becomes usable like a regular schema field across the search API: `filters` (equality), `conditions` (operators), `orderBy` (1-parte), `computeMin/Max/Sum/Avg`, and (opt-in) in `selectComputed` for the main response. Same machinery serves JSON column extraction, derived strings, dialect-aware date/calendar bucketing — without growing the library case-by-case.
+`computedFields` lets you declare **virtual fields** as SQL expressions on a per-table basis. Each computed becomes usable like a regular schema field across the search API: `filters` (equality), `conditions` (operators), `orderBy` (1-part), `computeMin/Max/Sum/Avg`, and (opt-in) in `selectComputed` for the main response. Same machinery serves JSON column extraction, derived strings, dialect-aware date/calendar bucketing — without growing the library case-by-case.
 
 ```typescript
 import { defineTable, exportTableInfo, Type } from 'fastify-auto-sqlapi';
@@ -546,7 +546,7 @@ For `joinLeft` specifically, the computed expr is automatically alias-prefixed b
 
 - **Bound `values` in computed expressions** work anywhere the expression lands in the `WHERE` clause or in `ORDER BY`: `filters` and `conditions` (main, `joinMustExist`, `joinMultiple`, `joinGroup`, `joinLeft`) and `orderBy`. The ConditionBuilder assigns the placeholder positions there, so no coordination is needed from the caller.
 - They are still rejected with 400 on `selectComputed`, `computeMin/Max/Sum/Avg`, `joinGroup.aggregations.by` and `defaultOrder`. Those expressions are emitted in the `SELECT` / `GROUP BY` list, which precedes the `WHERE` values in the parameter order — there is no correct position for them there. Most use cases (JSON extraction, concat, dateTrunc, simple ops) need no bound values at all.
-- **Computed CAN be used in `joinGroup.aggregations.by`** (just pass the computed name as a string). Bound `values` are not supported in this position (rejected with 400 — it is emitted in the `SELECT`/`GROUP BY` list). The existing FK-correlation rule for `orderBy <alias>.<fn>.<field>` still applies: 3-parti aggregation orderBy on a `by` that isn't the correlation FK is rejected — by definition a computed-by produces multiple groups per main row, so this is never valid.
+- **Computed CAN be used in `joinGroup.aggregations.by`** (just pass the computed name as a string). Bound `values` are not supported in this position (rejected with 400 — it is emitted in the `SELECT`/`GROUP BY` list). The existing FK-correlation rule for `orderBy <alias>.<fn>.<field>` still applies: 3-part aggregation orderBy on a `by` that isn't the correlation FK is rejected — by definition a computed-by produces multiple groups per main row, so this is never valid.
 - **Computed cannot be used as aggregation function** (`sum`/`min`/`max`/...). The values inside `aggregations.sum: ['<name>']` must be schema field names. To aggregate on a derived expression, declare the derivation as a computed and pass the computed name as the field, BUT only via `computeMin/Max/Sum/Avg` (top-level main aggregates), not the joinGroup ones.
 - **No chained computed** (a computed referencing another computed). Flat-only.
 - **Read-only**. Computed fields are not usable in insert/update bodies — the consumer's `expr` is for SELECT/WHERE/ORDER BY, never for writes.
@@ -635,8 +635,8 @@ const sqlApi = createSqlApi(db, dbTables, { dialect: 'mysql' });
 ```typescript
 // Search — full filter, join, pagination, aggregation support
 // orderBy supports two dotted notations:
-//   - 3-parti `<alias>.<fn>.<field>` for joinGroup aggregations (must be declared in the request body)
-//   - 2-parti `<alias>.<field>` for joinLeft parent fields
+//   - 3-part `<alias>.<fn>.<field>` for joinGroup aggregations (must be declared in the request body)
+//   - 2-part `<alias>.<field>` for joinLeft parent fields
 // See AGENTS_FRONTEND.md and BREAKING_CHANGES.md for the full reference.
 sqlApi.search(tableName, {
   filters?, conditions?,

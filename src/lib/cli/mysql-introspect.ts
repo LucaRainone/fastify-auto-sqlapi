@@ -1,13 +1,49 @@
 import { loadOptionalDependency } from './load-dependency.js';
 import type { ColumnInfo } from '../../types.js';
 
-export function buildMysqlConnectionConfig(): {
+export interface MysqlConnectionConfig {
   host: string;
   port: number;
   user: string;
   password: string;
   database: string;
-} {
+}
+
+/**
+ * The slice of `mysql2/promise` this CLI actually uses.
+ *
+ * Declared locally rather than imported: mysql2 is an optional peer, so a real import
+ * would break installs that only use Postgres, and its types would leak into the
+ * published `.d.ts` and fail to resolve for consumers who never installed it.
+ */
+interface MysqlConnection {
+  query(sql: string, values: unknown[]): Promise<[MysqlColumnRow[], unknown]>;
+  end(): Promise<void>;
+}
+
+interface Mysql2Module {
+  createConnection(config: MysqlConnectionConfig): Promise<MysqlConnection>;
+}
+
+/** information_schema.columns row. MySQL and MariaDB differ on column-name case. */
+interface MysqlColumnRow {
+  TABLE_NAME?: string;
+  table_name?: string;
+  COLUMN_NAME?: string;
+  column_name?: string;
+  DATA_TYPE?: string;
+  data_type?: string;
+  COLUMN_DEFAULT?: string | null;
+  column_default?: string | null;
+  IS_NULLABLE?: string;
+  is_nullable?: string;
+  COLUMN_KEY?: string;
+  column_key?: string;
+  EXTRA?: string;
+  extra?: string;
+}
+
+export function buildMysqlConnectionConfig(): MysqlConnectionConfig {
   if (process.env.DATABASE_URL) {
     const url = new URL(process.env.DATABASE_URL);
     return {
@@ -77,11 +113,10 @@ function mapMysqlType(dataType: string): string {
 }
 
 export async function introspectMysqlTables(
-  connectionConfig: { host: string; port: number; user: string; password: string; database: string },
+  connectionConfig: MysqlConnectionConfig,
   schema: string
 ): Promise<ColumnInfo[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const mysql2 = loadOptionalDependency<any>('mysql2/promise', 'npm install mysql2');
+  const mysql2 = loadOptionalDependency<Mysql2Module>('mysql2/promise', 'npm install mysql2');
   const connection = await mysql2.createConnection(connectionConfig);
 
   try {
@@ -93,13 +128,15 @@ export async function introspectMysqlTables(
       [schema]
     );
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (rows as any[]).map((row: any) => ({
-      table_name: row.TABLE_NAME || row.table_name,
-      column_name: row.COLUMN_NAME || row.column_name,
-      udt_name: mapMysqlType(row.DATA_TYPE || row.data_type),
-      column_default: row.COLUMN_DEFAULT || row.column_default,
-      is_nullable: row.IS_NULLABLE || row.is_nullable,
+    // `||` is kept as-is from the untyped version: this change types the driver, it does
+    // not alter behaviour. The trailing fallbacks only satisfy ColumnInfo, which cannot
+    // hold `undefined`.
+    return rows.map((row) => ({
+      table_name: row.TABLE_NAME || row.table_name || '',
+      column_name: row.COLUMN_NAME || row.column_name || '',
+      udt_name: mapMysqlType(row.DATA_TYPE || row.data_type || ''),
+      column_default: row.COLUMN_DEFAULT || row.column_default || null,
+      is_nullable: row.IS_NULLABLE || row.is_nullable || '',
       is_primary: (row.COLUMN_KEY || row.column_key) === 'PRI',
       is_auto_increment: String(row.EXTRA || row.extra || '').includes('auto_increment'),
     }));

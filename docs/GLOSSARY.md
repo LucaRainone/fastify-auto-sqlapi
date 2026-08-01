@@ -18,6 +18,7 @@ existing concept makes search fail and the concept get built twice.
 | Computed field | Server-side derived value resolved during search. (not: virtual, derived) |
 | Extra filter | Non-column search filter declared per table. (not: custom filter) |
 | Extended condition | Consumer-supplied SQL fragment merged into a search WHERE. |
+| Dotted notation | `orderBy`/condition key counted in parts: 1-part `field`, 2-part `alias.field`, 3-part `alias.fn.field`. (not: parti) |
 | Tenant scope | Row-level isolation: `direct` (own column) or `indirect` (via FK). |
 | Engine | Dialect-agnostic function performing one operation. (not: service, handler) |
 | Route | Fastify plugin exposing an engine over HTTP. (not: controller) |

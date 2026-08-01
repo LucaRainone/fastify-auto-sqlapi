@@ -1,6 +1,23 @@
 import { loadOptionalDependency } from './load-dependency.js';
 import type { ColumnInfo } from '../../types.js';
 
+/**
+ * The slice of `pg` this CLI actually uses.
+ *
+ * Declared locally rather than imported: pg is an optional peer, so a real import would
+ * break installs that only use MySQL, and its types would leak into the published `.d.ts`
+ * and fail to resolve for consumers who never installed it.
+ */
+interface PgClient {
+  connect(): Promise<void>;
+  query<T>(sql: string, values: unknown[]): Promise<{ rows: T[] }>;
+  end(): Promise<void>;
+}
+
+interface PgModule {
+  Client: new (config: { connectionString: string }) => PgClient;
+}
+
 export function buildConnectionString(): string {
   if (process.env.DATABASE_URL) {
     return process.env.DATABASE_URL;
@@ -19,15 +36,14 @@ export async function introspectTables(
   connectionString: string,
   schema: string
 ): Promise<ColumnInfo[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pg = loadOptionalDependency<any>('pg', 'npm install pg');
+  const pg = loadOptionalDependency<PgModule>('pg', 'npm install pg');
 
   const client = new pg.Client({ connectionString });
 
   try {
     await client.connect();
 
-    const result = await client.query(
+    const result = await client.query<ColumnInfo>(
       `SELECT c.table_name, c.column_name, c.udt_name, c.column_default, c.is_nullable,
               (pk.column_name IS NOT NULL) AS is_primary
        FROM information_schema.columns c
@@ -44,7 +60,7 @@ export async function introspectTables(
       [schema]
     );
 
-    return result.rows as ColumnInfo[];
+    return result.rows;
   } finally {
     await client.end();
   }
