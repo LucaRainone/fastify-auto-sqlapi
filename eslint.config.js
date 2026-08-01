@@ -2,7 +2,11 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import sonarjs from 'eslint-plugin-sonarjs';
 
-// Rules that currently have violations in src/. They are OFF by default so `npm run lint`
+// Rules that still have violations somewhere in the repo (mostly src/, but `no-unused-vars`
+// is entirely in test/). The counts below are the debt ledger — refresh them whenever the
+// number moves, or the file starts lying about what is left to do.
+//
+// They are OFF by default so `npm run lint`
 // is silent, and ON as errors under `npm run lint:strict` (LINT_STRICT=1) to show what is
 // left to clean up. See docs/adr/0012.
 //
