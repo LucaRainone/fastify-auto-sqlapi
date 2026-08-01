@@ -84,46 +84,75 @@ export function parseArgs<S extends Record<string, ArgSpec>>(
   spec: S,
   argv = process.argv.slice(2)
 ): { [K in keyof S]: ArgValue<S[K]> } & { positional: string[] } {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const out: Record<string, any> = { positional: [] };
+  const out: Record<string, unknown> = { positional: [] };
   for (const [name, def] of Object.entries(spec)) {
     out[name] = def.type === 'flag' ? false : def.type === 'list' ? [] : undefined;
   }
 
-  for (let i = 0; i < argv.length; i++) {
+  let i = 0;
+  while (i < argv.length) {
     const token = argv[i];
     if (token.startsWith('--')) {
-      const name = token.slice(2);
-      const def = spec[name];
-      if (!def) continue;
-      if (def.type === 'flag') {
-        out[name] = true;
-      } else if (def.type === 'value' && i + 1 < argv.length) {
-        out[name] = argv[++i];
-      } else if (def.type === 'list' && i + 1 < argv.length) {
-        const next = argv[++i];
-        for (const part of next.split(',')) {
-          const t = part.trim();
-          if (t) out[name].push(t);
-        }
-      }
+      // An option may consume the following entry as its value.
+      i += 1 + readOption(out, spec, argv, i);
     } else {
-      out.positional.push(token);
-      // Auto-distribute positional values into the (single) list spec, if any
-      for (const [n, def] of Object.entries(spec)) {
-        if (def.type === 'list') {
-          for (const part of token.split(',')) {
-            const t = part.trim();
-            if (t) out[n].push(t);
-          }
-          break;
-        }
-      }
+      readPositional(out, spec, token);
+      i += 1;
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return out as any;
+  return out as { [K in keyof S]: ArgValue<S[K]> } & { positional: string[] };
+}
+
+/** Split on ',' and append the non-empty tokens. */
+function pushCsv(target: string[], raw: string): void {
+  for (const part of raw.split(',')) {
+    const t = part.trim();
+    if (t) target.push(t);
+  }
+}
+
+/**
+ * Read one `--name [value]` option at `i`. Returns how many *extra* argv entries it
+ * consumed (1 when it took the next entry as its value, 0 otherwise).
+ */
+function readOption(
+  out: Record<string, unknown>,
+  spec: Record<string, ArgSpec>,
+  argv: string[],
+  i: number
+): number {
+  const name = argv[i].slice(2);
+  const def = spec[name];
+  if (!def) return 0;
+
+  const hasNext = i + 1 < argv.length;
+  if (def.type === 'flag') {
+    out[name] = true;
+  } else if (def.type === 'value' && hasNext) {
+    out[name] = argv[i + 1];
+    return 1;
+  } else if (def.type === 'list' && hasNext) {
+    pushCsv(out[name] as string[], argv[i + 1]);
+    return 1;
+  }
+  return 0;
+}
+
+/** A positional token also feeds the (single) list spec, so `a b` and `a,b` both work. */
+function readPositional(
+  out: Record<string, unknown>,
+  spec: Record<string, ArgSpec>,
+  token: string
+): void {
+  (out.positional as string[]).push(token);
+
+  for (const [name, def] of Object.entries(spec)) {
+    if (def.type === 'list') {
+      pushCsv(out[name] as string[], token);
+      break;
+    }
+  }
 }
 
 /**

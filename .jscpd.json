@@ -1,6 +1,6 @@
 {
   "minTokens": 50,
-  "threshold": 1.8,
+  "threshold": 1.5,
   "reporters": ["threshold"],
   "noTips": true,
   "absolute": false,
