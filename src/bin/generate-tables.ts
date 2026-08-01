@@ -25,6 +25,103 @@ function printHelp(): void {
   display('dbTables.ts is created if missing, indexing the Table*.ts files present on disk.', CONSOLE_COLORS.magenta);
 }
 
+const tableVarOf = (schema: ParsedSchema): string =>
+  'Table' + schema.schemaName.replace(/^Schema/, '');
+
+/** Parse every Schema*.ts on disk — relation detection needs them all, even for a subset run. */
+function parseAllSchemas(schemasDir: string, schemaFiles: string[]): ParsedSchema[] {
+  const parsed: ParsedSchema[] = [];
+  for (const file of schemaFiles) {
+    const content = fs.readFileSync(path.join(schemasDir, file), 'utf-8');
+    const schema = parseSchemaFile(content);
+    if (schema) parsed.push(schema);
+  }
+  return parsed;
+}
+
+/** The schemas to emit Table files for. Exits when a requested name has no schema. */
+function selectTargetSchemas(
+  allSchemas: ParsedSchema[],
+  all: boolean,
+  requested: string[]
+): ParsedSchema[] {
+  if (all) return allSchemas;
+
+  const requestedSet = new Set(requested);
+  const targets = allSchemas.filter((s) => requestedSet.has(s.tableName));
+  const foundNames = new Set(targets.map((s) => s.tableName));
+
+  for (const name of requestedSet) {
+    if (!foundNames.has(name)) {
+      error(`Table "${name}" not found. Available: ${allSchemas.map((s) => s.tableName).join(', ')}`);
+      process.exit(1);
+    }
+  }
+  return targets;
+}
+
+/** Write the missing Table*.ts files. Existing ones are never overwritten. */
+function writeTableFiles(
+  targetSchemas: ParsedSchema[],
+  allSchemas: ParsedSchema[],
+  tablesDir: string
+): string[] {
+  const created: string[] = [];
+
+  for (const schema of targetSchemas) {
+    const tableVarName = tableVarOf(schema);
+    const tableFile = path.join(tablesDir, `${tableVarName}.ts`);
+
+    if (fs.existsSync(tableFile)) {
+      displayAsTableRow(`${tableVarName}.ts`, 'skipped (already exists)', 60, CONSOLE_COLORS.gray);
+      continue;
+    }
+
+    fs.writeFileSync(tableFile, generateSingleTableFile(schema, allSchemas));
+    created.push(tableVarName);
+    displayAsTableRow(`${tableVarName}.ts`, 'created', 60, CONSOLE_COLORS.green);
+  }
+
+  return created;
+}
+
+/**
+ * Write `dbTables.ts` only when missing. The index must reference only the Table*.ts files
+ * actually on disk: a subset run would otherwise emit imports for files never generated,
+ * and the consumer's project would not compile. When it already exists, the newly created
+ * tables are reported instead of being silently left out.
+ */
+function writeDbTablesIndex(
+  tablesDir: string,
+  allSchemas: ParsedSchema[],
+  createdTableVars: string[]
+): void {
+  const dbTablesFile = path.join(tablesDir, 'dbTables.ts');
+
+  if (!fs.existsSync(dbTablesFile)) {
+    const existingTableVars = new Set(
+      fs
+        .readdirSync(tablesDir)
+        .filter((f) => f.startsWith('Table') && f.endsWith('.ts'))
+        .map((f) => f.slice(0, -'.ts'.length))
+    );
+    const indexSchemas = allSchemas.filter((s) => existingTableVars.has(tableVarOf(s)));
+    fs.writeFileSync(dbTablesFile, generateDbTablesIndex(indexSchemas));
+    displayAsTableRow('dbTables.ts', 'created', 60, CONSOLE_COLORS.green);
+    return;
+  }
+
+  displayAsTableRow('dbTables.ts', 'skipped (already exists)', 60, CONSOLE_COLORS.gray);
+  const indexContent = fs.readFileSync(dbTablesFile, 'utf-8');
+  const missing = createdTableVars.filter((v) => !indexContent.includes(v));
+  if (missing.length > 0) {
+    display(
+      `Remember to add the new tables to dbTables.ts: ${missing.join(', ')}`,
+      CONSOLE_COLORS.yellow
+    );
+  }
+}
+
 await runCli('fastify-auto-sqlapi: generating tables template', async () => {
   const cliArgs = parseArgs({
     output: { type: 'value' },
@@ -65,82 +162,15 @@ await runCli('fastify-auto-sqlapi: generating tables template', async () => {
     process.exit(1);
   }
 
-  // Parse all schemas (needed for relation detection even when generating a subset)
-  const allSchemas: ParsedSchema[] = [];
-  for (const file of schemaFiles) {
-    const content = fs.readFileSync(path.join(schemasDir, file), 'utf-8');
-    const parsed = parseSchemaFile(content);
-    if (parsed) {
-      allSchemas.push(parsed);
-    }
-  }
-
+  const allSchemas = parseAllSchemas(schemasDir, schemaFiles);
   if (allSchemas.length === 0) {
     error('No valid schemas parsed.');
     process.exit(1);
   }
 
-  // Determine which schemas to generate Table files for
-  let targetSchemas: ParsedSchema[];
-  if (cliArgs.all) {
-    targetSchemas = allSchemas;
-  } else {
-    const requestedSet = new Set(cliArgs.tables);
-    targetSchemas = allSchemas.filter((s) => requestedSet.has(s.tableName));
-
-    const foundNames = new Set(targetSchemas.map((s) => s.tableName));
-    for (const name of requestedSet) {
-      if (!foundNames.has(name)) {
-        error(`Table "${name}" not found. Available: ${allSchemas.map((s) => s.tableName).join(', ')}`);
-        process.exit(1);
-      }
-    }
-  }
-
-  const tableVarOf = (schema: ParsedSchema): string =>
-    'Table' + schema.schemaName.replace(/^Schema/, '');
-
-  // Generate individual Table*.ts files (skip if already exists)
-  const createdTableVars: string[] = [];
-  for (const schema of targetSchemas) {
-    const tableVarName = tableVarOf(schema);
-    const tableFile = path.join(tablesDir, `${tableVarName}.ts`);
-
-    if (fs.existsSync(tableFile)) {
-      displayAsTableRow(`${tableVarName}.ts`, 'skipped (already exists)', 60, CONSOLE_COLORS.gray);
-    } else {
-      const content = generateSingleTableFile(schema, allSchemas);
-      fs.writeFileSync(tableFile, content);
-      createdTableVars.push(tableVarName);
-      displayAsTableRow(`${tableVarName}.ts`, 'created', 60, CONSOLE_COLORS.green);
-    }
-  }
-
-  // Generate dbTables.ts only if it does not exist. The index must reference only
-  // Table*.ts files actually present on disk, otherwise a subset run would emit
-  // imports for files that were never generated and the project would not compile.
-  const dbTablesFile = path.join(tablesDir, 'dbTables.ts');
-  if (fs.existsSync(dbTablesFile)) {
-    displayAsTableRow('dbTables.ts', 'skipped (already exists)', 60, CONSOLE_COLORS.gray);
-    const indexContent = fs.readFileSync(dbTablesFile, 'utf-8');
-    const missing = createdTableVars.filter((v) => !indexContent.includes(v));
-    if (missing.length > 0) {
-      display(
-        `Remember to add the new tables to dbTables.ts: ${missing.join(', ')}`,
-        CONSOLE_COLORS.yellow
-      );
-    }
-  } else {
-    const existingTableVars = new Set(
-      fs
-        .readdirSync(tablesDir)
-        .filter((f) => f.startsWith('Table') && f.endsWith('.ts'))
-        .map((f) => f.slice(0, -'.ts'.length))
-    );
-    const indexSchemas = allSchemas.filter((s) => existingTableVars.has(tableVarOf(s)));
-    fs.writeFileSync(dbTablesFile, generateDbTablesIndex(indexSchemas));
-    displayAsTableRow('dbTables.ts', 'created', 60, CONSOLE_COLORS.green);
-  }
+  const targetSchemas = selectTargetSchemas(allSchemas, cliArgs.all, cliArgs.tables);
+  const createdTableVars = writeTableFiles(targetSchemas, allSchemas, tablesDir);
+  writeDbTablesIndex(tablesDir, allSchemas, createdTableVars);
 
   console.log('');
   display(

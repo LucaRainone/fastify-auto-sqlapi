@@ -64,6 +64,60 @@ export interface AutoRouteSpec {
  * following `spec`. Centralizes onRequest hook merging, tags, schema response wrapping,
  * default reply when handler returns a value.
  */
+/**
+ * Whether this table is addressable by the spec's route shape.
+ *
+ * A single-PK route cannot address a composite-PK table. Skipping is the default, but when
+ * the consumer explicitly listed the operation it is a configuration error: failing at
+ * startup beats a route that silently never exists.
+ */
+function isTableRoutable(
+  tableName: string,
+  tableConf: ITable,
+  spec: AutoRouteSpec
+): boolean {
+  // operations acts as a whitelist; when omitted every operation is exposed.
+  if (tableConf.operations && !tableConf.operations.includes(spec.operation)) return false;
+  if (!spec.singlePkOnly || !isCompositePrimary(tableConf.primary)) return true;
+
+  if (tableConf.operations?.includes(spec.operation)) {
+    throw new Error(
+      `Table "${tableName}" has a composite primary key (${(tableConf.primary as string[]).join(', ')}): ` +
+      `operation "${spec.operation}" addresses records by a single PK value and cannot be exposed. ` +
+      `Remove it from "operations", or handle the table via search/update or a custom route.`
+    );
+  }
+  return false;
+}
+
+/**
+ * Fastify route schema for one table.
+ *
+ * Only keys that are actually defined are included: Fastify checks for key *presence*
+ * (not an undefined value) to decide whether to emit FSTWRN001.
+ */
+function buildRouteSchema(
+  tableName: string,
+  tableConf: ITable,
+  spec: AutoRouteSpec,
+  schemas: RouteSchema,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Record<string, any> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const schema: Record<string, any> = {
+    tags: [`SqlAPI-${tableName}`],
+    summary: `${spec.summary} ${tableName}`,
+    description: spec.description(tableName, tableConf, schemas),
+  };
+
+  if (schemas.body !== undefined) schema.body = schemas.body;
+  if (schemas.params !== undefined) schema.params = schemas.params;
+  if (schemas.querystring !== undefined) schema.querystring = schemas.querystring;
+  if (schemas.response !== undefined) schema.response = { [spec.successStatus]: schemas.response };
+
+  return schema;
+}
+
 export async function registerForAllTables(
   fastify: FastifyInstance,
   options: SqlApiPluginOptions,
@@ -76,41 +130,14 @@ export async function registerForAllTables(
   const { DbTables } = options;
 
   for (const [tableName, tableConf] of Object.entries(DbTables)) {
-    // operations acts as a whitelist; when omitted every operation is exposed.
-    if (tableConf.operations && !tableConf.operations.includes(spec.operation)) continue;
-
-    // Single-PK routes cannot address composite-PK tables — skip them (default) or,
-    // when the consumer explicitly asked for the operation, fail loudly at startup.
-    if (spec.singlePkOnly && isCompositePrimary(tableConf.primary)) {
-      if (tableConf.operations?.includes(spec.operation)) {
-        throw new Error(
-          `Table "${tableName}" has a composite primary key (${(tableConf.primary as string[]).join(', ')}): ` +
-          `operation "${spec.operation}" addresses records by a single PK value and cannot be exposed. ` +
-          `Remove it from "operations", or handle the table via search/update or a custom route.`
-        );
-      }
-      continue;
-    }
+    if (!isTableRoutable(tableName, tableConf, spec)) continue;
 
     const schemas = spec.schemas(DbTables, tableName, tableConf);
-
-    // Only include schema keys that are actually defined: Fastify checks for key
-    // *presence* (not undefined value) to decide whether to emit FSTWRN001.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const schema: Record<string, any> = {
-      tags: [`SqlAPI-${tableName}`],
-      summary: `${spec.summary} ${tableName}`,
-      description: spec.description(tableName, tableConf, schemas),
-    };
-    if (schemas.body !== undefined) schema.body = schemas.body;
-    if (schemas.params !== undefined) schema.params = schemas.params;
-    if (schemas.querystring !== undefined) schema.querystring = schemas.querystring;
-    if (schemas.response !== undefined) schema.response = { [spec.successStatus]: schemas.response };
 
     fastify.route({
       method: spec.method,
       url: spec.url(tableConf),
-      schema,
+      schema: buildRouteSchema(tableName, tableConf, spec, schemas),
       onRequest: mergeOnRequests(options, tableConf),
       handler: async (request, reply) => {
         const result = await spec.handle(fastify, tableName, tableConf, request, reply);

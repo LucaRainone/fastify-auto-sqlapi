@@ -131,35 +131,83 @@ export function detectRelations(schemas: ParsedSchema[]): DetectedRelation[] {
 
 // ─── Single Table File Generation ────────────────────────────
 
-export function generateSingleTableFile(schema: ParsedSchema, allSchemas: ParsedSchema[]): string {
-  const relations = detectRelations(allSchemas);
+/** Relations grouped by the schema they hang off, in both directions. */
+function indexRelations(relations: DetectedRelation[]): {
+  byParent: Map<string, DetectedRelation[]>;
+  byChild: Map<string, DetectedRelation[]>;
+} {
+  const byParent = new Map<string, DetectedRelation[]>();
+  const byChild = new Map<string, DetectedRelation[]>();
 
-  const relsByParent = new Map<string, DetectedRelation[]>();
-  const relsByChild = new Map<string, DetectedRelation[]>();
   for (const rel of relations) {
-    const arr = relsByParent.get(rel.parentSchemaName) || [];
-    arr.push(rel);
-    relsByParent.set(rel.parentSchemaName, arr);
-    const childArr = relsByChild.get(rel.childSchemaName) || [];
+    const parentArr = byParent.get(rel.parentSchemaName) ?? [];
+    parentArr.push(rel);
+    byParent.set(rel.parentSchemaName, parentArr);
+
+    const childArr = byChild.get(rel.childSchemaName) ?? [];
     childArr.push(rel);
-    relsByChild.set(rel.childSchemaName, childArr);
+    byChild.set(rel.childSchemaName, childArr);
   }
+
+  return { byParent, byChild };
+}
+
+/** Schemas on the other end of a relation — emitted as commented-out imports. */
+function collectRelatedSchemas(
+  ownName: string,
+  ...relationGroups: DetectedRelation[][]
+): Set<string> {
+  const related = new Set<string>();
+  for (const rels of relationGroups) {
+    for (const rel of rels) {
+      if (rel.childSchemaName !== ownName) related.add(rel.childSchemaName);
+      if (rel.parentSchemaName !== ownName) related.add(rel.parentSchemaName);
+    }
+  }
+  return related;
+}
+
+/** A plausible `schemaOverrides` example: an email format if there is one, else a minLength. */
+function schemaOverridesLine(schema: ParsedSchema, pk: string | string[]): string {
+  const emailField = schema.fields.find((f) => f.toLowerCase().includes('email'));
+  if (emailField) {
+    return `  // schemaOverrides: { ${emailField}: Type.String({ format: 'email' }) },`;
+  }
+
+  const stringField = schema.fields.find(
+    (f) => !pkFields(pk).includes(f) && schema.fieldTypes[f]?.includes('String')
+  );
+  return stringField
+    ? `  // schemaOverrides: { ${stringField}: Type.String({ minLength: 1 }) },`
+    : `  // schemaOverrides: {},`;
+}
+
+/** Indirect scope when the table hangs off a parent, direct scope otherwise. */
+function tenantScopeLine(childRels: DetectedRelation[]): string {
+  const rel = childRels[0];
+  if (!rel) return `  // tenantScope: { column: 'tenant_col' },`;
+  return `  // tenantScope: { column: 'tenant_col', through: { schema: ${rel.parentSchemaName}, localField: '${rel.childField}', foreignField: '${rel.parentField}' } },`;
+}
+
+function allowedReadJoinsLines(parentRels: DetectedRelation[]): string[] {
+  if (parentRels.length === 0) return [`  // allowedReadJoins: [],`];
+
+  const lines = [`  // allowedReadJoins: [`];
+  for (const rel of parentRels) {
+    lines.push(`  //   buildRelation(${rel.parentSchemaName}, '${rel.parentField}', ${rel.childSchemaName}, '${rel.childField}'),`);
+  }
+  lines.push(`  // ],`);
+  return lines;
+}
+
+export function generateSingleTableFile(schema: ParsedSchema, allSchemas: ParsedSchema[]): string {
+  const { byParent, byChild } = indexRelations(detectRelations(allSchemas));
 
   const { pk, autoIncrement } = detectPrimaryKey(schema);
   const tableVarName = 'Table' + schema.schemaName.replace(/^Schema/, '');
-  const parentRels = relsByParent.get(schema.schemaName) || [];
-  const childRels = relsByChild.get(schema.schemaName) || [];
-
-  // Collect related schema names for commented imports
-  const relatedSchemas = new Set<string>();
-  for (const rel of parentRels) {
-    if (rel.childSchemaName !== schema.schemaName) relatedSchemas.add(rel.childSchemaName);
-    if (rel.parentSchemaName !== schema.schemaName) relatedSchemas.add(rel.parentSchemaName);
-  }
-  for (const rel of childRels) {
-    if (rel.parentSchemaName !== schema.schemaName) relatedSchemas.add(rel.parentSchemaName);
-    if (rel.childSchemaName !== schema.schemaName) relatedSchemas.add(rel.childSchemaName);
-  }
+  const parentRels = byParent.get(schema.schemaName) ?? [];
+  const childRels = byChild.get(schema.schemaName) ?? [];
+  const relatedSchemas = collectRelatedSchemas(schema.schemaName, parentRels, childRels);
 
   const lines: string[] = [];
 
@@ -209,31 +257,11 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
   // Hide columns from every read (writes still accept them, e.g. a password hash)
   lines.push(`  // readExclude: [],`);
 
-  if (parentRels.length > 0) {
-    lines.push(`  // allowedReadJoins: [`);
-    for (const rel of parentRels) {
-      lines.push(`  //   buildRelation(${rel.parentSchemaName}, '${rel.parentField}', ${rel.childSchemaName}, '${rel.childField}'),`);
-    }
-    lines.push(`  // ],`);
-  } else {
-    lines.push(`  // allowedReadJoins: [],`);
-  }
+  lines.push(...allowedReadJoinsLines(parentRels));
 
   const upsertPk = pkFields(pk).map((p) => `'${p}'`).join(', ');
   lines.push(`  // upsertMap: buildUpsertRules(buildUpsertRule(Schema, [${upsertPk}])),`);
-
-  // schemaOverrides: suggest email format if email field exists, otherwise minLength on first string field
-  const emailField = schema.fields.find(f => f.toLowerCase().includes('email'));
-  if (emailField) {
-    lines.push(`  // schemaOverrides: { ${emailField}: Type.String({ format: 'email' }) },`);
-  } else {
-    const stringField = schema.fields.find(f => !pkFields(pk).includes(f) && schema.fieldTypes[f]?.includes('String'));
-    if (stringField) {
-      lines.push(`  // schemaOverrides: { ${stringField}: Type.String({ minLength: 1 }) },`);
-    } else {
-      lines.push(`  // schemaOverrides: {},`);
-    }
-  }
+  lines.push(schemaOverridesLine(schema, pk));
 
   // validate: use first non-PK field for example
   const exampleField = schema.fields.find(f => !pkFields(pk).includes(f)) || schema.fields[0];
@@ -246,12 +274,7 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
   lines.push(`  // beforeInsert: async (db, req, record) => {},`);
   lines.push(`  // beforeUpdate: async (db, req, fields) => {},`);
 
-  if (childRels.length > 0) {
-    const rel = childRels[0];
-    lines.push(`  // tenantScope: { column: 'tenant_col', through: { schema: ${rel.parentSchemaName}, localField: '${rel.childField}', foreignField: '${rel.parentField}' } },`);
-  } else {
-    lines.push(`  // tenantScope: { column: 'tenant_col' },`);
-  }
+  lines.push(tenantScopeLine(childRels));
 
   lines.push(`});`);
   lines.push(``);
@@ -286,23 +309,53 @@ export function generateDbTablesIndex(schemas: ParsedSchema[]): string {
 
 // ─── Code Generation (legacy) ───────────────────────────────
 
+/** One `defineTable({...})` block for the legacy single-file generator. */
+function legacyTableBlock(
+  schema: ParsedSchema,
+  parentRels: DetectedRelation[],
+  childRels: DetectedRelation[]
+): string[] {
+  const { pk, autoIncrement } = detectPrimaryKey(schema);
+  const tableVarName = 'Table' + schema.schemaName.replace(/^Schema/, '');
+  const upsertPk = pkFields(pk).map((p) => `'${p}'`).join(', ');
+  const exampleField = schema.fields.find((f) => !pkFields(pk).includes(f)) || schema.fields[0];
+
+  const lines = [
+    ``,
+    `// ─── ${schema.tableName} ──────────────────────────────`,
+    `// Fields: ${schema.fields.join(', ')}`,
+    `const ${tableVarName} = defineTable({`,
+    `  primary: ${formatPrimary(pk)},`,
+    `  ...exportTableInfo(${schema.schemaName}),`,
+    `  defaultOrder: '${pkFirst(pk)}',`,
+    autoIncrement
+      ? `  excludeFromCreation: ['${pkFirst(pk)}'],`
+      : `  // excludeFromCreation: [],`,
+  ];
+
+  lines.push(...allowedReadJoinsLines(parentRels));
+  lines.push(
+    `  // upsertMap: buildUpsertRules(buildUpsertRule(${schema.schemaName}, [${upsertPk}])),`,
+    `  // schemaOverrides: {},`,
+    `  validate: async (db, req, main, secondaries) => {`,
+    `    const errors: ValidationError[] = [];`,
+    `    // if (!main.${exampleField}) errors.push(['${exampleField}', 'required']);`,
+    `    return errors;`,
+    `  },`,
+    `  // beforeInsert: async (db, req, record) => {},`,
+    `  // beforeUpdate: async (db, req, fields) => {},`,
+    tenantScopeLine(childRels),
+    `});`,
+  );
+
+  return lines;
+}
+
 /** Legacy single-file DbTables generator.
  * @testonly Exported only so unit tests can exercise it directly.
  */
 export function generateTablesFile(schemas: ParsedSchema[]): string {
-  const relations = detectRelations(schemas);
-
-  const relsByParent = new Map<string, DetectedRelation[]>();
-  const relsByChild = new Map<string, DetectedRelation[]>();
-  for (const rel of relations) {
-    const arr = relsByParent.get(rel.parentSchemaName) || [];
-    arr.push(rel);
-    relsByParent.set(rel.parentSchemaName, arr);
-
-    const childArr = relsByChild.get(rel.childSchemaName) || [];
-    childArr.push(rel);
-    relsByChild.set(rel.childSchemaName, childArr);
-  }
+  const { byParent, byChild } = indexRelations(detectRelations(schemas));
 
   const lines: string[] = [];
 
@@ -318,57 +371,11 @@ export function generateTablesFile(schemas: ParsedSchema[]): string {
 
   // Table definitions
   for (const schema of schemas) {
-    const { pk, autoIncrement } = detectPrimaryKey(schema);
-    const tableVarName = 'Table' + schema.schemaName.replace(/^Schema/, '');
-    const parentRels = relsByParent.get(schema.schemaName) || [];
-
-    lines.push(``);
-    lines.push(`// ─── ${schema.tableName} ──────────────────────────────`);
-    lines.push(`// Fields: ${schema.fields.join(', ')}`);
-    lines.push(`const ${tableVarName} = defineTable({`);
-    lines.push(`  primary: ${formatPrimary(pk)},`);
-    lines.push(`  ...exportTableInfo(${schema.schemaName}),`);
-    lines.push(`  defaultOrder: '${pkFirst(pk)}',`);
-
-    if (autoIncrement) {
-      lines.push(`  excludeFromCreation: ['${pkFirst(pk)}'],`);
-    } else {
-      lines.push(`  // excludeFromCreation: [],`);
-    }
-
-    if (parentRels.length > 0) {
-      lines.push(`  // allowedReadJoins: [`);
-      for (const rel of parentRels) {
-        lines.push(`  //   buildRelation(${rel.parentSchemaName}, '${rel.parentField}', ${rel.childSchemaName}, '${rel.childField}'),`);
-      }
-      lines.push(`  // ],`);
-    } else {
-      lines.push(`  // allowedReadJoins: [],`);
-    }
-
-    const upsertPk = pkFields(pk).map((p) => `'${p}'`).join(', ');
-    lines.push(`  // upsertMap: buildUpsertRules(buildUpsertRule(${schema.schemaName}, [${upsertPk}])),`);
-    lines.push(`  // schemaOverrides: {},`);
-
-    const exampleFieldLegacy = schema.fields.find(f => !pkFields(pk).includes(f)) || schema.fields[0];
-    lines.push(`  validate: async (db, req, main, secondaries) => {`);
-    lines.push(`    const errors: ValidationError[] = [];`);
-    lines.push(`    // if (!main.${exampleFieldLegacy}) errors.push(['${exampleFieldLegacy}', 'required']);`);
-    lines.push(`    return errors;`);
-    lines.push(`  },`);
-
-    lines.push(`  // beforeInsert: async (db, req, record) => {},`);
-    lines.push(`  // beforeUpdate: async (db, req, fields) => {},`);
-
-    const childRels = relsByChild.get(schema.schemaName) || [];
-    if (childRels.length > 0) {
-      const rel = childRels[0];
-      lines.push(`  // tenantScope: { column: 'tenant_col', through: { schema: ${rel.parentSchemaName}, localField: '${rel.childField}', foreignField: '${rel.parentField}' } },`);
-    } else {
-      lines.push(`  // tenantScope: { column: 'tenant_col' },`);
-    }
-
-    lines.push(`});`);
+    lines.push(...legacyTableBlock(
+      schema,
+      byParent.get(schema.schemaName) ?? [],
+      byChild.get(schema.schemaName) ?? []
+    ));
   }
 
   // DbTables export

@@ -1,6 +1,6 @@
 import type { TSchema } from '@sinclair/typebox';
 import { isCompositePrimary } from '../../types.js';
-import type { DbTables, ITable, TableOperation } from '../../types.js';
+import type { DbTables, ITable, JoinDefinition, TableOperation } from '../../types.js';
 
 const ALL_OPERATIONS: TableOperation[] = [
   'search', 'get', 'insert', 'update', 'delete', 'bulkUpsert', 'bulkDelete',
@@ -84,6 +84,62 @@ export function tableOperations(tableConf: ITable): TableOperation[] {
   return requested.filter((op) => !SINGLE_PK_OPERATIONS.has(op));
 }
 
+/** Field descriptors: type, plus the flags an agent needs to build a valid payload. */
+function manifestFields(tableConf: ITable): Record<string, ManifestField> {
+  const schema = tableConf.Schema;
+  const required = new Set(((schema.validation as { required?: string[] }).required) ?? []);
+  const readExcluded = new Set(tableConf.readExclude ?? []);
+
+  const fields: Record<string, ManifestField> = {};
+  for (const [name, fieldSchema] of Object.entries(schema.fields)) {
+    const f: ManifestField = { type: shortType(fieldSchema) };
+    if (required.has(name)) f.required = true;
+    if (isNullable(fieldSchema)) f.nullable = true;
+    if (readExcluded.has(name)) f.writeOnly = true;
+    fields[name] = f;
+  }
+  return fields;
+}
+
+function manifestJoins(joins: JoinDefinition[] | undefined): ManifestJoin[] {
+  return (joins ?? []).map((j) => ({
+    alias: j.alias,
+    table: j.joinSchema.tableName,
+    kind: j.unique ? 'N:1' : '1:N',
+  }));
+}
+
+function manifestExtraFilters(tableConf: ITable): Record<string, string> | undefined {
+  const entries = Object.entries(tableConf.extraFilters ?? {});
+  if (entries.length === 0) return undefined;
+  return Object.fromEntries(entries.map(([n, s]) => [n, shortType(s)]));
+}
+
+/** One table's entry. Optional keys are omitted entirely when empty, to keep the prompt small. */
+function manifestTable(tableConf: ITable): ManifestTable {
+  const entry: ManifestTable = {
+    table: tableConf.Schema.tableName,
+    primary: tableConf.primary,
+    operations: tableOperations(tableConf),
+    fields: manifestFields(tableConf),
+  };
+
+  const computed = computedTypes(tableConf);
+  const extraFilters = manifestExtraFilters(tableConf);
+  const readJoins = manifestJoins(tableConf.allowedReadJoins);
+  const writeJoins = manifestJoins(tableConf.allowedWriteJoins);
+
+  if (tableConf.excludeFromCreation?.length) entry.serverGenerated = [...tableConf.excludeFromCreation];
+  if (computed) entry.computed = computed;
+  if (extraFilters) entry.extraFilters = extraFilters;
+  if (readJoins.length) entry.readJoins = readJoins;
+  if (writeJoins.length) entry.writeJoins = writeJoins;
+  if (tableConf.tenantScope) entry.tenantScoped = true;
+  if (tableConf.defaultOrder) entry.defaultOrder = tableConf.defaultOrder;
+
+  return entry;
+}
+
 /**
  * Build the machine-readable description of every table exposed by this deployment:
  * fields (type/required/nullable), enabled operations, join aliases, computed fields,
@@ -93,58 +149,9 @@ export function tableOperations(tableConf: ITable): TableOperation[] {
  */
 export function buildAgentManifest(dbTables: DbTables): AgentManifest {
   const tables: Record<string, ManifestTable> = {};
-
   for (const [key, tableConf] of Object.entries(dbTables)) {
-    const schema = tableConf.Schema;
-    const required = new Set(
-      ((schema.validation as { required?: string[] }).required) ?? []
-    );
-    const readExcluded = new Set(tableConf.readExclude ?? []);
-
-    const fields: Record<string, ManifestField> = {};
-    for (const [name, fieldSchema] of Object.entries(schema.fields)) {
-      const f: ManifestField = { type: shortType(fieldSchema as TSchema) };
-      if (required.has(name)) f.required = true;
-      if (isNullable(fieldSchema as TSchema)) f.nullable = true;
-      if (readExcluded.has(name)) f.writeOnly = true;
-      fields[name] = f;
-    }
-
-    const readJoins: ManifestJoin[] = (tableConf.allowedReadJoins ?? []).map((j) => ({
-      alias: j.alias,
-      table: j.joinSchema.tableName,
-      kind: j.unique ? 'N:1' : '1:N',
-    }));
-    const writeJoins: ManifestJoin[] = (tableConf.allowedWriteJoins ?? []).map((j) => ({
-      alias: j.alias,
-      table: j.joinSchema.tableName,
-      kind: j.unique ? 'N:1' : '1:N',
-    }));
-
-    const extraFilters = Object.keys(tableConf.extraFilters ?? {}).length
-      ? Object.fromEntries(
-          Object.entries(tableConf.extraFilters).map(([n, s]) => [n, shortType(s)])
-        )
-      : undefined;
-
-    const entry: ManifestTable = {
-      table: schema.tableName,
-      primary: tableConf.primary,
-      operations: tableOperations(tableConf),
-      fields,
-    };
-    if (tableConf.excludeFromCreation?.length) entry.serverGenerated = [...tableConf.excludeFromCreation];
-    const computed = computedTypes(tableConf);
-    if (computed) entry.computed = computed;
-    if (extraFilters) entry.extraFilters = extraFilters;
-    if (readJoins.length) entry.readJoins = readJoins;
-    if (writeJoins.length) entry.writeJoins = writeJoins;
-    if (tableConf.tenantScope) entry.tenantScoped = true;
-    if (tableConf.defaultOrder) entry.defaultOrder = tableConf.defaultOrder;
-
-    tables[key] = entry;
+    tables[key] = manifestTable(tableConf);
   }
-
   return { tables };
 }
 
@@ -166,39 +173,48 @@ export function renderAgentManifestMd(manifest: AgentManifest): string {
   ];
 
   for (const t of Object.values(manifest.tables)) {
-    const pk = Array.isArray(t.primary) ? t.primary.join('+') : t.primary;
-    const flags = t.tenantScoped ? '  [tenant-scoped]' : '';
-    lines.push(`## ${t.table}  PK:${pk}  ops:${t.operations.join(',')}${flags}`);
-
-    const fieldParts = Object.entries(t.fields).map(([name, f]) => {
-      let s = `${name}:${f.type}`;
-      if (f.required) s += '!';
-      if (f.nullable) s += '?';
-      if (f.writeOnly) s += '(writeOnly)';
-      return s;
-    });
-    lines.push(`fields: ${fieldParts.join(', ')}`);
-
-    if (t.serverGenerated) lines.push(`serverGenerated: ${t.serverGenerated.join(', ')}`);
-    if (t.computed) {
-      const computed = Object.entries(t.computed).map(([n, ty]) => `${n}:${ty}`);
-      lines.push(`computed: ${computed.join(', ')}`);
-    }
-    if (t.extraFilters) {
-      const extraFilters = Object.entries(t.extraFilters).map(([n, ty]) => `${n}:${ty}`);
-      lines.push(`extraFilters: ${extraFilters.join(', ')}`);
-    }
-    if (t.readJoins) {
-      const readJoins = t.readJoins.map((j) => `${j.alias}→${j.table}(${j.kind})`);
-      lines.push(`readJoins: ${readJoins.join(', ')}`);
-    }
-    if (t.writeJoins) {
-      const writeJoins = t.writeJoins.map((j) => `${j.alias}→${j.table}`);
-      lines.push(`writeJoins: ${writeJoins.join(', ')}`);
-    }
-    if (t.defaultOrder) lines.push(`defaultOrder: ${t.defaultOrder}`);
-    lines.push('');
+    lines.push(...renderTableMd(t));
   }
 
   return lines.join('\n');
+}
+
+/** `name:type` pairs — the compact form used throughout the manifest. */
+function namedTypes(map: Record<string, string>): string {
+  return Object.entries(map).map(([n, ty]) => `${n}:${ty}`).join(', ');
+}
+
+/** A field's type with its notation suffixes: `!` required, `?` nullable, `(writeOnly)`. */
+function fieldNotation(f: ManifestField): string {
+  let s = f.type;
+  if (f.required) s += '!';
+  if (f.nullable) s += '?';
+  if (f.writeOnly) s += '(writeOnly)';
+  return s;
+}
+
+function renderTableMd(t: ManifestTable): string[] {
+  const pk = Array.isArray(t.primary) ? t.primary.join('+') : t.primary;
+  const flags = t.tenantScoped ? '  [tenant-scoped]' : '';
+  const ops = t.operations.join(',');
+  const lines = [`## ${t.table}  PK:${pk}  ops:${ops}${flags}`];
+
+  const fieldParts = Object.entries(t.fields).map(([name, f]) => `${name}:${fieldNotation(f)}`);
+  lines.push(`fields: ${fieldParts.join(', ')}`);
+
+  if (t.serverGenerated) lines.push(`serverGenerated: ${t.serverGenerated.join(', ')}`);
+  if (t.computed) lines.push(`computed: ${namedTypes(t.computed)}`);
+  if (t.extraFilters) lines.push(`extraFilters: ${namedTypes(t.extraFilters)}`);
+  if (t.readJoins) {
+    const readJoins = t.readJoins.map((j) => `${j.alias}→${j.table}(${j.kind})`);
+    lines.push(`readJoins: ${readJoins.join(', ')}`);
+  }
+  if (t.writeJoins) {
+    const writeJoins = t.writeJoins.map((j) => `${j.alias}→${j.table}`);
+    lines.push(`writeJoins: ${writeJoins.join(', ')}`);
+  }
+  if (t.defaultOrder) lines.push(`defaultOrder: ${t.defaultOrder}`);
+
+  lines.push('');
+  return lines;
 }

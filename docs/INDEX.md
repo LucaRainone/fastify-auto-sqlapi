@@ -217,7 +217,7 @@ Search before writing: `npm run find-similar -- "<what you need>"`.
 ### src/routes/auto/route-helpers.ts
 - `AutoRouteSpec` *interface*
 - `buildWriteDescription(action: string, tableName: string, tableConf: ITable): string` *function*
-- `registerForAllTables(fastify: FastifyInstance, options: SqlApiPluginOptions, spec: AutoRo…` *function* — Iterates over every table in `options.DbTables` and registers one Fastify route for it following `s…
+- `registerForAllTables(fastify: FastifyInstance, options: SqlApiPluginOptions, spec: AutoRo…` *function*
 ### src/routes/auto/search.routes.ts
 - `default(fastify: FastifyInstance, options: SqlApiPluginOptions): Promise<void>` *function*
 ### src/routes/auto/update.routes.ts

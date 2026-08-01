@@ -8,12 +8,44 @@ import {
 } from '../../tenant.js';
 import { runValidation } from '../validate.js';
 import { httpError } from '../../errors.js';
-import { type ConditionValue } from 'node-condition-builder';
+import { type ConditionValue, type ConditionBuilder } from 'node-condition-builder';
+import type { QueryClient } from '../../db.js';
 import type {
   UpdateParams,
   UpdateResult,
   DbRecord,
 } from '../../../types.js';
+
+/**
+ * Confirm the row exists — and is visible to this tenant — when the request carries no
+ * updatable fields. Secondaries and deletions still need the main row to be there, and a
+ * missing one must be a 404 rather than a silent success.
+ */
+async function assertRecordExists(
+  tx: QueryClient,
+  tableName: string,
+  pkCols: string[],
+  pkValues: unknown[],
+  extraCondition: ConditionBuilder | undefined
+): Promise<void> {
+  const whereParts = pkCols.map((c, i) => `${tx.qi(tableName)}.${tx.qi(c)} = ${tx.ph(i + 1)}`);
+  let whereSql = whereParts.join(' AND ');
+  const whereValues: unknown[] = [...pkValues];
+
+  if (extraCondition) {
+    whereSql += ` AND ${extraCondition.build(pkCols.length + 1, tx.ph)}`;
+    whereValues.push(...extraCondition.getValues());
+  }
+
+  const rows = await tx.select<Record<string, unknown>>({
+    tableName,
+    where: whereSql,
+    values: whereValues,
+    limit: '1',
+  });
+
+  if (rows.length === 0) throw httpError(404, `Record not found`);
+}
 
 export async function updateEngine(params: UpdateParams): Promise<UpdateResult> {
   const { db, tableConf, dbTables, request, record, secondaries, deletions, tenant } = params;
@@ -76,24 +108,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
 
       if (affectedRows === 0) throw httpError(404, `Record not found`);
     } else {
-      // No fields to update: verify the record exists (for secondaries/deletions)
-      const whereParts = pkCols.map((c, i) => `${tx.qi(schema.tableName)}.${tx.qi(c)} = ${tx.ph(i + 1)}`);
-      let whereSql = whereParts.join(' AND ');
-      const whereValues: unknown[] = [...pkValues];
-
-      if (extraCondition) {
-        whereSql += ` AND ${extraCondition.build(pkCols.length + 1, tx.ph)}`;
-        whereValues.push(...extraCondition.getValues());
-      }
-
-      const rows = await tx.select<Record<string, unknown>>({
-        tableName: schema.tableName,
-        where: whereSql,
-        values: whereValues,
-        limit: '1',
-      });
-
-      if (rows.length === 0) throw httpError(404, `Record not found`);
+      await assertRecordExists(tx, schema.tableName, pkCols, pkValues, extraCondition);
     }
 
     // Build the main response (PK-only — every PK field)

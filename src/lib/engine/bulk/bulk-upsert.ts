@@ -4,13 +4,68 @@ import { enforceTenantOnWrites, assertTenantOwnsConflicts } from '../../tenant.j
 import { runBulkValidation } from '../validate.js';
 import { primaryAsCols } from '../../../types.js';
 import type {
+  BulkUpsertItem,
   BulkUpsertParams,
   BulkUpsertResult,
   DbRecord,
 } from '../../../types.js';
 
+/** One bulk statement for every main row, returning the PKs only. */
+function upsertMains(
+  params: BulkUpsertParams,
+  preparedMains: DbRecord[],
+  pkCol: string | string[]
+): Promise<Record<string, unknown>[]> {
+  const { db, tableConf, tenant } = params;
+  const schema = tableConf.Schema;
+  const upsertKeys = tableConf.upsertMap?.get(schema);
+
+  if (!upsertKeys) {
+    return db.bulkInsert(schema.tableName, preparedMains, pkCol);
+  }
+
+  const conflictCols = upsertKeys.map((k) => schema.col(k));
+  // Tenant isolation: a conflicting upsert must not overwrite rows owned by another tenant.
+  return assertTenantOwnsConflicts(db, tenant, schema.tableName, conflictCols, preparedMains)
+    .then(() => db.bulkInsertOrUpdate(schema.tableName, preparedMains, conflictCols, pkCol));
+}
+
+/** Secondaries, deletions and the afterInsert hook for one upserted item. */
+async function finalizeUpsertedItem(
+  params: BulkUpsertParams,
+  item: BulkUpsertItem,
+  inputMain: Record<string, unknown>,
+  pkRow: Record<string, unknown>
+): Promise<BulkUpsertResult> {
+  const { db, tableConf, dbTables, request } = params;
+
+  // pkRow comes from SQL RETURNING or mysql insertId synthesis — keys are DB column names;
+  // camelcaseObject maps them back to schema fields (full composite PK).
+  const mainPkCamel = camelcaseObject(pkRow, tableConf.Schema);
+  const result: BulkUpsertResult = { main: mainPkCamel };
+
+  // FK auto-fill: input camelCase + generated PK
+  const mainForFK = { ...inputMain, ...mainPkCamel };
+
+  if (item.secondaries && Object.keys(item.secondaries).length > 0) {
+    const sec = await processSecondaries(db, tableConf, dbTables, mainForFK, item.secondaries);
+    if (Object.keys(sec).length > 0) result.secondaries = sec;
+  }
+
+  if (item.deletions && Object.keys(item.deletions).length > 0) {
+    const del = await processDeletions(db, tableConf, mainForFK, item.deletions);
+    if (Object.keys(del).length > 0) result.deletions = del;
+  }
+
+  if (tableConf.afterInsert) {
+    await tableConf.afterInsert(db, request, mainForFK, result.secondaries);
+  }
+
+  return result;
+}
+
 export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUpsertResult[]> {
-  const { db, tableConf, dbTables, request, items, tenant } = params;
+  const { db, tableConf, request, items, tenant } = params;
   if (!items.length) return [];
 
   const schema = tableConf.Schema;
@@ -41,55 +96,13 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
   await enforceTenantOnWrites(db, tenant, preparedMains);
 
   // 4. Bulk upsert all mains in one query → returns PK-only
-  const upsertKeys = tableConf.upsertMap?.get(schema);
-  let pkRows: Record<string, unknown>[];
-  if (upsertKeys) {
-    const conflictCols = upsertKeys.map((k) => schema.col(k));
-    // Tenant isolation: a conflicting upsert must not overwrite rows owned by another tenant.
-    await assertTenantOwnsConflicts(db, tenant, schema.tableName, conflictCols, preparedMains);
-    pkRows = await db.bulkInsertOrUpdate(
-      schema.tableName,
-      preparedMains,
-      conflictCols,
-      pkCol
-    );
-  } else {
-    pkRows = await db.bulkInsert(
-      schema.tableName,
-      preparedMains,
-      pkCol
-    );
-  }
+  const pkRows = await upsertMains(params, preparedMains, pkCol);
 
-  // 5. Process secondaries, deletions, afterInsert per item (all camelCase)
+  // 5-6. Secondaries, deletions and afterInsert per item — sequential on purpose, so hooks
+  //      observe the same order the caller sent, and errors surface on the first bad item.
   const results: BulkUpsertResult[] = [];
-
   for (let i = 0; i < items.length; i++) {
-    const item = items[i];
-    // pkRows entries come from SQL RETURNING or mysql insertId synthesis — keys are DB
-    // column names; camelcaseObject maps them back to schema fields (full composite PK).
-    const mainPkCamel = camelcaseObject(pkRows[i], schema);
-    const result: BulkUpsertResult = { main: mainPkCamel };
-
-    // FK auto-fill: input camelCase + generated PK
-    const mainForFK = { ...inputMains[i], ...mainPkCamel };
-
-    if (item.secondaries && Object.keys(item.secondaries).length > 0) {
-      const sec = await processSecondaries(db, tableConf, dbTables, mainForFK, item.secondaries);
-      if (Object.keys(sec).length > 0) result.secondaries = sec;
-    }
-
-    if (item.deletions && Object.keys(item.deletions).length > 0) {
-      const del = await processDeletions(db, tableConf, mainForFK, item.deletions);
-      if (Object.keys(del).length > 0) result.deletions = del;
-    }
-
-    // 6. afterInsert hook per item (camelCase)
-    if (tableConf.afterInsert) {
-      await tableConf.afterInsert(db, request, mainForFK, result.secondaries);
-    }
-
-    results.push(result);
+    results.push(await finalizeUpsertedItem(params, items[i], inputMains[i], pkRows[i]));
   }
 
   return results;

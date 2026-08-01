@@ -23,7 +23,6 @@ const DEFERRED_RULES = [
   '@typescript-eslint/no-base-to-string', // 1
   '@typescript-eslint/unbound-method', // 3
   '@typescript-eslint/require-await', // 3
-  'sonarjs/cognitive-complexity', // 16
   'sonarjs/no-nested-conditional', // 2
   'sonarjs/different-types-comparison', // 3
   'sonarjs/super-linear-regex', // 2
