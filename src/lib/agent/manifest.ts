@@ -7,7 +7,7 @@ const ALL_OPERATIONS: TableOperation[] = [
 ];
 const SINGLE_PK_OPERATIONS = new Set<TableOperation>(['get', 'delete', 'bulkDelete']);
 
-export interface ManifestField {
+interface ManifestField {
   type: string;
   /** Present (true) when the field must be sent on insert. */
   required?: boolean;
@@ -17,7 +17,7 @@ export interface ManifestField {
   writeOnly?: boolean;
 }
 
-export interface ManifestJoin {
+interface ManifestJoin {
   alias: string;
   table: string;
   /** '1:N' → usable in joinMustExist/joinMultiple/joinGroup; 'N:1' → usable in joinLeft. */

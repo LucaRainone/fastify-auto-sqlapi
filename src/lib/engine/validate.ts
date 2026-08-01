@@ -2,7 +2,7 @@ import type { FastifyRequest } from 'fastify';
 import type { QueryClient } from '../db.js';
 import type { ITable, ValidationError, BulkValidatorItem } from '../../types.js';
 
-export interface ValidationResponseField {
+interface ValidationResponseField {
   path: string;
   code: string;
   message: string;

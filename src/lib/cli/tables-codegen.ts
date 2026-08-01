@@ -11,7 +11,7 @@ export interface ParsedSchema {
   primary?: string[];
 }
 
-export interface DetectedRelation {
+interface DetectedRelation {
   parentSchemaName: string;
   parentField: string;
   childSchemaName: string;
@@ -98,6 +98,9 @@ function pkFields(pk: string | string[]): string[] {
   return Array.isArray(pk) ? pk : [pk];
 }
 
+/** Infers FK relations between parsed schemas.
+ * @testonly Exported only so unit tests can exercise it directly.
+ */
 export function detectRelations(schemas: ParsedSchema[]): DetectedRelation[] {
   const tableBySnakeName = new Map<string, ParsedSchema>();
   for (const schema of schemas) {
@@ -280,6 +283,9 @@ export function generateDbTablesIndex(schemas: ParsedSchema[]): string {
 
 // ─── Code Generation (legacy) ───────────────────────────────
 
+/** Legacy single-file DbTables generator.
+ * @testonly Exported only so unit tests can exercise it directly.
+ */
 export function generateTablesFile(schemas: ParsedSchema[]): string {
   const relations = detectRelations(schemas);
 

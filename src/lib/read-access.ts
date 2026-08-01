@@ -12,7 +12,7 @@ import { httpError } from './errors.js';
  * a field can be writable but never readable (e.g. a password hash).
  */
 
-export function isReadExcluded(tableConf: ITable | undefined, field: string): boolean {
+function isReadExcluded(tableConf: ITable | undefined, field: string): boolean {
   return tableConf?.readExclude?.includes(field) ?? false;
 }
 

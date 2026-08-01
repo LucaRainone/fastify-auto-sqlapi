@@ -1,6 +1,9 @@
 import { toCamelCase, toSchemaName } from '../naming.js';
 import type { ColumnInfo, TableMap } from '../../types.js';
 
+/** Maps a DB column type to its TypeBox schema expression.
+ * @testonly Exported only so unit tests can exercise it directly.
+ */
 export function convertColType(
   udtName: string,
   columnInfo: { column_default: string | null; is_nullable: string; is_auto_increment?: boolean }

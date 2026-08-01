@@ -21,7 +21,7 @@ export function pkSchema(tableConf: ITable | undefined, schema: SchemaDefinition
  * - FK field becomes Optional (auto-filled from main)
  * - excludeFromCreation fields become Optional
  */
-export function buildSecondaryFields(
+function buildSecondaryFields(
   joinSchema: SchemaDefinition,
   joinField: string,
   secondaryTableConf: ITable | undefined
@@ -71,7 +71,7 @@ type JoinFieldsBuilder = (
  * When `itemsPartial` is true, wraps each item with Type.Partial — used for deletion sub-schemas
  * where every field is a matcher (the engine auto-injects the FK to main).
  */
-export function buildJoinAliasMap(
+function buildJoinAliasMap(
   tableConf: ITable,
   dbTables: DbTables,
   build: JoinFieldsBuilder,

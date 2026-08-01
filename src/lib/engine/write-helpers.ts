@@ -9,7 +9,7 @@ import type {
   DbRecord,
 } from '../../types.js';
 
-export function findWriteJoin(
+function findWriteJoin(
   tableConf: ITable,
   alias: string
 ): JoinDefinition | undefined {
@@ -23,7 +23,7 @@ export function findWriteJoin(
  * BEFORE any server-side value is assigned (beforeInsert mutations, FK auto-fill),
  * so engine/hook-generated values on those fields reach the SQL.
  */
-export function removeExcludedFields(
+function removeExcludedFields(
   record: Record<string, unknown>,
   tableConf: ITable
 ): Record<string, unknown> {
@@ -41,7 +41,7 @@ export function removeExcludedFields(
  * field names) and in place. Used on the client payload before the beforeInsert
  * hook runs.
  */
-export function removeExcludedFieldsCamel(
+function removeExcludedFieldsCamel(
   record: Record<string, unknown>,
   tableConf: ITable
 ): void {

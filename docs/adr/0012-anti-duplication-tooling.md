@@ -52,7 +52,8 @@ unnoticed. A rule is either enforced or explicitly deferred, never "warned about
   consumers to import what is not public API.
 - Type-only import cycles through `src/types.ts` are deferred, not fixed. Verified they
   are erased on emit — the compiled `dist/` graph has zero cycles.
-- 16 exports are used only inside their own file and should lose the `export` keyword.
-  Until then `knip` cannot check exports by default.
+- `knip` checks exports and types with no exclusions. The 16 symbols that were exported but
+  used only inside their own file lost the keyword; the 5 that only unit tests use are
+  tagged `@testonly`, which documents why they stay exported instead of hiding them.
 - Maintainer scripts require Node ≥22.18 (native TypeScript type stripping). The published
   package still supports Node ≥18.

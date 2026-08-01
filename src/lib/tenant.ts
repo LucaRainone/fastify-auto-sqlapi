@@ -65,6 +65,9 @@ export function buildTenantJoin(
   return `INNER JOIN ${db.qi(throughTable)} ON ${db.qi(mainTableName)}.${db.qi(localField)} = ${db.qi(throughTable)}.${db.qi(foreignField)}`;
 }
 
+/** Writes the tenant value into a record according to its scope.
+ * @testonly Exported only so unit tests can exercise it directly.
+ */
 export function injectTenantValue(
   record: Record<string, unknown>,
   scope: TenantScope,
@@ -88,6 +91,9 @@ export function injectTenantValue(
   throw httpError(400, 'Ambiguous tenant: specify the tenant value');
 }
 
+/** Checks that an indirect-scope FK really belongs to the tenant.
+ * @testonly Exported only so unit tests can exercise it directly.
+ */
 export async function validateTenantFK(
   db: QueryClient,
   scope: TenantScopeIndirect,

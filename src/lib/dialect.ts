@@ -1,6 +1,6 @@
 export type DialectName = 'postgres' | 'mysql' | 'mariadb';
 
-export type TruncateUnit = 'year' | 'quarter' | 'month' | 'day' | 'hour';
+type TruncateUnit = 'year' | 'quarter' | 'month' | 'day' | 'hour';
 
 export interface SqlDialect {
   name: DialectName;

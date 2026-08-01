@@ -1,0 +1,10 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["src/bin/*.ts"],
+  "project": ["src/**/*.ts"],
+
+  // Unit tests import from dist/ through computed paths, which knip cannot resolve, so an
+  // export only tests use looks unused. Those carry an @testonly tag documenting why they
+  // are exported, rather than being silently ignored here.
+  "tags": ["-testonly"]
+}

@@ -1,16 +1,16 @@
 // Allowed ConditionBuilder methods for the `conditions` search API.
 // Single source of truth for both schema validation (Swagger) and runtime whitelist.
 
-export const SINGLE_VALUE_METHODS = [
+const SINGLE_VALUE_METHODS = [
   'isEqual', 'isNotEqual',
   'isGreater', 'isNotGreater', 'isGreaterOrEqual', 'isNotGreaterOrEqual',
   'isLess', 'isNotLess', 'isLessOrEqual', 'isNotLessOrEqual',
   'isLike', 'isNotLike', 'isILike', 'isNotILike',
 ] as const;
 
-export const BETWEEN_METHODS = ['isBetween', 'isNotBetween'] as const;
-export const IN_METHODS = ['isIn', 'isNotIn'] as const;
-export const NULL_METHODS = ['isNull', 'isNotNull'] as const;
+const BETWEEN_METHODS = ['isBetween', 'isNotBetween'] as const;
+const IN_METHODS = ['isIn', 'isNotIn'] as const;
+const NULL_METHODS = ['isNull', 'isNotNull'] as const;
 
 export const ALLOWED_METHODS = [
   ...SINGLE_VALUE_METHODS, ...BETWEEN_METHODS, ...IN_METHODS, ...NULL_METHODS,

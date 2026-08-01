@@ -5,7 +5,7 @@ import type { ITable, SqlApiPluginOptions, DbTables, TableOperation } from '../.
 
 type RequestHook = (request: FastifyRequest, reply: FastifyReply) => Promise<void | FastifyReply>;
 
-export function mergeOnRequests(options: SqlApiPluginOptions, tableConf: ITable): RequestHook[] {
+function mergeOnRequests(options: SqlApiPluginOptions, tableConf: ITable): RequestHook[] {
   return [...(options.onRequests || []), ...(tableConf.onRequests || [])];
 }
 
