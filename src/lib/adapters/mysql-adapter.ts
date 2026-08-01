@@ -19,7 +19,7 @@ function wrapQuery(client: MysqlQueryable): Queryable['query'] {
     // SELECT returns an array of rows
     if (Array.isArray(result) && !('affectedRows' in result)) {
       return {
-        rows: result as T[],
+        rows: result,
         affectedRows: result.length,
       };
     }

@@ -39,7 +39,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
 
   // 4. beforeUpdate hook (camelCase — user can mutate with schema field names)
   if (tableConf.beforeUpdate) {
-    await tableConf.beforeUpdate(db, request, inputRecord as Parameters<NonNullable<typeof tableConf.beforeUpdate>>[2]);
+    await tableConf.beforeUpdate(db, request, inputRecord);
   }
 
   // 5. Convert to DB format (after all user mutations)
@@ -118,7 +118,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
       await tableConf.afterUpdate(
         tx,
         request,
-        inputRecord as Parameters<NonNullable<typeof tableConf.afterUpdate>>[2],
+        inputRecord,
         secondaryResults,
         deletionResults
       );

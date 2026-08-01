@@ -25,7 +25,6 @@ import type {
   ITable,
   SchemaDefinition,
   TenantContext,
-  TenantScopeIndirect,
   ComputedFieldContext,
   ComputedFieldExpr,
   ComputedFieldFn,
@@ -138,7 +137,7 @@ function appendJoinTenantScope(
   if (!tenant || !scope) return;
   cb.append(buildTenantCondition(db, scope, tenant.ids, joinTableRef));
   if ('through' in scope) {
-    joins?.push(buildTenantJoin(db, scope as TenantScopeIndirect, joinTableRef));
+    joins?.push(buildTenantJoin(db, scope, joinTableRef));
   }
 }
 
@@ -187,13 +186,13 @@ function requireJoin(tableConf: ITable, alias: string, requireUnique: boolean): 
   if (!joinDef) {
     err400(`Unknown join alias: ${alias}`);
   }
-  if (requireUnique && !joinDef!.unique) {
+  if (requireUnique && !joinDef.unique) {
     err400(`Join alias '${alias}' is not declared with unique:true; use joinMultiple/joinMustExist/joinGroup instead`);
   }
-  if (!requireUnique && joinDef!.unique) {
+  if (!requireUnique && joinDef.unique) {
     err400(`Join alias '${alias}' is declared with unique:true; use joinLeft instead`);
   }
-  return joinDef!;
+  return joinDef;
 }
 
 // ─── Reusable helpers for join references / computed fields ─
@@ -497,7 +496,7 @@ function validateOrderBy(
     if (!plain) {
       err400(`Invalid orderBy: ${trimmed}`);
     }
-    const [, field, dir] = plain!;
+    const [, field, dir] = plain;
     const ref = resolveFieldRef(field, tableConf.Schema, tableConf, db);
     // A computed field binds its own values here: ORDER BY is emitted after the WHERE, so
     // its placeholders continue from `currentIdx`.
@@ -554,7 +553,7 @@ function buildLeftJoinClauses(
       const joinTableConf = dbTables[joinSchema.tableName];
       const computed = joinTableConf?.computedFields;
 
-      assertFiltersReadable(ref.filters as Record<string, unknown> | undefined, joinTableConf);
+      assertFiltersReadable(ref.filters, joinTableConf);
 
       if (ref.filters) {
         for (const [field, value] of Object.entries(ref.filters)) {
@@ -578,10 +577,10 @@ function buildLeftJoinClauses(
           if (c.field in joinSchema.fields) {
             assertReadable(dbTables[joinSchema.tableName], c.field);
             const col = `${aliasIdent}.${db.qi(joinSchema.col(c.field))}`;
-            dispatchConditionMethod(cb, c.method, col, (c.params as unknown[]) ?? []);
+            dispatchConditionMethod(cb, c.method, col, (c.params) ?? []);
           } else if (computed?.[c.field]) {
             const expr = evaluateComputedField(c.field, computed[c.field], joinSchema, db, alias, '', true);
-            dispatchConditionMethod(cb, c.method, expr, (c.params as unknown[]) ?? []);
+            dispatchConditionMethod(cb, c.method, expr, (c.params) ?? []);
           } else {
             err400(`Unknown field: ${c.field}`);
           }
@@ -672,7 +671,7 @@ async function executeMainQuery(
       const fn = tableConf.computedFields?.[name];
       if (!fn) err400(`Unknown computed field in selectComputed: '${name}'`);
       const out = evaluateComputedField(
-        name, fn!, tableConf.Schema, db, undefined,
+        name, fn, tableConf.Schema, db, undefined,
         `Computed field '${name}' with bound values cannot be used in selectComputed`,
       );
       projections.push(`${out.value} AS ${db.qi(name)}`);
@@ -691,7 +690,7 @@ async function executeMainQuery(
     joins: extraJoins.length > 0 ? extraJoins : undefined,
   });
 
-  return mapRowsToCamelCase(rows as Record<string, unknown>[], tableConf.Schema, selectComputed);
+  return mapRowsToCamelCase(rows, tableConf.Schema, selectComputed);
 }
 
 async function buildPagination(
@@ -792,7 +791,7 @@ async function executeJoinMultiple(
       joins: tenantJoins.length > 0 ? tenantJoins : undefined,
     });
 
-    result[alias] = mapRowsToCamelCase(rows as Record<string, unknown>[], joinSchema);
+    result[alias] = mapRowsToCamelCase(rows, joinSchema);
   }
 
   return result;
@@ -844,7 +843,7 @@ async function executeJoinLeft(
       joins: tenantJoins.length > 0 ? tenantJoins : undefined,
     });
 
-    result[alias] = mapRowsToCamelCase(rows as Record<string, unknown>[], joinSchema);
+    result[alias] = mapRowsToCamelCase(rows, joinSchema);
   }
 
   return result;
@@ -955,7 +954,7 @@ async function executeJoinGroup(
       if (Array.isArray(row)) {
         formatted.rows = row;
       } else {
-        for (const [key, value] of Object.entries(row as Record<string, unknown>)) {
+        for (const [key, value] of Object.entries(row)) {
           if (key === 'by') continue;
           const [fn, field] = key.split('_');
           if (!formatted[fn]) formatted[fn] = {};
@@ -1021,7 +1020,7 @@ function buildJoinRefCondition(
   db: QueryClient,
   qualifier?: string
 ): ConditionBuilder {
-  assertFiltersReadable(ref.filters as Record<string, unknown> | undefined, joinTableConf);
+  assertFiltersReadable(ref.filters, joinTableConf);
   // Filter keys are checked by assertJoinFilterKeys, up front in searchEngine — this side
   // query may never run, so it is not a place a request can be rejected from.
 
@@ -1040,7 +1039,7 @@ function buildJoinRefCondition(
       if (value === null || value === undefined) continue;
       if (!computed[name]) continue;
       const expr = evaluateComputedField(name, computed[name], joinSchema, db, colQualifier, '', true);
-      cb.isEqual(expr, value as ConditionValue);
+      cb.isEqual(expr, value);
     }
   }
 
@@ -1054,7 +1053,7 @@ function buildJoinRefCondition(
       const operand = computed?.[c.field]
         ? evaluateComputedField(c.field, computed[c.field], joinSchema, db, colQualifier, '', true)
         : `${db.qi(colQualifier)}.${db.qi(validateSchemaField(c.field, joinSchema, joinTableConf))}`;
-      dispatchConditionMethod(cb, c.method, operand, (c.params as unknown[]) ?? []);
+      dispatchConditionMethod(cb, c.method, operand, (c.params) ?? []);
     }
   }
 
@@ -1085,7 +1084,7 @@ function applyConditions(
     // A computed field resolves to an Expression carrying its own bound values; the
     // ConditionBuilder places them, so no placeholder offset is computed here.
     const ref = resolveFieldRef(c.field, schema, tableConf, db);
-    dispatchConditionMethod(condition, c.method, ref.expr, c.params as unknown[]);
+    dispatchConditionMethod(condition, c.method, ref.expr, c.params);
   }
 }
 
@@ -1138,7 +1137,7 @@ function appendAggConditions(
     // lets the ConditionBuilder place those and the compared value in one step.
     const expr = buildAggOrderExpr(db, dbTables, tableConf, alias, fn, field, joinGroup);
     const tmpCb = new ConditionBuilder('AND', db.cbDialect);
-    dispatchConditionMethod(tmpCb, c.method, expr, c.params as unknown[]);
+    dispatchConditionMethod(tmpCb, c.method, expr, c.params);
     where += ` AND ${params.emitCondition(tmpCb, db)}`;
   }
 
@@ -1212,8 +1211,8 @@ export async function searchEngine(
   assertJoinFilterKeys(dbTables, tableConf, joinLeft, false);
 
   // Build main condition
-  assertFiltersReadable(filters as Record<string, unknown> | undefined, tableConf);
-  assertKnownFilterKeys(filters as Record<string, unknown> | undefined, tableConf.Schema, tableConf);
+  assertFiltersReadable(filters, tableConf);
+  assertKnownFilterKeys(filters, tableConf.Schema, tableConf);
   const condition = tableConf.filters(filters || {}, db.cbDialect);
 
   // Filters and conditions targeting computed fields go on the same ConditionBuilder:
@@ -1232,7 +1231,7 @@ export async function searchEngine(
   if (tenant) {
     condition.append(buildTenantCondition(db, tenant.scope, tenant.ids, tableConf.Schema.tableName));
     if ('through' in tenant.scope) {
-      tenantJoins.push(buildTenantJoin(db, tenant.scope as TenantScopeIndirect, tableConf.Schema.tableName));
+      tenantJoins.push(buildTenantJoin(db, tenant.scope, tableConf.Schema.tableName));
     }
   }
 

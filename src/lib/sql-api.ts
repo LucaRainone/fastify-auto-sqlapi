@@ -29,7 +29,6 @@ import type {
   BulkUpsertResult,
   BulkDeleteResult,
   TenantId,
-  SqlApiPluginOptions,
   TenantContext,
 } from '../types.js';
 
@@ -104,7 +103,7 @@ export class SqlApi {
     if (!request || !this.options.getTenantId) return undefined;
     const tableConf = this.getTableConf(tableName);
     return resolveTenant(
-      { DbTables: this.dbTables, getTenantId: this.options.getTenantId } as SqlApiPluginOptions,
+      { DbTables: this.dbTables, getTenantId: this.options.getTenantId },
       tableConf,
       request
     );

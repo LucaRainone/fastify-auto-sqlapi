@@ -16,7 +16,7 @@ export function UpdateTableBody(dbTables: DbTables, tableName: string): TObject 
   // Main: PK required, all other fields optional (overrides applied before Optional wrap)
   const baseFields = applySchemaOverrides({ ...schema.fields }, tableConf);
   const mainFields: Record<string, TSchema> = {};
-  for (const [key, value] of Object.entries(baseFields) as [string, TSchema][]) {
+  for (const [key, value] of Object.entries(baseFields)) {
     mainFields[key] = key === primaryAsString(tableConf.primary) ? value : Type.Optional(value);
   }
 

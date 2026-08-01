@@ -190,7 +190,7 @@ export class QueryClient {
     pkCol: string | string[],
     inputs: DbRecord[]
   ): Record<string, unknown>[] {
-    if (this.dialect.supportsReturning) return result.rows as Record<string, unknown>[];
+    if (this.dialect.supportsReturning) return result.rows;
     const firstId = result.insertId;
     return inputs.map((rec, j) =>
       this.#mysqlPkRow(pkCol, rec, typeof firstId === 'number' ? firstId + j : undefined)

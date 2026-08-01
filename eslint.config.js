@@ -13,7 +13,6 @@ const STRICT = process.env.LINT_STRICT === '1';
 const DEBT_SEVERITY = STRICT ? 'error' : 'off';
 
 const DEFERRED_RULES = [
-  '@typescript-eslint/no-unnecessary-type-assertion', // 46
   '@typescript-eslint/no-unsafe-assignment', // 44
   '@typescript-eslint/no-unsafe-member-access', // 34
   '@typescript-eslint/no-unsafe-argument', // 32
@@ -25,7 +24,7 @@ const DEFERRED_RULES = [
   '@typescript-eslint/unbound-method', // 3
   '@typescript-eslint/require-await', // 3
   'sonarjs/cognitive-complexity', // 16
-  'sonarjs/no-nested-template-literals', // 10
+  'sonarjs/no-nested-template-literals', // 11
   'sonarjs/no-nested-conditional', // 2
   'sonarjs/prefer-regexp-exec', // 9
   'sonarjs/different-types-comparison', // 3

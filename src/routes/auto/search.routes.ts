@@ -21,8 +21,8 @@ export default async function searchRoutes(
     }),
     summary: 'Search',
     description: (name, _tc, schemas) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const body = schemas.body as any;
+       
+      const body = schemas.body;
       const multiAliases = Object.keys(body?.properties?.joinMultiple?.properties || {});
       const leftAliases = Object.keys(body?.properties?.joinLeft?.properties || {});
       return [

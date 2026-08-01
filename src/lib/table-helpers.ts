@@ -65,7 +65,7 @@ export function exportTableInfo<
   const efRecord: Record<string, TSchema> =
     (extraFilters && typeof extraFilters === 'object' && 'properties' in extraFilters)
       ? (extraFilters as TObject).properties
-      : extraFilters as Record<string, TSchema>;
+      : extraFilters;
 
   return { Schema, filters, extraFilters: efRecord };
 }
@@ -198,7 +198,7 @@ function narrowSchemaToFields<J extends Record<string, TSchema>>(
   fields: string[],
   joinField: string
 ): SchemaDefinition<J> {
-  const declared = Object.keys(schema.fields as Record<string, TSchema>);
+  const declared = Object.keys(schema.fields);
 
   for (const field of fields) {
     if (!declared.includes(field)) {

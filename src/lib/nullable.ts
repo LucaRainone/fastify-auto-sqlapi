@@ -16,8 +16,8 @@ import { Type, type Static, type TSchema, type TUnsafe } from '@sinclair/typebox
  */
 export function Nullable<T extends TSchema>(schema: T): TUnsafe<Static<T> | null> {
   const type = (schema as { type?: string | string[] }).type;
-  if (!type) return schema as unknown as TUnsafe<Static<T> | null>;
+  if (!type) return schema;
   const types = Array.isArray(type) ? type : [type];
-  if (types.includes('null')) return schema as unknown as TUnsafe<Static<T> | null>;
+  if (types.includes('null')) return schema;
   return Type.Unsafe<Static<T> | null>({ ...schema, type: [...types, 'null'] });
 }

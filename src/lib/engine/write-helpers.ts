@@ -97,7 +97,7 @@ export async function prepareInsertRecord(
     await ctx.tableConf.beforeInsert(
       ctx.db,
       ctx.request,
-      camel as Parameters<NonNullable<typeof ctx.tableConf.beforeInsert>>[2]
+      camel
     );
   }
   const snake = snakecaseRecord(camel, ctx.tableConf.Schema);
@@ -139,7 +139,7 @@ export async function processSecondaries(
       // Auto-fill FK from main record
       const mainValue = Array.isArray(mainField)
         ? mainRecord[mainField[0]]
-        : mainRecord[mainField as string];
+        : mainRecord[mainField];
       prepared[joinCol] = mainValue;
 
       return prepared;
@@ -165,7 +165,7 @@ export async function processSecondaries(
     }
 
     results[alias] = pkRows.map((r) =>
-      camelcaseObject(r as Record<string, unknown>, joinSchema)
+      camelcaseObject(r, joinSchema)
     );
   }
 
@@ -200,7 +200,7 @@ export async function processDeletions(
     const joinCol = joinSchema.col(joinField);
     const mainValue = Array.isArray(mainField)
       ? mainRecord[mainField[0]]
-      : mainRecord[mainField as string];
+      : mainRecord[mainField];
 
     const deletedRows: Record<string, unknown>[] = [];
 

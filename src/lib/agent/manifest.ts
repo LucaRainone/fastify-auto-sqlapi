@@ -123,7 +123,7 @@ export function buildAgentManifest(dbTables: DbTables): AgentManifest {
 
     const extraFilters = Object.keys(tableConf.extraFilters ?? {}).length
       ? Object.fromEntries(
-          Object.entries(tableConf.extraFilters).map(([n, s]) => [n, shortType(s as TSchema)])
+          Object.entries(tableConf.extraFilters).map(([n, s]) => [n, shortType(s)])
         )
       : undefined;
 

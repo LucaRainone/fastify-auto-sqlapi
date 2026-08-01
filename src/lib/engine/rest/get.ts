@@ -4,7 +4,7 @@ import { buildTenantCondition, buildTenantJoin } from '../../tenant.js';
 import { httpError } from '../../errors.js';
 import { readableSelectColumns } from '../../read-access.js';
 import { primaryAsString, isCompositePrimary } from '../../../types.js';
-import type { GetParams, GetResult, TenantScopeIndirect } from '../../../types.js';
+import type { GetParams, GetResult } from '../../../types.js';
 
 export async function getEngine(params: GetParams): Promise<GetResult> {
   const { db, tableConf, id, tenant } = params;
@@ -25,7 +25,7 @@ export async function getEngine(params: GetParams): Promise<GetResult> {
   if (tenant) {
     cb.append(buildTenantCondition(db, tenant.scope, tenant.ids, tableConf.Schema.tableName));
     if ('through' in tenant.scope) {
-      joins.push(buildTenantJoin(db, tenant.scope as TenantScopeIndirect, tableConf.Schema.tableName));
+      joins.push(buildTenantJoin(db, tenant.scope, tableConf.Schema.tableName));
     }
   }
 
@@ -43,5 +43,5 @@ export async function getEngine(params: GetParams): Promise<GetResult> {
 
   if (rows.length === 0) throw httpError(404, `Record not found: ${id}`);
 
-  return { main: camelcaseObject(rows[0] as Record<string, unknown>, tableConf.Schema) };
+  return { main: camelcaseObject(rows[0], tableConf.Schema) };
 }

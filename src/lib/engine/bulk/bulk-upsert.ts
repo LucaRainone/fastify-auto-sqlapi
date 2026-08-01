@@ -38,7 +38,7 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
   const preparedMains = prepared.map((p) => p.snake as DbRecord);
 
   // 3. Tenant: inject (direct) or batch-validate FK (indirect) — enforced after user mutations
-  await enforceTenantOnWrites(db, tenant, preparedMains as Record<string, unknown>[]);
+  await enforceTenantOnWrites(db, tenant, preparedMains);
 
   // 4. Bulk upsert all mains in one query → returns PK-only
   const upsertKeys = tableConf.upsertMap?.get(schema);
@@ -86,7 +86,7 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
 
     // 6. afterInsert hook per item (camelCase)
     if (tableConf.afterInsert) {
-      await tableConf.afterInsert(db, request, mainForFK as Parameters<NonNullable<typeof tableConf.afterInsert>>[2], result.secondaries);
+      await tableConf.afterInsert(db, request, mainForFK, result.secondaries);
     }
 
     results.push(result);
