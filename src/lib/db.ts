@@ -313,10 +313,15 @@ export class QueryClient {
       values.push(...extraCondition.getValues());
     }
 
+    const setClause = setF.map((f, i) => `${this.dialect.qi(f)} = ${setP[i]}`).join(', ');
+    const whereClause = whereF
+      .map((f, i) => `${this.dialect.qi(f)} = ${whereP[i]}`)
+      .join(' AND ');
+
     const result = await this.query(
       `UPDATE ${this.dialect.qi(table)}
-       SET ${setF.map((f, i) => `${this.dialect.qi(f)} = ${setP[i]}`).join(', ')}
-       WHERE ${whereF.map((f, i) => `${this.dialect.qi(f)} = ${whereP[i]}`).join(' AND ')}${extraWhere}`,
+       SET ${setClause}
+       WHERE ${whereClause}${extraWhere}`,
       values
     );
     return result.affectedRows;
@@ -329,9 +334,13 @@ export class QueryClient {
     const values: unknown[] = [];
     const { fields, placeholders } = this.#params(where, values);
 
+    const whereClause = fields
+      .map((f, i) => `${this.dialect.qi(f)} = ${placeholders[i]}`)
+      .join(' AND ');
+
     const result = await this.query(
       `DELETE FROM ${this.dialect.qi(table)}
-       WHERE ${fields.map((f, i) => `${this.dialect.qi(f)} = ${placeholders[i]}`).join(' AND ')}`,
+       WHERE ${whereClause}`,
       values
     );
     return result.affectedRows;

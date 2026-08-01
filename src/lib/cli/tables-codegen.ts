@@ -21,13 +21,13 @@ interface DetectedRelation {
 // ─── Parsing ─────────────────────────────────────────────────
 
 export function parseSchemaFile(content: string): ParsedSchema | null {
-  const tableNameMatch = content.match(/tableName:\s*"([^"]+)"/);
+  const tableNameMatch = /tableName:\s*"([^"]+)"/.exec(content);
   if (!tableNameMatch) return null;
 
-  const exportMatch = content.match(/export const (Schema\w+)\s*=\s*Schema/);
+  const exportMatch = /export const (Schema\w+)\s*=\s*Schema/.exec(content);
   if (!exportMatch) return null;
 
-  const schemaBlockMatch = content.match(/const _Schema\s*=\s*\{([\s\S]*?)};/);
+  const schemaBlockMatch = /const _Schema\s*=\s*\{([\s\S]*?)};/.exec(content);
   if (!schemaBlockMatch) return null;
 
   const fields: string[] = [];
@@ -43,7 +43,7 @@ export function parseSchemaFile(content: string): ParsedSchema | null {
 
   // primaryKey: ["code"] — emitted by generate-schema from DB introspection
   let primary: string[] | undefined;
-  const pkMatch = content.match(/primaryKey:\s*\[([^\]]*)\]/);
+  const pkMatch = /primaryKey:\s*\[([^\]]*)\]/.exec(content);
   if (pkMatch) {
     primary = pkMatch[1]
       .split(',')
@@ -90,7 +90,9 @@ function pkFirst(pk: string | string[]): string {
 
 /** Render the `primary:` value for the defineTable template. */
 function formatPrimary(pk: string | string[]): string {
-  return Array.isArray(pk) ? `[${pk.map((p) => `'${p}'`).join(', ')}]` : `'${pk}'`;
+  if (!Array.isArray(pk)) return `'${pk}'`;
+  const quoted = pk.map((p) => `'${p}'`);
+  return `[${quoted.join(', ')}]`;
 }
 
 /** All PK fields as an array, for "non-PK field" lookups in example snippets. */
@@ -217,7 +219,8 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
     lines.push(`  // allowedReadJoins: [],`);
   }
 
-  lines.push(`  // upsertMap: buildUpsertRules(buildUpsertRule(Schema, [${pkFields(pk).map((p) => `'${p}'`).join(', ')}])),`);
+  const upsertPk = pkFields(pk).map((p) => `'${p}'`).join(', ');
+  lines.push(`  // upsertMap: buildUpsertRules(buildUpsertRule(Schema, [${upsertPk}])),`);
 
   // schemaOverrides: suggest email format if email field exists, otherwise minLength on first string field
   const emailField = schema.fields.find(f => f.toLowerCase().includes('email'));
@@ -343,7 +346,8 @@ export function generateTablesFile(schemas: ParsedSchema[]): string {
       lines.push(`  // allowedReadJoins: [],`);
     }
 
-    lines.push(`  // upsertMap: buildUpsertRules(buildUpsertRule(${schema.schemaName}, [${pkFields(pk).map((p) => `'${p}'`).join(', ')}])),`);
+    const upsertPk = pkFields(pk).map((p) => `'${p}'`).join(', ');
+    lines.push(`  // upsertMap: buildUpsertRules(buildUpsertRule(${schema.schemaName}, [${upsertPk}])),`);
     lines.push(`  // schemaOverrides: {},`);
 
     const exampleFieldLegacy = schema.fields.find(f => !pkFields(pk).includes(f)) || schema.fields[0];

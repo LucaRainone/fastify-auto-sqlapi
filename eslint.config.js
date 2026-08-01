@@ -24,9 +24,7 @@ const DEFERRED_RULES = [
   '@typescript-eslint/unbound-method', // 3
   '@typescript-eslint/require-await', // 3
   'sonarjs/cognitive-complexity', // 16
-  'sonarjs/no-nested-template-literals', // 11
   'sonarjs/no-nested-conditional', // 2
-  'sonarjs/prefer-regexp-exec', // 9
   'sonarjs/different-types-comparison', // 3
   'sonarjs/super-linear-regex', // 2
   'sonarjs/no-alphabetical-sort', // 1

@@ -435,7 +435,7 @@ function collectOrderByLeftAliases(orderBy: string, tableConf: ITable): Set<stri
   for (const part of orderBy.split(',')) {
     const trimmed = part.trim();
     if (/^(\w+)\.(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i.test(trimmed)) continue; // 3-parti aggregation
-    const m = trimmed.match(/^(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i);
+    const m = /^(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i.exec(trimmed);
     if (m) {
       const alias = m[1];
       requireJoin(tableConf, alias, true);
@@ -463,7 +463,7 @@ function validateOrderBy(
     const trimmed = part.trim();
 
     // 3-parti: <alias>.<fn>.<field> [ASC|DESC] (aggregation via joinGroup)
-    const dotted3 = trimmed.match(/^(\w+)\.(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i);
+    const dotted3 = /^(\w+)\.(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i.exec(trimmed);
     if (dotted3) {
       if (tableConf.distinctResults) {
         err400('Cannot combine distinctResults with aggregation orderBy');
@@ -478,7 +478,7 @@ function validateOrderBy(
     }
 
     // 2-parti: <alias>.<field> [ASC|DESC] (joinLeft inline ordering)
-    const dotted2 = trimmed.match(/^(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i);
+    const dotted2 = /^(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i.exec(trimmed);
     if (dotted2) {
       const [, alias, field, dir] = dotted2;
       const joinDef = requireJoin(tableConf, alias, true);
@@ -492,7 +492,7 @@ function validateOrderBy(
     }
 
     // 1-parte: <field> [ASC|DESC] — schema field or computed
-    const plain = trimmed.match(/^(\w+)(?:\s+(ASC|DESC))?$/i);
+    const plain = /^(\w+)(?:\s+(ASC|DESC))?$/i.exec(trimmed);
     if (!plain) {
       err400(`Invalid orderBy: ${trimmed}`);
     }
@@ -614,7 +614,7 @@ function convertConfiguredOrder(order: string, tableConf: ITable, db: QueryClien
     .split(',')
     .map((part) => {
       const trimmed = part.trim();
-      const match = trimmed.match(/^(\w+)(?:\s+(ASC|DESC))?$/i);
+      const match = /^(\w+)(?:\s+(ASC|DESC))?$/i.exec(trimmed);
       if (match) {
         const [, field, dir] = match;
         const suffix = dir ? ` ${dir.toUpperCase()}` : '';
@@ -915,7 +915,8 @@ async function executeJoinGroup(
       const fn = AGG_FN[kind];
       for (const f of fields) {
         const col = validateSchemaField(f, joinSchema, joinTableConf);
-        selectParts.push(`${aggExpr(fn, `${db.qi(joinSchema.tableName)}.${db.qi(col)}`)} as "${kind}_${f}"`);
+        const colRef = `${db.qi(joinSchema.tableName)}.${db.qi(col)}`;
+        selectParts.push(`${aggExpr(fn, colRef)} as "${kind}_${f}"`);
       }
     };
     addAgg('distinctCount', aggregations.distinctCount);

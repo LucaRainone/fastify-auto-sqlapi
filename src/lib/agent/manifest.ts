@@ -181,16 +181,20 @@ export function renderAgentManifestMd(manifest: AgentManifest): string {
 
     if (t.serverGenerated) lines.push(`serverGenerated: ${t.serverGenerated.join(', ')}`);
     if (t.computed) {
-      lines.push(`computed: ${Object.entries(t.computed).map(([n, ty]) => `${n}:${ty}`).join(', ')}`);
+      const computed = Object.entries(t.computed).map(([n, ty]) => `${n}:${ty}`);
+      lines.push(`computed: ${computed.join(', ')}`);
     }
     if (t.extraFilters) {
-      lines.push(`extraFilters: ${Object.entries(t.extraFilters).map(([n, ty]) => `${n}:${ty}`).join(', ')}`);
+      const extraFilters = Object.entries(t.extraFilters).map(([n, ty]) => `${n}:${ty}`);
+      lines.push(`extraFilters: ${extraFilters.join(', ')}`);
     }
     if (t.readJoins) {
-      lines.push(`readJoins: ${t.readJoins.map((j) => `${j.alias}→${j.table}(${j.kind})`).join(', ')}`);
+      const readJoins = t.readJoins.map((j) => `${j.alias}→${j.table}(${j.kind})`);
+      lines.push(`readJoins: ${readJoins.join(', ')}`);
     }
     if (t.writeJoins) {
-      lines.push(`writeJoins: ${t.writeJoins.map((j) => `${j.alias}→${j.table}`).join(', ')}`);
+      const writeJoins = t.writeJoins.map((j) => `${j.alias}→${j.table}`);
+      lines.push(`writeJoins: ${writeJoins.join(', ')}`);
     }
     if (t.defaultOrder) lines.push(`defaultOrder: ${t.defaultOrder}`);
     lines.push('');

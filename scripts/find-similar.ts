@@ -93,8 +93,9 @@ if (results.length === 0) {
   // names, so a correct top hit can read as "7% match" and get dismissed. Rank is honest.
   process.stdout.write(`Top ${results.length} of ${items.length} declarations for "${query}":\n\n`);
   results.forEach(({ item }, i) => {
+    const doc = item.doc ? `\n     ${item.doc}` : '';
     process.stdout.write(`  ${i + 1}. ${item.signature}  [${item.kind}]\n`);
-    process.stdout.write(`     ${item.file}${item.doc ? `\n     ${item.doc}` : ''}\n\n`);
+    process.stdout.write(`     ${item.file}${doc}\n\n`);
   });
   process.stdout.write('Extend or generalise a match instead of forking it.\n');
 }
