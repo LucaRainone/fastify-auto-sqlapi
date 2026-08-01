@@ -1,0 +1,13 @@
+{
+  "minTokens": 50,
+  "threshold": 3.3,
+  "reporters": ["console", "json"],
+  "output": ".jscpd",
+  "absolute": false,
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/test/manual/**",
+    "**/*.d.ts"
+  ]
+}

@@ -4,4 +4,11 @@ dist
 .env
 test/manual/output
 llm-private*.md
-.claude
+.jscpd
+
+# .claude is machine-local except the committed enforcement config: the PreToolUse
+# hooks in settings.json are the repo's rules, not a personal preference.
+.claude/*
+!.claude/settings.json
+!.claude/rules/
+.claude/settings.local.json

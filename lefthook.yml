@@ -1,0 +1,18 @@
+# Hooks are thin wrappers. The npm scripts are the source of truth, so every gate can be
+# run directly — `npm run check` / `npm run verify` — without any git operation.
+#
+# Deliberately not scoped to staged files: `tsc --noEmit` is whole-project by nature, and
+# the eslint gate is a repo-wide `--max-warnings` baseline that a staged subset cannot
+# express (a subset would pass trivially and let regressions through).
+
+pre-commit:
+  parallel: false
+  jobs:
+    - name: check
+      run: npm run check
+
+pre-push:
+  parallel: false
+  jobs:
+    - name: verify
+      run: npm run verify
