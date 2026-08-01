@@ -9,6 +9,15 @@ export interface JoinDefinition {
   alias: string;
   selection: string;
   unique: boolean;
+  /**
+   * Allowlist of the target table's fields reachable through this relation, when
+   * `buildRelation` was given one. `joinSchema` is already narrowed to it — this is kept
+   * so the engine can tell a restricted relation from a full one, which is what stops the
+   * default `'*'` selection from falling back to a real `SELECT *`.
+   *
+   * Read joins only: a write join declaring it is rejected by `defineTable`.
+   */
+  fields?: string[];
 }
 
 export interface AggregationRequest {

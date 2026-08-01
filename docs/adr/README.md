@@ -25,6 +25,7 @@ not by editing history.
 | [0008](./0008-agent-client-interface.md) | Agent client interface: static grammar + runtime manifest |
 | [0009](./0009-schema-exclusion-config-blacklist.md) | Schema exclusion is a config blacklist — excluded schemas are removed as orphans |
 | [0010](./0010-joins-do-not-run-route-guards.md) | A declared join is a read grant — joins do not run the target table's route guards |
+| [0011](./0011-join-fields-allowlist.md) | Per-relation field restriction is an allowlist, not a blocklist |
 
 ## When to write one
 

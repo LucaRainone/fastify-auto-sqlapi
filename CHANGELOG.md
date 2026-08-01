@@ -28,14 +28,27 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Fixed
 
-- **Join filter validation no longer depends on the main result set.** `joinMultiple` /
-  `joinLeft` / `joinGroup` skip their side query entirely when the main query matched no rows,
-  so filter-key and `readExclude` checks on the join were skipped with it — the same request
-  answered 400 or 200 depending on the data. Join filters are now validated up front, before
-  any query runs.
+- **Join validation no longer depends on the main result set.** `joinMultiple` / `joinLeft` /
+  `joinGroup` skip their side query entirely when the main query matched no rows, so everything
+  validated inside it was skipped with it — the same request answered 400 or 200 depending on
+  the data. This covered filter keys and `readExclude` on join filters, an explicit `selection`
+  naming an unknown field, and `joinGroup` aggregation fields including `aggregations.by`. Join
+  filters are now validated up front, and the selection and aggregation lists are resolved
+  before the empty-result bail-out.
 
 ### Added
 
+- **`fields` allowlist on `buildRelation`** — restricts which of the target table's fields are
+  reachable through one relation, without hiding them from the table's own routes the way
+  `readExclude` would. The relation is declared against a schema narrowed to the list, so
+  `selection`, `filters`, `conditions`, `orderBy`, aggregations and the generated
+  request/response schemas all reject anything outside it with `400 Unknown field`; the default
+  `'*'` selection is spelled out into the allowed columns instead of emitting a real `SELECT *`;
+  and computed fields on the target resolve against the narrowed schema, so one reading an
+  excluded column is a 400 rather than a way around the list. Declaration-time checks: the list
+  must include the join field, and is rejected on `allowedWriteJoins` (write paths resolve
+  `upsertMap` by schema identity and must write every column the caller sent). Fail-closed by
+  design — see [ADR 0011](./docs/adr/0011-join-fields-allowlist.md) for allowlist vs blocklist.
 - **[ADR 0010](./docs/adr/0010-joins-do-not-run-route-guards.md)** — a declared join is a read
   grant: `onRequests` and `operations` are route-level and do not follow a join, so
   `allowedReadJoins` grants read access to the target table under the *host* table's

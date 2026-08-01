@@ -105,6 +105,18 @@ export function readableSelectColumns(
   db: QueryClient
 ): string | undefined {
   if (!tableConf?.readExclude?.length) return undefined;
+  return explicitSelectColumns(tableConf, schema, db);
+}
+
+/**
+ * The same list, always spelled out. Used where `*` is not an acceptable fallback: a
+ * relation narrowed by a `fields` allowlist must project the allowlist, not the table.
+ */
+export function explicitSelectColumns(
+  tableConf: ITable | undefined,
+  schema: SchemaDefinition,
+  db: QueryClient
+): string {
   const table = db.qi(schema.tableName);
   return readableFieldNames(tableConf, schema)
     .map((f) => `${table}.${db.qi(schema.col(f))}`)

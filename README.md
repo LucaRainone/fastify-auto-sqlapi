@@ -266,6 +266,8 @@ const TableCustomer = defineTable({
     buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId'),                       // alias = 'order'
     buildRelation(SchemaSession, 'userId', SchemaUser, 'id', { unique: true }),           // alias = 'user', N:1
     buildRelation(SchemaSession, 'updatedBy', SchemaUser, 'id', { alias: 'updater', unique: true }),
+    // `fields` restricts what this relation exposes of the target — read joins only
+    buildRelation(SchemaAgent, 'userId', SchemaUser, 'id', { unique: true, fields: ['id', 'name'] }),
   ],
   allowedWriteJoins: [
     buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId'),                       // alias = 'order'
@@ -435,32 +437,30 @@ So `allowedReadJoins` is a security decision: declaring a relation grants read a
 target table under the **host** table's authorization.
 
 What does follow a join: `readExclude`, `tenantScope`, and the schema the relation was declared
-with. To expose a table broadly while keeping some columns narrow, declare the relation against
-a trimmed copy of its Schema **and** give it an explicit `selection`:
+with. To expose a table broadly while keeping some columns narrow, give the relation a `fields`
+allowlist:
 
 ```typescript
-const SchemaUserPublic = {
-  ...SchemaUser,
-  fields: { id: SchemaUser.fields.id, name: SchemaUser.fields.name },
-};
-
 allowedReadJoins: [
-  buildRelation(SchemaAgent, 'userId', SchemaUserPublic, 'id', {
+  buildRelation(SchemaAgent, 'userId', SchemaUser, 'id', {
     unique: true,
-    selection: 'id, name',   // not redundant — see below
+    fields: ['id', 'name'],   // everything else on `user` is unreachable here
   }),
 ],
 ```
 
-Every read surface validates against that schema — `selection`, `filters`, `conditions`,
-`orderBy`, aggregations — so `email` becomes `400 Unknown field` everywhere, not just in the
-projection. The explicit `selection` matters because a relation left at the default `'*'` emits
-a literal `SELECT *` when the target declares no `readExclude`: the extra columns are then
-dropped only by the response serializer, and are still present on the programmatic
-`sqlApi.search()` path.
+Every read surface validates against it — `selection`, `filters`, `conditions`, `orderBy`,
+aggregations, and the generated request/response schemas — so `email` is `400 Unknown field`
+everywhere, not just missing from the projection. It is fail-closed: a column added to `user`
+later is not reachable through this relation until it is added to the list.
 
-Full rationale, and the alternatives that were rejected, in
-[ADR 0010](./docs/adr/0010-joins-do-not-run-route-guards.md).
+`fields` restricts **reading** only, and only through that relation. It is not a replacement for
+`readExclude` (which hides a column from the table's own routes too) or for `onRequests` (which
+decides who may call them).
+
+Full rationale and the rejected alternatives in
+[ADR 0010](./docs/adr/0010-joins-do-not-run-route-guards.md) and
+[ADR 0011](./docs/adr/0011-join-fields-allowlist.md).
 
 ### Request limits
 

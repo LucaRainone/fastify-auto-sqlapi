@@ -357,6 +357,8 @@ buildRelation(mainSchema, mainField, joinSchema, joinField, options?)
 //   unique?: boolean;         // default false.
 //                             //   false → 1:N (child→main). Allowed in joinMustExist/joinMultiple/joinGroup.
 //                             //   true  → N:1 (parent→main). Allowed in joinLeft only.
+//   fields?: string[];        // allowlist of the target's fields reachable through this relation.
+//                             // Read joins only. Must include joinField. Everything else is 400.
 // }
 ```
 
@@ -369,20 +371,24 @@ buildRelation(mainSchema, mainField, joinSchema, joinField, options?)
 
 **⚠️ A relation in `allowedReadJoins` is a read grant on the target table.** The join runs inside the query of the *host* table's route, so the target's `onRequests` never fire and its `operations` whitelist does not apply — a table with `operations: []` is still fully readable through any relation pointing at it. What does cross a join: `readExclude`, `tenantScope`, and the schema the relation was declared with.
 
-To expose a table broadly but keep some of its columns narrow, declare the relation against a **trimmed copy of the Schema** and give it an explicit `selection`:
+To expose a table broadly but keep some of its columns narrow, give the relation a `fields` allowlist:
 
 ```typescript
-const SchemaUserPublic = {
-  ...SchemaUser,
-  fields: { id: SchemaUser.fields.id, name: SchemaUser.fields.name },
-};
-
 allowedReadJoins: [
-  buildRelation(SchemaAgent, 'userId', SchemaUserPublic, 'id', { unique: true, selection: 'id, name' }),
+  buildRelation(SchemaAgent, 'userId', SchemaUser, 'id', { unique: true, fields: ['id', 'name'] }),
 ],
 ```
 
-Every read surface validates against that schema — `selection`, `filters`, `conditions`, `orderBy`, aggregations — so a field outside it is `400 Unknown field` everywhere, not just in the projection. Do not skip the explicit `selection`: a relation left at the default `'*'` emits a literal `SELECT *` when the target has no `readExclude`, and the extra columns are then removed only by the response serializer — they still reach a caller of `sqlApi.search()`. See [ADR 0010](./docs/adr/0010-joins-do-not-run-route-guards.md).
+The relation is declared against a schema narrowed to that list, so every read surface validates against it — `selection`, `filters`, `conditions`, `orderBy`, aggregations, and the generated request/response schemas. A field outside the list is `400 Unknown field` everywhere, not just missing from the projection, and the default `'*'` selection is spelled out into the allowed columns rather than emitting a real `SELECT *`.
+
+Rules, all enforced at declaration time:
+
+- **Must include the join field** — it is what correlates the fetched rows with the main ones.
+- **Not allowed on `allowedWriteJoins`** — the allowlist restricts reading only; write paths resolve `upsertMap` by schema identity and must write every column the caller sent. Declare two relations if the same pair is joined for reading and for writing.
+- **Computed fields on the target resolve against the narrowed schema** — one that reads a field outside the list is a `400`, so a computed cannot be used to reach past the allowlist. One that stays inside keeps working.
+- **Fail-closed** — a column added to the target later is not reachable through the relation until it is added to `fields`.
+
+`fields` is not a replacement for `readExclude` (which hides a column from the owning table's own routes too). See [ADR 0010](./docs/adr/0010-joins-do-not-run-route-guards.md) and [ADR 0011](./docs/adr/0011-join-fields-allowlist.md).
 
 **Choosing `unique`**: if `joinField` is the PK (or part of the composite PK) of `joinSchema`, the relation is N:1 — you almost certainly want `unique: true` so the alias is usable in `joinLeft`.
 

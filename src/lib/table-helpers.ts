@@ -1,5 +1,5 @@
 import { ConditionBuilder, type ConditionValueOrUndefined, type DialectName as CbDialect } from 'node-condition-builder';
-import type { TSchema, TObject } from '@sinclair/typebox';
+import { Type, type TSchema, type TObject } from '@sinclair/typebox';
 import type {
   SchemaDefinition,
   JoinDefinition,
@@ -75,9 +75,29 @@ export function defineTable<F extends Record<string, TSchema>>(
 ): ITable<F> {
   validateAliasUniqueness(config.allowedReadJoins, 'allowedReadJoins');
   validateAliasUniqueness(config.allowedWriteJoins, 'allowedWriteJoins');
+  validateWriteJoinsUnrestricted(config.allowedWriteJoins);
   validateComputedFields(config as unknown as ITable);
   validateReadExclude(config as unknown as ITable);
   return config;
+}
+
+/**
+ * `fields` narrows a relation for reading; it has no meaning on a write join and would be
+ * actively harmful there. Write paths resolve the secondary's upsert rule by looking the
+ * schema object up in `upsertMap` **by identity**, and a narrowed relation carries a copy —
+ * the lookup would miss and the upsert would silently degrade to a plain insert. The
+ * narrowed schema would also drop columns the caller legitimately sends.
+ */
+function validateWriteJoinsUnrestricted(joins: JoinDefinition[] | undefined): void {
+  for (const join of joins ?? []) {
+    if (join.fields) {
+      throw new Error(
+        `defineTable: relation '${join.alias}' in allowedWriteJoins declares 'fields'. ` +
+        `The fields allowlist restricts reading only — remove it, and use a separate ` +
+        `buildRelation for the read side if that relation is also in allowedReadJoins.`
+      );
+    }
+  }
 }
 
 function validateReadExclude(config: ITable): void {
@@ -148,6 +168,67 @@ export interface BuildRelationOptions {
   alias?: string;
   selection?: string;
   unique?: boolean;
+  /**
+   * Allowlist of the target table's fields reachable through this relation.
+   *
+   * The relation is declared against a schema narrowed to these fields, so every read
+   * surface — `selection`, `filters`, `conditions`, `orderBy`, aggregations, and the
+   * generated request/response schemas — rejects anything outside the list with
+   * `400 Unknown field`. Use it to expose a table broadly while keeping some of its
+   * columns out of one relation, without hiding them from the table's own routes the way
+   * `readExclude` would.
+   *
+   * Fail-closed: a column added to the table later is not reachable through the relation
+   * until it is added here. Must include the join field, and is not allowed on a write
+   * join.
+   */
+  fields?: string[];
+}
+
+/**
+ * Copy of `schema` exposing only `fields`, in schema declaration order.
+ *
+ * `tableName`, `col` and `colMap` are carried over untouched: the engine resolves the
+ * target's configuration through `dbTables[joinSchema.tableName]`, so a narrowed relation
+ * must still answer to its real table name, and column mapping must keep working for the
+ * fields that survive.
+ */
+function narrowSchemaToFields<J extends Record<string, TSchema>>(
+  schema: SchemaDefinition<J>,
+  fields: string[],
+  joinField: string
+): SchemaDefinition<J> {
+  const declared = Object.keys(schema.fields as Record<string, TSchema>);
+
+  for (const field of fields) {
+    if (!declared.includes(field)) {
+      throw new Error(
+        `buildRelation: 'fields' entry '${field}' is not a field of schema ` +
+        `'${schema.tableName}'. Available: ${declared.join(', ')}.`
+      );
+    }
+  }
+
+  // The join field is what ties the fetched rows back to the main result set. Dropping it
+  // from the projection would hand the caller rows it cannot match to anything.
+  if (!fields.includes(joinField)) {
+    throw new Error(
+      `buildRelation: 'fields' must include the join field '${joinField}' on ` +
+      `'${schema.tableName}' — it is what correlates the joined rows with the main ones.`
+    );
+  }
+
+  const picked: Record<string, TSchema> = {};
+  for (const field of declared) {
+    if (fields.includes(field)) picked[field] = (schema.fields as Record<string, TSchema>)[field];
+  }
+
+  return {
+    ...schema,
+    fields: picked as J,
+    validation: Type.Object(picked),
+    partialValidation: Type.Partial(Type.Object(picked)),
+  };
 }
 
 export function buildRelation<
@@ -160,13 +241,15 @@ export function buildRelation<
   joinField: string & keyof J,
   options?: BuildRelationOptions
 ): JoinDefinition {
+  const fields = options?.fields;
   return {
-    joinSchema,
+    joinSchema: fields ? narrowSchemaToFields(joinSchema, fields, joinField) : joinSchema,
     joinField,
     mainField,
     alias: options?.alias ?? joinSchema.tableName,
     selection: options?.selection ?? '*',
     unique: options?.unique ?? false,
+    ...(fields ? { fields: [...fields] } : {}),
   };
 }
 

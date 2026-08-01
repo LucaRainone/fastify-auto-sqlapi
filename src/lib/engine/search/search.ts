@@ -8,6 +8,7 @@ import {
   assertFiltersReadable,
   assertKnownFilterKeys,
   readableSelectColumns,
+  explicitSelectColumns,
 } from '../../read-access.js';
 import { primaryAsString } from '../../../types.js';
 import type {
@@ -308,14 +309,20 @@ function mapRowsToCamelCase(
  * Build the SELECT columns list for a join fetch: '*' or comma-separated quoted columns.
  * A default '*' selection narrows to the join table's readable columns when it declares
  * `readExclude`; an explicit selection naming an excluded field is rejected with 400.
+ *
+ * On a relation narrowed by a `fields` allowlist the '*' is always spelled out. Emitting a
+ * real `SELECT *` there would fetch the excluded columns and leave them to be dropped by
+ * the response serializer — which does not run for a caller of `sqlApi.search()`.
  */
 function buildSelectionColumns(
   selection: string,
   joinSchema: SchemaDefinition,
   db: QueryClient,
-  joinTableConf?: ITable
+  joinTableConf?: ITable,
+  restricted = false
 ): string {
   if (selection === '*') {
+    if (restricted) return explicitSelectColumns(joinTableConf, joinSchema, db);
     return readableSelectColumns(joinTableConf, joinSchema, db) ?? '*';
   }
   const table = db.qi(joinSchema.tableName);
@@ -757,6 +764,12 @@ async function executeJoinMultiple(
     const { joinSchema, joinField, mainField, selection: defaultSelection } = joinDef;
     const joinTableConf = dbTables[joinSchema.tableName];
 
+    // The selection is resolved before the empty-result bail-out: it is validated against
+    // the join schema, and that rejection must not depend on whether the main query
+    // matched rows.
+    const selection = ref?.selection ?? defaultSelection;
+    const columns = buildSelectionColumns(selection, joinSchema, db, joinTableConf, joinDef.fields !== undefined);
+
     const ids = collectIds(mainResults, mainField);
     if (ids.length === 0) {
       result[alias] = [];
@@ -770,9 +783,6 @@ async function executeJoinMultiple(
     appendJoinTenantScope(db, joinTableConf, tenant, joinSchema.tableName, cb, tenantJoins);
     const where = cb.build(1, db.ph);
     const values = cb.getValues();
-
-    const selection = ref?.selection ?? defaultSelection;
-    const columns = buildSelectionColumns(selection, joinSchema, db, joinTableConf);
 
     const rows = await db.select({
       tableName: joinSchema.tableName,
@@ -805,6 +815,11 @@ async function executeJoinLeft(
     const { joinSchema, joinField, mainField, selection: defaultSelection } = joinDef;
     const joinTableConf = dbTables[joinSchema.tableName];
 
+    // Resolved before the bail-out, for the same reason as joinMultiple: an invalid
+    // selection is a 400 whether or not the main query matched anything.
+    const selection = ref?.selection ?? defaultSelection;
+    const columns = buildSelectionColumns(selection, joinSchema, db, joinTableConf, joinDef.fields !== undefined);
+
     // For joinLeft (N:1), mainField on main is the FK pointing to joinField (PK) on parent.
     // We collect the FK values from the main results and look up parents by their PK.
     const ids = collectIds(mainResults, mainField);
@@ -820,9 +835,6 @@ async function executeJoinLeft(
     appendJoinTenantScope(db, joinTableConf, tenant, joinSchema.tableName, cb, tenantJoins);
     const where = cb.build(1, db.ph);
     const values = cb.getValues();
-
-    const selection = ref?.selection ?? defaultSelection;
-    const columns = buildSelectionColumns(selection, joinSchema, db, joinTableConf);
 
     const rows = await db.select({
       tableName: joinSchema.tableName,
@@ -888,10 +900,6 @@ async function executeJoinGroup(
     const joinTableConf = dbTables[joinSchema.tableName];
 
     const ids = collectIds(mainResults, mainField);
-    if (ids.length === 0) {
-      result[alias] = {};
-      continue;
-    }
 
     const { aggregations, filters: groupFilters, conditions: groupConditions } = groupReq;
     const selectParts: string[] = [];
@@ -918,7 +926,9 @@ async function executeJoinGroup(
     addAgg('avg', aggregations.avg);
     addAgg('count', aggregations.count);
 
-    if (selectParts.length === 0) {
+    // Bail out only here: `by` and every aggregation field have now been validated against
+    // the join schema, so an unknown or unreachable field is a 400 regardless of the data.
+    if (selectParts.length === 0 || ids.length === 0) {
       result[alias] = {};
       continue;
     }
@@ -1029,7 +1039,7 @@ function buildJoinRefCondition(
     for (const [name, value] of Object.entries(ref.filters)) {
       if (value === null || value === undefined) continue;
       if (!computed[name]) continue;
-      const expr = evaluateComputedField(name, computed[name], joinTableConf!.Schema, db, colQualifier, '', true);
+      const expr = evaluateComputedField(name, computed[name], joinSchema, db, colQualifier, '', true);
       cb.isEqual(expr, value as ConditionValue);
     }
   }
@@ -1042,7 +1052,7 @@ function buildJoinRefCondition(
       // Computed fields resolve to an Expression carrying their own bound values, which
       // the ConditionBuilder places together with the compared value.
       const operand = computed?.[c.field]
-        ? evaluateComputedField(c.field, computed[c.field], joinTableConf!.Schema, db, colQualifier, '', true)
+        ? evaluateComputedField(c.field, computed[c.field], joinSchema, db, colQualifier, '', true)
         : `${db.qi(colQualifier)}.${db.qi(validateSchemaField(c.field, joinSchema, joinTableConf))}`;
       dispatchConditionMethod(cb, c.method, operand, (c.params as unknown[]) ?? []);
     }
