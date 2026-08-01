@@ -1,6 +1,5 @@
 import type { QueryClient } from '../../db.js';
 import { ConditionBuilder, Expression, type ConditionValue } from 'node-condition-builder';
-import { camelcaseObject } from '../../naming.js';
 import { QueryParams } from '../query-params.js';
 import { buildTenantCondition, buildTenantJoin } from '../../tenant.js';
 import {
@@ -8,328 +7,41 @@ import {
   assertFiltersReadable,
   assertKnownFilterKeys,
   readableSelectColumns,
-  explicitSelectColumns,
 } from '../../read-access.js';
 import { primaryAsString } from '../../../types.js';
+import {
+  validateSchemaField,
+  err400,
+  resolveFieldRef,
+  evaluateComputedField,
+  refValues,
+  renderRef,
+  mapRowsToCamelCase,
+  buildSelectionColumns,
+} from './fields.js';
+import {
+  appendJoinTenantScope,
+  subqueryAlias,
+  assertJoinFilterKeys,
+  requireJoin,
+  extractJoinRefs,
+} from './joins.js';
 import type {
   DbTables,
   SearchParams,
   SearchResult,
   SearchCondition,
   PaginationResult,
-  JoinDefinition,
   JoinGroupRequest,
+  AggregationRequest,
   JoinRefFilter,
   JoinFetchRequest,
   FilterRecord,
   ITable,
   SchemaDefinition,
   TenantContext,
-  ComputedFieldContext,
-  ComputedFieldExpr,
   ComputedFieldFn,
 } from '../../../types.js';
-
-// ─── Schema field validation ────────────────────────────────
-
-function validateSchemaField(
-  field: string,
-  schema: SchemaDefinition,
-  tableConf?: ITable
-): string {
-  if (!(field in schema.fields)) {
-    const err = new Error(`Unknown field: ${field}`) as Error & { statusCode: number };
-    err.statusCode = 400;
-    throw err;
-  }
-  assertReadable(tableConf, field);
-  return schema.col(field);
-}
-
-function err400(msg: string): never {
-  const e = new Error(msg) as Error & { statusCode: number };
-  e.statusCode = 400;
-  throw e;
-}
-
-// ─── Computed fields resolution ─────────────────────────────
-
-/**
- * Build a ComputedFieldContext bound to a specific table/schema. `alias`
- * (if provided) qualifies the columns produced by `qiCol` — needed when the
- * computed is embedded in a `LEFT JOIN <table> AS <alias>` (joinLeft).
- */
-function buildComputedContext(
-  db: QueryClient,
-  schema: SchemaDefinition,
-  alias?: string
-): ComputedFieldContext {
-  return {
-    db,
-    qiCol(field: string, opts?: { qualifier?: string }): string {
-      if (!(field in schema.fields)) {
-        err400(`Unknown field referenced by computed expression: ${field}`);
-      }
-      const col = db.qi(schema.col(field));
-      // Default to the owning table: the statement may carry joins, and a bare
-      // column shared with a joined table would be ambiguous.
-      const qualifier = opts?.qualifier ?? alias ?? schema.tableName;
-      return qualifier ? `${db.qi(qualifier)}.${col}` : col;
-    },
-  };
-}
-
-/**
- * Resolve a field reference in a request body to a SQL operand. A schema column becomes
- * the quoted column name; a computed field becomes an Expression carrying its own bound
- * values, so it can be handed straight to a ConditionBuilder. Throws 400 if neither.
- */
-interface ResolvedFieldRef {
-  expr: string | Expression;
-  computed: boolean;
-}
-
-function resolveFieldRef(
-  field: string,
-  schema: SchemaDefinition,
-  tableConf: ITable | undefined,
-  db: QueryClient,
-  alias?: string
-): ResolvedFieldRef {
-  if (field in schema.fields) {
-    assertReadable(tableConf, field);
-    const col = db.qi(schema.col(field));
-    // Qualified with the alias or the owning table — never bare, so the reference
-    // stays unambiguous when the statement carries joins.
-    const expr = `${db.qi(alias ?? schema.tableName)}.${col}`;
-    return { expr, computed: false };
-  }
-
-  const fn = tableConf?.computedFields?.[field];
-  if (fn) {
-    const ctx = buildComputedContext(db, schema, alias);
-    return { expr: computedExpression(field, fn(ctx)), computed: true };
-  }
-
-  err400(`Unknown field: ${field}`);
-}
-
-// ─── Join lookup ────────────────────────────────────────────
-
-/**
- * Tenant-scope a join side-query. When the joined table declares its own `tenantScope`,
- * appends the tenant condition to `cb` (direct: `col IN ids`; indirect: condition on the
- * through table) and, for indirect scopes, pushes the INNER JOIN clause into `joins`.
- * No-op without a tenant context (admin) or when the join table is not tenant-scoped.
- *
- * `joinTableRef` is the raw name the join table goes by in the statement: its table name
- * in plain side-queries, or the subquery alias inside an aliased, correlated EXISTS.
- */
-function appendJoinTenantScope(
-  db: QueryClient,
-  joinTableConf: ITable | undefined,
-  tenant: TenantContext | undefined,
-  joinTableRef: string,
-  cb: ConditionBuilder,
-  joins?: string[]
-): void {
-  const scope = joinTableConf?.tenantScope;
-  if (!tenant || !scope) return;
-  cb.append(buildTenantCondition(db, scope, tenant.ids, joinTableRef));
-  if ('through' in scope) {
-    joins?.push(buildTenantJoin(db, scope, joinTableRef));
-  }
-}
-
-/**
- * Alias for the FROM of a correlated subquery (EXISTS, aggregate). The subquery must not
- * say `FROM <table>` bare: on a self-referencing relation the inner table would shadow the
- * outer one and the correlation would silently compare each row with itself. The request
- * alias is used, suffixed when it would itself collide with the outer table's name.
- */
-function subqueryAlias(alias: string, tableConf: ITable): string {
-  return alias === tableConf.Schema.tableName ? `${alias}_sub` : alias;
-}
-
-function findJoinByAlias(tableConf: ITable, alias: string): JoinDefinition | undefined {
-  return tableConf.allowedReadJoins?.find((j) => j.alias === alias);
-}
-
-/**
- * Validate the filter keys of every join reference in a request map.
- *
- * Runs up front, before any query: the executors skip their side-query entirely when the
- * main result set is empty (`ids.length === 0`), so validating there alone would make the
- * same request answer 400 or 200 depending on the data it happens to match.
- *
- * Unknown aliases are left to `requireJoin`, which reports them with its own message.
- */
-function assertJoinFilterKeys(
-  dbTables: DbTables,
-  tableConf: ITable,
-  refs: Record<string, { filters?: FilterRecord }> | undefined,
-  allowExtraFilters: boolean
-): void {
-  if (!refs) return;
-  for (const [alias, ref] of Object.entries(refs)) {
-    const joinDef = findJoinByAlias(tableConf, alias);
-    if (!joinDef) continue;
-    const joinTableConf = dbTables[joinDef.joinSchema.tableName];
-    const filters = ref?.filters as Record<string, unknown> | undefined;
-    assertFiltersReadable(filters, joinTableConf);
-    assertKnownFilterKeys(filters, joinDef.joinSchema, joinTableConf, allowExtraFilters);
-  }
-}
-
-function requireJoin(tableConf: ITable, alias: string, requireUnique: boolean): JoinDefinition {
-  const joinDef = findJoinByAlias(tableConf, alias);
-  if (!joinDef) {
-    err400(`Unknown join alias: ${alias}`);
-  }
-  if (requireUnique && !joinDef.unique) {
-    err400(`Join alias '${alias}' is not declared with unique:true; use joinMultiple/joinMustExist/joinGroup instead`);
-  }
-  if (!requireUnique && joinDef.unique) {
-    err400(`Join alias '${alias}' is declared with unique:true; use joinLeft instead`);
-  }
-  return joinDef;
-}
-
-// ─── Reusable helpers for join references / computed fields ─
-
-interface JoinRefs {
-  mainColName: string;
-  /** db.qi'd column reference on main side (FK or PK) */
-  mainCol: string;
-  /** db.qi'd table name on main side */
-  mainTable: string;
-  /** db.qi'd table name on join side */
-  joinTable: string;
-  /** db.qi'd column reference on join side (FK or PK) */
-  fkCol: string;
-}
-
-/** Extract quoted identifiers for a join reference. Used by joinMustExist, joinLeft and joinGroup
- * SQL builders to avoid the 4-line FK/PK destructuring boilerplate at every call site. */
-function extractJoinRefs(db: QueryClient, tableConf: ITable, joinDef: JoinDefinition): JoinRefs {
-  const { joinSchema, joinField, mainField } = joinDef;
-  const mainColName = Array.isArray(mainField) ? mainField[0] : mainField;
-  return {
-    mainColName,
-    mainCol: db.qi(tableConf.Schema.col(mainColName)),
-    mainTable: db.qi(tableConf.Schema.tableName),
-    joinTable: db.qi(joinSchema.tableName),
-    fkCol: db.qi(joinSchema.col(joinField)),
-  };
-}
-
-/**
- * Evaluate a computed field into an Expression carrying its own bound values.
- *
- * Inside a WHERE clause the ConditionBuilder assigns the placeholder indexes, so bound
- * values are always safe there. `allowBoundValues=false` is for the positions that sit
- * *before* the WHERE values in the parameter order (SELECT projections, aggregations),
- * where they cannot be placed correctly; those still reject with 400.
- */
-function evaluateComputedField(
-  name: string,
-  fn: ComputedFieldFn,
-  schema: SchemaDefinition,
-  db: QueryClient,
-  alias: string | undefined,
-  message: string,
-  allowBoundValues = false,
-): Expression {
-  const ev: ComputedFieldExpr = fn(buildComputedContext(db, schema, alias));
-  if (!allowBoundValues && (ev.values?.length ?? 0) > 0) {
-    err400(message);
-  }
-  return computedExpression(name, ev);
-}
-
-/**
- * Build the Expression for a computed field, checking that it marks each bound value
- * with a `?`.
- *
- * A mismatch is always a table-configuration bug and would otherwise produce a query that
- * binds values nobody references — silently returning wrong rows. Expressions without
- * bound values are exempt: they are emitted verbatim, so a `?` there is a literal operator
- * (PostgreSQL jsonb) rather than a marker.
- */
-function computedExpression(name: string, ev: ComputedFieldExpr): Expression {
-  const values = ev.values ?? [];
-  if (values.length > 0) {
-    const markers = (ev.expr.match(/\\\?|\?/g) ?? []).filter((m) => m === '?').length;
-    if (markers !== values.length) {
-      throw new Error(
-        `Computed field '${name}' declares ${values.length} bound value(s) but its expression ` +
-        `contains ${markers} '?' marker(s). Mark each bound value with '?' (use '\\?' for a ` +
-        `literal question mark) so the engine can assign placeholder positions.`
-      );
-    }
-  }
-  return new Expression(ev.expr, values);
-}
-
-/** Bound values carried by a resolved field reference. */
-function refValues(expr: string | Expression): unknown[] {
-  return expr instanceof Expression ? [...expr.values] : [];
-}
-
-/** Render a resolved field reference to SQL, binding any values from `startIndex`. */
-function renderRef(
-  expr: string | Expression,
-  startIndex: number,
-  db: QueryClient
-): string {
-  return expr instanceof Expression ? expr.render(startIndex, db.ph) : expr;
-}
-
-/** Map rows from snake_case columns to camelCase fields, preserving any computed-field columns
- * that are projected by their declared name (skipped by camelcaseObject). */
-function mapRowsToCamelCase(
-  rows: Record<string, unknown>[],
-  schema: SchemaDefinition,
-  computedFieldNames?: Iterable<string>,
-): Record<string, unknown>[] {
-  const computed = computedFieldNames ? new Set(computedFieldNames) : null;
-  return rows.map((r) => {
-    const camel = camelcaseObject(r, schema);
-    if (computed) {
-      for (const name of computed) {
-        if (name in r) camel[name] = r[name];
-      }
-    }
-    return camel;
-  });
-}
-
-/**
- * Build the SELECT columns list for a join fetch: '*' or comma-separated quoted columns.
- * A default '*' selection narrows to the join table's readable columns when it declares
- * `readExclude`; an explicit selection naming an excluded field is rejected with 400.
- *
- * On a relation narrowed by a `fields` allowlist the '*' is always spelled out. Emitting a
- * real `SELECT *` there would fetch the excluded columns and leave them to be dropped by
- * the response serializer — which does not run for a caller of `sqlApi.search()`.
- */
-function buildSelectionColumns(
-  selection: string,
-  joinSchema: SchemaDefinition,
-  db: QueryClient,
-  joinTableConf?: ITable,
-  restricted = false
-): string {
-  if (selection === '*') {
-    if (restricted) return explicitSelectColumns(joinTableConf, joinSchema, db);
-    return readableSelectColumns(joinTableConf, joinSchema, db) ?? '*';
-  }
-  const table = db.qi(joinSchema.tableName);
-  return selection
-    .split(',')
-    .map((c) => `${table}.${db.qi(validateSchemaField(c.trim(), joinSchema, joinTableConf))}`)
-    .join(', ');
-}
 
 // ─── Aggregation orderBy / conditions ───────────────────────
 
@@ -517,6 +229,74 @@ interface LeftJoinBuild {
   values: unknown[];
 }
 
+/** Everything needed to resolve one joinLeft alias's fields to alias-qualified SQL. */
+interface JoinLeftFieldScope {
+  db: QueryClient;
+  alias: string;
+  aliasIdent: string;
+  joinSchema: SchemaDefinition;
+  computed: Record<string, ComputedFieldFn> | undefined;
+}
+
+/**
+ * Resolve a joinLeft field to an alias-qualified SQL reference: a schema column, or a
+ * computed field's expression. Returns null when the field is neither — the caller decides
+ * whether that is a silent skip (filters) or a 400 (conditions).
+ *
+ * References go through the alias, not the table name, so they hit the LEFT JOIN'd row.
+ */
+function resolveJoinLeftField(
+  field: string,
+  scope: JoinLeftFieldScope
+): Expression | null {
+  const { db, alias, aliasIdent, joinSchema, computed } = scope;
+  if (field in joinSchema.fields) {
+    // Wrapped so this helper has a single return type. A value-less Expression renders
+    // verbatim (see renderField), so the emitted SQL is identical to the raw identifier.
+    return new Expression(`${aliasIdent}.${db.qi(joinSchema.col(field))}`);
+  }
+  const fn = computed?.[field];
+  if (fn) {
+    // Bound values are allowed: this ConditionBuilder's SQL lands in the WHERE clause.
+    return evaluateComputedField(field, fn, joinSchema, db, alias, '', true);
+  }
+  return null;
+}
+
+/** `joinLeft.filters` — equality only. Unknown keys are ignored, as they always were. */
+function applyJoinLeftFilters(
+  cb: ConditionBuilder,
+  filters: FilterRecord,
+  scope: JoinLeftFieldScope
+): void {
+  for (const [field, value] of Object.entries(filters)) {
+    if (value === null || value === undefined) continue;
+    const ref = resolveJoinLeftField(field, scope);
+    if (ref !== null) cb.isEqual(ref, value);
+  }
+}
+
+/** `joinLeft.conditions` — operator methods. An unknown field is a 400, not a no-op. */
+function applyJoinLeftConditions(
+  cb: ConditionBuilder,
+  conditions: SearchCondition[],
+  scope: JoinLeftFieldScope,
+  dbTables: DbTables
+): void {
+  for (const c of conditions) {
+    if (!ALLOWED_SET.has(c.method)) {
+      err400(`Invalid condition method: ${c.method}`);
+    }
+    if (c.field in scope.joinSchema.fields) {
+      assertReadable(dbTables[scope.joinSchema.tableName], c.field);
+    } else if (!scope.computed?.[c.field]) {
+      err400(`Unknown field: ${c.field}`);
+    }
+    const ref = resolveJoinLeftField(c.field, scope);
+    if (ref !== null) dispatchConditionMethod(cb, c.method, ref, c.params ?? []);
+  }
+}
+
 function buildLeftJoinClauses(
   db: QueryClient,
   dbTables: DbTables,
@@ -541,59 +321,33 @@ function buildLeftJoinClauses(
     );
 
     const ref = joinLeft?.[alias];
-    if (ref && (ref.filters || ref.conditions?.length)) {
-      // Build a ConditionBuilder where each column is prefixed with the alias
-      // (so SQL references the LEFT JOIN'd table, not a bare table name).
-      // Note: extraFilters declared on joinTableConf are not supported here for
-      // joinLeft (they would require alias-aware handlers); only schema fields
-      // and computed fields apply. `assertJoinFilterKeys` rejects them up front rather
-      // than letting them through as a silent no-op, and the generated body schema does
-      // not advertise them for unique:true relations.
-      const cb = new ConditionBuilder('AND', db.cbDialect);
-      const joinTableConf = dbTables[joinSchema.tableName];
-      const computed = joinTableConf?.computedFields;
+    if (!ref || !(ref.filters || ref.conditions?.length)) continue;
 
-      assertFiltersReadable(ref.filters, joinTableConf);
+    // extraFilters declared on joinTableConf are not supported for joinLeft (they would
+    // require alias-aware handlers); only schema and computed fields apply.
+    // `assertJoinFilterKeys` rejects them up front rather than letting them through as a
+    // silent no-op, and the generated body schema does not advertise them for unique:true
+    // relations.
+    const joinTableConf = dbTables[joinSchema.tableName];
+    const scope: JoinLeftFieldScope = {
+      db,
+      alias,
+      aliasIdent,
+      joinSchema,
+      computed: joinTableConf?.computedFields,
+    };
+    const cb = new ConditionBuilder('AND', db.cbDialect);
 
-      if (ref.filters) {
-        for (const [field, value] of Object.entries(ref.filters)) {
-          if (value === null || value === undefined) continue;
-          if (field in joinSchema.fields) {
-            cb.isEqual(`${aliasIdent}.${db.qi(joinSchema.col(field))}`, value);
-          } else if (computed?.[field]) {
-            // Computed field on the parent table: expr with alias-qualified columns. Bound
-            // values are placed by this ConditionBuilder, whose SQL lands in the WHERE.
-            const expr = evaluateComputedField(field, computed[field], joinSchema, db, alias, '', true);
-            cb.isEqual(expr, value);
-          }
-        }
-      }
+    assertFiltersReadable(ref.filters, joinTableConf);
+    if (ref.filters) applyJoinLeftFilters(cb, ref.filters, scope);
+    if (ref.conditions?.length) applyJoinLeftConditions(cb, ref.conditions, scope, dbTables);
 
-      if (ref.conditions?.length) {
-        for (const c of ref.conditions) {
-          if (!ALLOWED_SET.has(c.method)) {
-            err400(`Invalid condition method: ${c.method}`);
-          }
-          if (c.field in joinSchema.fields) {
-            assertReadable(dbTables[joinSchema.tableName], c.field);
-            const col = `${aliasIdent}.${db.qi(joinSchema.col(c.field))}`;
-            dispatchConditionMethod(cb, c.method, col, (c.params) ?? []);
-          } else if (computed?.[c.field]) {
-            const expr = evaluateComputedField(c.field, computed[c.field], joinSchema, db, alias, '', true);
-            dispatchConditionMethod(cb, c.method, expr, (c.params) ?? []);
-          } else {
-            err400(`Unknown field: ${c.field}`);
-          }
-        }
-      }
-
-      const sql = cb.build(currentIdx, db.ph);
-      const vals = cb.getValues();
-      if (sql) {
-        whereExtras.push(sql);
-        values.push(...vals);
-        currentIdx += vals.length;
-      }
+    const sql = cb.build(currentIdx, db.ph);
+    const vals = cb.getValues();
+    if (sql) {
+      whereExtras.push(sql);
+      values.push(...vals);
+      currentIdx += vals.length;
     }
   }
 
@@ -746,20 +500,64 @@ async function buildPagination(
   };
 }
 
-// ─── joinMultiple (virtual fetch, child rows in side query) ─
+// ─── Row-returning join families (side query per alias) ─────
 
-async function executeJoinMultiple(
+/**
+ * Correlate a join side query to the rows the main query returned (`fk IN (ids)`) and apply
+ * the tenant scope, then freeze it into SQL.
+ *
+ * Placeholders start at 1 because every side query is a statement of its own.
+ */
+function scopeJoinSideQuery(
+  cb: ConditionBuilder,
+  db: QueryClient,
+  joinSchema: SchemaDefinition,
+  joinField: string,
+  ids: ConditionValue[],
+  joinTableConf: ITable | undefined,
+  tenant: TenantContext | undefined
+): { where: string; values: unknown[]; tenantJoins: string[] } {
+  cb.isIn(`${db.qi(joinSchema.tableName)}.${db.qi(joinSchema.col(joinField))}`, ids);
+
+  const tenantJoins: string[] = [];
+  appendJoinTenantScope(db, joinTableConf, tenant, joinSchema.tableName, cb, tenantJoins);
+
+  const where = cb.build(1, db.ph);
+  return { where, values: cb.getValues(), tenantJoins };
+}
+
+/**
+ * Fetch related rows for one join family with a side query: `SELECT … WHERE fk IN (ids)`.
+ *
+ * `joinMultiple` (1:N children) and `joinLeft` (N:1 parents) run the same query shape and
+ * differ in exactly the two flags below.
+ */
+interface JoinFetchMode {
+  /** joinLeft is the N:1 parent direction, which only a `unique: true` relation may serve. */
+  requireUnique: boolean;
+  /**
+   * Whether the request's `filters`/`conditions` are applied to this side query.
+   *
+   * False for joinLeft: those are applied inline on the main query's LEFT JOIN (see
+   * `buildLeftJoinClauses`), and applying them again here would filter the parent rows a
+   * second time.
+   */
+  applyRefCondition: boolean;
+}
+
+async function fetchJoinRows(
   db: QueryClient,
   dbTables: DbTables,
   tableConf: ITable,
   mainResults: Record<string, unknown>[],
-  joinMultiple: Record<string, JoinFetchRequest>,
+  requests: Record<string, JoinFetchRequest>,
+  mode: JoinFetchMode,
   tenant?: TenantContext
 ): Promise<Record<string, Record<string, unknown>[]>> {
   const result: Record<string, Record<string, unknown>[]> = {};
 
-  for (const [alias, ref] of Object.entries(joinMultiple)) {
-    const joinDef = requireJoin(tableConf, alias, false);
+  for (const [alias, ref] of Object.entries(requests)) {
+    const joinDef = requireJoin(tableConf, alias, mode.requireUnique);
     const { joinSchema, joinField, mainField, selection: defaultSelection } = joinDef;
     const joinTableConf = dbTables[joinSchema.tableName];
 
@@ -769,19 +567,21 @@ async function executeJoinMultiple(
     const selection = ref?.selection ?? defaultSelection;
     const columns = buildSelectionColumns(selection, joinSchema, db, joinTableConf, joinDef.fields !== undefined);
 
+    // For joinLeft, mainField on the main table is the FK pointing at joinField (the
+    // parent's PK), so the same collect-then-look-up works for both directions.
     const ids = collectIds(mainResults, mainField);
     if (ids.length === 0) {
       result[alias] = [];
       continue;
     }
 
-    const cb = buildJoinRefCondition(joinTableConf, joinSchema, ref || {}, db);
-    const fkCol = joinSchema.col(joinField);
-    cb.isIn(`${db.qi(joinSchema.tableName)}.${db.qi(fkCol)}`, ids);
-    const tenantJoins: string[] = [];
-    appendJoinTenantScope(db, joinTableConf, tenant, joinSchema.tableName, cb, tenantJoins);
-    const where = cb.build(1, db.ph);
-    const values = cb.getValues();
+    const cb = mode.applyRefCondition
+      ? buildJoinRefCondition(joinTableConf, joinSchema, ref || {}, db)
+      : new ConditionBuilder('AND', db.cbDialect);
+
+    const { where, values, tenantJoins } = scopeJoinSideQuery(
+      cb, db, joinSchema, joinField, ids, joinTableConf, tenant
+    );
 
     const rows = await db.select({
       tableName: joinSchema.tableName,
@@ -797,9 +597,23 @@ async function executeJoinMultiple(
   return result;
 }
 
-// ─── joinLeft (parent fetch via PK IN side query) ───────────
+/** joinMultiple: 1:N children, returned as rows under `result.joinMultiple.<alias>`. */
+function executeJoinMultiple(
+  db: QueryClient,
+  dbTables: DbTables,
+  tableConf: ITable,
+  mainResults: Record<string, unknown>[],
+  joinMultiple: Record<string, JoinFetchRequest>,
+  tenant?: TenantContext
+): Promise<Record<string, Record<string, unknown>[]>> {
+  return fetchJoinRows(db, dbTables, tableConf, mainResults, joinMultiple, {
+    requireUnique: false,
+    applyRefCondition: true,
+  }, tenant);
+}
 
-async function executeJoinLeft(
+/** joinLeft: N:1 parents, returned as rows under `result.joinLeft.<alias>`. */
+function executeJoinLeft(
   db: QueryClient,
   dbTables: DbTables,
   tableConf: ITable,
@@ -807,46 +621,10 @@ async function executeJoinLeft(
   joinLeft: Record<string, JoinFetchRequest>,
   tenant?: TenantContext
 ): Promise<Record<string, Record<string, unknown>[]>> {
-  const result: Record<string, Record<string, unknown>[]> = {};
-
-  for (const [alias, ref] of Object.entries(joinLeft)) {
-    const joinDef = requireJoin(tableConf, alias, true);
-    const { joinSchema, joinField, mainField, selection: defaultSelection } = joinDef;
-    const joinTableConf = dbTables[joinSchema.tableName];
-
-    // Resolved before the bail-out, for the same reason as joinMultiple: an invalid
-    // selection is a 400 whether or not the main query matched anything.
-    const selection = ref?.selection ?? defaultSelection;
-    const columns = buildSelectionColumns(selection, joinSchema, db, joinTableConf, joinDef.fields !== undefined);
-
-    // For joinLeft (N:1), mainField on main is the FK pointing to joinField (PK) on parent.
-    // We collect the FK values from the main results and look up parents by their PK.
-    const ids = collectIds(mainResults, mainField);
-    if (ids.length === 0) {
-      result[alias] = [];
-      continue;
-    }
-
-    const fkCol = joinSchema.col(joinField);
-    const cb = new ConditionBuilder('AND', db.cbDialect);
-    cb.isIn(`${db.qi(joinSchema.tableName)}.${db.qi(fkCol)}`, ids);
-    const tenantJoins: string[] = [];
-    appendJoinTenantScope(db, joinTableConf, tenant, joinSchema.tableName, cb, tenantJoins);
-    const where = cb.build(1, db.ph);
-    const values = cb.getValues();
-
-    const rows = await db.select({
-      tableName: joinSchema.tableName,
-      columns,
-      where,
-      values,
-      joins: tenantJoins.length > 0 ? tenantJoins : undefined,
-    });
-
-    result[alias] = mapRowsToCamelCase(rows, joinSchema);
-  }
-
-  return result;
+  return fetchJoinRows(db, dbTables, tableConf, mainResults, joinLeft, {
+    requireUnique: true,
+    applyRefCondition: false,
+  }, tenant);
 }
 
 /**
@@ -883,6 +661,72 @@ function buildByExpression(
 
 // ─── joinGroup (aggregations) ───────────────────────────────
 
+/**
+ * SELECT and GROUP BY fragments for one joinGroup alias.
+ *
+ * Every field is validated against the join schema here, so an unknown or unreachable one
+ * is a 400 regardless of what the data happens to contain.
+ */
+function buildJoinGroupSelect(
+  aggregations: AggregationRequest,
+  joinSchema: SchemaDefinition,
+  joinTableConf: ITable | undefined,
+  db: QueryClient
+): { selectParts: string[]; groupByParts: string[] } {
+  const selectParts: string[] = [];
+  const groupByParts: string[] = [];
+
+  if (aggregations.by) {
+    const byExpr = buildByExpression(aggregations.by, joinSchema, joinTableConf, db);
+    selectParts.push(`${byExpr} as "by"`);
+    groupByParts.push(byExpr);
+  }
+
+  const addAgg = (kind: string, fields: string[] | undefined): void => {
+    if (!fields) return;
+    const fn = AGG_FN[kind];
+    for (const f of fields) {
+      const col = validateSchemaField(f, joinSchema, joinTableConf);
+      const colRef = `${db.qi(joinSchema.tableName)}.${db.qi(col)}`;
+      selectParts.push(`${aggExpr(fn, colRef)} as "${kind}_${f}"`);
+    }
+  };
+  addAgg('distinctCount', aggregations.distinctCount);
+  addAgg('min', aggregations.min);
+  addAgg('max', aggregations.max);
+  addAgg('sum', aggregations.sum);
+  addAgg('avg', aggregations.avg);
+  addAgg('count', aggregations.count);
+
+  return { selectParts, groupByParts };
+}
+
+/**
+ * Shape aggregation rows into the response: a single row without `by` collapses to
+ * `{ fn: { field: value } }`; anything else stays a list under `rows`.
+ */
+function formatJoinGroupRows(
+  rows: Record<string, unknown>[],
+  hasBy: boolean
+): Record<string, unknown> {
+  const formatted: Record<string, unknown> = {};
+  if (rows.length === 0) return formatted;
+
+  const row = rows.length === 1 && !hasBy ? rows[0] : rows;
+  if (Array.isArray(row)) {
+    formatted.rows = row;
+    return formatted;
+  }
+
+  for (const [key, value] of Object.entries(row)) {
+    if (key === 'by') continue;
+    const [fn, field] = key.split('_');
+    if (!formatted[fn]) formatted[fn] = {};
+    (formatted[fn] as Record<string, unknown>)[field] = value;
+  }
+  return formatted;
+}
+
 async function executeJoinGroup(
   db: QueryClient,
   dbTables: DbTables,
@@ -901,33 +745,11 @@ async function executeJoinGroup(
     const ids = collectIds(mainResults, mainField);
 
     const { aggregations, filters: groupFilters, conditions: groupConditions } = groupReq;
-    const selectParts: string[] = [];
-    const groupByParts: string[] = [];
+    const { selectParts, groupByParts } = buildJoinGroupSelect(
+      aggregations, joinSchema, joinTableConf, db
+    );
 
-    if (aggregations.by) {
-      const byExpr = buildByExpression(aggregations.by, joinSchema, joinTableConf, db);
-      selectParts.push(`${byExpr} as "by"`);
-      groupByParts.push(byExpr);
-    }
-
-    const addAgg = (kind: string, fields: string[] | undefined): void => {
-      if (!fields) return;
-      const fn = AGG_FN[kind];
-      for (const f of fields) {
-        const col = validateSchemaField(f, joinSchema, joinTableConf);
-        const colRef = `${db.qi(joinSchema.tableName)}.${db.qi(col)}`;
-        selectParts.push(`${aggExpr(fn, colRef)} as "${kind}_${f}"`);
-      }
-    };
-    addAgg('distinctCount', aggregations.distinctCount);
-    addAgg('min', aggregations.min);
-    addAgg('max', aggregations.max);
-    addAgg('sum', aggregations.sum);
-    addAgg('avg', aggregations.avg);
-    addAgg('count', aggregations.count);
-
-    // Bail out only here: `by` and every aggregation field have now been validated against
-    // the join schema, so an unknown or unreachable field is a 400 regardless of the data.
+    // Bail out only here: `by` and every aggregation field have now been validated.
     if (selectParts.length === 0 || ids.length === 0) {
       result[alias] = {};
       continue;
@@ -935,36 +757,17 @@ async function executeJoinGroup(
 
     const groupRef = { filters: groupFilters, conditions: groupConditions };
     const cb = buildJoinRefCondition(joinTableConf, joinSchema, groupRef, db);
-    const fkCol = joinSchema.col(joinField);
-    cb.isIn(`${db.qi(joinSchema.tableName)}.${db.qi(fkCol)}`, ids);
-    const tenantJoins: string[] = [];
-    appendJoinTenantScope(db, joinTableConf, tenant, joinSchema.tableName, cb, tenantJoins);
-    const where = cb.build(1, db.ph);
-    const values = cb.getValues();
+    const { where, values, tenantJoins } = scopeJoinSideQuery(
+      cb, db, joinSchema, joinField, ids, joinTableConf, tenant
+    );
 
     const groupBy = groupByParts.length > 0 ? `GROUP BY ${groupByParts.join(', ')}` : '';
     const fromJoins = tenantJoins.length > 0 ? ` ${tenantJoins.join(' ')}` : '';
     const sql = `SELECT ${selectParts.join(', ')} FROM ${db.qi(joinSchema.tableName)}${fromJoins} WHERE ${where} ${groupBy}`;
 
     const queryResult = await db.query(sql, values);
-    const rows = queryResult.rows;
 
-    const formatted: Record<string, unknown> = {};
-    if (rows.length > 0) {
-      const row = rows.length === 1 && !aggregations.by ? rows[0] : rows;
-      if (Array.isArray(row)) {
-        formatted.rows = row;
-      } else {
-        for (const [key, value] of Object.entries(row)) {
-          if (key === 'by') continue;
-          const [fn, field] = key.split('_');
-          if (!formatted[fn]) formatted[fn] = {};
-          (formatted[fn] as Record<string, unknown>)[field] = value;
-        }
-      }
-    }
-
-    result[alias] = formatted;
+    result[alias] = formatJoinGroupRows(queryResult.rows, Boolean(aggregations.by));
   }
 
   return result;
@@ -1014,6 +817,54 @@ function dispatchConditionMethod(
   }
 }
 
+/**
+ * Equality filters targeting the join table's *computed* fields. Plain column filters are
+ * already handled by `joinTableConf.filters`, so anything not computed is skipped here.
+ */
+function applyJoinRefComputedFilters(
+  cb: ConditionBuilder,
+  filters: FilterRecord,
+  joinTableConf: ITable | undefined,
+  joinSchema: SchemaDefinition,
+  db: QueryClient,
+  colQualifier: string
+): void {
+  const computed = joinTableConf?.computedFields;
+  if (!computed) return;
+
+  for (const [name, value] of Object.entries(filters)) {
+    if (value === null || value === undefined) continue;
+    const fn = computed[name];
+    if (!fn) continue;
+    cb.isEqual(evaluateComputedField(name, fn, joinSchema, db, colQualifier, '', true), value);
+  }
+}
+
+/** Operator conditions on a join reference, against a schema or a computed field. */
+function applyJoinRefConditions(
+  cb: ConditionBuilder,
+  conditions: SearchCondition[],
+  joinTableConf: ITable | undefined,
+  joinSchema: SchemaDefinition,
+  db: QueryClient,
+  colQualifier: string
+): void {
+  const computed = joinTableConf?.computedFields;
+
+  for (const c of conditions) {
+    if (!ALLOWED_SET.has(c.method)) {
+      err400(`Invalid condition method: ${c.method}`);
+    }
+    // Computed fields resolve to an Expression carrying their own bound values, which the
+    // ConditionBuilder places together with the compared value.
+    const fn = computed?.[c.field];
+    const operand = fn
+      ? evaluateComputedField(c.field, fn, joinSchema, db, colQualifier, '', true)
+      : `${db.qi(colQualifier)}.${db.qi(validateSchemaField(c.field, joinSchema, joinTableConf))}`;
+    dispatchConditionMethod(cb, c.method, operand, c.params ?? []);
+  }
+}
+
 function buildJoinRefCondition(
   joinTableConf: ITable | undefined,
   joinSchema: SchemaDefinition,
@@ -1033,29 +884,11 @@ function buildJoinRefCondition(
     ? joinTableConf.filters(ref.filters, db.cbDialect, colQualifier)
     : new ConditionBuilder('AND', db.cbDialect);
 
-  // Equality filters targeting the join table's computed fields
-  const computed = joinTableConf?.computedFields;
-  if (computed && ref.filters) {
-    for (const [name, value] of Object.entries(ref.filters)) {
-      if (value === null || value === undefined) continue;
-      if (!computed[name]) continue;
-      const expr = evaluateComputedField(name, computed[name], joinSchema, db, colQualifier, '', true);
-      cb.isEqual(expr, value);
-    }
+  if (ref.filters) {
+    applyJoinRefComputedFilters(cb, ref.filters, joinTableConf, joinSchema, db, colQualifier);
   }
-
   if (ref.conditions?.length) {
-    for (const c of ref.conditions) {
-      if (!ALLOWED_SET.has(c.method)) {
-        err400(`Invalid condition method: ${c.method}`);
-      }
-      // Computed fields resolve to an Expression carrying their own bound values, which
-      // the ConditionBuilder places together with the compared value.
-      const operand = computed?.[c.field]
-        ? evaluateComputedField(c.field, computed[c.field], joinSchema, db, colQualifier, '', true)
-        : `${db.qi(colQualifier)}.${db.qi(validateSchemaField(c.field, joinSchema, joinTableConf))}`;
-      dispatchConditionMethod(cb, c.method, operand, (c.params) ?? []);
-    }
+    applyJoinRefConditions(cb, ref.conditions, joinTableConf, joinSchema, db, colQualifier);
   }
 
   return cb;
@@ -1186,48 +1019,52 @@ function buildJoinMustExistClauses(
 
 // ─── searchEngine entrypoint ────────────────────────────────
 
-export async function searchEngine(
-  dbTables: DbTables,
-  params: SearchParams
-): Promise<SearchResult> {
-  const {
-    db, tableConf, filters, conditions,
-    joinMustExist, joinMultiple, joinGroup, joinLeft,
-    orderBy, paginator,
-    computeMin, computeMax, computeSum, computeAvg, tenant,
-  } = params;
+/**
+ * Reject unknown aliases, non-unique aliases used as `joinLeft`, and unsupported join
+ * filter keys — all before any query runs, so a 400 never depends on whether the main
+ * query happened to return rows.
+ *
+ * `joinLeft` is the odd one out: its condition is built inline and never runs the target's
+ * `extendedCondition`, so `extraFilters` are not accepted there.
+ */
+function assertJoinRequestsAllowed(dbTables: DbTables, params: SearchParams): void {
+  const { tableConf, joinMustExist, joinMultiple, joinGroup, joinLeft } = params;
 
-  // Validate aliases used as keys against allowedReadJoins + unique flag (early 400s)
   if (joinMustExist) for (const a of Object.keys(joinMustExist)) requireJoin(tableConf, a, false);
   if (joinMultiple) for (const a of Object.keys(joinMultiple)) requireJoin(tableConf, a, false);
   if (joinGroup) for (const a of Object.keys(joinGroup)) requireJoin(tableConf, a, false);
   if (joinLeft) for (const a of Object.keys(joinLeft)) requireJoin(tableConf, a, true);
 
-  // Join filter keys, validated before any query so the outcome never depends on whether
-  // the main query returned rows. joinLeft is the odd one: its condition is built inline
-  // and never runs the target's extendedCondition, so extraFilters are not accepted there.
   assertJoinFilterKeys(dbTables, tableConf, joinMustExist, true);
   assertJoinFilterKeys(dbTables, tableConf, joinMultiple, true);
   assertJoinFilterKeys(dbTables, tableConf, joinGroup, true);
   assertJoinFilterKeys(dbTables, tableConf, joinLeft, false);
+}
 
-  // Build main condition
+/**
+ * The main table's WHERE builder, plus any JOIN the tenant scope needs.
+ *
+ * Filters and conditions on computed fields go on the same ConditionBuilder: a computed
+ * resolves to an Expression carrying its own values, and the builder is what assigns
+ * every placeholder index.
+ */
+function buildMainCondition(params: SearchParams): {
+  condition: ConditionBuilder;
+  tenantJoins: string[];
+} {
+  const { db, tableConf, filters, conditions, tenant } = params;
+
   assertFiltersReadable(filters, tableConf);
   assertKnownFilterKeys(filters, tableConf.Schema, tableConf);
   const condition = tableConf.filters(filters || {}, db.cbDialect);
 
-  // Filters and conditions targeting computed fields go on the same ConditionBuilder:
-  // a computed resolves to an Expression carrying its own values, and the builder is
-  // what assigns every placeholder index.
   if (filters && tableConf.computedFields) {
     applyComputedFilters(condition, filters, tableConf, db);
   }
-
   if (conditions?.length) {
     applyConditions(condition, conditions, tableConf.Schema, tableConf, db);
   }
 
-  // Tenant
   const tenantJoins: string[] = [];
   if (tenant) {
     condition.append(buildTenantCondition(db, tenant.scope, tenant.ids, tableConf.Schema.tableName));
@@ -1235,6 +1072,67 @@ export async function searchEngine(
       tenantJoins.push(buildTenantJoin(db, tenant.scope, tableConf.Schema.tableName));
     }
   }
+
+  return { condition, tenantJoins };
+}
+
+/**
+ * joinLeft aliases that need a real LEFT JOIN on the main query: those referenced by a
+ * 2-part `orderBy`, plus those the request filters or puts conditions on.
+ */
+function collectLeftJoinAliases(params: SearchParams): Set<string> {
+  const { orderBy, joinLeft, tableConf } = params;
+  const aliases = new Set<string>();
+
+  if (orderBy) {
+    for (const a of collectOrderByLeftAliases(orderBy, tableConf)) aliases.add(a);
+  }
+  if (joinLeft) {
+    for (const [alias, ref] of Object.entries(joinLeft)) {
+      if (ref?.filters || ref?.conditions?.length) aliases.add(alias);
+    }
+  }
+  return aliases;
+}
+
+/**
+ * Run the side queries for the join families that return rows of their own, and hang each
+ * one off `result`. These run after the main query because they are correlated to the rows
+ * it returned.
+ */
+async function attachJoinResults(
+  result: SearchResult,
+  dbTables: DbTables,
+  params: SearchParams,
+  main: SearchResult['main']
+): Promise<void> {
+  const { db, tableConf, joinMultiple, joinLeft, joinGroup, tenant } = params;
+
+  if (joinMultiple && Object.keys(joinMultiple).length > 0) {
+    result.joinMultiple = await executeJoinMultiple(db, dbTables, tableConf, main, joinMultiple, tenant);
+  }
+  if (joinLeft && Object.keys(joinLeft).length > 0) {
+    result.joinLeft = await executeJoinLeft(db, dbTables, tableConf, main, joinLeft, tenant);
+  }
+  if (joinGroup && Object.keys(joinGroup).length > 0) {
+    result.joinGroup = await executeJoinGroup(db, dbTables, tableConf, main, joinGroup, tenant);
+  }
+}
+
+export async function searchEngine(
+  dbTables: DbTables,
+  params: SearchParams
+): Promise<SearchResult> {
+  const {
+    db, tableConf, conditions,
+    joinMustExist, joinGroup, joinLeft,
+    orderBy, paginator,
+    computeMin, computeMax, computeSum, computeAvg, tenant,
+  } = params;
+
+  assertJoinRequestsAllowed(dbTables, params);
+
+  const { condition, tenantJoins } = buildMainCondition(params);
 
   // From here the statement is assembled fragment by fragment. `bound` owns the values and
   // hands each fragment the placeholder index it must start from, so no offset is computed
@@ -1253,18 +1151,7 @@ export async function searchEngine(
     where += appendAggConditions(bound, conditions, db, dbTables, tableConf, joinGroup);
   }
 
-  // Determine which joinLeft aliases need a LEFT JOIN on the main query:
-  // - any alias used in 2-part orderBy
-  // - any alias in joinLeft body that has filters or conditions on the parent
-  const aliasesNeedingLeftJoin = new Set<string>();
-  if (orderBy) {
-    for (const a of collectOrderByLeftAliases(orderBy, tableConf)) aliasesNeedingLeftJoin.add(a);
-  }
-  if (joinLeft) {
-    for (const [alias, ref] of Object.entries(joinLeft)) {
-      if (ref?.filters || ref?.conditions?.length) aliasesNeedingLeftJoin.add(alias);
-    }
-  }
+  const aliasesNeedingLeftJoin = collectLeftJoinAliases(params);
 
   // LEFT JOIN clauses + extra WHERE for filtered parents.
   const extraJoinClauses: string[] = [...tenantJoins];
@@ -1305,17 +1192,7 @@ export async function searchEngine(
 
   const result: SearchResult = { main };
 
-  if (joinMultiple && Object.keys(joinMultiple).length > 0) {
-    result.joinMultiple = await executeJoinMultiple(db, dbTables, tableConf, main, joinMultiple, tenant);
-  }
-
-  if (joinLeft && Object.keys(joinLeft).length > 0) {
-    result.joinLeft = await executeJoinLeft(db, dbTables, tableConf, main, joinLeft, tenant);
-  }
-
-  if (joinGroup && Object.keys(joinGroup).length > 0) {
-    result.joinGroup = await executeJoinGroup(db, dbTables, tableConf, main, joinGroup, tenant);
-  }
+  await attachJoinResults(result, dbTables, params, main);
 
   if (pagination) {
     result.pagination = pagination;
