@@ -26,11 +26,13 @@ not by editing history.
 | [0009](./0009-schema-exclusion-config-blacklist.md) | Schema exclusion is a config blacklist — excluded schemas are removed as orphans |
 | [0010](./0010-joins-do-not-run-route-guards.md) | A declared join is a read grant — joins do not run the target table's route guards |
 | [0011](./0011-join-fields-allowlist.md) | Per-relation field restriction is an allowlist, not a blocklist |
+| [0012](./0012-anti-duplication-tooling.md) | Repository rules are enforced by executable gates, not by documentation |
 
 ## When to write one
 
 Only when a decision was genuinely debated, or is counter-intuitive enough that a reasonable
-outsider would mistake it for a bug. Plain conventions belong in [AGENTS.md](../../AGENTS.md).
+outsider would mistake it for a bug. Plain conventions belong in [AGENTS.md](../../AGENTS.md)
+for consumers, or in `CLAUDE.md` at the repository root for contributors.
 
 ## Format
 
