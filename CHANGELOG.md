@@ -11,6 +11,26 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **Database errors no longer reach clients verbatim.** Any error escaping an auto-generated
+  route that the plugin did not raise itself now answers `{"statusCode":500,"error":"Internal
+  Server Error","message":"Internal Server Error"}` instead of the driver message, which names
+  tables, columns and constraints (`duplicate key value violates unique constraint
+  "users_email_key"`). Errors the plugin raises are deliberate `4xx` written for clients and
+  are untouched; **no status code is remapped** — a unique violation is still a `500`, per
+  [ADR 0006](./docs/adr/0006-raw-db-errors.md). The original error is logged through
+  `request.log.error` and attached as `err.cause`, so a consumer `setErrorHandler` can still
+  apply its own policy (`23505` → `409`). The guard covers route plugins registered standalone
+  as well. The sanitized body carries `requestId` — the `reqId` Fastify logs on every line — so
+  the entry holding the real error is one grep away. While developing — where a client building
+  against the API (an agent especially) may have no way to read the server log — the new
+  **`exposeDebugInfo: true`** attaches the driver error (message, `code`, `constraint`, stack)
+  as a `debugInfo` payload. It is additive: `statusCode`, `error`, `message` and `requestId`
+  keep their production shape, so client-side error handling does not fork between
+  environments. Nothing else flips it — not `debug`, not `NODE_ENV`: `debug` belongs to the
+  consumer, who may wire it to an environment variable, and it governs the log (access
+  controlled) rather than the response body (not, and these routes are open by default). See
+  [ADR 0013](./docs/adr/0013-sanitized-db-errors.md).
+
 - **Unknown `filters` keys are now rejected with `400 Unknown filter field: <key>`** instead
   of being dropped in silence — on the main table and on every join family. The engine only
   ever visited keys matching a schema field, an `extraFilters` entry or a computed field, so a

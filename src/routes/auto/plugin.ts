@@ -105,10 +105,19 @@ export default fp(async function fastifyAutoSqlApi(
       }
 
       const statusCode = error.statusCode || 500;
+      // A sanitized error carries the request id so the client can point at the log line
+      // holding the real cause, and — under `exposeDebugInfo` — the description of that
+      // cause (ADR 0013). Both are additive: the fields above never change shape.
+      const sanitized = error as Error & {
+        requestId?: string;
+        debugInfo?: Record<string, unknown>;
+      };
       reply.status(statusCode).send({
         statusCode,
         error: error.name || 'Error',
         message: error.message,
+        ...(sanitized.requestId ? { requestId: sanitized.requestId } : {}),
+        ...(sanitized.debugInfo ? { debugInfo: sanitized.debugInfo } : {}),
       });
     });
 

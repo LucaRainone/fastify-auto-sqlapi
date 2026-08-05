@@ -1,6 +1,7 @@
 # 0006. Raw DB errors surface as 500 — no SQLSTATE→HTTP mapping
 
-- **Status**: accepted
+- **Status**: accepted on the mapping; message exposure narrowed by
+  [0013](./0013-sanitized-db-errors.md)
 - **Date**: 2026-07-23 (confirmed by the maintainer in June 2026)
 
 ## Context

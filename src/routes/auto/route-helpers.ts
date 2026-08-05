@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { ensureSqlApiDecorator } from '../../lib/sql-api-decorator.js';
+import { sanitizeRouteError } from '../../lib/errors.js';
 import { isCompositePrimary } from '../../types.js';
 import type { ITable, SqlApiPluginOptions, DbTables, TableOperation } from '../../types.js';
 
@@ -140,8 +141,14 @@ export async function registerForAllTables(
       schema: buildRouteSchema(tableName, tableConf, spec, schemas),
       onRequest: mergeOnRequests(options, tableConf),
       handler: async (request, reply) => {
-        const result = await spec.handle(fastify, tableName, tableConf, request, reply);
-        if (!reply.sent) reply.status(spec.successStatus).send(result);
+        try {
+          const result = await spec.handle(fastify, tableName, tableConf, request, reply);
+          if (!reply.sent) reply.status(spec.successStatus).send(result);
+        } catch (err) {
+          const safe = sanitizeRouteError(err, request.id, options.exposeDebugInfo);
+          if (safe !== err) request.log.error({ err }, 'sqlapi: unhandled error');
+          throw safe;
+        }
       },
     });
   }

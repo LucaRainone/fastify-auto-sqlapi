@@ -38,6 +38,25 @@ export interface SqlApiPluginOptions {
    * routes run behind the same global `onRequests` hooks as the data routes.
    */
   agentManifest?: boolean;
+  /**
+   * Attach a `debugInfo` payload — the driver message, its `code`/`constraint`/`detail`,
+   * the stack — to the `500` an error the plugin did not raise itself produces (a
+   * constraint violation, a hook throwing without a `statusCode`).
+   *
+   * **Development only**: it hands whoever triggers an error a description of the schema,
+   * and the auto routes are open by default (ADR 0002). Off unless set. It is additive —
+   * `statusCode`, `error`, `message` and `requestId` keep the shape they have in production,
+   * so client-side error handling does not fork between environments.
+   *
+   * Without it the response carries no database detail, and the original error is still
+   * reachable: logged through `request.log.error` under the same `reqId` the body reports as
+   * `requestId`, and attached as the `cause` of the error a consumer `setErrorHandler`
+   * receives — which is where policy such as unique-violation → `409` belongs (ADR 0006).
+   *
+   * Nothing derives this: not `debug` (whoever registers the plugin decides that one, and
+   * may wire it to an environment variable), not `NODE_ENV`. See ADR 0013.
+   */
+  exposeDebugInfo?: boolean;
 }
 
 /** Default row cap for search (page size and no-paginator LIMIT). Override via `maxItemsPerPage`. */

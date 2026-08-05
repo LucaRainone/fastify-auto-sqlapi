@@ -368,7 +368,8 @@ await app.register(fastifyAutoSqlApi, {
 | `getTenantId` | `(req) => id \| null` | No | Tenant resolver for multi-tenant |
 | `maxItemsPerPage` | `number` | No | Max search page size, and the row `LIMIT` applied when no paginator is sent (default: `1000`) |
 | `maxBulkItems` | `number` | No | Max number of items accepted by the bulk endpoints (default: `1000`) |
-| `debug` | `boolean` | No | Log all SQL queries to console |
+| `debug` | `boolean` | No | Log all SQL queries to console (server-side only — it never changes a response) |
+| `exposeDebugInfo` | `boolean` | No | **Development only.** Attach the driver error (message, `code`, `constraint`, stack) to `500` responses as `debugInfo` (default: `false`) |
 
 The plugin picks up the connection from the Fastify instance: `fastify.pg` for PostgreSQL
 (what `@fastify/postgres` decorates) or `fastify.mysql` for MySQL/MariaDB. For MySQL,
@@ -475,6 +476,69 @@ malicious resource exhaustion — relevant precisely because the API is open by 
 
 Both are configurable in the plugin options. The programmatic `fastify.sqlApi.*` methods are not
 capped — they run your own trusted code.
+
+### Error responses don't describe your schema
+
+Driver messages name tables, columns and constraints (`duplicate key value violates unique
+constraint "users_email_key"`). Any error the plugin did not raise itself is replaced with a
+bare `500` before it reaches the client:
+
+```json
+{ "statusCode": 500, "error": "Internal Server Error", "message": "Internal Server Error", "requestId": "req-3" }
+```
+
+`requestId` is the `reqId` Fastify logs on every line, so the entry holding the real error is
+one grep away — without the error itself travelling to the client.
+
+Errors the plugin raises are deliberate `4xx` with messages written for clients (validation,
+not found, tenant violations) and are untouched. **No status code is remapped**: a unique
+violation is still a `500`, not a `409` — deciding otherwise is product logic, and this is
+where you do it:
+
+```typescript
+app.setErrorHandler((err, request, reply) => {
+  if (err.cause?.code === '23505') {
+    return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: 'Already exists' });
+  }
+  reply.send(err);
+});
+```
+
+The original error is never lost: it is logged through `request.log.error` and attached as
+`err.cause`. Errors thrown by your own `onRequests` hooks run before the handler and are
+unaffected.
+
+**While developing, you probably want the detail on the wire** — an agent or a frontend
+building against the API cannot always read your server log, and one round trip per failure
+adds up. Say so explicitly:
+
+```typescript
+await app.register(fastifyAutoSqlApi, {
+  DbTables: dbTables,
+  exposeDebugInfo: true,   // development only — see below
+});
+```
+
+```json
+{
+  "statusCode": 500, "error": "Internal Server Error", "message": "Internal Server Error",
+  "requestId": "req-3",
+  "debugInfo": {
+    "message": "duplicate key value violates unique constraint \"users_email_key\"",
+    "code": "23505", "constraint": "users_email_key", "stack": "…"
+  }
+}
+```
+
+It is **additive**: `statusCode`, `error`, `message` and `requestId` keep the shape they have
+in production, so your client-side error handling doesn't fork between environments.
+
+Nothing else flips it — not `debug`, not `NODE_ENV`. `debug` is yours to wire (a constant in
+one deployment, an environment variable in another), so the plugin cannot let it decide what
+leaves the server: it writes to your log, which is access-controlled, while a response body is
+not — and these routes are open by default. What a client sees is readable from the
+registration call alone. See [ADR 0013](./docs/adr/0013-sanitized-db-errors.md) and
+[ADR 0006](./docs/adr/0006-raw-db-errors.md).
 
 ### Write whitelist
 
@@ -716,6 +780,18 @@ Both schema-level (TypeBox/Ajv) and custom (`validate` / `validateBulk`) errors 
 ```
 
 Custom validators return tuples `[field, code]` or `[field, code, message]` — `message` defaults to `code` if omitted. `validateBulk` replaces per-item `validate` in bulk-upsert requests.
+
+### Server errors (500)
+
+Anything the plugin did not raise itself — a constraint violation, a hook failing — answers
+with a fixed body carrying no database detail; `requestId` points at the log line with the
+real error. Constraint names and driver messages stay on the server unless the deployment
+opts in with `exposeDebugInfo: true`: see
+[Error responses don't describe your schema](#error-responses-dont-describe-your-schema).
+
+```json
+{ "statusCode": 500, "error": "Internal Server Error", "message": "Internal Server Error", "requestId": "req-3" }
+```
 
 ## Multi-Tenant
 
