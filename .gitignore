@@ -1,6 +1,7 @@
 .idea
 node_modules
 dist
+*.tsbuildinfo
 .env
 test/manual/output
 llm-private*.md
