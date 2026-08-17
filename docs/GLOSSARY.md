@@ -19,7 +19,9 @@ existing concept makes search fail and the concept get built twice.
 | Extra filter | Non-column search filter declared per table. (not: custom filter) |
 | Extended condition | Consumer-supplied SQL fragment merged into a search WHERE. |
 | Dotted notation | `orderBy`/condition key counted in parts: 1-part `field`, 2-part `alias.field`, 3-part `alias.fn.field`. (not: parti) |
-| Tenant scope | Row-level isolation: `direct` (own column) or `indirect` (via FK). |
+| Tenant scope | Row-level isolation: `direct` (own column), `indirect` (via FK) or `anyOf`. |
+| `anyOf` scope | Tenant scope over several owner columns: the row is visible to any of them. |
+| Anchor | The owner column an `anyOf` write names to tie a new row to the caller. |
 | Engine | Dialect-agnostic function performing one operation. (not: service, handler) |
 | Route | Fastify plugin exposing an engine over HTTP. (not: controller) |
 | Dialect | Per-DB SQL differences (`postgres` \| `mysql`). |

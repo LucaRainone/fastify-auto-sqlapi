@@ -1,6 +1,10 @@
 import { camelcaseObject } from '../../naming.js';
 import { processSecondaries, processDeletions, prepareInsertRecord } from '../write-helpers.js';
-import { enforceTenantOnWrites, assertTenantOwnsConflicts } from '../../tenant.js';
+import {
+  enforceTenantOnWrites,
+  assertTenantOwnsConflicts,
+  tenantImmutableColumns,
+} from '../../tenant.js';
 import { runBulkValidation } from '../validate.js';
 import { primaryAsCols } from '../../../types.js';
 import type {
@@ -25,9 +29,12 @@ function upsertMains(
   }
 
   const conflictCols = upsertKeys.map((k) => schema.col(k));
-  // Tenant isolation: a conflicting upsert must not overwrite rows owned by another tenant.
+  // Tenant isolation: a conflicting upsert must not overwrite rows owned by another tenant, nor
+  // re-assign the owner of a row it legitimately updates.
   return assertTenantOwnsConflicts(db, tenant, schema.tableName, conflictCols, preparedMains)
-    .then(() => db.bulkInsertOrUpdate(schema.tableName, preparedMains, conflictCols, pkCol));
+    .then(() => db.bulkInsertOrUpdate(
+      schema.tableName, preparedMains, conflictCols, pkCol, undefined, tenantImmutableColumns(tenant)
+    ));
 }
 
 /** Secondaries, deletions and the afterInsert hook for one upserted item. */

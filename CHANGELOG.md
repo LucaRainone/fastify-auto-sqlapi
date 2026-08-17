@@ -9,6 +9,28 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ## [Unreleased]
 
+### Added
+
+- **`tenantScope` over several owner columns — `{ anyOf: [...] }`.** A row that belongs to two
+  parties and is visible to either — a message (`sender_id` / `recipient_id`), a transfer
+  (`from_account_id` / `to_account_id`), a shift swap — could not be expressed before, leaving
+  the table open or the route hand-written. Reads add
+  `AND (colA IN (…) OR colB IN (…))`, alias-qualified, and the predicate crosses every join
+  family including `joinLeft`, where it lands in the `ON` clause so `LEFT` semantics survive.
+  A `NULL` column does not match and does not stop the other one from matching.
+  Writes cannot auto-inject an owner, so the payload **anchors** the row instead: at least one
+  listed column present and holding a tenant id, otherwise `400` (nothing to anchor to) or `403`
+  (present but foreign); the other party is stored exactly as sent. Updates strip every listed
+  column from the `SET`, and upserts exclude them from the `DO UPDATE` — neither party can be
+  re-assigned. The upsert conflict guard is null-safe for this shape: a row whose parties are
+  all `NULL` is visible to nobody, where a plain `NOT IN` would have read "unknown" as "not
+  foreign" and handed it over. Purely additive: `{ column }` and `{ column, through }` produce
+  byte-identical SQL. The three forms do not mix — `defineTable` throws at startup on `anyOf`
+  combined with `column` or `through`, on an empty or malformed `anyOf`, and on a scope
+  declaring no owner column at all.
+- `QueryClient.bulkInsertOrUpdate` takes an optional trailing `immutableCols`: columns written
+  on insert but left untouched when the statement lands on an existing row. Additive.
+
 ### Changed
 
 - **Database errors no longer reach clients verbatim.** Any error escaping an auto-generated

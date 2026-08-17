@@ -7,12 +7,27 @@ import type {
   SqlApiPluginOptions,
   TenantId,
   TenantScope,
+  TenantScopeDirect,
   TenantScopeIndirect,
+  TenantScopeAnyOf,
   TenantContext,
 } from '../types.js';
 
 function isIndirect(scope: TenantScope): scope is TenantScopeIndirect {
   return 'through' in scope;
+}
+
+function isAnyOf(scope: TenantScope): scope is TenantScopeAnyOf {
+  return 'anyOf' in scope;
+}
+
+/**
+ * The tenant columns living on the scoped table itself, in declaration order: one for a direct
+ * scope, several for an `anyOf` one. Never called for an indirect scope, whose column belongs to
+ * the through table.
+ */
+function ownColumns(scope: TenantScope): string[] {
+  return isAnyOf(scope) ? scope.anyOf : [scope.column];
 }
 
 export async function resolveTenant(
@@ -30,26 +45,33 @@ export async function resolveTenant(
   return { ids, scope: tableConf.tenantScope };
 }
 
+/**
+ * The read predicate for a scope, as a fragment every caller appends to its own WHERE.
+ *
+ * An `anyOf` scope returns an OR-mode builder — the row is visible when any listed column holds
+ * a tenant id — and every caller appends it, so the group keeps its own parentheses. A NULL
+ * column simply fails to match, which is the wanted behaviour: the other party still decides.
+ */
 export function buildTenantCondition(
   db: QueryClient,
   scope: TenantScope,
   tenantIds: TenantId[],
   ownTable: string
 ): ConditionBuilder {
-  const col = scope.column;
-  let qualifier: string;
-
   if (isIndirect(scope)) {
     const throughTable = scope.through.schema.tableName;
-    qualifier = `${db.qi(throughTable)}.${db.qi(col)}`;
-  } else {
-    // Qualify with the table the scope column lives on: the statement may carry
-    // joins, and a bare column shared with a joined table would be ambiguous.
-    qualifier = `${db.qi(ownTable)}.${db.qi(col)}`;
+    const cb = new ConditionBuilder('AND', db.cbDialect);
+    cb.isIn(`${db.qi(throughTable)}.${db.qi(scope.column)}`, tenantIds);
+    return cb;
   }
 
-  const cb = new ConditionBuilder('AND', db.cbDialect);
-  cb.isIn(qualifier, tenantIds);
+  // Qualify with the table the scope columns live on: the statement may carry
+  // joins, and a bare column shared with a joined table would be ambiguous.
+  const cols = ownColumns(scope);
+  const cb = new ConditionBuilder(cols.length > 1 ? 'OR' : 'AND', db.cbDialect);
+  for (const col of cols) {
+    cb.isIn(`${db.qi(ownTable)}.${db.qi(col)}`, tenantIds);
+  }
   return cb;
 }
 
@@ -117,12 +139,42 @@ export function buildTenantJoin(
   return `INNER JOIN ${db.qi(throughTable)} ON ${db.qi(mainTableName)}.${db.qi(localField)} = ${db.qi(throughTable)}.${db.qi(foreignField)}`;
 }
 
+/**
+ * The insert-side rule for an `anyOf` scope: the payload must anchor the row itself.
+ *
+ * Nothing is auto-injected — with several owner columns the plugin cannot know which party the
+ * caller is meant to be, and guessing would either invent a relationship or refuse a legitimate
+ * one. So the record must name at least one listed column, and at least one of the named ones
+ * must hold a tenant id. The *other* parties are deliberately left alone: a swap request points
+ * at a colleague by definition, and requiring every listed column to match would make the shape
+ * unusable.
+ *
+ * @testonly Exported only so unit tests can exercise it directly.
+ */
+export function assertTenantAnchor(
+  record: Record<string, unknown>,
+  scope: TenantScopeAnyOf,
+  tenantIds: TenantId[]
+): void {
+  const present = scope.anyOf.filter((col) => record[col] != null);
+
+  if (!present.length) {
+    throw httpError(
+      400,
+      `Missing tenant anchor: one of ${scope.anyOf.join(', ')} must be set`
+    );
+  }
+  if (!present.some((col) => tenantIds.includes(record[col] as TenantId))) {
+    throw httpError(403, 'Access denied: tenant value does not match');
+  }
+}
+
 /** Writes the tenant value into a record according to its scope.
  * @testonly Exported only so unit tests can exercise it directly.
  */
 export function injectTenantValue(
   record: Record<string, unknown>,
-  scope: TenantScope,
+  scope: TenantScopeDirect | TenantScopeIndirect,
   tenantIds: TenantId[]
 ): void {
   if (isIndirect(scope)) return;
@@ -270,18 +322,34 @@ export async function assertTenantOwnsConflicts(
 
   // Tenant-mismatch clause: rows whose tenant is NOT one the caller owns.
   let joinSql = '';
-  let tenantCol: string;
+  let tenantCols: string[];
   if (isIndirect(tenant.scope)) {
     joinSql = ` ${buildTenantJoin(db, tenant.scope, tableName)}`;
-    tenantCol = `${db.qi(tenant.scope.through.schema.tableName)}.${db.qi(tenant.scope.column)}`;
+    tenantCols = [`${db.qi(tenant.scope.through.schema.tableName)}.${db.qi(tenant.scope.column)}`];
   } else {
-    tenantCol = `${qTable}.${db.qi(tenant.scope.column)}`;
+    tenantCols = ownColumns(tenant.scope).map((c) => `${qTable}.${db.qi(c)}`);
   }
-  const tenantPhs = tenant.ids.map((id) => {
-    values.push(id);
-    return db.ph(values.length);
-  });
-  const mismatchSql = `${tenantCol} NOT IN (${tenantPhs.join(', ')})`;
+  const inClause = (col: string): string => {
+    const phs = tenant.ids.map((id) => {
+      values.push(id);
+      return db.ph(values.length);
+    });
+    return `${col} IN (${phs.join(', ')})`;
+  };
+
+  let mismatchSql: string;
+  if (tenantCols.length === 1) {
+    mismatchSql = `${tenantCols[0]} NOT IN (${tenant.ids.map((id) => {
+      values.push(id);
+      return db.ph(values.length);
+    }).join(', ')})`;
+  } else {
+    // A NULL party makes `IN` return NULL, and `NOT NULL` is not TRUE — a plain negation would
+    // let a row with one party NULL and the other owned by a stranger pass the probe unflagged.
+    // COALESCE turns "unknown" into "not visible to me", which is what the read side already
+    // does implicitly by never matching a NULL.
+    mismatchSql = `NOT COALESCE(${tenantCols.map(inClause).join(' OR ')}, FALSE)`;
+  }
 
   const sql = `SELECT 1 FROM ${qTable}${joinSql} WHERE ${matchSql} AND ${mismatchSql} LIMIT 1`;
   const r = await db.query(sql, values);
@@ -313,15 +381,16 @@ export async function enforceTenantFKOnUpdate(
 }
 
 /**
- * Mutates `fields` in-place: removes the tenant column from a SET payload (direct scopes only).
- * No-op for indirect or no scope.
+ * Mutates `fields` in-place: removes the tenant columns from a SET payload (scopes whose columns
+ * live on the table itself). An `anyOf` scope drops *every* listed column — neither party can be
+ * reassigned, the same spirit as "a tenant cannot move its own row". No-op for indirect scopes.
  */
 export function stripTenantColumn(
   fields: Record<string, unknown>,
   scope: TenantScope
 ): void {
   if (isIndirect(scope)) return;
-  delete fields[scope.column];
+  for (const col of ownColumns(scope)) delete fields[col];
 }
 
 /**
@@ -341,7 +410,28 @@ export async function enforceTenantOnWrites(
     await validateTenantFK(db, tenant.scope, tenant.ids, records.map((r) => r[fkCol]));
     return;
   }
+  if (isAnyOf(tenant.scope)) {
+    for (const r of records) assertTenantAnchor(r, tenant.scope, tenant.ids);
+    return;
+  }
   for (const r of records) injectTenantValue(r, tenant.scope, tenant.ids);
+}
+
+/**
+ * Columns an UPSERT must leave alone when it lands on an existing row.
+ *
+ * `stripTenantColumn` does this for a plain UPDATE, but an upsert's payload doubles as the
+ * INSERT branch, where the owner columns are exactly what anchors a new row — they cannot simply
+ * be dropped. So they are excluded from the `DO UPDATE SET` instead: state which party you are
+ * to create the row, and that statement is ignored when the row already exists.
+ *
+ * Only `anyOf` scopes need this. A direct scope injects the caller's own tenant, so writing it
+ * back onto a row the conflict guard already proved theirs is a no-op; an indirect one keeps its
+ * owner on another table entirely.
+ */
+export function tenantImmutableColumns(tenant: TenantContext | undefined): string[] {
+  if (!tenant || !isAnyOf(tenant.scope)) return [];
+  return tenant.scope.anyOf;
 }
 
 /**
@@ -354,9 +444,12 @@ export function buildTenantUpdateExtra(
   tenant: TenantContext | undefined
 ): ConditionBuilder | undefined {
   if (!tenant || isIndirect(tenant.scope)) return undefined;
-  const cb = new ConditionBuilder('AND', db.cbDialect);
-  if (tenant.ids.length === 1) cb.isEqual(tenant.scope.column, tenant.ids[0]);
-  else cb.isIn(tenant.scope.column, tenant.ids);
+  const cols = ownColumns(tenant.scope);
+  const cb = new ConditionBuilder(cols.length > 1 ? 'OR' : 'AND', db.cbDialect);
+  for (const col of cols) {
+    if (tenant.ids.length === 1) cb.isEqual(col, tenant.ids[0]);
+    else cb.isIn(col, tenant.ids);
+  }
   return cb;
 }
 

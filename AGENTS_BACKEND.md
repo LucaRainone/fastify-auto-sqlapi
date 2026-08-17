@@ -275,6 +275,8 @@ export const TableCustomer = defineTable({
   //   column: 'organization_id',
   //   through: { schema: SchemaCustomer, localField: 'customerId', foreignField: 'id' },
   // },
+  // OR anyOf: several owner columns, the row is visible to any of them
+  // tenantScope: { anyOf: ['requester_agent_id', 'target_agent_id'] },
 
   // SCHEMA OVERRIDES — tighten auto-generated schema validation without editing Schema files
   schemaOverrides: {
@@ -771,6 +773,48 @@ Behavior:
 - **Update**: pre-check via SELECT with INNER JOIN (404 if not found). If the payload also changes the through-FK (`localField`), the new value is re-validated against the tenant — moving a record into another tenant's scope is rejected (403).
 - **Delete**: subquery `DELETE WHERE pk IN (SELECT ... INNER JOIN ... WHERE tenant IN (...))`
 
+### Shared tenant (`anyOf`: several owner columns)
+
+For a row owned by two parties and visible to either — a message (`sender_id` / `recipient_id`),
+a transfer (`from_account_id` / `to_account_id`), a shift swap:
+
+```typescript
+const TableShiftSwapRequest = defineTable({
+  primary: 'id',
+  ...exportTableInfo(SchemaShiftSwapRequest),
+  tenantScope: { anyOf: ['requester_agent_id', 'target_agent_id'] },
+});
+```
+
+Behavior:
+- **Read** (search, get, delete, bulk-delete): adds
+  `AND (requester_agent_id IN ($N) OR target_agent_id IN ($M))`. A `NULL` column does not match
+  and does not stop the other column from matching. A row with every listed column `NULL` is
+  visible to nobody but an admin.
+- **Joins**: the predicate crosses every join family — `joinMultiple`, `joinGroup`,
+  `joinMustExist`, and `joinLeft` (in the `ON` clause, alias-qualified, so `LEFT` semantics
+  survive) — exactly as a single-column scope does. Note the pre-existing limit this shares with
+  every scope form: the tenant context is resolved from the table the *request addresses*, so a
+  relation declared on a host table that itself has no `tenantScope` carries no predicate into
+  the joined table. Scope the host too, or keep the scoped table off its `allowedReadJoins`.
+- **Insert**: no auto-injection. The payload must **anchor** the row: at least one listed column
+  present and holding a tenant id → `400` if none is present, `403` if present but all foreign.
+  The other parties are stored exactly as sent. A multi-id caller is never ambiguous here,
+  because nothing is being guessed.
+- **Update**: strips **every** listed column from the `SET` — neither party can be re-assigned —
+  and adds the OR predicate to the `WHERE`. A row outside the scope answers `404`.
+- **Bulk upsert**: the anchor rule applies to every item (so an upsert must name a party even
+  when it only means to update), and the listed columns are excluded from the `DO UPDATE SET`,
+  so an upsert onto an existing row cannot take over the other party's slot. The conflict guard
+  rejects (`403`) a conflict key matching a row visible to neither party — including a row whose
+  parties are `NULL`.
+- **Secondaries**: a table with an `anyOf` scope written through another table's
+  `allowedWriteJoins` follows the same anchor rule. The parent's FK is auto-filled but is not an
+  owner, so the child payload must still name a party.
+
+Not combinable with `column` or `through` — `defineTable` throws at startup. An `anyOf` entry
+reached through a parent FK is not supported; declare the scope on the parent instead.
+
 ### Multi-tenant users
 
 ```typescript
@@ -793,8 +837,10 @@ Tables without `tenantScope` are unaffected — no filtering regardless of `getT
 ### Error codes
 
 - **403** — Record doesn't belong to tenant, or explicit tenant value doesn't match
-- **400** — Multi-tenant user on insert without explicit tenant value (ambiguous)
-- **404** — Update with indirect tenant, record not found for this tenant
+- **400** — Multi-tenant user on insert without explicit tenant value (ambiguous), or an
+  `anyOf` write naming no owner column at all
+- **404** — Update with indirect tenant, record not found for this tenant; get/update/delete of
+  an `anyOf`-scoped row outside the scope
 
 ---
 

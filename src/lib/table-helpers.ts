@@ -78,7 +78,71 @@ export function defineTable<F extends Record<string, TSchema>>(
   validateWriteJoinsUnrestricted(config.allowedWriteJoins);
   validateComputedFields(config as unknown as ITable);
   validateReadExclude(config as unknown as ITable);
+  validateTenantScope(config as unknown as ITable);
   return config;
+}
+
+/**
+ * `tenantScope` has three forms and they do not mix: `{ column }`, `{ column, through }`, and
+ * `{ anyOf }`. A config naming more than one form is ambiguous rather than additive — an `anyOf`
+ * entry reached through a parent FK would need its own join per entry — and an empty `anyOf`
+ * would fail closed on every row, which looks like a broken deployment rather than a rule.
+ *
+ * Column *names* are not checked against the schema: a tenant column may legitimately be kept
+ * out of the generated schema (see ADR 0009) while still scoping the table.
+ */
+function validateTenantScope(config: ITable): void {
+  const scope = config.tenantScope;
+  if (!scope) return;
+
+  const table = config.Schema.tableName;
+  const hasAnyOf = 'anyOf' in scope;
+  const hasColumn = 'column' in scope;
+
+  if (hasAnyOf && hasColumn) {
+    throw new Error(
+      `defineTable: tenantScope on table '${table}' declares both 'anyOf' and 'column'. ` +
+      `Use one form: 'column' (owner column on this table), 'column' + 'through' (owner ` +
+      `reached via a FK), or 'anyOf' (several owner columns, visible to any of them).`
+    );
+  }
+  if (hasAnyOf && 'through' in scope) {
+    throw new Error(
+      `defineTable: tenantScope on table '${table}' combines 'anyOf' with 'through'. ` +
+      `An 'anyOf' entry reached through a parent is not supported — declare the scope on ` +
+      `the parent table instead.`
+    );
+  }
+
+  if (hasAnyOf) {
+    const { anyOf } = scope as { anyOf: unknown };
+    if (!Array.isArray(anyOf) || !anyOf.length) {
+      throw new Error(
+        `defineTable: tenantScope 'anyOf' on table '${table}' must be a non-empty array of ` +
+        `column names. An empty list would hide every row of the table.`
+      );
+    }
+    if (anyOf.some((c) => typeof c !== 'string' || !c)) {
+      throw new Error(
+        `defineTable: tenantScope 'anyOf' on table '${table}' must contain column names as ` +
+        `non-empty strings.`
+      );
+    }
+    if (new Set(anyOf).size !== anyOf.length) {
+      throw new Error(
+        `defineTable: tenantScope 'anyOf' on table '${table}' repeats a column. ` +
+        `Each owner column must appear once.`
+      );
+    }
+    return;
+  }
+
+  if (!hasColumn || typeof (scope as { column: unknown }).column !== 'string') {
+    throw new Error(
+      `defineTable: tenantScope on table '${table}' declares neither 'column' nor 'anyOf'. ` +
+      `A scope with no owner column would filter nothing.`
+    );
+  }
 }
 
 /**

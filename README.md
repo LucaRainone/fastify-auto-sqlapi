@@ -829,6 +829,31 @@ defineTable({
 });
 ```
 
+### Shared tenant (several owner columns)
+
+Some rows belong to two parties and either may see them — a message (`sender_id` /
+`recipient_id`), a transfer (`from_account_id` / `to_account_id`), a shift swap. `anyOf`
+declares that shape:
+
+```typescript
+defineTable({
+  primary: 'id',
+  ...exportTableInfo(SchemaShiftSwapRequest),
+  tenantScope: { anyOf: ['requester_agent_id', 'target_agent_id'] },
+});
+```
+
+Reads add `AND (requester_agent_id IN (…) OR target_agent_id IN (…))`. A `NULL` column simply
+does not match; the other party still decides. Writes cannot auto-inject an owner — the plugin
+cannot know which party the caller is — so the payload must **anchor** the row: at least one
+listed column present and holding a tenant id, otherwise `400` (nothing to anchor to) or `403`
+(present but foreign). The other party is left exactly as sent, which is the point: a swap
+request names a colleague by definition. Updates strip every listed column from the `SET` and
+upserts leave them out of the `DO UPDATE` — neither party can be re-assigned.
+
+The three forms do not mix: `defineTable` throws at startup on `anyOf` combined with `column`
+or `through`.
+
 Tables without `tenantScope` are unaffected.
 
 ### Isolation guarantees on writes

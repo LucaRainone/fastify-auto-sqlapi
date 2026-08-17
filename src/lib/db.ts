@@ -265,17 +265,24 @@ export class QueryClient {
     return results;
   }
 
+  /**
+   * `immutableCols` are written when the row is inserted but left untouched when the statement
+   * lands on an existing row — like the conflict keys, which are never in the update set either.
+   * Used by tenant isolation to keep an upsert from re-assigning a row's owner.
+   */
   async bulkInsertOrUpdate(
     table: string,
     records: DbRecord[],
     conflictKeys: string[],
     pkCol: string | string[],
-    chunkSize = DEFAULT_CHUNK_SIZE
+    chunkSize = DEFAULT_CHUNK_SIZE,
+    immutableCols: string[] = []
   ): Promise<Record<string, unknown>[]> {
     if (!records.length) return [];
 
     const fields = Object.keys(records[0]);
-    const upsertClause = this.dialect.upsertSql(this.#q(conflictKeys), this.dialect.upsertUpdateSet(fields, conflictKeys));
+    const keepAsIs = immutableCols.length ? [...conflictKeys, ...immutableCols] : conflictKeys;
+    const upsertClause = this.dialect.upsertSql(this.#q(conflictKeys), this.dialect.upsertUpdateSet(fields, keepAsIs));
     const returning = this.dialect.returningPk(this.#quotedPkCols(pkCol));
     const results: Record<string, unknown>[] = [];
 

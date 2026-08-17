@@ -67,3 +67,14 @@ CREATE TABLE "userAccount" (
   "createdAt" TIMESTAMPTZ DEFAULT now(),
   "updatedAt" TIMESTAMPTZ
 );
+
+-- A row owned by two parties, visible to either: the shape `tenantScope: { anyOf: [...] }`
+-- exists for. Both owner columns are nullable on purpose — a NULL party must not match, and
+-- must not stop the other party from matching.
+CREATE TABLE shift_swap_request (
+  id SERIAL PRIMARY KEY,
+  shift_id INTEGER,
+  requester_agent_id INTEGER,
+  target_agent_id INTEGER,
+  message TEXT
+);

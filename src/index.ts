@@ -131,6 +131,7 @@ export type {
   TenantScope,
   TenantScopeDirect,
   TenantScopeIndirect,
+  TenantScopeAnyOf,
   TenantContext,
   ValidationError,
   ValidatorFn,

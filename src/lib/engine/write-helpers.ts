@@ -7,6 +7,7 @@ import {
   buildTenantRowGuard,
   enforceTenantOnWrites,
   assertTenantOwnsConflicts,
+  tenantImmutableColumns,
 } from '../tenant.js';
 import type {
   ITable,
@@ -248,7 +249,8 @@ export function processSecondaries(
         db, childTenant, joinSchema.tableName, conflictCols, preparedRecords
       );
       pkRows = await db.bulkInsertOrUpdate(
-        joinSchema.tableName, preparedRecords as DbRecord[], conflictCols, childPkCol
+        joinSchema.tableName, preparedRecords as DbRecord[], conflictCols, childPkCol,
+        undefined, tenantImmutableColumns(childTenant)
       );
     } else {
       pkRows = await db.bulkInsert(
