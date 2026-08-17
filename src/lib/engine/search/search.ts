@@ -231,10 +231,11 @@ function buildMainCondition(params: SearchParams): {
   }
 
   const tenantJoins: string[] = [];
-  if (tenant) {
-    condition.append(buildTenantCondition(db, tenant.scope, tenant.ids, tableConf.Schema.tableName));
-    if ('through' in tenant.scope) {
-      tenantJoins.push(buildTenantJoin(db, tenant.scope, tableConf.Schema.tableName));
+  if (tenant?.scope) {
+    const scope = tenant.scope;
+    condition.append(buildTenantCondition(db, scope, tenant.ids, tableConf.Schema.tableName));
+    if ('through' in scope) {
+      tenantJoins.push(buildTenantJoin(db, scope, tableConf.Schema.tableName));
     }
   }
 

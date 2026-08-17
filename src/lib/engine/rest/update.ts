@@ -82,7 +82,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
   // 6. Strip tenant column (user cannot change tenant of an existing record).
   //    For indirect scopes the tenant link is the through-FK (localField): it may be changed,
   //    but only to another value the caller owns — re-validate the new FK against the tenant.
-  if (tenant) {
+  if (tenant?.scope) {
     stripTenantColumn(updateFields, tenant.scope);
     await enforceTenantFKOnUpdate(db, tenant, updateFields);
   }

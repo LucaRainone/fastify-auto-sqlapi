@@ -33,6 +33,21 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **BREAKING: the tenant follows the request, not the table it addresses.** `tenantScope` on a
+  table is now enforced even when the request was addressed to a different table that reaches it
+  through a relation. Previously the tenant was resolved from the addressed table alone, so a
+  host declaring no scope of its own carried no predicate into the scoped tables it joined or
+  wrote into — every scoped row of the neighbour was readable through the open host, and writable
+  through it as a secondary, while the declaration said otherwise. A relation is a read grant and
+  a write join a write grant ([ADR 0010](./docs/adr/0010-joins-do-not-run-route-guards.md)), and
+  `tenantScope` is documented as the cap that makes them safe to declare; it now actually is.
+  `TenantContext.scope` becomes optional — `ids` is request-level, `scope` is table-level and
+  absent means "no filter on this table", never "no tenant". `getTenantId` is now consulted for a
+  request addressed to an unscoped table when one of its declared relations points at a scoped
+  one; it is still never called when nothing scoped is in reach. Tables that already declared
+  their own scope emit unchanged SQL. Migration — including the `getTenantId` body that now needs
+  to tolerate an unauthenticated request — in
+  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--the-tenant-follows-the-request-not-the-table-it-addresses).
 - **Database errors no longer reach clients verbatim.** Any error escaping an auto-generated
   route that the plugin did not raise itself now answers `{"statusCode":500,"error":"Internal
   Server Error","message":"Internal Server Error"}` instead of the driver message, which names

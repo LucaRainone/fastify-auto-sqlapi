@@ -97,4 +97,7 @@ programmatic `sqlApi.search()` path.
   narrow. Not decided here.
 - `tenantScope` remains the one request-derived protection that crosses joins, and is the
   precedent for the shape any future one should take: table configuration plus a plugin-level
-  resolver, not a route hook.
+  resolver, not a route hook. It crosses joins **unconditionally** only since the tenant stopped
+  being resolved from the addressed table alone; before that, a host declaring no scope of its
+  own carried none into its join targets, which made the row above true only when the host
+  happened to be scoped too (see BREAKING_CHANGES.md).

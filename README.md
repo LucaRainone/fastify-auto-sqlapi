@@ -37,7 +37,7 @@ Writes read the same way — *"sync these clients and their tags: update the one
 
 Conflict keys are declared server-side (`upsertMap`: here customer on `email`, tag on `(customerId, tag)`), so re-sending the same payload updates rows instead of duplicating them — client-side sync without hand-written diffing.
 
-And multi-tenancy is one plugin option (`getTenantId: (req) => req.user.organizationId`), enforced on reads *and* writes with zero code in handlers. Rows of other tenants are simply invisible (`404`); here a caller in org B tries to re-point one of their own orders to a customer belonging to org A:
+And multi-tenancy is one plugin option (`getTenantId: (req) => req.user?.organizationId ?? null`), enforced on reads *and* writes with zero code in handlers. Rows of other tenants are simply invisible (`404`); here a caller in org B tries to re-point one of their own orders to a customer belonging to org A:
 
 ```jsonc
 // PUT /api/rest/order — order 7 is mine, customer 41 belongs to another tenant
@@ -805,6 +805,12 @@ await app.register(fastifyAutoSqlApi, {
 ```
 
 When `getTenantId` returns `null`, no filtering is applied (admin mode).
+
+The tenant belongs to the **request**, not to the table it addresses: a scoped table is filtered
+even when it is reached as a join target, or written as a secondary, of a host table that
+declares no scope of its own — a relation is a read grant, and `tenantScope` is the cap on it. So
+`getTenantId` must tolerate a request with no authenticated user; return `null` there. It is not
+called at all when neither the addressed table nor anything it relates to is scoped.
 
 ### Direct tenant (column on the table)
 

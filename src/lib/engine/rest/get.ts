@@ -22,10 +22,11 @@ export async function getEngine(params: GetParams): Promise<GetResult> {
   cb.isEqual(`${db.qi(tableConf.Schema.tableName)}.${db.qi(pkCol)}`, id);
   const joins: string[] = [];
 
-  if (tenant) {
-    cb.append(buildTenantCondition(db, tenant.scope, tenant.ids, tableConf.Schema.tableName));
-    if ('through' in tenant.scope) {
-      joins.push(buildTenantJoin(db, tenant.scope, tableConf.Schema.tableName));
+  if (tenant?.scope) {
+    const scope = tenant.scope;
+    cb.append(buildTenantCondition(db, scope, tenant.ids, tableConf.Schema.tableName));
+    if ('through' in scope) {
+      joins.push(buildTenantJoin(db, scope, tableConf.Schema.tableName));
     }
   }
 

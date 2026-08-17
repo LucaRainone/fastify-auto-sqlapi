@@ -33,7 +33,16 @@ export interface TenantScopeAnyOf {
 
 export type TenantScope = TenantScopeDirect | TenantScopeIndirect | TenantScopeAnyOf;
 
+/**
+ * Who the caller is, for this request — plus how the table currently being addressed is scoped.
+ *
+ * `ids` is request-level: it is resolved once from `getTenantId` and stays valid for every table
+ * the request touches. `scope` is table-level and therefore **optional**: the addressed table may
+ * declare no scope of its own while a table it reaches through a relation does. Absent `scope`
+ * means "no filtering on this table", never "no tenant" — `tenantForTable` re-targets the same
+ * ids onto a related table's own scope.
+ */
 export interface TenantContext {
   ids: TenantId[];
-  scope: TenantScope;
+  scope?: TenantScope;
 }

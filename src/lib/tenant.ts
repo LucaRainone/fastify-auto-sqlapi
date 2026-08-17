@@ -3,6 +3,7 @@ import type { QueryClient } from './db.js';
 import { ConditionBuilder, type ConditionValue, type ConditionValueOrUndefined } from 'node-condition-builder';
 import { httpError } from './errors.js';
 import type {
+  DbTables,
   ITable,
   SqlApiPluginOptions,
   TenantId,
@@ -30,18 +31,41 @@ function ownColumns(scope: TenantScope): string[] {
   return isAnyOf(scope) ? scope.anyOf : [scope.column];
 }
 
+/**
+ * Whether this request could touch a scoped row at all: the addressed table is scoped, or one of
+ * the tables it can reach through a declared relation is.
+ *
+ * Relations are what makes the second case necessary — a relation is a read grant on its target
+ * and a write join a write grant, so a deliberately public host must still carry its neighbours'
+ * scopes into the joins and secondaries it drives. One level is the whole reach: joins resolve
+ * from the addressed table's own `allowedReadJoins`/`allowedWriteJoins` and never chain further.
+ *
+ * When nothing scoped is in reach, `getTenantId` is not called at all — a request that cannot
+ * read or write a scoped row should not pay for resolving a tenant, and consumer code that
+ * assumes an authenticated request should not run on routes that never needed one.
+ */
+function scopeInReach(tableConf: ITable, dbTables: DbTables | undefined): boolean {
+  if (tableConf.tenantScope) return true;
+  if (!dbTables) return false;
+
+  const relations = [...(tableConf.allowedReadJoins ?? []), ...(tableConf.allowedWriteJoins ?? [])];
+  return relations.some((join) => dbTables[join.joinSchema.tableName]?.tenantScope !== undefined);
+}
+
 export async function resolveTenant(
   options: SqlApiPluginOptions,
   tableConf: ITable,
   request: FastifyRequest
 ): Promise<TenantContext | undefined> {
   if (!options.getTenantId) return undefined;
-  if (!tableConf.tenantScope) return undefined;
+  if (!scopeInReach(tableConf, options.DbTables)) return undefined;
 
   const raw = await options.getTenantId(request);
   if (raw == null) return undefined; // admin
 
   const ids: TenantId[] = Array.isArray(raw) ? raw : [raw];
+  // `scope` stays undefined for an unscoped host: the ids still travel, so the tables it reaches
+  // enforce their own scopes, while the host itself keeps no filter.
   return { ids, scope: tableConf.tenantScope };
 }
 
@@ -100,22 +124,23 @@ export function tenantForTable(
  *
  * `tableRef` is the name the scoped rows go by in that statement — the table name in a DELETE,
  * the join alias in an ON clause, the subquery alias inside a correlated SELECT. Returns
- * undefined without a tenant context (admin).
+ * undefined without a tenant context (admin) or when the table carries no scope.
  */
 export function buildTenantRowGuard(
   db: QueryClient,
   tenant: TenantContext | undefined,
   tableRef: string
 ): ConditionBuilder | undefined {
-  if (!tenant) return undefined;
+  const scope = tenant?.scope;
+  if (!tenant || !scope) return undefined;
 
   const cb = new ConditionBuilder('AND', db.cbDialect);
-  if (!isIndirect(tenant.scope)) {
-    cb.append(buildTenantCondition(db, tenant.scope, tenant.ids, tableRef));
+  if (!isIndirect(scope)) {
+    cb.append(buildTenantCondition(db, scope, tenant.ids, tableRef));
     return cb;
   }
 
-  const { through, column } = tenant.scope;
+  const { through, column } = scope;
   const throughRef = db.qi(through.schema.tableName);
   const markers = tenant.ids.map(() => '?').join(', ');
   cb.raw(
@@ -232,7 +257,8 @@ export async function validateTenantFK(
 
 /**
  * Build WHERE clause for DELETE with tenant filtering.
- * Handles both direct (simple AND) and indirect (subquery via JOIN) scopes.
+ * Handles both direct (simple AND) and indirect (subquery via JOIN) scopes; a tenant whose
+ * addressed table declares no scope yields the plain primary-key clause.
  */
 export function buildTenantDeleteWhere(
   db: QueryClient,
@@ -241,13 +267,15 @@ export function buildTenantDeleteWhere(
   pkValue: ConditionValueOrUndefined | ConditionValue[],
   tenant: TenantContext
 ): { where: string; values: unknown[] } {
-  if (isIndirect(tenant.scope)) {
+  const scope = tenant.scope;
+
+  if (scope && isIndirect(scope)) {
     const innerCb = new ConditionBuilder('AND', db.cbDialect);
     innerCb.isIn(`${db.qi(tableName)}.${db.qi(pkCol)}`, (Array.isArray(pkValue) ? pkValue : [pkValue]) as ConditionValue[]);
-    innerCb.append(buildTenantCondition(db, tenant.scope, tenant.ids, tableName));
+    innerCb.append(buildTenantCondition(db, scope, tenant.ids, tableName));
     const innerWhere = innerCb.build(1, db.ph);
     const values = innerCb.getValues();
-    const joinSql = buildTenantJoin(db, tenant.scope, tableName);
+    const joinSql = buildTenantJoin(db, scope, tableName);
     const where = `${db.qi(pkCol)} IN (SELECT ${db.qi(tableName)}.${db.qi(pkCol)} FROM ${db.qi(tableName)} ${joinSql} WHERE ${innerWhere})`;
     return { where, values };
   }
@@ -258,7 +286,7 @@ export function buildTenantDeleteWhere(
   } else {
     cb.isEqual(db.qi(pkCol), pkValue);
   }
-  cb.append(buildTenantCondition(db, tenant.scope, tenant.ids, tableName));
+  if (scope) cb.append(buildTenantCondition(db, scope, tenant.ids, tableName));
   const where = cb.build(1, db.ph);
   const values = cb.getValues();
   return { where, values };
@@ -282,7 +310,8 @@ export async function assertTenantOwnsConflicts(
   conflictCols: string[],
   records: Record<string, unknown>[]
 ): Promise<void> {
-  if (!tenant || !conflictCols.length) return;
+  const scope = tenant?.scope;
+  if (!tenant || !scope || !conflictCols.length) return;
 
   // Collect distinct, fully-specified conflict-key tuples.
   const tuples: unknown[][] = [];
@@ -323,11 +352,11 @@ export async function assertTenantOwnsConflicts(
   // Tenant-mismatch clause: rows whose tenant is NOT one the caller owns.
   let joinSql = '';
   let tenantCols: string[];
-  if (isIndirect(tenant.scope)) {
-    joinSql = ` ${buildTenantJoin(db, tenant.scope, tableName)}`;
-    tenantCols = [`${db.qi(tenant.scope.through.schema.tableName)}.${db.qi(tenant.scope.column)}`];
+  if (isIndirect(scope)) {
+    joinSql = ` ${buildTenantJoin(db, scope, tableName)}`;
+    tenantCols = [`${db.qi(scope.through.schema.tableName)}.${db.qi(scope.column)}`];
   } else {
-    tenantCols = ownColumns(tenant.scope).map((c) => `${qTable}.${db.qi(c)}`);
+    tenantCols = ownColumns(scope).map((c) => `${qTable}.${db.qi(c)}`);
   }
   const inClause = (col: string): string => {
     const phs = tenant.ids.map((id) => {
@@ -372,12 +401,13 @@ export async function enforceTenantFKOnUpdate(
   tenant: TenantContext | undefined,
   updateFields: Record<string, unknown>
 ): Promise<void> {
-  if (!tenant || !isIndirect(tenant.scope)) return;
-  const localCol = tenant.scope.through.localField;
+  if (!tenant?.scope || !isIndirect(tenant.scope)) return;
+  const scope = tenant.scope;
+  const localCol = scope.through.localField;
   if (!(localCol in updateFields)) return;
   const newValue = updateFields[localCol];
   if (newValue == null) return;
-  await validateTenantFK(db, tenant.scope, tenant.ids, [newValue]);
+  await validateTenantFK(db, scope, tenant.ids, [newValue]);
 }
 
 /**
@@ -404,17 +434,18 @@ export async function enforceTenantOnWrites(
   tenant: TenantContext | undefined,
   records: Record<string, unknown>[]
 ): Promise<void> {
-  if (!tenant) return;
-  if (isIndirect(tenant.scope)) {
-    const fkCol = tenant.scope.through.localField;
-    await validateTenantFK(db, tenant.scope, tenant.ids, records.map((r) => r[fkCol]));
+  const scope = tenant?.scope;
+  if (!tenant || !scope) return;
+  if (isIndirect(scope)) {
+    const fkCol = scope.through.localField;
+    await validateTenantFK(db, scope, tenant.ids, records.map((r) => r[fkCol]));
     return;
   }
-  if (isAnyOf(tenant.scope)) {
-    for (const r of records) assertTenantAnchor(r, tenant.scope, tenant.ids);
+  if (isAnyOf(scope)) {
+    for (const r of records) assertTenantAnchor(r, scope, tenant.ids);
     return;
   }
-  for (const r of records) injectTenantValue(r, tenant.scope, tenant.ids);
+  for (const r of records) injectTenantValue(r, scope, tenant.ids);
 }
 
 /**
@@ -430,7 +461,7 @@ export async function enforceTenantOnWrites(
  * owner on another table entirely.
  */
 export function tenantImmutableColumns(tenant: TenantContext | undefined): string[] {
-  if (!tenant || !isAnyOf(tenant.scope)) return [];
+  if (!tenant?.scope || !isAnyOf(tenant.scope)) return [];
   return tenant.scope.anyOf;
 }
 
@@ -443,8 +474,9 @@ export function buildTenantUpdateExtra(
   db: QueryClient,
   tenant: TenantContext | undefined
 ): ConditionBuilder | undefined {
-  if (!tenant || isIndirect(tenant.scope)) return undefined;
-  const cols = ownColumns(tenant.scope);
+  const scope = tenant?.scope;
+  if (!scope || isIndirect(scope)) return undefined;
+  const cols = ownColumns(scope);
   const cb = new ConditionBuilder(cols.length > 1 ? 'OR' : 'AND', db.cbDialect);
   for (const col of cols) {
     if (tenant.ids.length === 1) cb.isEqual(col, tenant.ids[0]);
@@ -465,13 +497,14 @@ export async function assertTenantOwnership(
   pkCol: string | string[],
   pkValue: ConditionValue | ConditionValue[]
 ): Promise<void> {
-  if (!tenant || !isIndirect(tenant.scope)) return;
+  if (!tenant?.scope || !isIndirect(tenant.scope)) return;
+  const scope = tenant.scope;
   const cb = new ConditionBuilder('AND', db.cbDialect);
   const cols = Array.isArray(pkCol) ? pkCol : [pkCol];
   const vals = Array.isArray(pkValue) ? pkValue : [pkValue];
   cols.forEach((c, i) => cb.isEqual(`${db.qi(tableName)}.${db.qi(c)}`, vals[i]));
-  cb.append(buildTenantCondition(db, tenant.scope, tenant.ids, tableName));
-  const sql = `SELECT 1 FROM ${db.qi(tableName)} ${buildTenantJoin(db, tenant.scope, tableName)} WHERE ${cb.build(1, db.ph)} LIMIT 1`;
+  cb.append(buildTenantCondition(db, scope, tenant.ids, tableName));
+  const sql = `SELECT 1 FROM ${db.qi(tableName)} ${buildTenantJoin(db, scope, tableName)} WHERE ${cb.build(1, db.ph)} LIMIT 1`;
   const r = await db.query(sql, cb.getValues());
   if (r.rows.length === 0) {
     throw httpError(404, 'Record not found');
@@ -491,14 +524,15 @@ export async function assertTenantOwnsAll(
   pkCol: string,
   ids: ConditionValue[]
 ): Promise<void> {
-  if (!tenant || !ids.length) return;
+  const scope = tenant?.scope;
+  if (!tenant || !scope || !ids.length) return;
 
   const qualifiedPk = `${db.qi(tableName)}.${db.qi(pkCol)}`;
   const cb = new ConditionBuilder('AND', db.cbDialect);
   cb.isIn(qualifiedPk, ids);
-  cb.append(buildTenantCondition(db, tenant.scope, tenant.ids, tableName));
+  cb.append(buildTenantCondition(db, scope, tenant.ids, tableName));
 
-  const join = isIndirect(tenant.scope) ? ` ${buildTenantJoin(db, tenant.scope, tableName)}` : '';
+  const join = isIndirect(scope) ? ` ${buildTenantJoin(db, scope, tableName)}` : '';
   const sql = `SELECT DISTINCT ${qualifiedPk} AS pk FROM ${db.qi(tableName)}${join} WHERE ${cb.build(1, db.ph)}`;
   const r = await db.query<{ pk: unknown }>(sql, cb.getValues());
 

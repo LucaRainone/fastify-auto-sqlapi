@@ -793,10 +793,8 @@ Behavior:
   visible to nobody but an admin.
 - **Joins**: the predicate crosses every join family — `joinMultiple`, `joinGroup`,
   `joinMustExist`, and `joinLeft` (in the `ON` clause, alias-qualified, so `LEFT` semantics
-  survive) — exactly as a single-column scope does. Note the pre-existing limit this shares with
-  every scope form: the tenant context is resolved from the table the *request addresses*, so a
-  relation declared on a host table that itself has no `tenantScope` carries no predicate into
-  the joined table. Scope the host too, or keep the scoped table off its `allowedReadJoins`.
+  survive) — exactly as a single-column scope does, including from a host table that declares no
+  scope of its own.
 - **Insert**: no auto-injection. The payload must **anchor** the row: at least one listed column
   present and holding a tenant id → `400` if none is present, `403` if present but all foreign.
   The other parties are stored exactly as sent. A multi-id caller is never ambiguous here,
@@ -860,7 +858,7 @@ Tables without `tenantScope` are unaffected — no filtering regardless of `getT
 - **Write-body whitelist**: insert/update/bulk-upsert bodies (`main` + secondaries items) are `additionalProperties: false`. Unknown properties are rejected with 400 — only columns in the generated Schema (as narrowed by `schemaOverrides`/`excludeFromCreation`) can be written, so no mass assignment of unexposed columns. Trim the Schema to keep sensitive columns unwritable.
 - **Error responses**: errors the plugin raises itself are `4xx` with messages written for clients (validation, not found, tenant). Anything else — a driver constraint violation, a hook throwing without a `statusCode` — answers a fixed `{"statusCode":500,"error":"Internal Server Error","message":"Internal Server Error"}`: driver messages name tables, columns and constraints, and they stay on the server. **No status code is remapped** (a unique violation is a `500`, not a `409` — that mapping is product logic). The body carries `requestId` (the `reqId` Fastify logs on every line) so the real error is one grep away in the log, where it is also written via `request.log.error` — and attached as `err.cause`, so a consumer `setErrorHandler` can map `err.cause.code === '23505'` to `409` itself. **`exposeDebugInfo: true` is the only way to get the driver detail on the wire** — set it while developing, where a client building against the API cannot always read your log: the `500` then also carries `debugInfo` (`message`, `code`, `constraint`, `detail`, `stack`), additively, so the four fields above keep their production shape. Nothing else flips it: not `debug` (server-side only, and it belongs to whoever registers the plugin), not `NODE_ENV`. Errors thrown by `onRequests` hooks run before the handler and are unaffected.
 - **Request limits**: `maxItemsPerPage` (default 1000) caps the search page size and is applied as the `LIMIT` even when no paginator is sent (so an empty-body search can't dump a whole table); over-limit `itemsPerPage` → 400. `maxBulkItems` (default 1000) caps the bulk array length via schema `maxItems` → 400. Programmatic `sqlApi.*` calls are uncapped.
-- **Tenant filtering**: when `tenantScope` is set on a table and `getTenantId` is provided in plugin options, all CRUD operations are automatically scoped to the tenant. `getTenantId` returning `null`/`undefined` = admin (no filter). Returning an array = multi-tenant user (IN clause).
+- **Tenant filtering**: when `tenantScope` is set on a table and `getTenantId` is provided in plugin options, all CRUD operations are automatically scoped to the tenant. `getTenantId` returning `null`/`undefined` = admin (no filter). Returning an array = multi-tenant user (IN clause). The tenant belongs to the *request*, not to the table it addresses: a scoped table is filtered even when reached as a join target or written as a secondary of an unscoped host, so `getTenantId` must tolerate a request with no authenticated user (`req.user?.x ?? null`).
 
 ---
 

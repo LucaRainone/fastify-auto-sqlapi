@@ -455,3 +455,84 @@ returns a `400` naming the reason.
 
 Use `joinMustExist` on the same relation when you need an extra filter on the parent — that path
 delegates to the target's own `filters()` and does run `extendedCondition`.
+
+---
+
+# Breaking Change — the tenant follows the request, not the table it addresses
+
+`tenantScope` on a table is now enforced even when the request was addressed to a **different**
+table that reaches it through a relation. Previously the tenant was resolved from the addressed
+table alone: if that table declared no `tenantScope`, no predicate was applied anywhere — not to
+it, and not to the scoped tables it joined or wrote into.
+
+## Why this changed
+
+A relation in `allowedReadJoins` is a read grant on its target, and one in `allowedWriteJoins` is
+a write grant (see [ADR 0010](./docs/adr/0010-joins-do-not-run-route-guards.md)). `tenantScope`
+was documented as the one request-derived protection that crosses a join — the cap that makes a
+relation safe to declare. It did not cross when the *host* was open:
+
+```typescript
+// shift is public on purpose: everyone may see who works when.
+shift: {
+  ...exportTableInfo(SchemaShift),
+  allowedReadJoins: [buildRelation(SchemaShift, 'id', SchemaSwapRequest, 'shiftId', { alias: 'swap' })],
+},
+// …but why somebody wants to change the roster is not public.
+shift_swap_request: {
+  ...exportTableInfo(SchemaSwapRequest),
+  tenantScope: { column: 'agent_id' },
+},
+```
+
+```sql
+-- POST /search/shift  { "joinMultiple": { "swap": {} } }   — before
+SELECT … FROM shift_swap_request WHERE (shift_id IN ($1))
+-- after
+SELECT … FROM shift_swap_request WHERE (shift_id IN ($1) AND (agent_id IN ($2)))
+```
+
+Every scoped row of the neighbour was readable through the open host, and writable through it as
+a secondary. The declaration said "scoped"; the deployment was not. Nothing in the response said
+so, which is the dangerous direction — the same reasoning as unknown filter keys above.
+
+## What changed
+
+- `TenantContext.scope` is now **optional**. `ids` is request-level and travels with the request;
+  `scope` is table-level and absent when the addressed table declares none. Absent `scope` means
+  "no filter on *this* table", never "no tenant" — related tables still enforce their own.
+- `getTenantId` is now called for a request addressed to an unscoped table **when one of that
+  table's declared relations points at a scoped table**. It is still not called when nothing
+  scoped is in reach, so genuinely tenant-free routes are unaffected. Reach is one level: joins
+  and secondaries resolve from the addressed table's own relations and never chain further.
+
+## Who is affected
+
+- **You declare `tenantScope` on a table that another table joins or writes into, where that
+  other table has no scope of its own.** Those requests now return fewer rows and can now answer
+  `403`. This is the fix: the rows were never yours to serve. Check any UI that displayed them.
+- **Your `getTenantId` assumes an authenticated request.** It now runs on routes that previously
+  skipped it — a public host with a scoped neighbour. A body like
+  `(request) => request.user.organizationId` throws there, turning a `200` into a `500`.
+- **You read `tenant.scope` in TypeScript** (custom routes using the exported `TenantContext`).
+  Its type is now `TenantScope | undefined`.
+
+Not affected: tables with no `tenantScope` anywhere in reach, deployments without `getTenantId`,
+admins (`getTenantId` → `null`), and every table that already declared its own scope — their SQL
+is unchanged.
+
+## Migration
+
+Make `getTenantId` total. It already had to return `null` for admins, so the null case exists:
+
+```typescript
+// Before — throws on a route that never had a user
+getTenantId: (request) => request.user.organizationId,
+
+// After — an absent user is simply an unscoped caller
+getTenantId: (request) => request.user?.organizationId ?? null,
+```
+
+Then decide, for each open table that relates to a scoped one, whether the relation was meant to
+be a read grant at all. If it was not, remove it from `allowedReadJoins` — a relation is the
+grant, and the scope is only the cap on it.

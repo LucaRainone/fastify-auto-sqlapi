@@ -295,7 +295,7 @@ Search before writing: `npm run find-similar -- "<what you need>"`.
 - `TableFilterFn = (filters: FilterRecord, dialect?: CbDialect, qualifier?: string) => Condi…` *type, public* — Builds the WHERE ConditionBuilder for a table from filter values.
 - `TableOperation = | 'search' | 'get' | 'insert' | 'update' | 'delete' | 'bulkUpsert' | 'bu…` *type, public* — Auto-generated HTTP operations that can be enabled per table via `ITable.operations`.
 ### src/types/tenant.ts
-- `TenantContext` *interface, public*
+- `TenantContext` *interface, public* — Who the caller is, for this request — plus how the table currently being addressed is scoped.
 - `TenantId = string | number` *type, public*
 - `TenantScope = TenantScopeDirect | TenantScopeIndirect | TenantScopeAnyOf` *type, public*
 - `TenantScopeAnyOf` *interface, public* — A row owned by several parties, visible to any of them: a message (`sender_id` / `recipient_id`), a…
