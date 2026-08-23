@@ -332,6 +332,14 @@ export const TableCustomer = defineTable({
   afterBulkDelete: async (db, req, deletedIds) => {
     // Called ONCE with the ids ACTUALLY deleted (may be a subset of the requested ids).
   },
+  afterRead: async (db, req, rows, ctx) => {
+    // The read-side hook: turn the stored representation back into the API one.
+    // Called ONCE per result set (batch), with camelCase rows mutated IN PLACE.
+    // Runs for get, search, joinMultiple and joinLeft — including when THIS table's rows
+    // arrive through a join declared on another table (ctx.source / ctx.alias say which).
+    // Not called on joinGroup (aggregates, not rows) nor when the read returned nothing.
+    for (const row of rows) row.ssn = decrypt(row.ssn);
+  },
 
   // OPERATIONS — whitelist of auto-generated HTTP routes for this table.
   // Omitted = ALL operations exposed (default-open!). Does not affect programmatic sqlApi.*.
@@ -850,10 +858,12 @@ Tables without `tenantScope` are unaffected — no filtering regardless of `getT
 - **`excludeFromCreation`**: **IMPORTANT** — auto-increment PKs (e.g. `id` serial/auto_increment) MUST be listed here, otherwise INSERT will try to send them and fail. The CLI auto-detects this and adds it by default. Also useful for `createdAt`/`updatedAt` columns managed by DB defaults or hooks. It strips **client-supplied** values only: the payload is sanitized before `beforeInsert` runs, so a value the hook assigns to an excluded field (e.g. a server-generated TEXT id) DOES reach the INSERT. Same for the engine's FK auto-fill on secondaries — an excluded FK column does not suppress it. It is an **ergonomics tool for creation, NOT a field-level security mechanism**: it does not apply to updates — every Schema field is updatable by default, by design. Field-level update rules (`isAdmin`, roles, owner/tenant columns, state fields) are product logic: enforce them in `beforeUpdate` (silent strip) or `validate` (loud 400), or move the privileged transition to a dedicated endpoint and keep it off the auto routes via `operations`.
 - **`readExclude`**: fields hidden from every read — not projected by search/get, omitted from read response schemas and from this table's default (`*`) join selection when it is a join target. Referencing one from `filters`, `conditions`, `orderBy`, `joinGroup` aggregations or an explicit join `selection` returns 400: hiding a field from output while allowing it to be filtered would leak its value by bisection. **Writes are unaffected** — insert/update/bulk still accept the field, so a column can be writable but never readable (password hash, access token). Primary keys cannot be excluded. Complementary to trimming the Schema, which removes the column from reads *and* writes. It is **per table and static**: a column hidden here is hidden from every caller, including admins. To keep a column readable on the table's own routes but not through a relation, trim the Schema the *relation* is declared with instead — see the read-grant warning under [buildRelation](#buildrelation-signature).
 - **`upsertMap`**: when present for a schema, INSERT becomes upsert. PostgreSQL: `ON CONFLICT (...) DO UPDATE`. MySQL/MariaDB: `ON DUPLICATE KEY UPDATE`. Applies to both main and secondary tables.
-- **`schemaOverrides`**: override auto-generated schema fields with stricter TypeBox types (e.g. `{ email: Type.String({ format: 'email' }) }`). Overrides are merged into the body schema for insert, update, and bulk-upsert. The original Schema file is never modified. In updates, overridden fields are still wrapped in Optional (validates only when present). Overrides appear in Swagger.
+- **`schemaOverrides`**: narrow an auto-generated field to a stricter TypeBox type (e.g. `{ email: Type.String({ format: 'email' }) }`) where `information_schema` could only report `text`. Applied to **both directions** — the insert/update/bulk-upsert bodies *and* the search/get responses — because a narrowing describes the field, not the way it travels: a value the API refuses to accept as an email must not be documented as returnable. The `filters` map keeps the generated type on purpose (a filter is a matcher, not a record value). On the **write bodies** the override is taken verbatim, because there it is a validation rule: no `Type.Optional` makes the field mandatory, no `Nullable` rejects an explicit `null`, whatever the column allows — which is how you make a column the DB had to leave nullable (a new column on a populated table) mandatory from now on. On the **responses** nothing is validated, only serialized: a `string` declaration facing a stored `NULL` does not refuse it, `fast-json-stringify` writes `""`. So a column that can hold `NULL` keeps `null` in its response type however the override was written. The original Schema file is never modified; the primary key is mandatory in the update body (it identifies the row); overrides appear in Swagger. It is **not a re-typing mechanism**: nothing stops an override from declaring a `number` column as a `string`, but the value on the wire is still whatever the driver read, so the declaration would simply be false. Transforming a value between storage and API is `afterRead` (out) and `beforeInsert`/`beforeUpdate` (in) — and a transform that changes a field's JSON type needs the matching override, or `fast-json-stringify` coerces it silently (`12.34` in an `integer` field serializes as `12`).
+- **`afterRead`**: the read-side counterpart of `beforeInsert`/`beforeUpdate` — the place to decrypt a column, unpack a blob, rescale a stored unit. Called **once per result set** with camelCase rows mutated **in place** (a hook that calls a remote KMS gets one invocation for the page, not one per row), and awaited. Declared on the table that **owns** the column, and it follows a join: the hook runs wherever that table's rows surface, including through a `joinMultiple`/`joinLeft` declared on another table — `ctx.source` (`'get' | 'search' | 'joinMultiple' | 'joinLeft'`) and `ctx.alias` say which. Not called on `joinGroup` (aggregates, not table rows) nor on an empty result. Rows cannot be added or removed — the pagination `COUNT` has already run, so dropping rows would report a `total` that does not match; narrowing what a caller sees is `filters`/`tenantScope`/`readExclude`. On the main table it runs **after** the join side queries, which correlate on the values the database returned: a hook rewriting the column a relation joins on does not break the correlation. Two things it does not reach, by design: `filters`, `orderBy` and `compute*` run in SQL against the **stored** value (searching an encrypted column searches the ciphertext), and the response is serialized against the declared schema, so a transform that changes a field's JSON type needs a `schemaOverrides` entry.
 - **Validation receives camelCase**: `validate` receives the original camelCase record (as sent by the client) and secondaries. Field names match the schema definition, with full TypeScript inference (`main.startDate`, not `main.start_date`). It returns `ValidationError[]` — tuples of `[field, code]` or `[field, code, message]`. If any errors are returned, the request is rejected with 400 before hooks or SQL execute.
 - **`validateBulk` replaces `validate` in bulk**: when `validateBulk` is defined, it is called once with all items and per-item `validate` is skipped. This allows optimized batch queries instead of N individual checks. When only `validate` is defined, it runs per-item as fallback.
-- **All hooks and validators receive camelCase records**: `validate` and the whole hook matrix (`beforeInsert`/`afterInsert`, `beforeUpdate`/`afterUpdate`, `beforeDelete`/`afterDelete`, `beforeBulkDelete`/`afterBulkDelete`) get records keyed by schema field names (camelCase). Mutations propagate to the SQL (plugin converts to DB column format via `colMap` after the hook). The engine internally uses `snakecaseRecord(..., schema)` after user mutations to map field names to actual DB columns.
+- **All hooks and validators receive camelCase records**: `validate` and the whole hook matrix (`beforeInsert`/`afterInsert`, `beforeUpdate`/`afterUpdate`, `beforeDelete`/`afterDelete`, `beforeBulkDelete`/`afterBulkDelete`, `afterRead`) get records keyed by schema field names (camelCase). Mutations propagate to the SQL (plugin converts to DB column format via `colMap` after the hook). The engine internally uses `snakecaseRecord(..., schema)` after user mutations to map field names to actual DB columns.
+- **Secondaries run the child table's `beforeInsert`**: a child row written alongside a main record is a write like any other — the child's `excludeFromCreation`, its `tenantScope` and its `beforeInsert` all apply, in that order, before the engine auto-fills the FK to main (which always wins over anything the payload or the hook put there). Its `validate` and `afterInsert` deliberately do **not** run: they change when a rejection or a side effect fires, which belongs to the host's write. See [ADR 0014](./docs/adr/0014-what-follows-a-write-join.md).
 - **Filters validation**: TypeBox schemas use `additionalProperties: false`. By default Fastify strips unknown fields silently. For 400 errors on unknown filters: `Fastify({ ajv: { customOptions: { removeAdditional: false } } })`.
 - **Write-body whitelist**: insert/update/bulk-upsert bodies (`main` + secondaries items) are `additionalProperties: false`. Unknown properties are rejected with 400 — only columns in the generated Schema (as narrowed by `schemaOverrides`/`excludeFromCreation`) can be written, so no mass assignment of unexposed columns. Trim the Schema to keep sensitive columns unwritable.
 - **Error responses**: errors the plugin raises itself are `4xx` with messages written for clients (validation, not found, tenant). Anything else — a driver constraint violation, a hook throwing without a `statusCode` — answers a fixed `{"statusCode":500,"error":"Internal Server Error","message":"Internal Server Error"}`: driver messages name tables, columns and constraints, and they stay on the server. **No status code is remapped** (a unique violation is a `500`, not a `409` — that mapping is product logic). The body carries `requestId` (the `reqId` Fastify logs on every line) so the real error is one grep away in the log, where it is also written via `request.log.error` — and attached as `err.cause`, so a consumer `setErrorHandler` can map `err.cause.code === '23505'` to `409` itself. **`exposeDebugInfo: true` is the only way to get the driver detail on the wire** — set it while developing, where a client building against the API cannot always read your log: the `500` then also carries `debugInfo` (`message`, `code`, `constraint`, `detail`, `stack`), additively, so the four fields above keep their production shape. Nothing else flips it: not `debug` (server-side only, and it belongs to whoever registers the plugin), not `NODE_ENV`. Errors thrown by `onRequests` hooks run before the handler and are unaffected.
@@ -1040,6 +1050,46 @@ const TableUser = defineTable({
 
 For privileged transitions (promote to admin, move across tenants) prefer a dedicated
 endpoint with its own auth/audit, and keep the operation off the auto routes via `operations`.
+
+### Encrypt a column at rest (storage representation ≠ API representation)
+
+Three declarations on the table that owns the column — in on the write hooks, out on the read
+hook — and nothing at the call sites:
+
+```typescript
+const TablePatient = defineTable({
+  primary: 'id',
+  ...exportTableInfo(SchemaPatient),
+
+  beforeInsert: async (db, req, record) => {
+    if (record.ssn != null) record.ssn = encrypt(record.ssn);
+  },
+  beforeUpdate: async (db, req, fields) => {
+    if (fields.ssn != null) fields.ssn = encrypt(fields.ssn);
+  },
+  afterRead: async (db, req, rows) => {
+    for (const row of rows) {
+      if (row.ssn != null) row.ssn = decrypt(row.ssn);
+    }
+  },
+});
+```
+
+`afterRead` covers `GET /rest/patient/:id`, `POST /search/patient`, and every `joinMultiple` /
+`joinLeft` that reaches `patient` from another table's search — the hook belongs to the table
+that owns the column, so a relation declared elsewhere needs no extra wiring. The same holds on
+the way in: a patient written as a **secondary** of another table's insert runs this
+`beforeInsert` too.
+
+What the plugin does *not* do for you, because it cannot know your cipher:
+
+- **searching**: `filters: { ssn: '123-45' }` compares the plaintext against the ciphertext in
+  SQL and matches nothing. With a deterministic cipher, encrypt the value yourself in
+  `extendedCondition`; with a randomized one, that column is not searchable at all. `orderBy`
+  and `computeMin/Max` sort and aggregate the ciphertext.
+- **typing**: if the decrypted value has a different JSON type than the stored one, declare it
+  in `schemaOverrides` — the response is serialized against the declared schema.
+- **aggregates**: `joinGroup` and `compute*` return values the hook never sees.
 
 ### Full-text search filter
 

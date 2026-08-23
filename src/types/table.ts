@@ -33,6 +33,16 @@ export type ExtendedConditionFn = (condition: ConditionBuilder, filters: FilterR
  */
 export type TableFilterFn = (filters: FilterRecord, dialect?: CbDialect, qualifier?: string) => ConditionBuilder;
 
+/** Which read path produced the rows an `afterRead` hook is handed. */
+export type ReadSource = 'get' | 'search' | 'joinMultiple' | 'joinLeft';
+
+/** Where the rows an `afterRead` hook receives came from. */
+export interface AfterReadContext {
+  source: ReadSource;
+  /** The relation's alias, on the two join sources; absent on `get` and `search`. */
+  alias?: string;
+}
+
 export interface ITable<F extends Record<string, TSchema> = Record<string, TSchema>> {
   primary: (string & keyof F) | (string & keyof F)[];
   Schema: SchemaDefinition<F>;
@@ -51,6 +61,31 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
   allowedReadJoins?: JoinDefinition[];
   allowedWriteJoins?: JoinDefinition[];
   upsertMap?: Map<SchemaDefinition, string[]>;
+  /**
+   * Narrow a field's generated type where the DB could only describe it loosely: a column
+   * Postgres calls `text` is an email, a UUID, a URL; an `integer` has a range. The generated
+   * schema is as precise as `information_schema` allows, and this is where the rest goes.
+   *
+   * Applied to **both directions** — write bodies and read responses — because a narrowing is
+   * a property of the field, not of the way it travels: a value the API refuses to accept as
+   * an email should not be documented as returnable. The `filters` map is deliberately left
+   * on the generated type: a filter is a matcher, not a record value.
+   *
+   * On the **write bodies** the override is taken verbatim: it is a validation rule, so no
+   * `Type.Optional` means the field is mandatory and no `Nullable` means an explicit `null` is
+   * rejected — whatever the column allows. That is how a column the database had to leave
+   * nullable, because it was added to a populated table, is made mandatory from now on.
+   *
+   * On the **responses** nothing is validated: Fastify serializes against the schema, so a
+   * `string` declaration facing a stored `NULL` does not refuse it — `fast-json-stringify`
+   * writes `""`. A column that can hold `NULL` therefore keeps `null` in its response type
+   * however the override was written. Everything else about the override applies as declared.
+   *
+   * It is not a re-typing mechanism. Nothing stops an override from turning a `number` into a
+   * `string`, but the value crossing the wire is still whatever the driver read from the
+   * column, so the declaration would simply be false. Transforming a value between storage and
+   * API is what `afterRead` (out) and `beforeInsert`/`beforeUpdate` (in) are for.
+   */
   schemaOverrides?: Partial<Record<string & keyof F, TSchema>>;
   validate?: ValidatorFn<F>;
   validateBulk?: BulkValidatorFn<F>;
@@ -83,6 +118,36 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
     record: { [K in keyof F]?: Static<F[K]> | Expression | null },
     secondaryRecords?: unknown,
     deletionRecords?: unknown
+  ) => void | Promise<void>;
+  /**
+   * Runs on the rows a read returned, once per result set, before they become the response.
+   * The read-side counterpart of `beforeInsert`/`beforeUpdate`: the place to turn a stored
+   * representation back into the API one (decrypting a column, unpacking a blob).
+   *
+   * `rows` are camelCase records and are mutated **in place** — the return value is ignored.
+   * Rows cannot be added or removed: the pagination `COUNT` has already run, so a hook that
+   * dropped rows would report a `total` that does not match what it returned. Narrowing what
+   * a caller sees is `filters`, `tenantScope` and `readExclude`; hiding a field is
+   * `readExclude`.
+   *
+   * Declared on the table that OWNS the column, and it follows a join: the hook runs whenever
+   * that table's rows surface, including through a `joinMultiple` or `joinLeft` declared on
+   * another table (`ctx.source` and `ctx.alias` say which). It does not run on `joinGroup`,
+   * whose rows are aggregates rather than table rows.
+   *
+   * Not called when the read returned no rows. Whatever the hook writes is serialized against
+   * the response schema, so a transform that changes a field's JSON type needs a matching
+   * `schemaOverrides` entry — without it `fast-json-stringify` coerces the value silently.
+   *
+   * `req` is the Fastify request that triggered the read. Same caveat as `beforeDelete`:
+   * present through the auto-generated HTTP routes, `undefined` when a programmatic caller
+   * invokes `sqlApi.search()`/`sqlApi.get()` without passing one.
+   */
+  afterRead?: (
+    db: QueryClient,
+    req: FastifyRequest | undefined,
+    rows: Record<string, unknown>[],
+    ctx: AfterReadContext
   ) => void | Promise<void>;
   /**
    * Runs before a single record is deleted (DELETE /rest/:id). Throw to abort the

@@ -56,14 +56,14 @@ async function finalizeUpsertedItem(
 
   if (item.secondaries && Object.keys(item.secondaries).length > 0) {
     const sec = await processSecondaries(
-      { db, tableConf, dbTables, mainRecord: mainForFK, tenant }, item.secondaries
+      { db, tableConf, dbTables, mainRecord: mainForFK, tenant, request }, item.secondaries
     );
     if (Object.keys(sec).length > 0) result.secondaries = sec;
   }
 
   if (item.deletions && Object.keys(item.deletions).length > 0) {
     const del = await processDeletions(
-      { db, tableConf, dbTables, mainRecord: mainForFK, tenant }, item.deletions
+      { db, tableConf, dbTables, mainRecord: mainForFK, tenant, request }, item.deletions
     );
     if (Object.keys(del).length > 0) result.deletions = del;
   }

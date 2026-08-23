@@ -6,6 +6,7 @@
  *   joinGroup      child -> main, 1:N   aggregations under result.joinGroup.<alias>
  *   joinLeft       parent -> main, N:1  real LEFT JOIN on demand + side query for the rows
  */
+import type { FastifyRequest } from 'fastify';
 import { ConditionBuilder, Expression, type ConditionValue } from 'node-condition-builder';
 import type { QueryClient } from '../../db.js';
 import type { QueryParams } from '../query-params.js';
@@ -18,6 +19,7 @@ import {
   mapRowsToCamelCase,
   buildSelectionColumns,
 } from './fields.js';
+import { runAfterRead } from '../read-hooks.js';
 import {
   appendJoinTenantScope,
   subqueryAlias,
@@ -260,6 +262,8 @@ function scopeJoinSideQuery(
  * differ in exactly the two flags below.
  */
 interface JoinFetchMode {
+  /** The `afterRead` source tag for the rows this family produces. */
+  source: 'joinMultiple' | 'joinLeft';
   /** joinLeft is the N:1 parent direction, which only a `unique: true` relation may serve. */
   requireUnique: boolean;
   /**
@@ -279,7 +283,8 @@ async function fetchJoinRows(
   mainResults: Record<string, unknown>[],
   requests: Record<string, JoinFetchRequest>,
   mode: JoinFetchMode,
-  tenant?: TenantContext
+  tenant?: TenantContext,
+  request?: FastifyRequest
 ): Promise<Record<string, Record<string, unknown>[]>> {
   const result: Record<string, Record<string, unknown>[]> = {};
 
@@ -319,6 +324,9 @@ async function fetchJoinRows(
     });
 
     result[alias] = mapRowsToCamelCase(rows, joinSchema);
+    // The joined table's own hook, not the host's: a transform belongs to the table that
+    // owns the column, wherever its rows surface.
+    await runAfterRead(db, request, result[alias], joinTableConf, mode.source, alias);
   }
 
   return result;
@@ -331,12 +339,14 @@ export function executeJoinMultiple(
   tableConf: ITable,
   mainResults: Record<string, unknown>[],
   joinMultiple: Record<string, JoinFetchRequest>,
-  tenant?: TenantContext
+  tenant?: TenantContext,
+  request?: FastifyRequest
 ): Promise<Record<string, Record<string, unknown>[]>> {
   return fetchJoinRows(db, dbTables, tableConf, mainResults, joinMultiple, {
+    source: 'joinMultiple',
     requireUnique: false,
     applyRefCondition: true,
-  }, tenant);
+  }, tenant, request);
 }
 
 /** joinLeft: N:1 parents, returned as rows under `result.joinLeft.<alias>`. */
@@ -346,12 +356,14 @@ export function executeJoinLeft(
   tableConf: ITable,
   mainResults: Record<string, unknown>[],
   joinLeft: Record<string, JoinFetchRequest>,
-  tenant?: TenantContext
+  tenant?: TenantContext,
+  request?: FastifyRequest
 ): Promise<Record<string, Record<string, unknown>[]>> {
   return fetchJoinRows(db, dbTables, tableConf, mainResults, joinLeft, {
+    source: 'joinLeft',
     requireUnique: true,
     applyRefCondition: false,
-  }, tenant);
+  }, tenant, request);
 }
 
 /**

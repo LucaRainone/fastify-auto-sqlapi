@@ -28,6 +28,7 @@ not by editing history.
 | [0011](./0011-join-fields-allowlist.md) | Per-relation field restriction is an allowlist, not a blocklist |
 | [0012](./0012-anti-duplication-tooling.md) | Repository rules are enforced by executable gates, not by documentation |
 | [0013](./0013-sanitized-db-errors.md) | Database error messages are sanitized on the wire by default (narrows 0006) |
+| [0014](./0014-what-follows-a-write-join.md) | A secondary runs the child table's transform, not its verdicts |
 
 ## When to write one
 

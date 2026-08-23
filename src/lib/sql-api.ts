@@ -130,13 +130,14 @@ export class SqlApi {
       selectComputed: params.selectComputed,
       maxRows: params.maxRows,
       tenant,
+      request,
     });
   }
 
   async get(tableName: string, id: string | number, request?: FastifyRequest): Promise<GetResult> {
     const tableConf = this.getTableConf(tableName);
     const tenant = await this.getTenant(tableName, request);
-    return getEngine({ db: this.db, tableConf, id, tenant });
+    return getEngine({ db: this.db, tableConf, id, tenant, request });
   }
 
   async insert(tableName: string, params: SqlApiInsertParams, request?: FastifyRequest): Promise<InsertResult> {

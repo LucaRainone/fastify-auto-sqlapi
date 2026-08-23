@@ -34,29 +34,11 @@ function findWriteJoin(
 }
 
 /**
- * Drop `excludeFromCreation` columns from a snake_case (DB-format) record.
+ * Drop `excludeFromCreation` fields from a camelCase record, in place.
  *
- * Exclusion is a whitelist on CLIENT input: call this on the client payload only,
- * BEFORE any server-side value is assigned (beforeInsert mutations, FK auto-fill),
- * so engine/hook-generated values on those fields reach the SQL.
- */
-function removeExcludedFields(
-  record: Record<string, unknown>,
-  tableConf: ITable
-): Record<string, unknown> {
-  if (!tableConf.excludeFromCreation?.length) return record;
-  const result = { ...record };
-  for (const field of tableConf.excludeFromCreation) {
-    const col = tableConf.Schema.col(field);
-    delete result[col];
-  }
-  return result;
-}
-
-/**
- * Same whitelist as `removeExcludedFields`, but for a camelCase record (schema
- * field names) and in place. Used on the client payload before the beforeInsert
- * hook runs.
+ * Exclusion is a whitelist on CLIENT input: call this on the client payload only, BEFORE any
+ * server-side value is assigned (beforeInsert mutations, FK auto-fill), so engine- and
+ * hook-generated values on those fields reach the SQL (ADR 0005).
  */
 function removeExcludedFieldsCamel(
   record: Record<string, unknown>,
@@ -89,6 +71,8 @@ export interface WriteJoinPass {
   /** Main record (camelCase), the source of the FK auto-filled into every child row. */
   mainRecord: Record<string, unknown>;
   tenant?: TenantContext;
+  /** The request that triggered the write, handed to the child table's `beforeInsert`. */
+  request: FastifyRequest;
 }
 
 /** Everything both `processSecondaries` and `processDeletions` need to write one alias. */
@@ -211,7 +195,7 @@ export function processSecondaries(
   pass: WriteJoinPass,
   secondaries: Record<string, Record<string, unknown>[]>
 ): Promise<Record<string, Record<string, unknown>[]>> {
-  const { db, tableConf } = pass;
+  const { db, tableConf, request } = pass;
 
   return forEachWriteJoin(pass, secondaries, async (records, target, joinDef) => {
     const { joinSchema, joinCol, mainValue, childConf, childTenant } = target;
@@ -221,18 +205,25 @@ export function processSecondaries(
       ? childPk.map((f) => joinSchema.col(f))
       : joinSchema.col(childPk);
 
-    const preparedRecords = records.map((rec) => {
-      let prepared = snakecaseRecord(rec, joinSchema);
-
-      // Remove excluded fields from the client payload BEFORE the FK auto-fill:
-      // an excluded FK column must not strip the engine-injected value below.
+    // Same order as `prepareInsertRecord` (ADR 0005): the client whitelist runs first, then
+    // the child's own `beforeInsert`, then the DB format — so a value the hook assigns to an
+    // excluded field still reaches the INSERT. A secondary is a write like any other, and its
+    // table's transform has to run here too or a column that table encodes on the way in is
+    // stored raw whenever its rows arrive as another table's children.
+    const preparedRecords: Record<string, unknown>[] = [];
+    for (const rec of records) {
+      const camel = { ...rec };
       if (childConf) {
-        prepared = removeExcludedFields(prepared, childConf);
+        removeExcludedFieldsCamel(camel, childConf);
+        if (childConf.beforeInsert) {
+          await childConf.beforeInsert(db, request, camel);
+        }
       }
-
+      const prepared = snakecaseRecord(camel, joinSchema);
+      // FK auto-fill last: the engine's own value, not the client's and not the hook's.
       prepared[joinCol] = mainValue;
-      return prepared;
-    });
+      preparedRecords.push(prepared);
+    }
 
     // Tenant enforcement runs after the FK auto-fill: for an indirect scope the through-FK
     // the engine just injected is the value being validated.

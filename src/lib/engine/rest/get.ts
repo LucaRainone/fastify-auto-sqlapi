@@ -3,11 +3,12 @@ import { camelcaseObject } from '../../naming.js';
 import { buildTenantCondition, buildTenantJoin } from '../../tenant.js';
 import { httpError } from '../../errors.js';
 import { readableSelectColumns } from '../../read-access.js';
+import { runAfterRead } from '../read-hooks.js';
 import { primaryAsString, isCompositePrimary } from '../../../types.js';
 import type { GetParams, GetResult } from '../../../types.js';
 
 export async function getEngine(params: GetParams): Promise<GetResult> {
-  const { db, tableConf, id, tenant } = params;
+  const { db, tableConf, id, tenant, request } = params;
   if (isCompositePrimary(tableConf.primary)) {
     throw httpError(
       400,
@@ -44,5 +45,8 @@ export async function getEngine(params: GetParams): Promise<GetResult> {
 
   if (rows.length === 0) throw httpError(404, `Record not found: ${id}`);
 
-  return { main: camelcaseObject(rows[0], tableConf.Schema) };
+  const main = camelcaseObject(rows[0], tableConf.Schema);
+  await runAfterRead(db, request, [main], tableConf, 'get');
+
+  return { main };
 }

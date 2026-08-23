@@ -1,21 +1,8 @@
 import { Type, type TObject, type TSchema } from '@sinclair/typebox';
 import { ALLOWED_METHODS, MAX_CONDITIONS, MAX_ORDER_BY_LENGTH } from '../condition-methods.js';
-import { readableFieldNames } from '../read-access.js';
+import { readableFields, readableResponseFields } from './helpers.js';
 import { DEFAULT_MAX_ITEMS_PER_PAGE } from '../../types.js';
-import type { DbTables, ITable, SchemaDefinition } from '../../types.js';
-
-/** Schema fields minus the ones hidden by `readExclude`. */
-function readableFields(
-  schema: SchemaDefinition,
-  tableConf: ITable | undefined
-): Record<string, TSchema> {
-  if (!tableConf?.readExclude?.length) return { ...schema.fields };
-  const out: Record<string, TSchema> = {};
-  for (const field of readableFieldNames(tableConf, schema)) {
-    out[field] = schema.fields[field];
-  }
-  return out;
-}
+import type { DbTables, ITable } from '../../types.js';
 
 /**
  * A `filters` map.
@@ -138,7 +125,7 @@ function buildJoinResponseProps(dbTables: DbTables, tableConf: ITable): {
   for (const joinDef of tableConf.allowedReadJoins ?? []) {
     const { joinSchema, alias, unique } = joinDef;
     const itemArray = Type.Array(
-      Type.Partial(Type.Object(readableFields(joinSchema, dbTables[joinSchema.tableName])))
+      Type.Partial(Type.Object(readableResponseFields(joinSchema, dbTables[joinSchema.tableName])))
     );
     if (unique) {
       joinLeftProps[alias] = itemArray;
@@ -239,7 +226,7 @@ export function SearchTableResponse(dbTables: DbTables, tableName: string): TObj
   // request body's selectComputed, so they're optional/Partial here.
   const computedTypes = computedFieldTypes(tableConf);
 
-  const mainReadable = readableFields(tableConf.Schema, tableConf);
+  const mainReadable = readableResponseFields(tableConf.Schema, tableConf);
   const mainItem = Object.keys(computedTypes).length > 0
     ? Type.Partial(Type.Object({ ...mainReadable, ...computedTypes }))
     : Type.Partial(Type.Object(mainReadable));

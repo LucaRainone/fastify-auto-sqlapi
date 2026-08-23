@@ -551,3 +551,115 @@ describe('insertEngine - upsert', () => {
     assert.ok(!call.values.includes(999), 'client-supplied id must be ignored');
   });
 });
+
+// A secondary is a write like any other: the child table's own `tenantScope` and
+// `excludeFromCreation` are already enforced on it, but its `beforeInsert` was skipped —
+// so a table that transforms a column on the way in (encrypting it, normalising it) stored
+// the raw client value whenever its rows arrived as children of another table's write.
+describe('insertEngine - secondaries run the child table\'s beforeInsert', () => {
+  it('applies the child hook\'s mutation to the SQL', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 42 }], affectedRows: 1 },
+      { rows: [{ id: 10 }, { id: 11 }], affectedRows: 2 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+    DbTables.customer_order.beforeInsert = async (hookDb, req, record) => {
+      record.status = `ENC(${record.status})`;
+    };
+
+    await insertEngine({
+      db,
+      tableConf: DbTables.customer,
+      dbTables: DbTables,
+      request: mockRequest,
+      record: { name: 'Mario' },
+      secondaries: {
+        customer_order: [
+          { total: 100, status: 'pending' },
+          { total: 200, status: 'completed' },
+        ],
+      },
+    });
+
+    const bulkCall = mockPg.calls[1];
+    assert.ok(bulkCall.values.includes('ENC(pending)'));
+    assert.ok(bulkCall.values.includes('ENC(completed)'));
+    assert.ok(!bulkCall.values.includes('pending'));
+  });
+
+  it('calls the child hook once per child record, with the camelCase record and the request', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 42 }], affectedRows: 1 },
+      { rows: [{ id: 10 }, { id: 11 }], affectedRows: 2 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+    const seen = [];
+    DbTables.customer_order.beforeInsert = async (hookDb, req, record) => {
+      seen.push({ req, record: { ...record } });
+    };
+
+    await insertEngine({
+      db,
+      tableConf: DbTables.customer,
+      dbTables: DbTables,
+      request: mockRequest,
+      record: { name: 'Mario' },
+      secondaries: {
+        customer_order: [{ total: 100, status: 'pending' }, { total: 200, status: 'completed' }],
+      },
+    });
+
+    assert.equal(seen.length, 2);
+    assert.equal(seen[0].req, mockRequest);
+    assert.equal(seen[0].record.total, 100);
+    assert.equal(seen[1].record.status, 'completed');
+  });
+
+  it('runs the child hook after the exclusion strip, so it can write an excluded field', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 42 }], affectedRows: 1 },
+      { rows: [{ id: 10 }], affectedRows: 1 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg, { secondaryExclude: ['status'] });
+    DbTables.customer_order.beforeInsert = async (hookDb, req, record) => {
+      record.status = 'server-assigned';
+    };
+
+    await insertEngine({
+      db,
+      tableConf: DbTables.customer,
+      dbTables: DbTables,
+      request: mockRequest,
+      record: { name: 'Mario' },
+      secondaries: { customer_order: [{ total: 100, status: 'client-sent' }] },
+    });
+
+    const bulkCall = mockPg.calls[1];
+    assert.ok(bulkCall.values.includes('server-assigned'));
+    assert.ok(!bulkCall.values.includes('client-sent'));
+  });
+
+  it('keeps the engine\'s FK auto-fill authoritative over the child hook', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 42 }], affectedRows: 1 },
+      { rows: [{ id: 10 }], affectedRows: 1 },
+    ]);
+    const { DbTables, db } = createTestDbTables(mockPg);
+    DbTables.customer_order.beforeInsert = async (hookDb, req, record) => {
+      record.customerId = 999;
+    };
+
+    await insertEngine({
+      db,
+      tableConf: DbTables.customer,
+      dbTables: DbTables,
+      request: mockRequest,
+      record: { name: 'Mario' },
+      secondaries: { customer_order: [{ total: 100, status: 'pending' }] },
+    });
+
+    const bulkCall = mockPg.calls[1];
+    assert.ok(bulkCall.values.includes(42));
+    assert.ok(!bulkCall.values.includes(999));
+  });
+});

@@ -57,7 +57,7 @@ export async function insertEngine(params: InsertParams): Promise<InsertResult> 
     if (secondaries && Object.keys(secondaries).length > 0) {
       const mainForFK = { ...inputRecord, ...mainPkCamel };
       secondaryResults = await processSecondaries(
-        { db: tx, tableConf, dbTables, mainRecord: mainForFK, tenant }, secondaries
+        { db: tx, tableConf, dbTables, mainRecord: mainForFK, tenant, request }, secondaries
       );
     }
 

@@ -1,3 +1,4 @@
+import type { FastifyRequest } from 'fastify';
 import type { QueryClient } from '../lib/db.js';
 import type { ITable, FilterRecord } from './table.js';
 import type { TenantContext } from './tenant.js';
@@ -37,6 +38,8 @@ export interface SearchParams {
    * sets it from `maxItemsPerPage`.
    */
   maxRows?: number;
+  /** Handed to the `afterRead` hook; absent for a programmatic caller that did not pass one. */
+  request?: FastifyRequest;
 }
 
 export interface PaginationResult {

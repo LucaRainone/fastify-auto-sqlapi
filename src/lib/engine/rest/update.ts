@@ -119,7 +119,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     if (secondaries && Object.keys(secondaries).length > 0) {
       const mainForFK = { ...inputRecord };
       secondaryResults = await processSecondaries(
-        { db: tx, tableConf, dbTables, mainRecord: mainForFK, tenant }, secondaries
+        { db: tx, tableConf, dbTables, mainRecord: mainForFK, tenant, request }, secondaries
       );
     }
 
@@ -128,7 +128,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     if (deletions && Object.keys(deletions).length > 0) {
       const mainForFK = { ...inputRecord };
       deletionResults = await processDeletions(
-        { db: tx, tableConf, dbTables, mainRecord: mainForFK, tenant }, deletions
+        { db: tx, tableConf, dbTables, mainRecord: mainForFK, tenant, request }, deletions
       );
     }
 

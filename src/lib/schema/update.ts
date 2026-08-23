@@ -4,6 +4,7 @@ import type { DbTables } from '../../types.js';
 import {
   pkSchema,
   applySchemaOverrides,
+  asRequired,
   attachWriteJoinSections,
   writeJoinBodyFields,
   writeJoinResponseFields,
@@ -16,8 +17,11 @@ export function UpdateTableBody(dbTables: DbTables, tableName: string): TObject 
   // Main: PK required, all other fields optional (overrides applied before Optional wrap)
   const baseFields = applySchemaOverrides({ ...schema.fields }, tableConf);
   const mainFields: Record<string, TSchema> = {};
+  const pk = primaryAsString(tableConf.primary);
   for (const [key, value] of Object.entries(baseFields)) {
-    mainFields[key] = key === primaryAsString(tableConf.primary) ? value : Type.Optional(value);
+    // The PK identifies the row being updated, so it is mandatory here even when the column
+    // is optional on insert (a generated id) and the override carried that optionality over.
+    mainFields[key] = key === pk ? asRequired(value) : Type.Optional(value);
   }
 
   const bodyProperties: Record<string, TSchema> = {

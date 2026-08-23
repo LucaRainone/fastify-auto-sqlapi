@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { Type } from '@sinclair/typebox';
+import { GetTableResponse } from '../../lib/schema/get.js';
 import { registerForAllTables } from './route-helpers.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
@@ -13,9 +14,9 @@ export default async function getRoutes(
     method: 'GET',
     url: (tc) => `/rest/${tc.Schema.tableName}/:id`,
     successStatus: 200,
-    schemas: (_db, _table, tc) => ({
+    schemas: (db, table) => ({
       params: Type.Object({ id: Type.String() }),
-      response: Type.Object({ main: Type.Partial(Type.Object(tc.Schema.fields)) }),
+      response: GetTableResponse(db, table),
     }),
     summary: 'Get',
     description: (name) => `Get a record from ${name} by primary key`,

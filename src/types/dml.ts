@@ -44,6 +44,8 @@ export interface UpdateResult {
 
 export interface GetParams extends DmlBaseParams {
   id: string | number;
+  /** Handed to the `afterRead` hook; absent for a programmatic caller that did not pass one. */
+  request?: FastifyRequest;
 }
 
 export interface GetResult {

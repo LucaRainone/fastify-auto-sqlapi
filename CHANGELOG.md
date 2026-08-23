@@ -11,6 +11,20 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Added
 
+- **`afterRead` — the read-side hook.** The counterpart of `beforeInsert`/`beforeUpdate`, for
+  turning a stored representation back into the API one: decrypting a column, unpacking a blob,
+  rescaling a unit. Called **once per result set** with camelCase rows mutated **in place** and
+  awaited, so a hook that calls a remote KMS gets one invocation per page instead of one per row.
+  Declared on the table that **owns** the column and it follows a join: the hook runs wherever
+  that table's rows surface — `get`, `search`, and a `joinMultiple`/`joinLeft` declared on
+  another table, with `ctx.source` and `ctx.alias` saying which — so a relation elsewhere needs
+  no extra wiring, the way `readExclude` and `tenantScope` already work (ADR 0010). It does not
+  run on `joinGroup` (aggregates, not table rows) nor on an empty result, and rows cannot be
+  added or removed: the pagination `COUNT` has already run. On the main table it runs *after* the
+  join side queries, which correlate on the values the database returned, so a hook rewriting the
+  column a relation joins on cannot break the correlation. `SearchParams`/`GetParams` now carry
+  the optional `request`, which `sqlApi.search()`/`sqlApi.get()` forward when given one.
+
 - **`tenantScope` over several owner columns — `{ anyOf: [...] }`.** A row that belongs to two
   parties and is visible to either — a message (`sender_id` / `recipient_id`), a transfer
   (`from_account_id` / `to_account_id`), a shift swap — could not be expressed before, leaving
@@ -82,6 +96,43 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   the target's `extendedCondition` (its column references cannot be qualified with the
   `LEFT JOIN` alias), so the filter applied nothing. They are now rejected with a `400` naming
   the reason and pointing at `joinMustExist` on the same relation.
+
+- **`schemaOverrides` now describes the response, not just the write body.** It was applied to
+  the insert/update/bulk-upsert bodies only, so the generated response schema — and the Swagger
+  it feeds — documented the raw introspected type: a value the API refuses to accept as an email
+  was still advertised as returnable. It now also narrows the search response (`main` items, and
+  `joinMultiple`/`joinLeft` items from the joined table's own overrides) and the get response.
+  The `filters` map keeps the generated type on purpose: a filter is a matcher, not a record
+  value. **Breaking** for an override used to *reshape* rather than to narrow — see
+  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md).
+- **A response keeps `null` representable even when the override drops it.** On the write
+  bodies an override stays verbatim — it is a validation rule, so leaving out `Type.Optional`
+  makes the field mandatory and leaving out `Nullable` rejects an explicit `null`, whatever the
+  column allows; that is how a column the database had to leave nullable, because it was added
+  to a populated table, is made mandatory from this release on. A response is not validated,
+  though, only serialized: a `string` declaration facing a stored `NULL` does not refuse it,
+  `fast-json-stringify` writes `""`. Now that overrides also reach the response, a column that
+  can hold `NULL` keeps `null` in its response type however the override was written — the two
+  behaviours are not in tension, they are the same declaration read as a rule on the way in and
+  as a description on the way out.
+- **The update body requires the primary key**, which identifies the row it updates
+  (`PUT /rest/:table` carries it in `main`). The generated PK field is `Optional` — it is
+  absent on insert — and that modifier reached the update body unchanged, so a request omitting
+  `main.id` built its `WHERE` on `undefined` instead of being rejected. The code comment said
+  "PK required" all along.
+- **A secondary now runs the child table's `beforeInsert`.** `processSecondaries` already applied
+  the child's `excludeFromCreation` and its `tenantScope` but skipped its `beforeInsert`, so a
+  table whose hook *transformed* a value — encrypting a column, normalising a unit — stored the
+  raw client value whenever its rows arrived as another table's children, and the correct one
+  through its own route. Nothing failed at write time; the row read back as garbage later. The
+  hook runs after the exclusion strip and before the engine's FK auto-fill, which stays
+  authoritative, and receives the transaction connection. The child's `validate` and
+  `afterInsert` deliberately still do not run — see
+  [ADR 0014](./docs/adr/0014-what-follows-a-write-join.md). **Breaking** for a `beforeInsert`
+  written assuming it only ever ran on its own table's route.
+- **The get response schema honours `readExclude`**, like the search response already did; it
+  previously advertised fields the engine never selects. It now lives in `lib/schema/get.ts`
+  (`GetTableResponse`) instead of inline in the route, which is how it had drifted.
 
 ### Fixed
 

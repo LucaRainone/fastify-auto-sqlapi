@@ -19,6 +19,7 @@ import {
   mapRowsToCamelCase,
 } from './fields.js';
 import { assertJoinFilterKeys, requireJoin } from './joins.js';
+import { runAfterRead } from '../read-hooks.js';
 import { collectOrderByLeftAliases, validateOrderBy, convertConfiguredOrder } from './order-by.js';
 import { applyConditions, applyComputedFilters } from './conditions.js';
 import { appendAggConditions } from './aggregations.js';
@@ -272,13 +273,13 @@ async function attachJoinResults(
   params: SearchParams,
   main: SearchResult['main']
 ): Promise<void> {
-  const { db, tableConf, joinMultiple, joinLeft, joinGroup, tenant } = params;
+  const { db, tableConf, joinMultiple, joinLeft, joinGroup, tenant, request } = params;
 
   if (joinMultiple && Object.keys(joinMultiple).length > 0) {
-    result.joinMultiple = await executeJoinMultiple(db, dbTables, tableConf, main, joinMultiple, tenant);
+    result.joinMultiple = await executeJoinMultiple(db, dbTables, tableConf, main, joinMultiple, tenant, request);
   }
   if (joinLeft && Object.keys(joinLeft).length > 0) {
-    result.joinLeft = await executeJoinLeft(db, dbTables, tableConf, main, joinLeft, tenant);
+    result.joinLeft = await executeJoinLeft(db, dbTables, tableConf, main, joinLeft, tenant, request);
   }
   if (joinGroup && Object.keys(joinGroup).length > 0) {
     result.joinGroup = await executeJoinGroup(db, dbTables, tableConf, main, joinGroup, tenant);
@@ -368,6 +369,12 @@ export async function searchEngine(
   const result: SearchResult = { main };
 
   await attachJoinResults(result, dbTables, params, main);
+
+  // After the joins, not before: they correlate to the main rows by the values the DB
+  // returned (`fk IN (ids)`), and a hook that rewrites the column holding that key would
+  // have them look for a value no child row carries. `main` is the same array either way,
+  // so the response still carries the hook's mutations.
+  await runAfterRead(db, params.request, main, tableConf, 'search');
 
   if (pagination) {
     result.pagination = pagination;
