@@ -1,5 +1,5 @@
 import { Type, type TObject } from '@sinclair/typebox';
-import { readableResponseFields } from './helpers.js';
+import { readableFields } from './helpers.js';
 import type { DbTables } from '../../types.js';
 
 /**
@@ -15,6 +15,6 @@ import type { DbTables } from '../../types.js';
 export function GetTableResponse(dbTables: DbTables, tableName: string): TObject {
   const tableConf = dbTables[tableName];
   return Type.Object({
-    main: Type.Partial(Type.Object(readableResponseFields(tableConf.Schema, tableConf))),
+    main: Type.Partial(Type.Object(readableFields(tableConf.Schema, tableConf))),
   });
 }

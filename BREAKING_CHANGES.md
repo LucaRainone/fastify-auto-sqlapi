@@ -539,20 +539,9 @@ grant, and the scope is only the cap on it.
 
 ---
 
-# Breaking Change — `schemaOverrides` describes the response too, and secondaries run the child's `beforeInsert`
-
-Two configuration keys stopped applying to only half of the paths they name. Both changes make
-an existing declaration mean what it says everywhere, and both can change what an existing
-deployment returns or writes.
+# Breaking Change — secondaries run the child table's `beforeInsert`
 
 ## Why this changed
-
-`schemaOverrides` exists to narrow a type the DB could only report loosely — a column Postgres
-calls `text` is an email, a UUID, a URL. It was applied to the insert/update/bulk-upsert bodies
-and nowhere else, so the generated response schema and the Swagger it feeds documented the raw
-introspected type. That is a contract the API does not honour: a value it refuses to accept as
-an email was still advertised as returnable. A narrowing describes the field, not the direction
-it travels.
 
 `processSecondaries` consulted the child table's configuration for its `excludeFromCreation` and
 its `tenantScope`, but skipped its `beforeInsert`. A child table whose hook *transformed* a value
@@ -563,59 +552,31 @@ its own route. Nothing failed at write time; the row read back as garbage later.
 
 ## What changed
 
-- `schemaOverrides` is now applied to the **search response** (`main` items and `joinMultiple` /
-  `joinLeft` items, the latter from the joined table's own overrides) and to the **get response**.
-  The `filters` map is deliberately left on the generated type — a filter is a matcher, not a
-  record value.
-- The **get response schema** now honours `readExclude`, like the search response already did. It
-  previously advertised fields the engine never selects.
-- On the **write bodies** an override is unchanged: verbatim, as it always was. No
-  `Type.Optional` means mandatory, no `Nullable` rejects an explicit `null` — which is how a
-  column the DB had to leave nullable is made mandatory from now on. On the **responses**, where
-  the override now also applies, a column that can hold `NULL` keeps `null` in its type however
-  the override was written: nothing validates a response, so a `string` declaration facing a
-  stored `NULL` would not refuse it — Fastify would serialize `""`.
+- A child table's **`beforeInsert` now runs** for rows written as `secondaries`, after that
+  table's `excludeFromCreation` strip and before the engine's FK auto-fill (which stays
+  authoritative). The child's `validate` and `afterInsert` still do not run.
+- The **get response schema honours `readExclude`**: it previously advertised fields the engine
+  never selects. `schemaOverrides` is unchanged — still write bodies only.
 - The **update body now requires the primary key**. It identifies the row (`PUT /rest/:table`
   carries it in `main`), but the generated PK field is `Optional` and that modifier reached the
   update body unchanged, so a request omitting `main.id` built its `WHERE` on `undefined`
   instead of being rejected with a 400.
-- A child table's **`beforeInsert` now runs** for rows written as `secondaries`, after that
-  table's `excludeFromCreation` strip and before the engine's FK auto-fill (which stays
-  authoritative). The child's `validate` and `afterInsert` still do not run.
 
 ## Who is affected
 
-- **You use `schemaOverrides` to widen or reshape a write body rather than to narrow a type.**
-  That override now also describes the response, and Fastify serializes against it: a field
-  declared `integer` truncates `12.34` to `12`, one declared `string` renders an object as
-  `"[object Object]"`. Overrides that narrow (`format`, `minLength`, `minimum`, `pattern`) are
-  serialization-neutral and change only the generated Swagger.
-- **You use `schemaOverrides` on a `readExclude`d field.** It is dropped from the response schema
-  before the override is applied, as it always was from the response itself.
-- **You send an update without `main.<pk>`.** It never identified a row — the `WHERE` was built
-  on `undefined` — and is now a 400.
 - **A table of yours declares `beforeInsert` and is also a write-join target.** The hook now runs
   on that path. If it was written assuming the table's own route — reading `req.params`, counting
   invocations, calling an external service per record — it now runs where it did not before. It
   receives the transaction connection, so what it writes rolls back with the host's write.
+- **You send an update without `main.<pk>`.** It never identified a row — the `WHERE` was built
+  on `undefined` — and is now a 400.
+- **A client of yours read a `readExclude`d field out of the get route's Swagger.** It was never
+  returned; only the documentation claimed it.
 
-Not affected: tables without `schemaOverrides`, tables whose overrides only narrow, and tables
-with no `beforeInsert` or no `allowedWriteJoins` pointing at them.
+Not affected: tables with no `beforeInsert`, or none that are write-join targets. Nothing about
+`schemaOverrides` changes.
 
 ## Migration
-
-For an override that was never meant as a response contract, move the widening out of
-`schemaOverrides` and into the hook that actually converts the value:
-
-```typescript
-// Before — an override used to accept a looser input, now also claimed on the way out
-schemaOverrides: { amount: Type.String() },
-
-// After — the declaration stays true in both directions, the conversion is explicit
-beforeInsert: async (db, req, record) => { record.amount = Number(record.amount); },
-afterRead:    async (db, req, rows)   => { for (const r of rows) r.amount = String(r.amount); },
-schemaOverrides: { amount: Type.String() },   // now describes what both sides really carry
-```
 
 For a `beforeInsert` that must keep running on the table's own route only, guard on the context
 it needs rather than on the path:

@@ -157,38 +157,59 @@ describe('schemaOverrides - BulkUpsertTableBody', () => {
 
 // ─── Read side ──────────────────────────────────────────────
 //
-// `schemaOverrides` narrows a type the DB introspection could only guess wide: a column
-// Postgres calls `text` is an email, a date, a URL. That is a property of the field, not of
-// the direction it travels — so the same declaration has to describe the response, or the
-// generated Swagger documents a looser contract than the one the API actually honours.
+// `schemaOverrides` does NOT narrow the response, on purpose. An override rules what this API
+// accepts from now on, while the rows already stored predate it: a column narrowed to
+// `format: 'email'` today holds whatever was accepted last year, and one made mandatory today
+// is NULL on every pre-existing row. Nothing would break at runtime — Fastify does not validate
+// responses, `fast-json-stringify` ignores every validation keyword and acts only on `type` —
+// but the published contract would promise something no one can retroactively make true.
 
 const { SearchTableResponse } = await import(path.join(ROOT, 'dist/lib/schema/search.js'));
 const { GetTableResponse } = await import(path.join(ROOT, 'dist/lib/schema/get.js'));
 const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { Nullable } = await import(path.join(ROOT, 'dist/lib/nullable.js'));
 
-describe('schemaOverrides - SearchTableResponse', () => {
-  it('applies the override to the main response item', () => {
-    const dbTables = createDbTables({
-      email: Type.String({ format: 'email' }),
-    });
+const nullableCustomerFields = {
+  id: Type.Optional(Type.Integer()),
+  name: Type.String(),
+  email: Type.Optional(Nullable(Type.String())),
+};
 
-    const response = SearchTableResponse(dbTables, 'customer');
-    const emailSchema = response.properties.main.items.properties.email;
+function createNullableDbTables(overrides) {
+  const schema = createMockSchema('customer', nullableCustomerFields);
+  return {
+    customer: {
+      primary: 'id',
+      ...exportTableInfo(schema),
+      defaultOrder: 'id',
+      excludeFromCreation: ['id'],
+      ...(overrides ? { schemaOverrides: overrides } : {}),
+    },
+  };
+}
 
-    assert.equal(emailSchema.format, 'email');
+const admitsNull = (s) => Array.isArray(s.type) && s.type.includes('null');
+
+describe('schemaOverrides - responses keep the generated type', () => {
+  it('does not narrow the search response', () => {
+    const dbTables = createDbTables({ email: Type.String({ format: 'email' }) });
+
+    const item = SearchTableResponse(dbTables, 'customer').properties.main.items.properties.email;
+
+    assert.equal(item.format, undefined, 'rows written before the rule cannot be promised to honour it');
+    assert.equal(item.type, 'string');
   });
 
-  it('leaves non-overridden fields alone', () => {
-    const dbTables = createDbTables({
-      email: Type.String({ format: 'email' }),
-    });
+  it('does not narrow the get response', () => {
+    const dbTables = createDbTables({ email: Type.String({ format: 'email' }) });
 
-    const response = SearchTableResponse(dbTables, 'customer');
+    const field = GetTableResponse(dbTables, 'customer').properties.main.properties.email;
 
-    assert.equal(response.properties.main.items.properties.name.format, undefined);
+    assert.equal(field.format, undefined);
+    assert.equal(field.type, 'string');
   });
 
-  it('applies the JOINED table\'s own override to join response items', () => {
+  it('does not narrow join response items either', () => {
     const customerSchema = createMockSchema('customer', customerFields);
     const orderFields = {
       id: Type.Optional(Type.Integer()),
@@ -214,24 +235,25 @@ describe('schemaOverrides - SearchTableResponse', () => {
       },
     };
 
-    const response = SearchTableResponse(dbTables, 'customer');
-    const itemSchema = response.properties.joinMultiple.properties.customer_order.items;
+    const item = SearchTableResponse(dbTables, 'customer')
+      .properties.joinMultiple.properties.customer_order.items;
 
-    assert.equal(itemSchema.properties.reference.format, 'uuid');
+    assert.equal(item.properties.reference.format, undefined);
+  });
+
+  it('keeps a nullable column nullable in the response, whatever the override says', () => {
+    // The reason the two directions cannot share a schema: a response is serialized, not
+    // validated, so a non-nullable declaration would not reject a stored NULL — it would
+    // serialize it as "".
+    const dbTables = createNullableDbTables({ email: Type.String({ format: 'email' }) });
+
+    const item = SearchTableResponse(dbTables, 'customer').properties.main.items.properties.email;
+
+    assert.ok(admitsNull(item));
   });
 });
 
 describe('GetTableResponse', () => {
-  it('applies the override to the returned record', () => {
-    const dbTables = createDbTables({
-      email: Type.String({ format: 'email' }),
-    });
-
-    const response = GetTableResponse(dbTables, 'customer');
-
-    assert.equal(response.properties.main.properties.email.format, 'email');
-  });
-
   it('omits read-excluded fields, like the search response does', () => {
     const dbTables = createDbTables();
     dbTables.customer.readExclude = ['email'];
@@ -243,62 +265,14 @@ describe('GetTableResponse', () => {
   });
 });
 
-// ─── What an override may and may not change ────────────────
+// ─── Write side: the override is the rule, verbatim ─────────
 //
-// On the way IN an override is a validation rule the consumer writes, and it is honoured
-// verbatim: no `Type.Optional` means mandatory, no `Nullable` means an explicit null is
-// rejected — whatever the column allows. That is how a column the DB had to make nullable
-// (a new column on a populated table) is made mandatory from now on.
-//
-// On the way OUT nothing is validated. Fastify serializes against the schema, so a `string`
-// declaration facing a stored NULL does not refuse it — it writes `""`. A column that can hold
-// NULL therefore keeps `null` in its response type however the override was written.
+// No `Type.Optional` means mandatory, no `Nullable` rejects an explicit null — whatever the
+// column allows. That is how a column the DB had to leave nullable (a new column added to a
+// populated table) is made mandatory from now on.
 
-const { Nullable } = await import(path.join(ROOT, 'dist/lib/nullable.js'));
-
-const nullableCustomerFields = {
-  id: Type.Optional(Type.Integer()),
-  name: Type.String(),
-  email: Type.Optional(Nullable(Type.String())),
-};
-
-function createNullableDbTables(overrides) {
-  const schema = createMockSchema('customer', nullableCustomerFields);
-  return {
-    customer: {
-      primary: 'id',
-      ...exportTableInfo(schema),
-      defaultOrder: 'id',
-      excludeFromCreation: ['id'],
-      ...(overrides ? { schemaOverrides: overrides } : {}),
-    },
-  };
-}
-
-const admitsNull = (s) => Array.isArray(s.type) && s.type.includes('null');
-
-describe('schemaOverrides - a narrowing keeps the column\'s own facts', () => {
-  it('keeps a nullable column nullable in the response', () => {
-    const dbTables = createNullableDbTables({ email: Type.String({ format: 'email' }) });
-
-    const item = SearchTableResponse(dbTables, 'customer').properties.main.items.properties.email;
-
-    assert.equal(item.format, 'email', 'the narrowing still applies');
-    assert.ok(admitsNull(item), 'NULL must stay serializable, or fast-json-stringify emits ""');
-  });
-
-  it('keeps a nullable column nullable in the get response', () => {
-    const dbTables = createNullableDbTables({ email: Type.String({ format: 'email' }) });
-
-    const field = GetTableResponse(dbTables, 'customer').properties.main.properties.email;
-
-    assert.equal(field.format, 'email');
-    assert.ok(admitsNull(field));
-  });
-
+describe('schemaOverrides - the write body takes the override verbatim', () => {
   it('makes a DB-nullable column mandatory on write when the override says so', () => {
-    // The migration case: a column added to a populated table is NULL for the existing rows,
-    // so the DB cannot declare it NOT NULL — but every write from now on must carry it.
     const withOverride = createNullableDbTables({ email: Type.String({ format: 'email' }) });
     const without = createNullableDbTables();
 
@@ -322,15 +296,13 @@ describe('schemaOverrides - a narrowing keeps the column\'s own facts', () => {
     assert.ok(!(insert.required ?? []).includes('email'));
   });
 
-  it('still returns null for a mandatory-on-write column that is nullable in the DB', () => {
-    // Same table as the migration case above: rows written before the column existed hold
-    // NULL, and the response must say so rather than serialize them as "".
-    const dbTables = createNullableDbTables({ email: Type.String({ format: 'email' }) });
+  it('accepts an explicit null when the override spells the nullability out', () => {
+    const dbTables = createNullableDbTables({ email: Nullable(Type.String({ format: 'email' })) });
 
-    const item = SearchTableResponse(dbTables, 'customer').properties.main.items.properties.email;
+    const field = InsertTableBody(dbTables, 'customer').properties.main.properties.email;
 
-    assert.equal(item.format, 'email');
-    assert.ok(admitsNull(item));
+    assert.equal(field.format, 'email');
+    assert.deepEqual(field.type, ['string', 'null']);
   });
 
   it('leaves the primary key required on update', () => {
@@ -340,26 +312,5 @@ describe('schemaOverrides - a narrowing keeps the column\'s own facts', () => {
 
     assert.equal(main.properties.id.minimum, 1);
     assert.deepEqual(main.required, ['id'], 'the PK identifies the row: it stays mandatory');
-  });
-
-  it('does not add nullability the column never had', () => {
-    const dbTables = createNullableDbTables({ name: Type.String({ minLength: 3 }) });
-
-    const field = InsertTableBody(dbTables, 'customer').properties.main.properties.name;
-
-    assert.equal(field.minLength, 3);
-    assert.equal(admitsNull(field), false);
-    assert.ok((InsertTableBody(dbTables, 'customer').properties.main.required ?? []).includes('name'));
-  });
-
-  it('respects an override that spells out the nullability itself, on both sides', () => {
-    const dbTables = createNullableDbTables({ email: Nullable(Type.String({ format: 'email' })) });
-
-    const body = InsertTableBody(dbTables, 'customer').properties.main.properties.email;
-    const item = SearchTableResponse(dbTables, 'customer').properties.main.items.properties.email;
-
-    assert.equal(body.format, 'email');
-    assert.deepEqual(body.type, ['string', 'null'], 'accepts an explicit null on write');
-    assert.deepEqual(item.type, ['string', 'null'], 'no double wrapping on the response');
   });
 });

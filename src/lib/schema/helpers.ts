@@ -1,7 +1,6 @@
 import { Type, OptionalKind, type TSchema } from '@sinclair/typebox';
 import type { ITable, SchemaDefinition, DbTables, JoinDefinition } from '../../types.js';
 import { readableFieldNames } from '../read-access.js';
-import { Nullable } from '../nullable.js';
 import { findSecondaryTableConf } from '../engine/write-helpers.js';
 
 /**
@@ -45,12 +44,6 @@ function buildSecondaryFields(
   return fields;
 }
 
-/** `Nullable` marks a column with the type-array form; this reads that mark back. */
-function admitsNull(schema: TSchema): boolean {
-  const type = (schema as { type?: string | string[] }).type;
-  return Array.isArray(type) && type.includes('null');
-}
-
 /** The same schema without the Optional modifier, i.e. as a required property. */
 export function asRequired(schema: TSchema): TSchema {
   if (!(OptionalKind in schema)) return schema;
@@ -61,15 +54,16 @@ export function asRequired(schema: TSchema): TSchema {
  * Apply schemaOverrides to a fields record: each matching field becomes the declared schema,
  * verbatim.
  *
- * Verbatim is the contract on the request side, where the schema is a validation rule the
- * consumer writes: an override without `Type.Optional` makes the field mandatory and one
- * without `Nullable` rejects an explicit `null`, whatever the column allows. That is how a
- * column the DB had to make nullable — a new column on a populated table — is made mandatory
- * from this release on. Write the modifiers when you want them.
+ * Write bodies only. An override is a rule about what this API accepts **from now on**, and
+ * the rows already in the table were written before it existed — a column narrowed to
+ * `format: 'email'` today holds whatever was accepted last year, and one made mandatory today
+ * is `NULL` on every pre-existing row. Describing the response with it would publish a promise
+ * about data nobody can retroactively make true. Responses stay on the generated type.
  *
- * Response schemas are the exception and go through `readableResponseFields`: there is no
- * validation on the way out, only serialization, so a declaration cannot reject a value — it
- * can only misrepresent one.
+ * Verbatim, because on the request side the schema is the rule: an override without
+ * `Type.Optional` makes the field mandatory and one without `Nullable` rejects an explicit
+ * `null`, whatever the column allows. That is how a column the DB had to leave nullable is
+ * made mandatory going forward. Write the modifiers when you want them.
  *
  * Replace-only: an override naming a field the table does not have is ignored, so the
  * declaration can never introduce a property the engine will not produce.
@@ -178,36 +172,6 @@ export function readableFields(
   const out: Record<string, TSchema> = {};
   for (const field of readableFieldNames(tableConf, schema)) {
     out[field] = schema.fields[field];
-  }
-  return out;
-}
-
-/**
- * The shape of one record as a read returns it: readable fields, narrowed by
- * `schemaOverrides`, with the column's nullability kept.
- *
- * The overrides belong here as much as on the write bodies — a narrowing describes the field,
- * not the direction it travels, and a response documented on the raw introspected type
- * promises something looser than the API returns.
- *
- * Nullability is where the two directions part. On the way in an override is a rule and a
- * non-nullable declaration *rejects* `null`. On the way out nothing is validated: Fastify
- * serializes against the schema, so a `string` declaration facing a stored `NULL` does not
- * refuse it — `fast-json-stringify` writes `""`. A column that can hold `NULL` therefore keeps
- * `null` in its response type, no matter how the override was written. An override that spells
- * `Nullable(...)` out itself is already there and is left alone.
- */
-export function readableResponseFields(
-  schema: SchemaDefinition,
-  tableConf: ITable | undefined
-): Record<string, TSchema> {
-  const original = readableFields(schema, tableConf);
-  const narrowed = applySchemaOverrides(original, tableConf);
-  if (narrowed === original) return original;
-
-  const out: Record<string, TSchema> = {};
-  for (const [key, value] of Object.entries(narrowed)) {
-    out[key] = admitsNull(original[key]) && !admitsNull(value) ? Nullable(value) : value;
   }
   return out;
 }

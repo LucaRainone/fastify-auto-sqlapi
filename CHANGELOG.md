@@ -97,24 +97,6 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   `LEFT JOIN` alias), so the filter applied nothing. They are now rejected with a `400` naming
   the reason and pointing at `joinMustExist` on the same relation.
 
-- **`schemaOverrides` now describes the response, not just the write body.** It was applied to
-  the insert/update/bulk-upsert bodies only, so the generated response schema — and the Swagger
-  it feeds — documented the raw introspected type: a value the API refuses to accept as an email
-  was still advertised as returnable. It now also narrows the search response (`main` items, and
-  `joinMultiple`/`joinLeft` items from the joined table's own overrides) and the get response.
-  The `filters` map keeps the generated type on purpose: a filter is a matcher, not a record
-  value. **Breaking** for an override used to *reshape* rather than to narrow — see
-  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md).
-- **A response keeps `null` representable even when the override drops it.** On the write
-  bodies an override stays verbatim — it is a validation rule, so leaving out `Type.Optional`
-  makes the field mandatory and leaving out `Nullable` rejects an explicit `null`, whatever the
-  column allows; that is how a column the database had to leave nullable, because it was added
-  to a populated table, is made mandatory from this release on. A response is not validated,
-  though, only serialized: a `string` declaration facing a stored `NULL` does not refuse it,
-  `fast-json-stringify` writes `""`. Now that overrides also reach the response, a column that
-  can hold `NULL` keeps `null` in its response type however the override was written — the two
-  behaviours are not in tension, they are the same declaration read as a rule on the way in and
-  as a description on the way out.
 - **The update body requires the primary key**, which identifies the row it updates
   (`PUT /rest/:table` carries it in `main`). The generated PK field is `Optional` — it is
   absent on insert — and that modifier reached the update body unchanged, so a request omitting
@@ -133,6 +115,9 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 - **The get response schema honours `readExclude`**, like the search response already did; it
   previously advertised fields the engine never selects. It now lives in `lib/schema/get.ts`
   (`GetTableResponse`) instead of inline in the route, which is how it had drifted.
+  `schemaOverrides` stays where it was — write bodies only: an override rules what the API
+  accepts from now on, while the rows already stored predate it, so narrowing the response
+  would promise something no one can retroactively make true.
 
 ### Fixed
 

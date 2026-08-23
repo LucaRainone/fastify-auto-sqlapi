@@ -66,20 +66,16 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
    * Postgres calls `text` is an email, a UUID, a URL; an `integer` has a range. The generated
    * schema is as precise as `information_schema` allows, and this is where the rest goes.
    *
-   * Applied to **both directions** — write bodies and read responses — because a narrowing is
-   * a property of the field, not of the way it travels: a value the API refuses to accept as
-   * an email should not be documented as returnable. The `filters` map is deliberately left
-   * on the generated type: a filter is a matcher, not a record value.
+   * **Write bodies only.** An override is a rule about what this API accepts from now on, and
+   * the rows already in the table were written before it existed: a column narrowed to
+   * `format: 'email'` today holds whatever was accepted last year. Narrowing the response
+   * would publish a promise about data nobody can retroactively make true, so responses and
+   * the `filters` map stay on the generated type.
    *
-   * On the **write bodies** the override is taken verbatim: it is a validation rule, so no
+   * The override is taken **verbatim**, because on the request side the schema is the rule: no
    * `Type.Optional` means the field is mandatory and no `Nullable` means an explicit `null` is
-   * rejected — whatever the column allows. That is how a column the database had to leave
-   * nullable, because it was added to a populated table, is made mandatory from now on.
-   *
-   * On the **responses** nothing is validated: Fastify serializes against the schema, so a
-   * `string` declaration facing a stored `NULL` does not refuse it — `fast-json-stringify`
-   * writes `""`. A column that can hold `NULL` therefore keeps `null` in its response type
-   * however the override was written. Everything else about the override applies as declared.
+   * rejected, whatever the column allows. That is how a column the database had to leave
+   * nullable, because it was added to a populated table, is made mandatory going forward.
    *
    * It is not a re-typing mechanism. Nothing stops an override from turning a `number` into a
    * `string`, but the value crossing the wire is still whatever the driver read from the
