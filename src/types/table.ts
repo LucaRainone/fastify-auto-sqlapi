@@ -219,6 +219,25 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
    * password hash). Primary-key fields cannot be excluded.
    */
   readExclude?: (string & keyof F)[];
+  /**
+   * Fields that no write may carry: removed from the insert, update and bulk-upsert bodies
+   * (so sending one is a 400, not a driver error) and dropped again in the engines, which
+   * `sqlApi.*` reaches without the HTTP schemas. Reads are untouched — the field stays
+   * projected, filterable and orderable.
+   *
+   * It is the write-side counterpart of `readExclude`, and it exists for columns the database
+   * refuses to be told about: a `GENERATED ALWAYS AS (<expr>)` column is already excluded
+   * automatically through the Schema's `generatedFields`, and this key covers the rest — a
+   * column a trigger owns, one a migration is about to drop.
+   *
+   * Not a per-caller permission: it is static and applies to everyone, admins included.
+   * Field-level rules that depend on who is asking belong in `beforeUpdate` (silent strip) or
+   * `validate` (loud 400). Not `excludeFromCreation` either — that one whitelists client input
+   * on insert only, and deliberately lets a hook assign the field afterwards.
+   *
+   * The primary key cannot be excluded: the update body identifies the row with it.
+   */
+  writeExclude?: (string & keyof F)[];
   defaultOrder?: string;
   excludeFromCreation?: (string & keyof F)[];
   distinctResults?: boolean;

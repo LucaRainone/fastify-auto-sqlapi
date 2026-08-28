@@ -11,6 +11,28 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Added
 
+- **Columns the database computes are no longer offered as writable.** A
+  `GENERATED ALWAYS AS (<expr>)` column — PostgreSQL STORED, MySQL VIRTUAL or STORED — is
+  rejected by both engines when a write so much as names it, and the whole statement fails.
+  The plugin used to advertise those columns as ordinary writable fields, so a client sending
+  back what a read had just returned got a `500` for a payload nobody could have made valid.
+  `sqlapi-generate-schema` now detects them and records them in the generated Schema's
+  `generatedFields`; the runtime drops them from the insert, update and bulk-upsert bodies
+  (main and secondaries) and again inside the engines, which `sqlApi.*` reaches without those
+  schemas. **Regenerating the Schema files is enough** — the exclusion does not live in the
+  `Table*.ts` the generator never overwrites. The CLI also prints the columns it found, per
+  table, since a generated source file is not always read. See
+  [ADR 0015](./docs/adr/0015-non-writable-columns.md).
+- **`writeExclude` on `defineTable`** — the write-side counterpart of `readExclude`, for the
+  non-writable columns introspection cannot know about (one a trigger owns, one a migration is
+  about to drop). Reads are untouched: the field stays projected, filterable and orderable. It
+  runs **after** the write hooks, unlike `excludeFromCreation` which is sanitized before them
+  (ADR 0005): a hook cannot put back a value the database will refuse. `defineTable` rejects an
+  unknown field, the primary key, and a field that is also `readExclude`d. It is static and
+  applies to everyone — a rule that depends on *who* is asking is still product logic (ADR 0004).
+- **The agent manifest marks non-writable fields** `readOnly`, alongside the existing
+  `writeOnly` for `readExclude`.
+
 - **`afterRead` — the read-side hook.** The counterpart of `beforeInsert`/`beforeUpdate`, for
   turning a stored representation back into the API one: decrypting a column, unpacking a blob,
   rescaling a unit. Called **once per result set** with camelCase rows mutated **in place** and
@@ -121,6 +143,12 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Fixed
 
+- **PostgreSQL identity columns made a table impossible to insert into.**
+  `GENERATED ... AS IDENTITY` reports no `column_default`, which is what the generator read to
+  decide that the database fills a column in — so the primary key came out **mandatory** in the
+  write body while PostgreSQL rejected any explicit value for it (`Column "id" is an identity
+  column defined as GENERATED ALWAYS`). Identity columns are now flagged like MySQL's
+  `AUTO_INCREMENT`: the field is Optional and the CLI lists it under `excludeFromCreation`.
 - **Join validation no longer depends on the main result set.** `joinMultiple` / `joinLeft` /
   `joinGroup` skip their side query entirely when the main query matched no rows, so everything
   validated inside it was skipped with it — the same request answered 400 or 200 depending on

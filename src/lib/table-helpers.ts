@@ -78,6 +78,7 @@ export function defineTable<F extends Record<string, TSchema>>(
   validateWriteJoinsUnrestricted(config.allowedWriteJoins);
   validateComputedFields(config as unknown as ITable);
   validateReadExclude(config as unknown as ITable);
+  validateWriteExclude(config as unknown as ITable);
   validateTenantScope(config as unknown as ITable);
   return config;
 }
@@ -182,6 +183,41 @@ function validateReadExclude(config: ITable): void {
       throw new Error(
         `defineTable: readExclude cannot hide the primary key field '${field}' on ` +
         `table '${config.Schema.tableName}' — reads and joins rely on it.`
+      );
+    }
+  }
+}
+
+/**
+ * `writeExclude` names schema fields that no write may carry. A field outside the schema is a
+ * typo; the primary key is refused because the update body identifies the row with it; and a
+ * field that is also `readExclude`d would be neither readable nor writable, which is what
+ * removing it from the Schema means — keeping it there only grows the surface for nothing.
+ */
+function validateWriteExclude(config: ITable): void {
+  const excluded = config.writeExclude;
+  if (!excluded?.length) return;
+
+  const schemaFields = Object.keys(config.Schema.fields);
+  const pkFields = Array.isArray(config.primary) ? config.primary : [config.primary];
+  const table = config.Schema.tableName;
+
+  for (const field of excluded) {
+    if (!schemaFields.includes(field)) {
+      throw new Error(
+        `defineTable: writeExclude field '${field}' is not a schema field on table '${table}'.`
+      );
+    }
+    if (pkFields.includes(field)) {
+      throw new Error(
+        `defineTable: writeExclude cannot cover the primary key field '${field}' on table ` +
+        `'${table}' — the update body identifies the row with it.`
+      );
+    }
+    if (config.readExclude?.includes(field)) {
+      throw new Error(
+        `defineTable: field '${field}' on table '${table}' is in both readExclude and ` +
+        `writeExclude, leaving it neither readable nor writable. Remove it from the Schema instead.`
       );
     }
   }

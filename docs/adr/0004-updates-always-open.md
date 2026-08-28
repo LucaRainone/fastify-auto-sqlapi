@@ -1,6 +1,7 @@
 # 0004. Updates are always open — no `excludeFromUpdate`
 
-- **Status**: accepted
+- **Status**: accepted (narrowed by [0015](./0015-non-writable-columns.md) for columns the
+  database itself refuses to be written)
 - **Date**: 2026-07-23
 
 ## Context

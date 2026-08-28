@@ -1,6 +1,7 @@
 import { Type, type TSchema } from '@sinclair/typebox';
 import { primaryAsString } from '../../types.js';
 import type { DbTables } from '../../types.js';
+import { writableFields } from '../write-access.js';
 import {
   pkSchema,
   applySchemaOverrides,
@@ -15,7 +16,10 @@ export function BulkUpsertTableBody(dbTables: DbTables, tableName: string, maxIt
 
   // additionalProperties:false makes the schema the real write whitelist (no mass assignment).
   const mainSchema = Type.Partial(
-    Type.Object(applySchemaOverrides({ ...schema.fields }, tableConf), { additionalProperties: false })
+    Type.Object(
+      writableFields(applySchemaOverrides({ ...schema.fields }, tableConf), tableConf, schema),
+      { additionalProperties: false }
+    )
   );
 
   const itemProperties: Record<string, TSchema> = {

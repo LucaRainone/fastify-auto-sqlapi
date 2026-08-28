@@ -32,6 +32,16 @@ export function buildConnectionString(): string {
   return `postgres://${user}:${password}@${host}:${port}/${db}`;
 }
 
+/**
+ * `information_schema.columns` as Postgres returns it. `is_identity` and `is_generated` are
+ * the string enums the standard defines ('YES'/'NO', 'ALWAYS'/'NEVER'); they are folded into
+ * the booleans `ColumnInfo` carries before leaving this module.
+ */
+interface PgColumnRow extends Omit<ColumnInfo, 'is_generated'> {
+  is_identity?: string;
+  is_generated?: string;
+}
+
 export async function introspectTables(
   connectionString: string,
   schema: string
@@ -43,8 +53,9 @@ export async function introspectTables(
   try {
     await client.connect();
 
-    const result = await client.query<ColumnInfo>(
+    const result = await client.query<PgColumnRow>(
       `SELECT c.table_name, c.column_name, c.udt_name, c.column_default, c.is_nullable,
+              c.is_identity, c.is_generated,
               (pk.column_name IS NOT NULL) AS is_primary
        FROM information_schema.columns c
        LEFT JOIN (
@@ -60,7 +71,13 @@ export async function introspectTables(
       [schema]
     );
 
-    return result.rows;
+    return result.rows.map(({ is_identity, is_generated, ...col }) => ({
+      ...col,
+      // An identity column has no `column_default`, so without this flag it is emitted as a
+      // mandatory field and the table cannot be inserted into at all.
+      ...(is_identity === 'YES' ? { is_auto_increment: true } : {}),
+      ...(is_generated === 'ALWAYS' ? { is_generated: true } : {}),
+    }));
   } finally {
     await client.end();
   }

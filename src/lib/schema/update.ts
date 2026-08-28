@@ -1,6 +1,7 @@
 import { Type, type TObject, type TSchema } from '@sinclair/typebox';
 import { primaryAsString } from '../../types.js';
 import type { DbTables } from '../../types.js';
+import { writableFields } from '../write-access.js';
 import {
   pkSchema,
   applySchemaOverrides,
@@ -15,7 +16,11 @@ export function UpdateTableBody(dbTables: DbTables, tableName: string): TObject 
   const schema = tableConf.Schema;
 
   // Main: PK required, all other fields optional (overrides applied before Optional wrap)
-  const baseFields = applySchemaOverrides({ ...schema.fields }, tableConf);
+  const baseFields = writableFields(
+    applySchemaOverrides({ ...schema.fields }, tableConf),
+    tableConf,
+    schema
+  );
   const mainFields: Record<string, TSchema> = {};
   const pk = primaryAsString(tableConf.primary);
   for (const [key, value] of Object.entries(baseFields)) {

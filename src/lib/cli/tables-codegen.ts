@@ -9,6 +9,8 @@ export interface ParsedSchema {
   fieldTypes: Record<string, string>;
   /** PRIMARY KEY fields declared in the schema file (`primaryKey: [...]`), when present. */
   primary?: string[];
+  /** Database-computed fields declared in the schema file (`generatedFields: [...]`). */
+  generated?: string[];
 }
 
 interface DetectedRelation {
@@ -41,16 +43,10 @@ export function parseSchemaFile(content: string): ParsedSchema | null {
 
   if (fields.length === 0) return null;
 
-  // primaryKey: ["code"] — emitted by generate-schema from DB introspection
-  let primary: string[] | undefined;
-  const pkMatch = /primaryKey:\s*\[([^\]]*)\]/.exec(content);
-  if (pkMatch) {
-    primary = pkMatch[1]
-      .split(',')
-      .map((s) => s.trim().replace(/^["']|["']$/g, ''))
-      .filter(Boolean);
-    if (primary.length === 0) primary = undefined;
-  }
+  // primaryKey: ["code"] / generatedFields: ["total"] — emitted by generate-schema from
+  // DB introspection. Both are absent on hand-written schema files.
+  const primary = parseFieldList(content, 'primaryKey');
+  const generated = parseFieldList(content, 'generatedFields');
 
   return {
     schemaName: exportMatch[1],
@@ -58,7 +54,19 @@ export function parseSchemaFile(content: string): ParsedSchema | null {
     fields,
     fieldTypes,
     primary,
+    generated,
   };
+}
+
+/** Read a `<key>: ["a", "b"]` list out of a generated schema file. */
+function parseFieldList(content: string, key: string): string[] | undefined {
+  const match = new RegExp(`${key}:\\s*\\[([^\\]]*)\\]`).exec(content);
+  if (!match) return undefined;
+  const values = match[1]
+    .split(',')
+    .map((s) => s.trim().replace(/^["']|["']$/g, ''))
+    .filter(Boolean);
+  return values.length ? values : undefined;
 }
 
 // ─── Detection ───────────────────────────────────────────────
@@ -81,6 +89,24 @@ function detectPrimaryKey(schema: ParsedSchema): { pk: string | string[]; autoIn
     }
   }
   return { pk: schema.fields[0], autoIncrement: false };
+}
+
+/**
+ * The `writeExclude` slot, plus the list of columns the database computes for this table.
+ *
+ * Those are excluded from every write by the runtime already — the Schema publishes them in
+ * `generatedFields` — so the line stays commented: it is here to say *why* the fields are
+ * missing from the write bodies, and to give a place to add fields of your own.
+ */
+function writeExcludeLines(schema: ParsedSchema): string[] {
+  if (!schema.generated?.length) {
+    return ['  // writeExclude: [],'];
+  }
+  return [
+    `  // Computed by the database (GENERATED ALWAYS AS ...): ${schema.generated.join(', ')}`,
+    '  // — readable, never writable. Already excluded from every write body.',
+    '  // writeExclude: [],',
+  ];
 }
 
 /** First PK field: used for defaultOrder, relations and example snippets. */
@@ -256,6 +282,8 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
 
   // Hide columns from every read (writes still accept them, e.g. a password hash)
   lines.push(`  // readExclude: [],`);
+
+  lines.push(...writeExcludeLines(schema));
 
   lines.push(...allowedReadJoinsLines(parentRels));
 

@@ -56,11 +56,11 @@ function writeSchemaFiles(tableMap: TableMap, schemasDir: string): WriteReport {
   const report: WriteReport = { created: false, touched: false, untouched: 0, files: new Set() };
 
   for (const schemaName of Object.keys(tableMap)) {
-    const { name: tableName, fields, colMap, primary } = tableMap[schemaName];
+    const { name: tableName, fields, colMap, primary, generated } = tableMap[schemaName];
     const filename = path.join(schemasDir, `${schemaName}.ts`);
     report.files.add(`${schemaName}.ts`);
 
-    const content = generateSchemaFile(schemaName, tableName, fields, colMap, primary);
+    const content = generateSchemaFile(schemaName, tableName, fields, colMap, primary, generated);
     const status = fileStatus(filename, content);
 
     if (status === 'created') report.created = true;
@@ -93,6 +93,36 @@ function removeOrphanSchemas(schemasDir: string, generated: Set<string>): boolea
     }
   }
   return removed;
+}
+
+/**
+ * Name the columns the database computes, table by table.
+ *
+ * These are the columns an INSERT or an UPDATE may not mention — both engines reject the
+ * statement — so the generator leaves them out of every write body. Saying so here matters
+ * more than the comment it also writes into the file: the generated source is not always
+ * read, whereas this output is what whoever ran the command actually sees.
+ */
+function reportGeneratedColumns(tableMap: TableMap): void {
+  const withGenerated = Object.keys(tableMap)
+    .map((schemaName) => tableMap[schemaName])
+    .filter((t) => t.generated.length > 0);
+
+  if (withGenerated.length === 0) return;
+
+  console.log('');
+  display(
+    'Database-computed columns found (GENERATED ALWAYS AS ...):',
+    CONSOLE_COLORS.yellow
+  );
+  for (const table of withGenerated) {
+    display(`  ${table.name}: ${table.generated.join(', ')}`, CONSOLE_COLORS.yellow);
+  }
+  display(
+    '  They are readable but rejected by every write, so they are excluded from the insert, ' +
+    'update and bulk bodies. Do not send them: they are computed by the database.',
+    CONSOLE_COLORS.gray
+  );
 }
 
 function reportOutcome(report: WriteReport): void {
@@ -147,6 +177,8 @@ await runCli('fastify-auto-sqlapi: generating schemas', async () => {
     display(`No matching tables found for: ${tableNames.join(', ')}`, CONSOLE_COLORS.magenta);
     return;
   }
+
+  reportGeneratedColumns(tableMap);
 
   const report = writeSchemaFiles(tableMap, schemasDir);
   if (!tableNames.length && removeOrphanSchemas(schemasDir, report.files)) {

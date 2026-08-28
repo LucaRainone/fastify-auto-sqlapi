@@ -112,6 +112,11 @@ function mapMysqlType(dataType: string): string {
   }
 }
 
+/** `EXTRA`, lowercased — MySQL and MariaDB disagree on the case of both key and value. */
+function extra(row: { EXTRA?: string; extra?: string }): string {
+  return String(row.EXTRA || row.extra || '').toLowerCase();
+}
+
 export async function introspectMysqlTables(
   connectionConfig: MysqlConnectionConfig,
   schema: string
@@ -138,7 +143,9 @@ export async function introspectMysqlTables(
       column_default: row.COLUMN_DEFAULT || row.column_default || null,
       is_nullable: row.IS_NULLABLE || row.is_nullable || '',
       is_primary: (row.COLUMN_KEY || row.column_key) === 'PRI',
-      is_auto_increment: String(row.EXTRA || row.extra || '').includes('auto_increment'),
+      is_auto_increment: extra(row).includes('auto_increment'),
+      // 'VIRTUAL GENERATED' / 'STORED GENERATED': computed from an expression, never writable.
+      is_generated: extra(row).includes('generated'),
     }));
   } finally {
     await connection.end();

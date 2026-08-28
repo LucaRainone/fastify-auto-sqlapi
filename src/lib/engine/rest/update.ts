@@ -1,4 +1,5 @@
 import { snakecaseRecord } from '../../naming.js';
+import { removeWriteExcluded } from '../../write-access.js';
 import { processSecondaries, processDeletions } from '../write-helpers.js';
 import {
   stripTenantColumn,
@@ -74,12 +75,16 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     await tableConf.beforeUpdate(db, request, inputRecord);
   }
 
-  // 5. Convert to DB format (after all user mutations)
+  // 5. Drop what the database will not be told about (generated columns, writeExclude).
+  //    After the hook on purpose: the column refuses a value whoever assigned it.
+  removeWriteExcluded(inputRecord, tableConf, schema);
+
+  // 6. Convert to DB format (after all user mutations)
   const snaked = snakecaseRecord(inputRecord, schema);
   const updateFields = { ...snaked };
   for (const c of pkCols) delete updateFields[c];
 
-  // 6. Strip tenant column (user cannot change tenant of an existing record).
+  // 7. Strip tenant column (user cannot change tenant of an existing record).
   //    For indirect scopes the tenant link is the through-FK (localField): it may be changed,
   //    but only to another value the caller owns — re-validate the new FK against the tenant.
   if (tenant?.scope) {
@@ -87,10 +92,10 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     await enforceTenantFKOnUpdate(db, tenant, updateFields);
   }
 
-  // Steps 7-9 are atomic: a failure in secondaries or deletions rolls back the main
+  // Steps 8-10 are atomic: a failure in secondaries or deletions rolls back the main
   // update too. Degrades to non-transactional when the adapter has no connect().
   return db.withTransaction(async (tx) => {
-    // 7. Update main
+    // 8. Update main
     const hasFieldsToUpdate = Object.keys(updateFields).length > 0;
 
     const extraCondition = buildTenantUpdateExtra(tx, tenant);
@@ -114,7 +119,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     // Build the main response (PK-only — every PK field)
     const mainResult = Object.fromEntries(pkFields.map((f, i) => [f, pkValues[i]]));
 
-    // 8. Secondaries (upsert/insert with FK auto-fill — camelCase)
+    // 9. Secondaries (upsert/insert with FK auto-fill — camelCase)
     let secondaryResults: Record<string, Record<string, unknown>[]> | undefined;
     if (secondaries && Object.keys(secondaries).length > 0) {
       const mainForFK = { ...inputRecord };
@@ -123,7 +128,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
       );
     }
 
-    // 9. Deletions (FK auto-fill from main like secondaries)
+    // 10. Deletions (FK auto-fill from main like secondaries)
     let deletionResults: Record<string, Record<string, unknown>[]> | undefined;
     if (deletions && Object.keys(deletions).length > 0) {
       const mainForFK = { ...inputRecord };
@@ -132,7 +137,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
       );
     }
 
-    // 10. afterUpdate hook (inside the transaction: throwing rolls everything back)
+    // 11. afterUpdate hook (inside the transaction: throwing rolls everything back)
     if (tableConf.afterUpdate) {
       await tableConf.afterUpdate(
         tx,
@@ -143,7 +148,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
       );
     }
 
-    // 11. Return PK-only
+    // 12. Return PK-only
     const result: UpdateResult = { main: mainResult };
     if (secondaryResults && Object.keys(secondaryResults).length > 0) {
       result.secondaries = secondaryResults;

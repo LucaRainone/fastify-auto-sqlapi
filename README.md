@@ -257,6 +257,8 @@ const TableCustomer = defineTable({
   excludeFromCreation: ['id'],              // client-sent values ignored on INSERT (auto-increment,
                                             // DB defaults); beforeInsert can still set them
   readExclude: ['passwordHash'],            // hide from all reads (writes unaffected)
+  writeExclude: ['searchVector'],           // refuse from all writes (reads unaffected); DB-computed
+                                            // columns are excluded automatically
   distinctResults: true,                    // SELECT DISTINCT
 
   // Relations — alias defaults to joinSchema.tableName. Override with `{ alias: '...' }`
@@ -601,6 +603,34 @@ the table's default join selection, and cannot be referenced from `filters`, `co
 `orderBy`, aggregations or an explicit join `selection` (`400`). That last part is the point:
 letting a hidden field be filtered would leak its value by bisection. Primary keys cannot be
 excluded.
+
+### Write visibility
+
+`writeExclude` is the mirror image: the field stays readable, filterable and orderable, but no
+write may carry it. Excluded fields are removed from the insert, update and bulk-upsert bodies —
+main and secondaries — and dropped again inside the engines, which `sqlApi.*` reaches without
+those schemas.
+
+```typescript
+writeExclude: ['searchVector'],
+```
+
+**Columns the database computes need no configuration.** A `GENERATED ALWAYS AS (<expr>)` column
+is rejected by both PostgreSQL and MySQL when a write so much as names it — the whole statement
+fails — so `sqlapi-generate-schema` records those columns in the Schema's `generatedFields` and
+the plugin excludes them from every write path on its own. `writeExclude` is for the rest: a
+column a trigger owns, one a migration is about to drop.
+
+It is **static and applies to everyone**, admins included. A rule that depends on *who* is
+asking is product logic and belongs in `beforeUpdate` or `validate` — see "Field-level update
+rules" above and [ADR 0015](./docs/adr/0015-non-writable-columns.md), which draws that line.
+`defineTable` rejects a field that is not in the schema, the primary key (the update body
+identifies the row with it), and a field that is also in `readExclude` — neither readable nor
+writable is what removing it from the Schema means.
+
+Note that `writeExclude` runs **after** the write hooks, unlike `excludeFromCreation`, which is
+sanitized before them so a hook can assign the field: a hook cannot put back a value the
+database will refuse.
 
 ## API Reference
 

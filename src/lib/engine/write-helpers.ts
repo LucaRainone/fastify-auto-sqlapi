@@ -2,6 +2,7 @@ import type { FastifyRequest } from 'fastify';
 import { camelcaseObject, snakecaseRecord } from '../naming.js';
 import type { QueryClient } from '../db.js';
 import { runValidation } from './validate.js';
+import { removeWriteExcluded } from '../write-access.js';
 import {
   tenantForTable,
   buildTenantRowGuard,
@@ -121,7 +122,9 @@ interface PrepareCtx {
  *   3. drop excludeFromCreation fields (client-input whitelist; applied BEFORE the
  *      hook so values it assigns — e.g. a server-generated id — reach the INSERT)
  *   4. beforeInsert hook (caller can mutate the camelCase copy)
- *   5. snakecaseRecord → DB format
+ *   5. drop non-writable fields (generated columns, writeExclude) — AFTER the hook, because
+ *      the database refuses those values whoever assigned them
+ *   6. snakecaseRecord → DB format
  *
  * Returns both `camel` (input + hook mutations, used for FK auto-fill / afterInsert) and
  * `snake` (DB-ready record). The original `input` is left intact.
@@ -147,6 +150,7 @@ export async function prepareInsertRecord(
       camel
     );
   }
+  removeWriteExcluded(camel, ctx.tableConf, ctx.tableConf.Schema);
   const snake = snakecaseRecord(camel, ctx.tableConf.Schema);
   return { camel, snake };
 }
@@ -219,6 +223,7 @@ export function processSecondaries(
           await childConf.beforeInsert(db, request, camel);
         }
       }
+      removeWriteExcluded(camel, childConf, joinSchema);
       const prepared = snakecaseRecord(camel, joinSchema);
       // FK auto-fill last: the engine's own value, not the client's and not the hook's.
       prepared[joinCol] = mainValue;

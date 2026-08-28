@@ -6,10 +6,18 @@ import type { ColumnInfo, TableMap } from '../../types.js';
  */
 export function convertColType(
   udtName: string,
-  columnInfo: { column_default: string | null; is_nullable: string; is_auto_increment?: boolean }
+  columnInfo: {
+    column_default: string | null;
+    is_nullable: string;
+    is_auto_increment?: boolean;
+    is_generated?: boolean;
+  }
 ): string {
-  // AUTO_INCREMENT (mysql) behaves like a default: the DB generates the value.
-  const hasDefault = columnInfo.column_default || columnInfo.is_auto_increment;
+  // AUTO_INCREMENT (mysql) and IDENTITY (postgres) behave like a default: the DB generates
+  // the value. A generated column goes further — it refuses one — so it can never be a
+  // mandatory field either, whatever its nullability says.
+  const hasDefault =
+    columnInfo.column_default || columnInfo.is_auto_increment || columnInfo.is_generated;
   const isNullable = columnInfo.is_nullable === 'YES';
 
   const wrap = (t: string): string => {
@@ -77,6 +85,7 @@ export function buildTableMap(rows: ColumnInfo[]): TableMap {
         fields: {},
         colMap: {},
         primary: [],
+        generated: [],
       };
     }
 
@@ -100,6 +109,9 @@ export function buildTableMap(rows: ColumnInfo[]): TableMap {
     acc[schemaName].colMap[fieldName] = row.column_name;
     if (row.is_primary) {
       acc[schemaName].primary.push(fieldName);
+    }
+    if (row.is_generated) {
+      acc[schemaName].generated.push(fieldName);
     }
 
     return acc;
@@ -139,7 +151,8 @@ export function generateSchemaFile(
   tableName: string,
   fields: Record<string, string>,
   colMap: Record<string, string>,
-  primary?: string[]
+  primary?: string[],
+  generated?: string[]
 ): string {
   const fieldsStr = JSON.stringify(fields, null, 2).replace(
     /"(.*?)"\s*:\s*"Type(.*?)"/g,
@@ -148,6 +161,9 @@ export function generateSchemaFile(
 
   const colMapStr = JSON.stringify(colMap, null, 2);
   const primaryKeyLine = primary?.length ? `\n  primaryKey: ${JSON.stringify(primary)},` : '';
+  // Published so the table generator — and the runtime — know which columns the database
+  // computes: those are readable but reject every write.
+  const generatedLine = generated?.length ? `\n  generatedFields: ${JSON.stringify(generated)},` : '';
   const usesNullable = Object.values(fields).some((t) => t.includes('Nullable('));
   const valueImports = usesNullable ? 'Type, Nullable' : 'Type';
 
@@ -176,7 +192,7 @@ export const Schema = {
   fields: _Schema,
   validation,
   tableName: "${tableName}",
-  partialValidation,${primaryKeyLine}
+  partialValidation,${primaryKeyLine}${generatedLine}
 };
 export const ${schemaName} = Schema;
 export type TypeSchema = Static<typeof Schema.validation>;

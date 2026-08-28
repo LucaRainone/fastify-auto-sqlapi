@@ -45,9 +45,12 @@ export const {
 /**
  * Create a Fastify app configured for the current dialect, with the plugin registered.
  * Returns { app, db } where db is a plugin QueryClient you can use to seed.
+ *
+ * `fastifyOpts` reaches the Fastify constructor: needed to test what a closed body schema
+ * does under `removeAdditional: false`, since Fastify's default silently strips instead.
  */
-export async function createTestApp(DbTables, pluginOpts = {}) {
-  const app = Fastify();
+export async function createTestApp(DbTables, pluginOpts = {}, fastifyOpts = {}) {
+  const app = Fastify(fastifyOpts);
 
   let dbQueryable;
   if (DIALECT === 'postgres') {

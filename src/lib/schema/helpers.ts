@@ -1,6 +1,7 @@
 import { Type, OptionalKind, type TSchema } from '@sinclair/typebox';
 import type { ITable, SchemaDefinition, DbTables, JoinDefinition } from '../../types.js';
 import { readableFieldNames } from '../read-access.js';
+import { writableFields } from '../write-access.js';
 import { findSecondaryTableConf } from '../engine/write-helpers.js';
 
 /**
@@ -27,7 +28,11 @@ function buildSecondaryFields(
   joinField: string,
   secondaryTableConf: ITable | undefined
 ): Record<string, TSchema> {
-  const fields: Record<string, TSchema> = { ...joinSchema.fields };
+  const fields: Record<string, TSchema> = writableFields(
+    { ...joinSchema.fields },
+    secondaryTableConf,
+    joinSchema
+  );
 
   if (joinField in fields) {
     fields[joinField] = Type.Optional(fields[joinField]);

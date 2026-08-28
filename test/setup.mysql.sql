@@ -80,3 +80,24 @@ CREATE TABLE shift_swap_request (
   target_agent_id INT,
   message TEXT
 );
+
+-- Columns the database computes for itself. `subtotal` derives from two ordinary columns,
+-- `status_code` from a JSON payload — the two shapes a consumer actually meets. Neither may
+-- be named in an INSERT or an UPDATE: the engine rejects the whole statement, so the
+-- generated schema must not offer them as writable fields. STORED and VIRTUAL are both
+-- covered: MySQL reports them as different values of information_schema EXTRA.
+CREATE TABLE computed_line (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  payload JSON NOT NULL,
+  qty INT NOT NULL DEFAULT 1,
+  price INT NOT NULL DEFAULT 0,
+  subtotal INT GENERATED ALWAYS AS (qty * price) STORED,
+  status_code VARCHAR(50) GENERATED ALWAYS AS (payload->>'$.status') VIRTUAL
+);
+
+-- MySQL has no IDENTITY: AUTO_INCREMENT is the equivalent, and the table exists on both
+-- dialects so the integration suite can assert the same generated shape either way.
+CREATE TABLE identity_row (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  label VARCHAR(255) NOT NULL
+);

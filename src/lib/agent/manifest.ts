@@ -1,6 +1,7 @@
 import type { TSchema } from '@sinclair/typebox';
 import { isCompositePrimary } from '../../types.js';
 import type { DbTables, ITable, JoinDefinition, TableOperation } from '../../types.js';
+import { writeExcludedFields } from '../write-access.js';
 
 const ALL_OPERATIONS: TableOperation[] = [
   'search', 'get', 'insert', 'update', 'delete', 'bulkUpsert', 'bulkDelete',
@@ -15,6 +16,8 @@ interface ManifestField {
   nullable?: boolean;
   /** Present (true) when the field is writable but never returned by reads (readExclude). */
   writeOnly?: boolean;
+  /** Present (true) when the field is returned by reads but refused by every write. */
+  readOnly?: boolean;
 }
 
 interface ManifestJoin {
@@ -89,6 +92,7 @@ function manifestFields(tableConf: ITable): Record<string, ManifestField> {
   const schema = tableConf.Schema;
   const required = new Set(((schema.validation as { required?: string[] }).required) ?? []);
   const readExcluded = new Set(tableConf.readExclude ?? []);
+  const writeExcluded = writeExcludedFields(tableConf, schema);
 
   const fields: Record<string, ManifestField> = {};
   for (const [name, fieldSchema] of Object.entries(schema.fields)) {
@@ -96,6 +100,7 @@ function manifestFields(tableConf: ITable): Record<string, ManifestField> {
     if (required.has(name)) f.required = true;
     if (isNullable(fieldSchema)) f.nullable = true;
     if (readExcluded.has(name)) f.writeOnly = true;
+    if (writeExcluded.has(name)) f.readOnly = true;
     fields[name] = f;
   }
   return fields;

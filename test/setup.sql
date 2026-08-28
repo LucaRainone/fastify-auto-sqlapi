@@ -78,3 +78,23 @@ CREATE TABLE shift_swap_request (
   target_agent_id INTEGER,
   message TEXT
 );
+
+-- Columns the database computes for itself. `subtotal` derives from two ordinary columns,
+-- `status_code` from a JSON payload — the two shapes a consumer actually meets. Neither may
+-- be named in an INSERT or an UPDATE: the engine rejects the whole statement, so the
+-- generated schema must not offer them as writable fields.
+CREATE TABLE computed_line (
+  id SERIAL PRIMARY KEY,
+  payload JSONB NOT NULL DEFAULT '{}',
+  qty INTEGER NOT NULL DEFAULT 1,
+  price INTEGER NOT NULL DEFAULT 0,
+  subtotal INTEGER GENERATED ALWAYS AS (qty * price) STORED,
+  status_code TEXT GENERATED ALWAYS AS (payload->>'status') STORED
+);
+
+-- `GENERATED ALWAYS AS IDENTITY` has no column_default to reveal that the DB fills it in,
+-- which is what used to make the generated schema declare the PK mandatory.
+CREATE TABLE identity_row (
+  id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  label VARCHAR(255) NOT NULL
+);
