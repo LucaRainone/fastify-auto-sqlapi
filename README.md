@@ -13,6 +13,10 @@ MariaDB and generate typed schemas; the database stays the source of truth, and 
 is what a database cannot know — auth, permissions, business rules — as plain TypeScript next to
 your other routes.
 
+It adds to an application that already exists rather than reorganising one: no schema file that
+has to own your database, no migrations, no repository layout to adopt. **One table is a valid
+installation.**
+
 Related tables need no endpoints of their own: reads reach them through joins, writes through
 nested children, so a whole subgraph can live behind a single exposed table.
 
@@ -103,6 +107,8 @@ Concretely, it fits when:
 - the people who change the schema also ship the client
 - you want tenant isolation, validation, pagination caps and Swagger without writing them per table
 - the interesting logic is *rules* (who may do what, what must be valid) rather than *shapes*
+- the back-office already exists and you want to stop hand-writing its next twenty endpoints,
+  without restructuring the twenty you already have
 
 **No, if you are publishing an API you do not control the consumers of.** A public or
 third-party API — a contract with a version number and a deprecation policy, clients you cannot
@@ -111,9 +117,32 @@ indirection is worth paying for there, and generating it from the schema is the 
 Also a poor fit if your endpoints are mostly workflows rather than records, or if your data
 model is deliberately nothing like your API model.
 
-It is not all-or-nothing: `operations` keeps any table off the auto routes, and a table with no
-routes at all can still be reached through a join or written as a nested child. Expose the CRUD
-that is CRUD, hand-write the rest.
+### It drops into a codebase that already exists
+
+You do not have to adopt anything to try it. There is no schema file that must describe your
+whole database first, no migration tool to take over, no repository layout to conform to —
+which is what makes this different from adding an ORM to a project that already runs.
+
+- **One table is a valid installation.** `sqlapi-generate-schema --tables invoice` and
+  `sqlapi-generate-tables invoice` generate for that table alone; `DbTables` contains only what
+  you put in it, and the rest of your database stays invisible to the plugin.
+- **It never writes to your database.** Not a row, not a column: generation is `SELECT`s
+  against `information_schema`, and at runtime the plugin issues no DDL and runs no migrations.
+  Your schema is managed by whatever manages it today.
+- **It uses the connection you already have.** The plugin reads `fastify.pg` or
+  `fastify.mysql` off the instance — if your app already registers `@fastify/postgres`, there is
+  nothing to wire.
+- **It stays inside its prefix.** `prefix: '/api/auto'` and your existing routes never meet it.
+  You can also register only the route plugins you want (`searchRoutes`, `getRoutes`, …), or
+  mount the same tables twice under different prefixes with different auth.
+- **Generated files go where you say** (`outputDir`), and the `Table*.ts` files are yours: the
+  generator never overwrites one that exists, so re-running it only adds files for new tables.
+
+So a realistic first step on an existing back-office is: generate two tables, register the
+plugin under a new prefix behind your existing auth hook, move one list screen onto it, and
+leave everything else exactly where it is. `operations` keeps any table off the auto routes, and
+a table with no routes at all can still be reached through a join or written as a nested child.
+Expose the CRUD that is CRUD, hand-write the rest.
 
 ## Get a REST API in 60 seconds
 
@@ -201,8 +230,12 @@ drop only the assumption that the endpoint looks like a table. Full rationale in
 
 - **Not an ORM.** An ORM is a library *your* code uses to talk to the database — you still
   hand-write every endpoint on top of it. This generates the endpoints themselves, with no ORM
-  underneath: no models, no migrations, no second schema to keep in sync. Every request runs as
-  plain parameterized SQL you can read with `debug: true`.
+  underneath: no models, no migrations, no second schema to keep in sync. And no schema file
+  that has to describe your whole database before anything works: a Prisma-style `schema.prisma`
+  becomes the source of truth and the thing you migrate through, so adopting it is a decision
+  about the entire database. Here the database stays the source of truth and generation is
+  read-only — the CLI issues `SELECT`s against `information_schema` and nothing else, ever.
+  Every request runs as plain parameterized SQL you can read with `debug: true`.
 - **Not GraphQL.** GraphQL buys client-driven flexibility with a schema layer, hand-written
   resolvers and their N+1 traps, mutations one by one, and query-cost analysis to stop hostile
   requests. This covers what most projects reach for GraphQL for — filter, paginate, join,
