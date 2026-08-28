@@ -47,6 +47,46 @@ And multi-tenancy is one plugin option (`getTenantId: (req) => req.user?.organiz
 
 No endpoint written by hand, no resolvers, no query language on the server — and these requests are schema-validated, Swagger-documented, size-capped and tenant-isolated like every other one.
 
+## The API is your schema — on purpose
+
+The first thing people say about this plugin is that it couples the API to the database. It
+does, deliberately, and the objection deserves a precise answer rather than a shrug.
+
+**A hand-written CRUD layer over the same tables is coupled to the same schema** — it just
+retypes it. Rename a column there and you edit the model, the DTO, the mapper, the validator,
+the Swagger annotation and the client: six places instead of one, and the coupling is still
+there. What that layer really buys is an indirection that lets the contract stay still while the
+schema moves. That is worth wanting — and it is paid for continuously and cashed in rarely. This
+plugin makes the opposite bet, and the bet is the point.
+
+**The coupling is checked, not implied.** Schemas are generated from `information_schema`, so a
+schema change that breaks the API breaks it when you regenerate and compile. A hand-written
+mapper nobody remembered to update fails in production instead.
+
+**And it is a default, not a fact.** The shape you expose is not forced to be the shape you
+store: `readExclude` and `writeExclude` hide a column from reads or from writes, trimming the
+Schema removes it from both, `schemaOverrides` narrows a type, `computedFields` adds a value
+that is derived rather than stored, `afterRead` turns a stored representation back into the API
+one, `operations` decides which of the seven routes exist at all, a relation's `alias` and
+`fields` name and narrow what a join exposes, and `extraFilters` gives you a filter with no
+column behind it. When none of that fits, the operation was never CRUD: write the route by hand
+and call `app.sqlApi.*` inside it — you keep filters, joins, tenant scoping, hooks and
+validation, and drop only the assumption that the endpoint looks like a table.
+
+### Where the objection is right
+
+A **public or third-party API** — consumers you cannot redeploy alongside your schema, a
+contract with a version number and a deprecation policy — is a surface whose stability has to
+outlive your refactors. There the indirection earns its cost, and generating the surface from
+the schema is the wrong default. Keep those tables off the auto routes (`operations`) or behind
+hand-written endpoints.
+
+What this plugin is for is the other surface: **back-office and admin tools**, where superadmin,
+admin and tenant-admin roles need full control over the domain, the schema *is* the domain
+model, and whoever changes a column is whoever changes the screen that shows it. There a
+translation layer has no reader — it exists only to be kept in sync with the thing it
+translates. Full rationale in [ADR 0017](./docs/adr/0017-the-schema-is-the-contract.md).
+
 ## Not an ORM, not GraphQL — a third thing
 
 - **Not an ORM.** An ORM is a library *your* code uses to talk to the database — you still hand-write every endpoint on top of it. This plugin generates the endpoints themselves. And there is no ORM underneath either: no models, no migrations, no second schema to keep in sync. The database is the single source of truth (the CLI reads it from `information_schema`), and every request runs as plain parameterized SQL you can read with `debug: true`.
@@ -1032,8 +1072,9 @@ await app.register(async (instance) => {
 
 ## Design Decisions
 
-Deliberate, non-obvious choices — open-by-default, non-transactional bulk operations,
-always-updatable fields, raw DB errors, insert-pipeline ordering — are recorded as
+Deliberate, non-obvious choices — the schema as the API contract, open-by-default,
+non-transactional bulk operations, always-updatable fields, raw DB errors, insert-pipeline
+ordering — are recorded as
 [Architecture Decision Records in `docs/adr/`](./docs/adr/README.md), each with its
 rationale and the alternatives that were rejected. Read them before filing an issue that
 proposes changing one of these behaviors.

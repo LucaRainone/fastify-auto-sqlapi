@@ -6,6 +6,11 @@ You are configuring a Fastify server that uses `fastify-auto-sqlapi` to auto-gen
 
 The plugin generates REST endpoints (search, get, insert, update, delete, bulk upsert, bulk delete) from database table definitions. No ORM — raw SQL. Supports **PostgreSQL**, **MySQL**, and **MariaDB**. The consumer defines table configurations, and the plugin handles routing, validation, and query execution.
 
+**The database schema is the API contract, on purpose.** The exposed shape follows the stored shape *by default*, and every part of that default is overridable — `readExclude`, `writeExclude`, a trimmed Schema, `schemaOverrides`, `computedFields`, `afterRead`, `operations`, relation `alias`/`fields`, `extraFilters`. Two consequences for how you work:
+
+- Do not propose a DTO or mapping layer, and do not reshape a response by hand in a route wrapper. Reach for the lever that matches the concern (the table is in [ADR 0017](./docs/adr/0017-the-schema-is-the-contract.md)); when none fits, the operation is not CRUD — write a custom route and call `app.sqlApi.*` inside it, which keeps filters, joins, tenant scoping, hooks and validation.
+- The target surface is internal: back-office and admin tools where the schema *is* the domain model. If the user is building a **public or third-party API** — consumers they cannot redeploy with their schema, a versioned contract — say so, and keep those tables off the auto routes via `operations` rather than generating the surface from the schema.
+
 ## Start here
 
 These files are the **contract**. Everything a consumer can rely on is documented here; find
