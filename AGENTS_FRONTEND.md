@@ -3,7 +3,7 @@
 This file is the request GRAMMAR. For this deployment's tables/fields/aliases (the
 vocabulary), fetch `GET {p}/agent/manifest.md` if available, or consult Swagger.
 
-Rules: all request/response fields camelCase. `{p}` = deployment prefix (e.g. `/api`). Join keys are backend-declared ALIASES (default = joined table name; list per table in Swagger). Write responses are PK-only. Write bodies reject unknown properties (400) — send only real schema fields. Arrays for bulk are capped (default 1000/request; chunk client-side). Composite-PK tables have no get/delete/bulk-delete (404) — use search / update.
+Rules: all request/response fields are camelCase schema field names — how the database names its columns is invisible here and irrelevant, the server maps them. `{p}` = deployment prefix (e.g. `/api`). Join keys are backend-declared ALIASES (default = joined table name; list per table in Swagger). Write responses are PK-only. Write bodies reject unknown properties (400) — send only real schema fields. Arrays for bulk are capped (default 1000/request; chunk client-side). Composite-PK tables have no get/delete/bulk-delete (404) — use search / update.
 
 ## Endpoints
 

@@ -4,6 +4,31 @@ How to set up schemas, tables, and configure the plugin.
 
 > ⚠️ **Migrating from a previous version?** The join API was redesigned (no backward compat). See **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)** for the full migration guide — request/response key renames, `buildRelation` signature, and validation rules. Common to backend and frontend.
 
+## Section map
+
+This file is long — jump, don't scan. Every supported behavior is described here or in the
+files [AGENTS.md](./AGENTS.md) links to; the compiled `dist/` is not documentation and must not
+be read to answer a question about the API.
+
+| Section | Answers |
+|---|---|
+| [Setup Workflow](#setup-workflow) | install, `sqlapi.config.ts`, env vars, generating Schemas and tables, registering the plugin |
+| [defineTable() — Complete Reference](#definetable--complete-reference) | every table key, composite PKs, `buildRelation`, `extraFilters` + `extendedCondition` |
+| [Computed Fields](#computed-fields-extension-system) | virtual SQL-expression fields usable in filters, conditions, orderBy, `selectComputed` |
+| [ConditionBuilder API](#conditionbuilder-api) | building WHERE fragments by hand |
+| [SqlApi](#sqlapi--programmatic-high-level-api) | **querying from your own routes, scripts and jobs** — `app.sqlApi`, `createSqlApi` |
+| [QueryClient API](#queryclient-api) | the raw SQL layer under SqlApi — `db.*` inside hooks |
+| [Swagger](#swagger) | exposing the generated docs |
+| [Multi-Tenant Filtering](#multi-tenant-filtering) | `tenantScope` direct / indirect / `anyOf`, `getTenantId`, admin bypass |
+| [Key Conventions](#key-conventions) | casing, nullability, `excludeFromCreation`, `readExclude`, `upsertMap`, `schemaOverrides`, `afterRead`, error shape, request limits |
+| [Common Backend Patterns](#common-backend-patterns) | auth, custom validation, audit fields, encryption at rest, full-text search, per-prefix access levels |
+| [FAQ / Gotchas](#faq--gotchas) | schema exports, prefix behavior, TypeBox conflicts, dialect differences |
+
+**Casing in one line**: everything you write is camelCase (schema field names) except raw SQL,
+`tenantScope` columns and `db.*` record keys, which name the real columns — in whatever case the
+table uses. Full table in
+[AGENTS.md](./AGENTS.md#naming-camelcase-in-code-real-column-names-only-when-you-address-the-db-directly).
+
 ## Setup Workflow
 
 ### 1. Install
@@ -69,7 +94,7 @@ npx sqlapi-generate-schema                # PostgreSQL (default)
 npx sqlapi-generate-schema --dialect mysql # MySQL/MariaDB
 ```
 
-This introspects the database and generates one `Schema*.ts` file per table in `outputDir/schemas/`. These files are auto-generated and should not be manually edited. They contain TypeBox field definitions, `col()` for camelCase→snake_case mapping, and validation schemas. MySQL/MariaDB requires `mysql2` as a peer dependency.
+This introspects the database and generates one `Schema*.ts` file per table in `outputDir/schemas/`. These files are auto-generated and should not be manually edited. They contain TypeBox field definitions, `col()` mapping each camelCase field to its real column, and validation schemas. MySQL/MariaDB requires `mysql2` as a peer dependency.
 
 ### 5. Generate tables template
 
@@ -597,6 +622,13 @@ All values are parameterized (`$1, $2, ...`), never interpolated.
 
 Use `SqlApi` to perform CRUD operations from custom routes with the same capabilities as the auto-generated endpoints. The internal auto-generated routes also use `SqlApi`, guaranteeing a single code path.
 
+It takes and returns **camelCase schema field names**, exactly like the HTTP bodies documented in
+[AGENTS_FRONTEND.md](./AGENTS_FRONTEND.md) — `sqlApi.search('order', { filters: { customerId: 3 } })`,
+never `customer_id`. Hooks, validation, computed fields and tenant scoping all run, so this is the
+right entry point for application code. Drop to [`QueryClient`](#queryclient-api) only for SQL that
+has no equivalent here — it is the layer underneath, with none of that behavior and with real DB
+column names.
+
 ### Using `app.sqlApi` (recommended)
 
 After registering the plugin, `app.sqlApi` is available everywhere — no extra configuration needed:
@@ -679,6 +711,15 @@ The `request` parameter is optional. Pass it when you need tenant resolution or 
 
 ## QueryClient API
 
+The SQL layer **underneath** [`SqlApi`](#sqlapi--programmatic-high-level-api): it executes what you
+give it and nothing else — no hooks, no validation, no computed fields, no tenant scoping. Reach for
+it only when the operation has no `sqlApi` equivalent; anything expressed as CRUD belongs there.
+
+It speaks the **database's own names**: real table names (`Schema.tableName`, not the schema
+variable) and real column names — get them from `Schema.col('customerId')` rather than assuming a
+convention, since the columns may be snake_case or already camelCase. Passing a schema field name
+the mapping would have translated produces a SQL error at runtime, not a validation error.
+
 Available in hooks via the `db` parameter:
 
 ```typescript
@@ -695,7 +736,7 @@ db.expression(value);                                                   // Raw S
 
 `pkCol` can be a string (`'id'`) or an array (`['agent_id', 'team_id']`) for composite PKs. PostgreSQL/MariaDB use `RETURNING`, MySQL uses `insertId`.
 
-Record keys are snake_case column names. Values are parameterized.
+Record keys are real column names (`Schema.col('field')`). Values are parameterized.
 
 ---
 
@@ -740,6 +781,12 @@ await app.register(fastifyAutoSqlApi, {
   },
 });
 ```
+
+Every column named in a `tenantScope` — `column`, the entries of `anyOf`, `through.localField`
+and `through.foreignField` — is a **real DB column name**, not a camelCase schema field: the scope
+is applied to the SQL, after the request payload has been converted. Write them as the table
+declares them (`organization_id` below, but `organizationId` on a camelCase table); clients keep
+sending the camelCase field name either way, including when anchoring an `anyOf` write.
 
 ### Direct tenant (column on the table itself)
 
