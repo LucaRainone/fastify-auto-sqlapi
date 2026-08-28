@@ -1,10 +1,25 @@
 # fastify-auto-sqlapi
 
-**Your database already knows its tables, columns and relations. This plugin turns that knowledge into a complete REST API inside your [Fastify](https://fastify.dev/) app.**
+**Your database already knows its tables, columns and relations. This plugin turns that knowledge into a typed, validated REST API inside your [Fastify](https://fastify.dev/) app.**
 
-Two CLI commands introspect PostgreSQL / MySQL / MariaDB and generate typed schemas; one `register()` call turns each table *you choose to expose* into seven endpoints: search with filters, advanced conditions, relation joins and aggregations; validated writes with nested child records; bulk upsert/delete; multi-tenant isolation; Swagger docs. Related tables don't need endpoints of their own — reads reach them through joins, writes through nested children — so a whole subgraph can live behind a single exposed table. What's left to write is what makes your product yours — auth, business rules, custom logic — as plain TypeScript hooks next to your other routes.
+```typescript
+await app.register(fastifyAutoSqlApi, { DbTables: dbTables, swagger: true, prefix: '/api' });
+```
 
-One request, to show the point — *"active customers with over 500 total in completed orders, with their order stats, biggest spenders first"*:
+### One `register()` call. Seven endpoints for every table you choose to expose.
+
+No ORM. No GraphQL. No hand-written CRUD layer. Two CLI commands read PostgreSQL / MySQL /
+MariaDB and generate typed schemas; the database stays the source of truth, and what you write
+is what a database cannot know — auth, permissions, business rules — as plain TypeScript next to
+your other routes.
+
+Related tables need no endpoints of their own: reads reach them through joins, writes through
+nested children, so a whole subgraph can live behind a single exposed table.
+
+## See what that buys you
+
+*"Active customers with over 500 total in completed orders, with their order stats, biggest
+spenders first."* No resolver, no query builder, no one-off endpoint:
 
 ```jsonc
 // POST /api/search/customer?orderBy=orders.sum.total DESC&page=1&itemsPerPage=20
@@ -19,8 +34,6 @@ One request, to show the point — *"active customers with over 500 total in com
   "conditions": [{ "field": "orders.sum.total", "method": "isGreater", "params": [500] }]
 }
 ```
-
-Under the hood this is a fixed, request-shaped number of set-based queries — the main select plus one per requested join alias (EXISTS clauses and correlated subqueries ride inside them), **never one per returned row**. There are no lazy relations to accidentally loop over: the N+1 problem is structurally absent, not something you remember to avoid.
 
 Writes read the same way — *"sync these clients and their tags: update the ones that exist, insert the missing ones, don't duplicate a tag"*:
 
@@ -47,149 +60,77 @@ And multi-tenancy is one plugin option (`getTenantId: (req) => req.user?.organiz
 
 No endpoint written by hand, no resolvers, no query language on the server — and these requests are schema-validated, Swagger-documented, size-capped and tenant-isolated like every other one.
 
-## The API is your schema — on purpose
+## What you get
 
-The first thing people say about this plugin is that it couples the API to the database. It
-does, deliberately, and the objection deserves a precise answer rather than a shrug.
+**Reads** — filters and equality shortcuts · advanced conditions (18 operators) · pagination
+with caps · four explicit relation families (`joinMustExist` for EXISTS filtering,
+`joinMultiple` for child rows, `joinGroup` for aggregations, `joinLeft` for N:1 parents) ·
+aggregations with HAVING-style conditions · ordering by related and computed values · computed
+fields declared as SQL expressions (JSON extraction, derived strings, date bucketing)
 
-**A hand-written CRUD layer over the same tables is coupled to the same schema** — it just
-retypes it. Rename a column there and you edit the model, the DTO, the mapper, the validator,
-the Swagger annotation and the client: six places instead of one, and the coupling is still
-there. What that layer really buys is an indirection that lets the contract stay still while the
-schema moves. That is worth wanting — and it is paid for continuously and cashed in rarely. This
-plugin makes the opposite bet, and the bet is the point.
+**Writes** — validated inserts and updates · nested child records with foreign keys filled in
+from the parent · child deletions in the same request · bulk upsert and bulk delete ·
+transactions, so a write and its children commit or roll back together
 
-**The coupling is checked, not implied.** Schemas are generated from `information_schema`, so a
-schema change that breaks the API breaks it when you regenerate and compile. A hand-written
-mapper nobody remembered to update fails in production instead.
+**Production** — multi-tenant row isolation from one `getTenantId`, enforced on reads *and*
+writes · hooks before and after every operation, plus `afterRead` · field-level and
+cross-entity validation returning structured `400`s · per-table route whitelists · read and
+write column visibility · Swagger from the same schemas · request-size and pagination caps ·
+plain parameterized SQL you can print with `debug: true`
 
-**And it is a default, not a fact.** The shape you expose is not forced to be the shape you
-store: `readExclude` and `writeExclude` hide a column from reads or from writes, trimming the
-Schema removes it from both, `schemaOverrides` narrows a type, `computedFields` adds a value
-that is derived rather than stored, `afterRead` turns a stored representation back into the API
-one, `operations` decides which of the seven routes exist at all, a relation's `alias` and
-`fields` name and narrow what a join exposes, and `extraFilters` gives you a filter with no
-column behind it. When none of that fits, the operation was never CRUD: write the route by hand
-and call `app.sqlApi.*` inside it — you keep filters, joins, tenant scoping, hooks and
-validation, and drop only the assumption that the endpoint looks like a table.
+Views are table configs like any other, materialized views included. And when generated CRUD
+stops being the right abstraction, call `app.sqlApi.*` from a hand-written route: you keep the
+filters, joins, tenant scoping, hooks and validation, and drop only the assumption that the
+endpoint looks like a table.
 
-### Where the objection is right
+### N+1 is structurally absent
 
-A **public or third-party API** — consumers you cannot redeploy alongside your schema, a
-contract with a version number and a deprecation policy — is a surface whose stability has to
-outlive your refactors. There the indirection earns its cost, and generating the surface from
-the schema is the wrong default. Keep those tables off the auto routes (`operations`) or behind
-hand-written endpoints.
+A request runs the main select plus one query per requested join alias — a number fixed by the
+request, **never by the number of rows returned**. There are no lazy relations to accidentally
+loop over, so N+1 is not something you have to remember to avoid.
 
-What this plugin is for is the other surface: **back-office and admin tools**, where superadmin,
-admin and tenant-admin roles need full control over the domain, the schema *is* the domain
-model, and whoever changes a column is whoever changes the screen that shows it. There a
-translation layer has no reader — it exists only to be kept in sync with the thing it
-translates. Full rationale in [ADR 0017](./docs/adr/0017-the-schema-is-the-contract.md).
+## Is this for you?
 
-## Not an ORM, not GraphQL — a third thing
+**Yes, if you are building an internal tool** — a back-office, an admin panel, a management
+system where superadmin, admin and tenant-admin roles need full control over the domain. There
+the database schema *is* the domain model, and whoever changes a column is whoever changes the
+screen that shows it. A hand-written CRUD layer in the middle has no reader: it exists only to
+be kept in sync with the thing it translates.
 
-- **Not an ORM.** An ORM is a library *your* code uses to talk to the database — you still hand-write every endpoint on top of it. This plugin generates the endpoints themselves. And there is no ORM underneath either: no models, no migrations, no second schema to keep in sync. The database is the single source of truth (the CLI reads it from `information_schema`), and every request runs as plain parameterized SQL you can read with `debug: true`.
-- **Not GraphQL.** GraphQL buys client-driven flexibility with a heavy toolchain: a schema layer, hand-written resolvers (and their N+1 traps), mutations written one by one, client libraries, and query-cost analysis to stop hostile requests. This plugin covers what most projects actually reach for GraphQL for — filter, paginate, join related data, aggregate, in one round trip — with a fixed JSON grammar over plain REST: curl-able, Swagger-documented, bounded by design (join depth is fixed, page and bulk sizes are capped). The write side — nested children, upserts, bulk — is generated too, which GraphQL never gives you for free. What you give up: arbitrarily deep nesting, per-field selection on the main table, subscriptions. If you need those, you need GraphQL; most CRUD backends don't.
-- **Not a hosted black box.** PostgREST / Hasura / Supabase give you an instant API as a separate service, configured from the outside. This is a plugin inside your own app: hooks, validation and auth are TypeScript functions in your codebase, and you can always drop down to `app.sqlApi.*` or raw SQL in a custom route — same engine, no lock-in.
+Concretely, it fits when:
 
-## Features
+- most of your endpoints are "list with filters", "get one", "save", "save many"
+- the people who change the schema also ship the client
+- you want tenant isolation, validation, pagination caps and Swagger without writing them per table
+- the interesting logic is *rules* (who may do what, what must be valid) rather than *shapes*
 
-- **Zero boilerplate** — 7 endpoints per exposed table; related tables can stay behind joins and nested writes instead of getting endpoints of their own
-- **No ORM** — raw SQL via `pg` + parameterized queries; set-based joins, so no N+1 by construction
-- **Agent-ready** — `AGENTS.md` and the ADRs ship *inside* the npm package, so a coding agent can configure the library without reading the source or guessing intent
-- **TypeBox validation** — request/response schemas auto-generated from your DB
-- **Joins** — four explicit families (`joinMustExist`, `joinMultiple`, `joinGroup`, `joinLeft`) with alias support
-- **Computed fields** — declare virtual fields as SQL expressions in `defineTable`; usable like schema fields in filters/orderBy/conditions, and opt-in projected in the response via `selectComputed`. Covers JSON extraction, derived columns, dialect-aware date bucketing
-- **Bulk operations** — batch insert/upsert/delete in single queries
-- **Multi-tenant** — automatic row-level isolation, zero code in handlers
-- **Validation** — structured field-level validation with cross-entity support
-- **Hooks** — full before/after matrix (insert, update, delete, bulk delete) for custom logic
-- **Transactions** — insert/update with secondaries run atomically (rollback on failure)
-- **Swagger UI** — optional, auto-configured from your schemas
-- **Composable** — register all routes or pick only what you need
+**No, if you are publishing an API you do not control the consumers of.** A public or
+third-party API — a contract with a version number and a deprecation policy, clients you cannot
+redeploy alongside your schema — needs a surface whose stability outlives your refactors. That
+indirection is worth paying for there, and generating it from the schema is the wrong default.
+Also a poor fit if your endpoints are mostly workflows rather than records, or if your data
+model is deliberately nothing like your API model.
 
-> ⚠️ **Upgrading?** See **[CHANGELOG.md](./CHANGELOG.md)** for what changed in each release, and
-> **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)** for migration guides. If you use `computedFields`
-> with bound values, read the 0.1.6 entry — earlier versions could return wrong rows.
+It is not all-or-nothing: `operations` keeps any table off the auto routes, and a table with no
+routes at all can still be reached through a join or written as a nested child. Expose the CRUD
+that is CRUD, hand-write the rest.
 
-
-## Quick Start
-
-### 1. Install
+## Get a REST API in 60 seconds
 
 ```bash
 npm install fastify-auto-sqlapi fastify @fastify/postgres
-# MySQL/MariaDB: npm install fastify-auto-sqlapi fastify mysql2
+# MySQL / MariaDB: npm install fastify-auto-sqlapi fastify mysql2
 ```
 
-### 2. Create the config file
-
-Create `sqlapi.config.ts` (or `.mjs`/`.js`) in your project root. This is used only by the
-CLI generators, not at runtime.
-
-```typescript
-export default {
-  outputDir: './src/db',       // base dir for generated files (default: './src/db')
-  schema: 'public',            // PostgreSQL schema to introspect (default: 'public')
-  // dialect: 'mysql',         // 'postgres' (default) | 'mysql' | 'mariadb'
-  // envFile: '.env.local',    // env file to load (default: '.env')
-  // excludeTables: ['knex_*'], // tables to skip in schema generation ('*' = wildcard)
-};
-```
-
-The DB connection is read from environment variables (a `.env` file in the project root is
-loaded automatically, without overriding variables already set):
+Create `sqlapi.config.ts` in the project root (used by the CLI only, not at runtime), then:
 
 ```bash
-# Either a full connection string:
-DATABASE_URL=postgres://user:pass@localhost:5432/mydb   # or mysql://...
-
-# Or individual vars (PostgreSQL):
-POSTGRES_HOST=127.0.0.1
-POSTGRES_PORT=5432
-POSTGRES_USER=myuser
-POSTGRES_PASSWORD=mypassword
-POSTGRES_DB=mydb
-
-# Or individual vars (MySQL/MariaDB):
-MYSQL_HOST=127.0.0.1
-MYSQL_PORT=3306
-MYSQL_USER=myuser
-MYSQL_PASSWORD=mypassword
-MYSQL_DB=mydb
+npx sqlapi-generate-schema     # one TypeBox schema per table → <outputDir>/schemas/
+npx sqlapi-generate-tables --all   # one defineTable() template per table → <outputDir>/tables/
 ```
 
-### 3. Generate schemas from your database
-
-```bash
-npx sqlapi-generate-schema                  # all tables
-npx sqlapi-generate-schema --tables customer,order   # only some
-npx sqlapi-generate-schema --dialect mysql  # override the config dialect
-```
-
-This introspects your tables and generates one TypeBox schema file per table in
-`<outputDir>/schemas/` (e.g. `SchemaCustomer.ts`, `SchemaOrder.ts`). These files are
-auto-generated — don't edit them; re-run the command after a DB change.
-
-To keep some tables out of schema generation (migration bookkeeping, PostGIS internals, …)
-list them in `excludeTables` in the config — exact table names or `*` globs (e.g.
-`knex_*`). Excluded tables are invisible to the generator: their schemas are not created,
-and any previously generated schema file is removed as an orphan on the next full run,
-like that of a dropped table.
-
-### 4. Generate the tables template
-
-```bash
-npx sqlapi-generate-tables --all            # or: npx sqlapi-generate-tables customer order
-```
-
-This creates in `<outputDir>/tables/` one `Table*.ts` file per table — a `defineTable()`
-call with auto-detected primary keys, foreign key relations, and all available options as
-commented code — plus a `dbTables.ts` index. **These files are yours to customize**: the
-generator never overwrites an existing file, so re-running it only adds files for new tables.
-
-### 5. Register the plugin
+Schema files are regenerated on every run and should not be edited. **Table files are yours**:
+the generator never overwrites one that exists, so re-running only adds files for new tables.
 
 ```typescript
 import Fastify from 'fastify';
@@ -198,950 +139,156 @@ import { fastifyAutoSqlApi } from 'fastify-auto-sqlapi';
 import { dbTables } from './src/db/tables/dbTables.js';
 
 const app = Fastify();
-
-await app.register(fastifyPostgres, {
-  connectionString: 'postgres://user:pass@localhost:5432/mydb',
-});
-
-await app.register(fastifyAutoSqlApi, {
-  DbTables: dbTables,
-  swagger: true,
-  prefix: '/api',
-});
-
+await app.register(fastifyPostgres, { connectionString: 'postgres://user:pass@localhost:5432/mydb' });
+await app.register(fastifyAutoSqlApi, { DbTables: dbTables, swagger: true, prefix: '/api' });
 await app.listen({ port: 3000 });
 ```
 
-That's it. For a table called `customer`, you now have:
+For a table called `customer` you now have:
 
-| Method | URL | Description |
-|--------|-----|-------------|
-| `POST` | `/api/search/customer` | Search with filters, pagination, joins |
-| `GET` | `/api/rest/customer/:id` | Get a single record by primary key |
-| `POST` | `/api/rest/customer` | Insert a new record |
-| `PUT` | `/api/rest/customer` | Update a record |
-| `DELETE` | `/api/rest/customer/:id` | Delete a record |
-| `PUT` | `/api/bulk/customer` | Bulk upsert (array of records) |
-| `POST` | `/api/bulk/customer/delete` | Bulk delete (array of PKs) |
+| Method | URL | |
+|--------|-----|---|
+| `POST` | `/api/search/customer` | search with filters, pagination, joins, aggregations |
+| `GET` | `/api/rest/customer/:id` | get one by primary key |
+| `POST` | `/api/rest/customer` | insert (+ nested children) |
+| `PUT` | `/api/rest/customer` | update (+ nested children and deletions) |
+| `DELETE` | `/api/rest/customer/:id` | delete by primary key |
+| `PUT` | `/api/bulk/customer` | bulk upsert |
+| `POST` | `/api/bulk/customer/delete` | bulk delete |
 
-> **Note:** Search uses `POST` because filters are passed as JSON in the request body.
+Search is a `POST` because the filters travel as JSON in the body. Every option of `defineTable()` and of `register()` is documented in
+[AGENTS_BACKEND.md](./AGENTS_BACKEND.md); the full request grammar is in
+[AGENTS_FRONTEND.md](./AGENTS_FRONTEND.md).
 
-## Working with coding agents
+## Why this approach
 
-The library is documented for two readers. Humans get this README; agents get task-oriented
-files that ship in the published package, so they are already on disk after `npm install`:
+The first objection is always that this couples the API to the database. It does, deliberately,
+and the answer is worth stating precisely.
 
-| File                                   | Contents                                                          |
-| -------------------------------------- | ----------------------------------------------------------------- |
-| `AGENTS.md`                            | Entry point: what the library does, which file to read for what   |
-| `AGENTS_BACKEND.md`                    | `defineTable` reference, hooks, tenancy, computed fields, CLI      |
-| `AGENTS_FRONTEND.md`                   | Request/response shapes for every endpoint                        |
-| `docs/adr/`                            | Why the non-obvious behaviours are what they are                  |
+**A hand-written CRUD layer over the same tables is coupled to the same schema** — it just
+retypes it. Rename a column there and you edit the model, the DTO, the mapper, the validator,
+the Swagger annotation and the client: six places instead of one, and the coupling is still
+there. What that layer really buys is an indirection that lets the contract stay still while the
+schema moves — worth wanting, paid for continuously, cashed in rarely. This plugin makes the
+opposite bet, and the bet is the point.
 
-Point your agent at them once:
+**The coupling is checked, not implied.** Schemas are generated from `information_schema`, so a
+schema change that breaks the API breaks it when you regenerate and compile. A hand-written
+mapper nobody remembered to update fails in production instead.
+
+**And it is a default, not a fact.** Your schema defines the shape; your code defines the rules.
+The shape you expose is not forced to be the shape you store — there is a specific lever for
+each way they need to differ:
+
+| To decouple | Use |
+|---|---|
+| a column must never be read | `readExclude` |
+| a column must never be written | `writeExclude` |
+| a column must not exist for the API at all | trim it out of the Schema |
+| the API type must be stricter than the column | `schemaOverrides` |
+| the value is derived, not stored | `computedFields` |
+| the stored representation is not the API one | `afterRead` (decrypt, unpack, rescale) |
+| a table must not have all seven routes | `operations` |
+| a relation must be named for the API, not the DB | the relation `alias` and its `fields` allowlist |
+| a filter has no column behind it | `extraFilters` |
+
+When none of them fits, the operation was never CRUD: write the route by hand and call
+`app.sqlApi.*` inside it — you keep filters, joins, tenant scoping, hooks and validation, and
+drop only the assumption that the endpoint looks like a table. Full rationale in
+[ADR 0017](./docs/adr/0017-the-schema-is-the-contract.md).
+
+### Not an ORM, not GraphQL — a third thing
+
+- **Not an ORM.** An ORM is a library *your* code uses to talk to the database — you still
+  hand-write every endpoint on top of it. This generates the endpoints themselves, with no ORM
+  underneath: no models, no migrations, no second schema to keep in sync. Every request runs as
+  plain parameterized SQL you can read with `debug: true`.
+- **Not GraphQL.** GraphQL buys client-driven flexibility with a schema layer, hand-written
+  resolvers and their N+1 traps, mutations one by one, and query-cost analysis to stop hostile
+  requests. This covers what most projects reach for GraphQL for — filter, paginate, join,
+  aggregate in one round trip — with a fixed JSON grammar over plain REST: curl-able,
+  Swagger-documented, bounded by design. The write side is generated too. What you give up:
+  arbitrarily deep nesting, per-field selection on the main table, subscriptions.
+- **Not a hosted black box.** PostgREST / Hasura / Supabase give you an API as a separate
+  service, configured from outside. This is a plugin inside your own app: hooks, validation and
+  auth are TypeScript functions in your codebase, and you can always drop to `app.sqlApi.*` or
+  raw SQL in a custom route. No lock-in.
+
+Queries are set-based: the main select plus one per requested join alias, **never one per
+returned row**. There are no lazy relations to loop over — N+1 is structurally absent, not
+something you remember to avoid.
+
+## Before you ship
+
+> ⚠️ **The plugin is open by default.** Registering it with no further configuration exposes
+> **every operation on every table in `DbTables`** — reads *and* writes, bulk delete included —
+> to anyone who can reach the server. That is intentional: the plugin provides the tools and
+> imposes no auth model ([ADR 0002](./docs/adr/0002-open-by-default.md)). Locking it down is
+> yours to do.
+
+Five things decide whether a deployment is safe. Each is one option, and each is covered in
+full in [AGENTS_BACKEND.md](./AGENTS_BACKEND.md).
+
+**1. Who may call the routes** — `onRequests` runs before every generated route, globally or per
+table. It is where `jwtVerify()` and your role checks go.
+
+**2. Which routes exist** — `operations: ['search', 'get']` registers only those; the rest answer
+404. It gates HTTP only: your own code still reaches everything through `app.sqlApi.*`.
+
+**3. A declared join is a read grant.** Neither of the two above follows a join: a join is
+resolved inside the *host* table's query, so the target's hooks never run and its `operations`
+whitelist does not apply. A table with `operations: []` is still fully readable through any
+relation pointing at it. `allowedReadJoins` is therefore a security decision — and
+`buildRelation(..., { fields: ['id', 'name'] })` narrows what a relation exposes, fail-closed.
+([ADR 0010](./docs/adr/0010-joins-do-not-run-route-guards.md),
+[ADR 0011](./docs/adr/0011-join-fields-allowlist.md))
+
+**4. Every Schema field is updatable by default.** `excludeFromCreation` is an ergonomics tool
+for inserts, not a security mechanism, and it deliberately does not apply to updates. So
+`isAdmin`, roles, ownership and state columns *will* be accepted by the generated update route
+if they are in the Schema. Whether a field may change is a product decision the plugin cannot
+make for you — encode it in `beforeUpdate` (silent strip) or `validate` (loud 400), or keep the
+privileged transition off the auto routes entirely.
+([ADR 0004](./docs/adr/0004-updates-always-open.md))
+
+**5. What leaves the server.** Any error the plugin did not raise itself becomes a bare `500`
+carrying a `requestId` — driver messages name your tables, columns and constraints, and they
+stay in the log. No status code is remapped (a unique violation is a `500`, not a `409`: that
+mapping is product logic, for your `setErrorHandler`). Set `exposeDebugInfo: true` while
+developing to get the driver detail on the wire, additively.
+([ADR 0013](./docs/adr/0013-sanitized-db-errors.md))
+
+Two caps are on by default: `maxItemsPerPage` (1000) bounds a search — and is applied as the
+`LIMIT` even with no paginator, so an empty-body search cannot dump a table — and `maxBulkItems`
+(1000) bounds a bulk array. Write bodies are `additionalProperties: false`, so the Schema is the
+write whitelist and there is no mass assignment; note that Fastify *strips* an unknown field by
+default rather than rejecting it.
+
+## Documentation
+
+| | |
+|---|---|
+| [AGENTS_BACKEND.md](./AGENTS_BACKEND.md) | **The reference.** Setup, plugin options, every `defineTable()` key, joins, computed fields, hooks, validation, multi-tenancy, views, `SqlApi`, `QueryClient`, Swagger, patterns, FAQ. Opens with a section map — jump, don't scan. |
+| [AGENTS_FRONTEND.md](./AGENTS_FRONTEND.md) | **The client contract.** Every endpoint's request and response shape, the four join families, conditions, ordering, pagination, error shapes. |
+| [docs/adr/](./docs/adr/README.md) | **Why it behaves like this.** Open-by-default, non-transactional bulk, always-updatable fields, raw DB errors, the schema-as-contract bet. Read the relevant one before filing an issue that proposes changing one of these. |
+| [CHANGELOG.md](./CHANGELOG.md) · [BREAKING_CHANGES.md](./BREAKING_CHANGES.md) | What changed, and how to migrate. |
+
+The two `AGENTS_*` files are named for their other audience — they ship inside the npm package
+so a coding agent finds them after `npm install` — but they are the reference documentation for
+people too, and they are written to be read. Point an agent at them once:
 
 > Read `node_modules/fastify-auto-sqlapi/AGENTS.md` before touching anything under `src/db/`.
 
-Three design choices make the generated code predictable enough for an agent to write it
-unsupervised:
-
-- **Configuration is declarative and local.** A table is one `defineTable()` call — nothing to
-  wire across files, so a diff is reviewable at a glance.
-- **One naming convention.** camelCase in requests, responses, hooks and validators; the
-  mapping to DB columns is automatic. There is no second convention to remember, and no
-  layer where the agent has to guess which one applies.
-- **Errors are machine-readable.** A 400 carries `fields: [{ path, code, message }]`, so a
-  failing request tells the agent exactly what to fix instead of requiring a guess.
-
-The ADRs matter more than they look: they answer the "why is it like this?" questions
-(open-by-default, non-transactional bulk, always-updatable fields) that an agent would
-otherwise resolve by inventing a workaround — or by proposing to change intentional behaviour.
-
-## Table Configuration
-
-Tables are configured with `defineTable()`. The only required fields are `primary` and the output of `exportTableInfo()`:
-
-```typescript
-import { defineTable, exportTableInfo } from 'fastify-auto-sqlapi';
-import { SchemaCustomer } from './SchemaCustomer.js';
-
-const TableCustomer = defineTable({
-  primary: 'id',
-  ...exportTableInfo(SchemaCustomer),
-});
-```
-
-`exportTableInfo()` provides the schema, a filter builder (auto-generates WHERE clauses from request fields), and extra filter definitions.
-
-Export all your tables as a single record:
-
-```typescript
-export const dbTables = {
-  customer: TableCustomer,
-  order: TableOrder,
-};
-```
-
-The keys in this record (`customer`, `order`) become the table names in the URL paths.
-
-### All available options
-
-```typescript
-const TableCustomer = defineTable({
-  // Required
-  primary: 'id',
-  ...exportTableInfo(SchemaCustomer),
-
-  // Ordering & filtering
-  defaultOrder: 'name',                     // default ORDER BY (camelCase fields map to DB columns)
-  excludeFromCreation: ['id'],              // client-sent values ignored on INSERT (auto-increment,
-                                            // DB defaults); beforeInsert can still set them
-  readExclude: ['passwordHash'],            // hide from all reads (writes unaffected)
-  writeExclude: ['searchVector'],           // refuse from all writes (reads unaffected); DB-computed
-                                            // columns are excluded automatically
-  distinctResults: true,                    // SELECT DISTINCT
-
-  // Relations — alias defaults to joinSchema.tableName. Override with `{ alias: '...' }`
-  // when you join the same table twice (e.g. `createdBy`/`updatedBy`) or want a friendlier
-  // name. Set `unique: true` for N:1 (parent) relations to enable `joinLeft`.
-  allowedReadJoins: [
-    buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId'),                       // alias = 'order'
-    buildRelation(SchemaSession, 'userId', SchemaUser, 'id', { unique: true }),           // alias = 'user', N:1
-    buildRelation(SchemaSession, 'updatedBy', SchemaUser, 'id', { alias: 'updater', unique: true }),
-    // `fields` restricts what this relation exposes of the target — read joins only
-    buildRelation(SchemaAgent, 'userId', SchemaUser, 'id', { unique: true, fields: ['id', 'name'] }),
-  ],
-  allowedWriteJoins: [
-    buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId'),                       // alias = 'order'
-  ],
-
-  // Upsert (ON CONFLICT)
-  upsertMap: buildUpsertRules(
-    buildUpsertRule(SchemaCustomer, ['id']),
-  ),
-
-  // Schema overrides (tighten generated schema without editing Schema files)
-  schemaOverrides: {
-    email: Type.String({ format: 'email' }),
-  },
-
-  // Multi-tenant isolation
-  tenantScope: { column: 'organization_id' },
-
-  // Validation (runs after schema validation, before hooks)
-  validate: async (db, req, main, secondaries) => {
-    // Return ValidationError[] — tuple: [field, code] or [field, code, message]
-    // message defaults to code if omitted
-    if (!main.name) return [['name', 'required']];
-    return [];
-  },
-  validateBulk: async (db, req, items) => {
-    // Bulk-upsert only. Called once with all items for cross-item validation.
-    return [];
-  },
-
-  // Hooks (run after validation) — all receive camelCase records (schema field names).
-  // after* hooks for insert/update run INSIDE the write transaction: throwing rolls back.
-  beforeInsert: async (db, req, record) => { /* camelCase; mutations propagate to INSERT */ },
-  afterInsert: async (db, req, record, secondaryRecords) => { /* camelCase; input merged with generated PK */ },
-  beforeUpdate: async (db, req, fields) => { /* camelCase; PK included for reference, excluded from UPDATE SET */ },
-  afterUpdate: async (db, req, record, secondaryRecords, deletionRecords) => { /* after UPDATE + secondaries + deletions */ },
-  beforeDelete: async (db, req, id) => { /* throw to abort the deletion */ },
-  afterDelete: async (db, req, id) => { /* after a successful single delete */ },
-  beforeBulkDelete: async (db, req, ids) => { /* called ONCE with all ids; throw to abort the batch */ },
-  afterBulkDelete: async (db, req, deletedIds) => { /* called ONCE with the ids ACTUALLY deleted */ },
-
-  // Auth (per-table)
-  onRequests: [
-    async (request, reply) => {
-      if (!request.user) return reply.status(401).send({ error: 'Unauthorized' });
-    },
-  ],
-});
-```
-
-### Custom filters (extraFilters)
-
-For filters that don't map to real columns (e.g. a search `q` field):
-
-```typescript
-import { Type, ConditionBuilder } from 'fastify-auto-sqlapi';
-
-const TableCustomer = defineTable({
-  primary: 'id',
-  ...exportTableInfo(
-    SchemaCustomer,
-    { q: Type.Optional(Type.String()) },       // extra filter definition
-    (condition, filters) => {                   // custom condition builder
-      if (filters.q) {
-        const or = new ConditionBuilder('OR');
-        or.isILike('name', `%${filters.q}%`);
-        or.isILike('email', `%${filters.q}%`);
-        condition.append(or);
-      }
-    }
-  ),
-});
-```
-
-## Plugin Options
-
-```typescript
-await app.register(fastifyAutoSqlApi, {
-  DbTables: dbTables,           // Required — your table definitions
-  dialect: 'postgres',          // Optional — 'postgres' | 'mysql' | 'mariadb' (default: 'postgres')
-  prefix: '/api',               // Optional — URL prefix for all routes
-  swagger: true,                // Optional — enable Swagger UI (or pass SwaggerOptions)
-  onRequests: [authMiddleware],  // Optional — global hooks applied to every route
-  getTenantId: (req) => id,     // Optional — multi-tenant function
-  maxItemsPerPage: 1000,        // Optional — cap on search page size (default: 1000)
-  maxBulkItems: 1000,           // Optional — cap on bulk array length (default: 1000)
-  debug: true,                  // Optional — log all SQL queries and params
-});
-```
-
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `DbTables` | `Record<string, ITable>` | Yes | Table configurations |
-| `dialect` | `'postgres' \| 'mysql' \| 'mariadb'` | No | DB dialect (default: `'postgres'`) |
-| `prefix` | `string` | No | URL prefix (e.g. `/api`) |
-| `swagger` | `boolean \| SwaggerOptions` | No | Enable Swagger UI |
-| `onRequests` | `Function[]` | No | Global auth/middleware hooks |
-| `getTenantId` | `(req) => id \| null` | No | Tenant resolver for multi-tenant |
-| `maxItemsPerPage` | `number` | No | Max search page size, and the row `LIMIT` applied when no paginator is sent (default: `1000`) |
-| `maxBulkItems` | `number` | No | Max number of items accepted by the bulk endpoints (default: `1000`) |
-| `debug` | `boolean` | No | Log all SQL queries to console (server-side only — it never changes a response) |
-| `exposeDebugInfo` | `boolean` | No | **Development only.** Attach the driver error (message, `code`, `constraint`, stack) to `500` responses as `debugInfo` (default: `false`) |
-
-The plugin picks up the connection from the Fastify instance: `fastify.pg` for PostgreSQL
-(what `@fastify/postgres` decorates) or `fastify.mysql` for MySQL/MariaDB. For MySQL,
-decorate a `mysql2/promise` pool (e.g. via `@fastify/mysql` with `promise: true`, or manually)
-and pass `dialect: 'mysql'` or `'mariadb'`:
-
-```typescript
-import mysql from 'mysql2/promise';
-
-const pool = mysql.createPool({ host: '127.0.0.1', user: 'myuser', password: '...', database: 'mydb' });
-app.decorate('mysql', pool);
-app.addHook('onClose', async () => { await pool.end(); });
-
-await app.register(fastifyAutoSqlApi, { DbTables: dbTables, dialect: 'mysql' });
-```
-
-## Security
-
-> ⚠️ **The plugin is open by default.** Registering it without any configuration exposes
-> **all operations on all tables in `DbTables`** (read AND write, including bulk delete) to
-> anyone who can reach the server. This is intentional — the plugin provides the tools and
-> does not impose an auth model — but it means **you** are responsible for locking it down
-> before exposing it.
-
-Three layers are available, combinable:
-
-**1. Authentication / authorization hooks** — `onRequests` runs before every auto-generated
-route (globally or per table):
-
-```typescript
-await app.register(fastifyAutoSqlApi, {
-  DbTables: dbTables,
-  onRequests: [async (request, reply) => {
-    await request.jwtVerify(); // or any auth check; throw/reply to block
-  }],
-});
-```
-
-**2. Per-table operation whitelist** — `operations` limits which routes are registered for a
-table. Omitted = all operations (default). Unlisted operations are not registered at all
-(they answer 404):
-
-```typescript
-const TableAuditLog = defineTable({
-  primary: 'id',
-  ...exportTableInfo(SchemaAuditLog),
-  operations: ['search', 'get'], // read-only over HTTP: no insert/update/delete/bulk
-});
-```
-
-Note: `operations` gates the HTTP routes only. The programmatic `fastify.sqlApi.*` methods
-are always available to your own code.
-
-**3. Multi-tenancy** — `getTenantId` + `tenantScope` filter every query by tenant (see
-[Multi-Tenant](#multi-tenant)).
-
-### A declared join is a read grant
-
-⚠️ **Neither of the first two layers follows a join.** `onRequests` and `operations` are
-properties of the routes generated *for* a table; a join is resolved inside the query of the
-**host** table's route, so the target's hooks never run and its `operations` whitelist does not
-apply. A table with `operations: []` — no HTTP routes at all — is still fully readable through
-any relation pointing at it.
-
-So `allowedReadJoins` is a security decision: declaring a relation grants read access to the
-target table under the **host** table's authorization.
-
-What does follow a join: `readExclude`, `tenantScope`, and the schema the relation was declared
-with. To expose a table broadly while keeping some columns narrow, give the relation a `fields`
-allowlist:
-
-```typescript
-allowedReadJoins: [
-  buildRelation(SchemaAgent, 'userId', SchemaUser, 'id', {
-    unique: true,
-    fields: ['id', 'name'],   // everything else on `user` is unreachable here
-  }),
-],
-```
-
-Every read surface validates against it — `selection`, `filters`, `conditions`, `orderBy`,
-aggregations, and the generated request/response schemas — so `email` is `400 Unknown field`
-everywhere, not just missing from the projection. It is fail-closed: a column added to `user`
-later is not reachable through this relation until it is added to the list.
-
-`fields` restricts **reading** only, and only through that relation. It is not a replacement for
-`readExclude` (which hides a column from the table's own routes too) or for `onRequests` (which
-decides who may call them).
-
-Full rationale and the rejected alternatives in
-[ADR 0010](./docs/adr/0010-joins-do-not-run-route-guards.md) and
-[ADR 0011](./docs/adr/0011-join-fields-allowlist.md).
-
-### Request limits
-
-Two hard caps bound how much work a single request can trigger (defense against accidental or
-malicious resource exhaustion — relevant precisely because the API is open by default):
-
-- **Search result size** — `itemsPerPage` above `maxItemsPerPage` (default `1000`) is rejected
-  with `400`. When a search omits pagination entirely, the same value is applied as a `LIMIT`, so
-  an empty-body `POST /search/:table` can never dump an entire table.
-- **Bulk array size** — the `PUT /bulk/:table` and `POST /bulk/:table/delete` bodies reject arrays
-  longer than `maxBulkItems` (default `1000`) at schema validation.
-
-Both are configurable in the plugin options. The programmatic `fastify.sqlApi.*` methods are not
-capped — they run your own trusted code.
-
-### Error responses don't describe your schema
-
-Driver messages name tables, columns and constraints (`duplicate key value violates unique
-constraint "users_email_key"`). Any error the plugin did not raise itself is replaced with a
-bare `500` before it reaches the client:
-
-```json
-{ "statusCode": 500, "error": "Internal Server Error", "message": "Internal Server Error", "requestId": "req-3" }
-```
-
-`requestId` is the `reqId` Fastify logs on every line, so the entry holding the real error is
-one grep away — without the error itself travelling to the client.
-
-Errors the plugin raises are deliberate `4xx` with messages written for clients (validation,
-not found, tenant violations) and are untouched. **No status code is remapped**: a unique
-violation is still a `500`, not a `409` — deciding otherwise is product logic, and this is
-where you do it:
-
-```typescript
-app.setErrorHandler((err, request, reply) => {
-  if (err.cause?.code === '23505') {
-    return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: 'Already exists' });
-  }
-  reply.send(err);
-});
-```
-
-The original error is never lost: it is logged through `request.log.error` and attached as
-`err.cause`. Errors thrown by your own `onRequests` hooks run before the handler and are
-unaffected.
-
-**While developing, you probably want the detail on the wire** — an agent or a frontend
-building against the API cannot always read your server log, and one round trip per failure
-adds up. Say so explicitly:
-
-```typescript
-await app.register(fastifyAutoSqlApi, {
-  DbTables: dbTables,
-  exposeDebugInfo: true,   // development only — see below
-});
-```
-
-```json
-{
-  "statusCode": 500, "error": "Internal Server Error", "message": "Internal Server Error",
-  "requestId": "req-3",
-  "debugInfo": {
-    "message": "duplicate key value violates unique constraint \"users_email_key\"",
-    "code": "23505", "constraint": "users_email_key", "stack": "…"
-  }
-}
-```
-
-It is **additive**: `statusCode`, `error`, `message` and `requestId` keep the shape they have
-in production, so your client-side error handling doesn't fork between environments.
-
-Nothing else flips it — not `debug`, not `NODE_ENV`. `debug` is yours to wire (a constant in
-one deployment, an environment variable in another), so the plugin cannot let it decide what
-leaves the server: it writes to your log, which is access-controlled, while a response body is
-not — and these routes are open by default. What a client sees is readable from the
-registration call alone. See [ADR 0013](./docs/adr/0013-sanitized-db-errors.md) and
-[ADR 0006](./docs/adr/0006-raw-db-errors.md).
-
-### Write whitelist
-
-Insert/update/bulk-upsert bodies are `additionalProperties: false`: only columns present in the
-generated Schema (as narrowed by `schemaOverrides` / `excludeFromCreation`) can be written. The
-Schema is the write whitelist. Trim the generated Schema (or use `excludeFromCreation`) to keep
-sensitive columns out of it.
-
-An unexpected field is **stripped, not rejected**: Fastify runs Ajv with `removeAdditional: true`,
-so the request succeeds and the column is simply never written. Mass assignment is prevented
-either way, but do not expect a `400` to tell a client its extra field was ignored.
-
-### Field-level update rules are product logic — use the hooks
-
-`excludeFromCreation` is an **ergonomics tool for creation**, not a security mechanism: it
-exists so auto-generated values (serial PKs, DB-default timestamps) don't have to be sent —
-or validated — on insert. It deliberately does **not** apply to updates: every field in the
-Schema is updatable by default, because whether a field may change is a product decision the
-plugin cannot make for you (a super admin may legitimately fix an `updatedAt`; in one product
-users may move themselves across tenants, in another nobody may).
-
-So watch out for **sensitive flags and ownership fields** — `isAdmin`, `role`, tenant/owner
-columns, state fields: if they are in the Schema, the auto-generated update route will accept
-them. Encode your rules with the tools made for it:
-
-```typescript
-// Silent strip: non-admins simply cannot touch the flag
-beforeUpdate: async (db, req, fields) => {
-  if (!req.user.isAdmin) delete fields.isAdmin;
-},
-
-// Loud 400: touching the flag without permission is an error
-validate: async (db, req, main) => {
-  if (main.isAdmin !== undefined && !req.user.isAdmin)
-    return [['isAdmin', 'forbidden']];
-  return [];
-},
-```
-
-For privileged state transitions (promoting an admin, moving a record across tenants) consider
-a dedicated endpoint with its own auth and audit instead of the auto-generated CRUD route —
-`operations` lets you keep the sensitive operation off the auto routes entirely.
-
-Note on tenants: when `tenantScope` is active, tenant-scoped callers can never move a record to
-another tenant (the tenant column is enforced server-side); admin callers (`getTenantId` →
-`null`) are unrestricted. That is the isolation contract of the opt-in tenancy feature, not a
-field-level rule.
-
-### Read visibility
-
-`readExclude` hides columns from every read while leaving writes untouched — the case for a
-password hash or an access token: writable, never readable.
-
-```typescript
-readExclude: ['accessToken'],
-```
-
-Excluded fields are not selected by search/get, are omitted from read response schemas and from
-the table's default join selection, and cannot be referenced from `filters`, `conditions`,
-`orderBy`, aggregations or an explicit join `selection` (`400`). That last part is the point:
-letting a hidden field be filtered would leak its value by bisection. Primary keys cannot be
-excluded.
-
-### Views
-
-A view is a table config like any other — `defineTable`, a `Table*.ts`, the same routes.
-Searching, filtering, ordering, pagination and joins all work through the same code as a base
-table, and PostgreSQL materialized views are included.
-
-The one thing the database cannot tell the generator is the **primary key**: a view carries no
-`PRIMARY KEY` constraint. So the generator does not guess one from the column types — on an
-aggregating view that would take a count as the key and address rows by it. It uses `id` when
-the view has one (saying in the file that the key was inferred, not read from the database), and
-otherwise writes a `TODO_pick_a_unique_column` placeholder together with
-`operations: ['search']` and a real `defaultOrder`. That config **works as generated**: search
-never reads the primary key. `defineTable` throws at startup on an unresolved key as soon as an
-operation that needs one is exposed.
-
-Writes start off in the generated template — an aggregating view rejects every INSERT and UPDATE
-at the database — but nothing is blocked at runtime: a view simple enough for the engine to make
-updatable accepts writes on both dialects, which is what makes a view usable as a projection or
-permission layer. See [ADR 0016](./docs/adr/0016-a-view-is-a-table-config.md).
-
-### Write visibility
-
-`writeExclude` is the mirror image: the field stays readable, filterable and orderable, but no
-write may carry it. Excluded fields are removed from the insert, update and bulk-upsert bodies —
-main and secondaries — and dropped again inside the engines, which `sqlApi.*` reaches without
-those schemas.
-
-```typescript
-writeExclude: ['searchVector'],
-```
-
-**Columns the database computes need no configuration.** A `GENERATED ALWAYS AS (<expr>)` column
-is rejected by both PostgreSQL and MySQL when a write so much as names it — the whole statement
-fails — so `sqlapi-generate-schema` records those columns in the Schema's `generatedFields` and
-the plugin excludes them from every write path on its own. `writeExclude` is for the rest: a
-column a trigger owns, one a migration is about to drop.
-
-It is **static and applies to everyone**, admins included. A rule that depends on *who* is
-asking is product logic and belongs in `beforeUpdate` or `validate` — see "Field-level update
-rules" above and [ADR 0015](./docs/adr/0015-non-writable-columns.md), which draws that line.
-`defineTable` rejects a field that is not in the schema, the primary key (the update body
-identifies the row with it), and a field that is also in `readExclude` — neither readable nor
-writable is what removing it from the Schema means.
-
-Note that `writeExclude` runs **after** the write hooks, unlike `excludeFromCreation`, which is
-sanitized before them so a hook can assign the field: a hook cannot put back a value the
-database will refuse.
-
-## API Reference
-
-### POST /search/{table}
-
-Search with filters, advanced conditions, pagination, ordering, joins, and aggregations.
-
-**Request body** (all fields optional):
-
-```json
-{
-  "filters": { "name": "Mario" },
-  "conditions": [
-    { "field": "total", "method": "isGreater", "params": [100] },
-    { "field": "createdAt", "method": "isBetween", "params": ["2024-01-01", "2024-12-31"] }
-  ],
-  "joinMustExist": {
-    "orders": {
-      "filters": { "status": "completed" },
-      "conditions": [{ "field": "total", "method": "isGreater", "params": [50] }]
-    }
-  },
-  "joinMultiple": {
-    "orders": {
-      "filters": { "status": "completed" },
-      "selection": "id,total,status"
-    }
-  },
-  "joinGroup": {
-    "orders": {
-      "aggregations": {
-        "by": "status",
-        "sum": ["total"],
-        "min": ["total"],
-        "max": ["total"],
-        "avg": ["total"],
-        "count": ["id"],
-        "distinctCount": ["status"]
-      },
-      "filters": { "status": "completed" }
-    }
-  },
-  "joinLeft": {
-    "creator": { "selection": "id,name,email" }
-  }
-}
-```
-
-- **`filters`** — equality-based, flat key/value. Supports schema fields, `extraFilters` and computed fields. A key that is none of those is a `400 Unknown filter field: <key>` — a mistyped filter must never come back as a wider result set. An explicit `null` filters by `IS NULL`; `undefined` means "not supplied" and is ignored.
-- **`conditions`** — array of `{ field, method, params }`. Methods: `isEqual`, `isNotEqual`, `isGreater`, `isGreaterOrEqual`, `isLess`, `isLessOrEqual`, `isLike`, `isILike`, `isIn`, `isNotIn`, `isBetween`, `isNotBetween`, `isNull`, `isNotNull`.
-- **`joinMustExist`** — EXISTS-based filter: "main rows where at least one related row matches". Accepts `{ filters, conditions }` (both optional). Aliases must come from `allowedReadJoins` declarations with `unique: false`.
-- **`joinMultiple`** — fetches related child rows in a side query. Accepts `{ filters, conditions, selection }`. Same `unique: false` aliases.
-- **`joinGroup`** — aggregations on the related table. Supports `sum`, `min`, `max`, `avg`, `count`, `distinctCount`, and optional `by` for GROUP BY (a schema field name or a computed-field name declared on the join table — e.g. for date bucketing declare a computed using `db.dateTrunc('month', qiCol('orderDate'))`). Accepts `{ filters, conditions }`. Same `unique: false` aliases.
-- **`joinLeft`** — embeds an N:1 parent. Real `LEFT JOIN` is added on demand (only when the request has `filters`/`conditions` on the parent or uses 2-part `orderBy` on this alias). Aliases must be declared with `unique: true`. Accepts `{ filters, conditions, selection }`. Its `filters` accept schema and computed fields only: the parent's `extraFilters` need an alias-aware `extendedCondition`, so they are rejected with a `400` here instead of being silently ignored — use `joinMustExist` on the same relation when you need one.
-
-**Dot-notation in `orderBy` and `conditions`**:
-
-| Form | Source | Example |
-|------|--------|---------|
-| `<field>` | main schema | `orderBy=name ASC` |
-| `<alias>.<field>` | `joinLeft` aliases (`unique: true`) | `orderBy=creator.name ASC` |
-| `<alias>.<fn>.<field>` | `joinGroup` aliases declared in the same body | `orderBy=orders.sum.total DESC`, or `conditions: [{ field: 'orders.count.id', method: 'isGreaterOrEqual', params: [4] }]` |
-
-**Querystring** (optional): `orderBy`, `page`, `itemsPerPage`, `computeMin`, `computeMax`, `computeSum`, `computeAvg`
-
-> `itemsPerPage` is capped at `maxItemsPerPage` (default `1000`); a larger value returns `400`. A search with no `page`/`itemsPerPage` returns at most that many rows (no full-table dumps). See [Request limits](#request-limits).
-
-**Response:**
-
-```json
-{
-  "table": "customer",
-  "main": [{ "id": 1, "name": "Mario", "email": "m@test.it" }],
-  "joinLeft":     { "creator": [{ "id": 7, "name": "Alice", "email": "a@x.it" }] },
-  "joinMultiple": { "orders":  [{ "id": 10, "customerId": 1, "total": 50 }] },
-  "joinGroup": {
-    "orders": {
-      "sum": { "total": 300 },
-      "count": { "id": 2 },
-      "rows": [{ "by": "completed", "sum_total": 300, "count_id": 2 }]
-    }
-  },
-  "pagination": {
-    "total": 25,
-    "pages": 3,
-    "computed": { "min": { "id": 1 }, "max": { "id": 100 } },
-    "paginator": { "page": 1, "itemsPerPage": 20 }
-  }
-}
-```
-
-`joinLeft`, `joinMultiple`, `joinGroup`, and `pagination` appear only when requested. A simple `{}` body returns `{ table, main }`. `pagination.computed` appears only if `computeMin`/`computeMax`/`computeSum`/`computeAvg` are used.
-
-### GET /rest/{table}/:id
-
-Returns `{ main: { ... } }` or 404.
-
-> **Composite primary keys:** `GET /rest/:id`, `DELETE /rest/:id` and `POST /bulk/:table/delete`
-> address a record by a single PK value, so they are **not registered** for tables whose
-> primary key spans multiple columns (a match on the first column alone could hit many rows —
-> for the deletes, destructively). Explicitly listing one of these operations in `operations`
-> for such a table throws at startup. Use `search` with all PK fields in the filters, `update`
-> (which matches every PK column), or a custom route.
-
-### POST /rest/{table}
-
-**Body:**
-
-```json
-{
-  "main": { "name": "Mario", "email": "m@test.it" },
-  "secondaries": {
-    "orders": [{ "total": 50, "status": "pending" }]
-  }
-}
-```
-
-`secondaries` keys are the **alias** declared in `allowedWriteJoins`. FK fields are auto-filled from the inserted main record.
-
-> **Owned child tables (translations, `*_info` details): use a writeJoin, not a standalone table.**
-> A table that only exists as a child of a parent — e.g. `product_info` with composite PK `(product_id, lang)` — should be an `allowedWriteJoins` on the parent, not its own `DbTables` entry. The engine auto-fills the FK (`product_id`); add it to `upsertMap` (conflict key = the composite PK) to upsert children passing only their own fields:
-> ```typescript
-> // on the parent (product) table:
-> allowedWriteJoins: [
->   buildRelation(SchemaProduct, 'id', SchemaProductInfo, 'productId', { alias: 'translations' }),
-> ],
-> upsertMap: buildUpsertRules(
->   buildUpsertRule(SchemaProductInfo, ['productId', 'lang']),  // composite conflict key
-> ),
-> // → PUT /rest/product { "main": {...}, "secondaries": { "translations": [{ "lang": "en", "name": "Bike" }] } }
-> ```
-> Expose a composite-PK table as a standalone CRUD table only when it stands on its own (M:N link tables, natural keys) — search, insert, update and bulk upsert fully support composite PKs; the by-single-id routes (get, delete, bulkDelete) are skipped for them (see the note under GET).
-
-**Response (201):** `{ main: { ... }, secondaries: { ... } }`
-
-### PUT /rest/{table}
-
-**Body:**
-
-```json
-{
-  "main": { "id": 1, "name": "Updated Name" },
-  "secondaries": { "orders": [{ "total": 75 }] },
-  "deletions":   { "orders": [{ "id": 10 }] }
-}
-```
-
-`main` must include the primary key. `secondaries` and `deletions` are optional.
-
-### DELETE /rest/{table}/:id
-
-**Response (200):** `{ main: { <pk>: ... } }` (PK-only, like all write responses), or `404` if
-the record does not exist.
-
-### PUT /bulk/{table}
-
-**Body:** Array of `{ main, secondaries?, deletions? }`. All main records are inserted/upserted in a single SQL query.
-
-### POST /bulk/{table}/delete
-
-**Body:** Array of objects with the PK field, e.g. `[{ "id": 1 }, { "id": 2 }]`. Executes as a single `DELETE WHERE pk IN (...)`.
-
-### Validation errors (400)
-
-Both schema-level (TypeBox/Ajv) and custom (`validate` / `validateBulk`) errors use the same response shape:
-
-```json
-{
-  "statusCode": 400,
-  "error": "Bad Request",
-  "message": "Validation failed",
-  "fields": [
-    { "path": "main.email", "code": "format", "message": "must match format \"email\"" },
-    { "path": "name", "code": "required", "message": "is required" }
-  ]
-}
-```
-
-Custom validators return tuples `[field, code]` or `[field, code, message]` — `message` defaults to `code` if omitted. `validateBulk` replaces per-item `validate` in bulk-upsert requests.
-
-### Server errors (500)
-
-Anything the plugin did not raise itself — a constraint violation, a hook failing — answers
-with a fixed body carrying no database detail; `requestId` points at the log line with the
-real error. Constraint names and driver messages stay on the server unless the deployment
-opts in with `exposeDebugInfo: true`: see
-[Error responses don't describe your schema](#error-responses-dont-describe-your-schema).
-
-```json
-{ "statusCode": 500, "error": "Internal Server Error", "message": "Internal Server Error", "requestId": "req-3" }
-```
-
-## Multi-Tenant
-
-Automatic row-level isolation on all CRUD operations. Configure once, no code in handlers.
-
-```typescript
-await app.register(fastifyAutoSqlApi, {
-  DbTables: dbTables,
-  getTenantId: (request) => request.user?.organizationId ?? null,
-});
-```
-
-When `getTenantId` returns `null`, no filtering is applied (admin mode).
-
-The tenant belongs to the **request**, not to the table it addresses: a scoped table is filtered
-even when it is reached as a join target, or written as a secondary, of a host table that
-declares no scope of its own — a relation is a read grant, and `tenantScope` is the cap on it. So
-`getTenantId` must tolerate a request with no authenticated user; return `null` there. It is not
-called at all when neither the addressed table nor anything it relates to is scoped.
-
-### Direct tenant (column on the table)
-
-```typescript
-defineTable({
-  primary: 'id',
-  ...exportTableInfo(SchemaCustomer),
-  tenantScope: { column: 'organization_id' },
-});
-```
-
-### Indirect tenant (via parent table)
-
-```typescript
-defineTable({
-  primary: 'id',
-  ...exportTableInfo(SchemaOrder),
-  tenantScope: {
-    column: 'organization_id',
-    through: { schema: SchemaCustomer, localField: 'customer_id', foreignField: 'id' },
-  },
-});
-```
-
-### Shared tenant (several owner columns)
-
-Some rows belong to two parties and either may see them — a message (`sender_id` /
-`recipient_id`), a transfer (`from_account_id` / `to_account_id`), a shift swap. `anyOf`
-declares that shape:
-
-```typescript
-defineTable({
-  primary: 'id',
-  ...exportTableInfo(SchemaShiftSwapRequest),
-  tenantScope: { anyOf: ['requester_agent_id', 'target_agent_id'] },
-});
-```
-
-Reads add `AND (requester_agent_id IN (…) OR target_agent_id IN (…))`. A `NULL` column simply
-does not match; the other party still decides. Writes cannot auto-inject an owner — the plugin
-cannot know which party the caller is — so the payload must **anchor** the row: at least one
-listed column present and holding a tenant id, otherwise `400` (nothing to anchor to) or `403`
-(present but foreign). The other party is left exactly as sent, which is the point: a swap
-request names a colleague by definition. Updates strip every listed column from the `SET` and
-upserts leave them out of the `DO UPDATE` — neither party can be re-assigned.
-
-The three forms do not mix: `defineTable` throws at startup on `anyOf` combined with `column`
-or `through`.
-
-Tables without `tenantScope` are unaffected.
-
-### Isolation guarantees on writes
-
-Tenant isolation is enforced on write paths, not just reads:
-
-- **Upsert conflicts are ownership-checked.** On a tenant-scoped table with an `upsertMap`, an
-  upsert (`POST /rest/:table` or `PUT /bulk/:table`) whose conflict key matches a row owned by
-  another tenant is rejected with `403` — it cannot overwrite or re-assign that row.
-- **The tenant link cannot be changed to another tenant.** For direct scopes the tenant column is
-  stripped from update payloads. For indirect scopes, changing the through-FK (`localField`) is
-  allowed only to a value the caller owns; otherwise the update returns `403`.
-
-## Swagger
-
-Enabled by passing `swagger: true` (or a config object) to the plugin options. Requires `@fastify/swagger` and `@fastify/swagger-ui` as peer dependencies.
-
-```bash
-npm install @fastify/swagger @fastify/swagger-ui
-```
-
-```typescript
-await app.register(fastifyAutoSqlApi, {
-  DbTables: dbTables,
-  swagger: {
-    title: 'My API',
-    description: 'Auto-generated CRUD API',
-    version: '1.0.0',
-    routePrefix: '/docs',
-  },
-});
-```
-
-If the swagger packages are not installed, the plugin logs a warning and continues without Swagger.
-
-## Granular Composition
-
-Instead of registering the all-in-one plugin, you can register individual route plugins for more control:
-
-```typescript
-import {
-  searchRoutes, getRoutes, insertRoutes, updateRoutes,
-  deleteRoutes, bulkUpsertRoutes, bulkDeleteRoutes, setupSwagger,
-} from 'fastify-auto-sqlapi';
-
-// Read-only API
-await app.register(async (instance) => {
-  await setupSwagger(instance, { swagger: true });
-  const opts = { DbTables: dbTables };
-  await instance.register(searchRoutes, opts);
-  await instance.register(getRoutes, opts);
-}, { prefix: '/public' });
-
-// Full CRUD with auth
-await app.register(async (instance) => {
-  const opts = { DbTables: dbTables, onRequests: [authMiddleware] };
-  await instance.register(searchRoutes, opts);
-  await instance.register(getRoutes, opts);
-  await instance.register(insertRoutes, opts);
-  await instance.register(updateRoutes, opts);
-  await instance.register(deleteRoutes, opts);
-  await instance.register(bulkUpsertRoutes, opts);
-  await instance.register(bulkDeleteRoutes, opts);
-}, { prefix: '/admin' });
-```
-
-## LLM / agent clients
-
-The plugin is a natural enforcement layer for an agent that operates on your data through
-chat: whatever requests the LLM invents, they pass through the same tenant scoping,
-`readExclude`, `operations` whitelist, validation and request caps as any HTTP client —
-direct-DB firepower, backoffice constraints. Three pieces make this practical:
-
-**1. The grammar** — [`AGENTS_FRONTEND.md`](./AGENTS_FRONTEND.md) (ships in the npm package)
-is a compact, LLM-oriented reference of how to call the API: search with all four join
-families, ordering, pagination, writes, error shapes. Put it in the system prompt.
-
-**2. The vocabulary** — enable the manifest endpoint to describe *this deployment's* tables:
-
-```typescript
-await app.register(fastifyAutoSqlApi, {
-  DbTables: dbTables,
-  agentManifest: true,   // GET {prefix}/agent/manifest (JSON) + /agent/manifest.md
-});
-```
-
-`GET /agent/manifest.md` returns a compact markdown block per table — fields with
-type/required/nullable, enabled operations, join aliases (with direction), computed fields,
-extra filters — always in sync with the running config, behind the same `onRequests` auth.
-Fetch it at session start: grammar + vocabulary is everything the model needs. The same data
-is available programmatically via `buildAgentManifest(dbTables)` /
-`renderAgentManifestMd(manifest)`.
-
-**3. The guardrails** — writes are often too dangerous to hand to a model. Register a
-read-only surface with granular composition and give the agent only that:
-
-```typescript
-import { searchRoutes, getRoutes, agentManifestRoutes } from 'fastify-auto-sqlapi';
-
-await app.register(async (instance) => {
-  const opts = { DbTables: dbTables, onRequests: [agentAuth] };
-  await instance.register(searchRoutes, opts);
-  await instance.register(getRoutes, opts);
-  await instance.register(agentManifestRoutes, opts);
-}, { prefix: '/agent' });   // reads only: no insert/update/delete routes exist here
-```
-
-**Validation strategy** — two options, per table or per deployment:
-
-- *Loose tool + retry loop* (recommended default): expose a generic tool
-  (`table` as enum from the manifest, `body` as free object) and let the plugin validate.
-  A failed request returns a structured 400 with `fields: [{path, code, message}]` — feed
-  it back to the model and it self-corrects in one round trip. Cheap prompts, no schema
-  duplication.
-- *Strict tools*: `agentToolSchemas(dbTables, 'customer')` returns the exact JSON Schemas
-  the routes validate with (body + querystring for search, bodies for writes, only for the
-  operations enabled on that table) — plug them into provider-side tool definitions when
-  you want invalid calls rejected before they leave the model. Costs prompt size; best for
-  a few hot tables.
-
-## Design Decisions
-
-Deliberate, non-obvious choices — the schema as the API contract, open-by-default,
-non-transactional bulk operations, always-updatable fields, raw DB errors, insert-pipeline
-ordering — are recorded as
-[Architecture Decision Records in `docs/adr/`](./docs/adr/README.md), each with its
-rationale and the alternatives that were rejected. Read them before filing an issue that
-proposes changing one of these behaviors.
-
-## Conventions
-
-- **camelCase everywhere in the API** — requests, responses, `validate`, and all hooks (`beforeInsert`/`afterInsert`, `beforeUpdate`/`afterUpdate`, `beforeDelete`/`afterDelete`, `beforeBulkDelete`/`afterBulkDelete`) use schema field names
-- **Conversion to DB column format is automatic** via `colMap` — supports both snake_case and camelCase DB columns (e.g. betterauth-style)
-- **Aliases identify joins** — declared in `buildRelation({ alias })`, used as keys in request/response/`secondaries`/dotted notation
-- **`joinMustExist` / `joinMultiple` / `joinGroup`** are 1:N (child→main) and use side queries / EXISTS / correlated subqueries — no row duplication
-- **`joinLeft`** is N:1 (parent→main) and adds a real `LEFT JOIN` on demand (only when filtering/ordering by parent)
-- **All response fields are Optional** — response schemas use `Type.Partial` since `RETURNING *` may return any subset
-- **Nullable columns use `Nullable(T)`** — the generator emits the JSON-Schema type-array form (`type: ['integer', 'null']`) via the exported `Nullable()` helper. This is deliberate: a bare `Type.Optional(T)` serializes NULL as `0`/`""`, and a `Type.Union([T, Type.Null()])` gets corrupted by Ajv's default type coercion (`null` ↔ `0`/`""` through the branches). In `filters`, an explicit `null` filters by `IS NULL`
-- **The `pg` driver returns `numeric`/`int8` as strings** and parses timestamps into local-timezone `Date`s — driver defaults the plugin deliberately does not override (global state). See "PostgreSQL driver type parsers" in AGENTS_BACKEND.md for the recommended one-time setup
-
-## Re-exports
-
-The package re-exports commonly needed utilities so you don't need to install them separately:
-
-```typescript
-import {
-  Type,                   // from @sinclair/typebox
-  type Static,            // from @sinclair/typebox
-  ConditionBuilder,       // from node-condition-builder
-  Expression,             // from node-condition-builder
-
-  // Table configuration
-  defineTable,
-  exportTableInfo,
-  buildRelation,
-  buildUpsertRule,
-  buildUpsertRules,
-  Nullable,               // type-array nullable schema (see Conventions)
-
-  // DB layer
-  QueryClient,            // raw SQL query helper
-  createQueryClient,      // factory with dialect string
-  pgQueryable,            // pg pool adapter
-  mysqlQueryable,         // mysql2 pool adapter
-
-  // Programmatic high-level API
-  createSqlApi,           // standalone SqlApi (for scripts/tests)
-  setupSwagger,           // manual Swagger registration
-} from 'fastify-auto-sqlapi';
-
-import type {
-  ValidationError,        // [field, code] | [field, code, message]
-  ValidatorFn,
-  BulkValidatorFn,
-  JoinDefinition,
-  JoinRefFilter,
-  JoinFetchRequest,
-  JoinGroupRequest,
-  SearchCondition,
-  ConditionMethod,
-} from 'fastify-auto-sqlapi';
-```
-
-After registering the plugin, `app.sqlApi` is decorated on the Fastify instance and exposes `search`, `get`, `insert`, `update`, `delete`, `bulkUpsert`, `bulkDelete` for custom routes — same code path as the auto-generated endpoints.
+Three properties make the generated configuration reviewable, by a person or by an agent: a
+table is **one local `defineTable()` call** with nothing to wire across files; there is **one
+naming convention** (camelCase in requests, responses, hooks and validators — the mapping to DB
+columns is automatic); and a `400` carries `fields: [{ path, code, message }]`, so a failing
+request says exactly what to fix.
 
 ## Requirements
 
-- Node.js >= 18
-- Fastify >= 5 (peer dependency)
-- One of:
-  - **PostgreSQL** + `pg` + `@fastify/postgres`
-  - **MySQL** / **MariaDB** + `mysql2`
+- Node.js >= 18, Fastify >= 5 (peer dependency)
+- **PostgreSQL** + `pg` + `@fastify/postgres`, or **MySQL** / **MariaDB** + `mysql2`
 - Optional: `@fastify/swagger` + `@fastify/swagger-ui` for Swagger UI
 
 ## License
