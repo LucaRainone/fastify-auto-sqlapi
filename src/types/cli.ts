@@ -35,6 +35,16 @@ export interface ColumnInfo {
    * is read-only for the whole API, not just at creation time.
    */
   is_generated?: boolean;
+  /**
+   * True when the relation is a view rather than a base table — `information_schema.tables`
+   * on both engines, plus `pg_class.relkind = 'm'` for PostgreSQL materialized views, which
+   * `information_schema` does not describe at all.
+   *
+   * A view is still a table config: what changes is what may be assumed about it. It carries
+   * no PRIMARY KEY constraint, so `is_primary` is false on every column, and only a view
+   * simple enough for the engine to make updatable accepts a write.
+   */
+  is_view?: boolean;
 }
 
 export interface TableMap {
@@ -46,5 +56,7 @@ export interface TableMap {
     primary: string[];
     /** Database-computed fields (camelCase), in table column order. Never writable. */
     generated: string[];
+    /** True when this relation is a view (or a materialized view), not a base table. */
+    isView: boolean;
   };
 }

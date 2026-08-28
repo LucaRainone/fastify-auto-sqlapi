@@ -86,6 +86,7 @@ export function buildTableMap(rows: ColumnInfo[]): TableMap {
         colMap: {},
         primary: [],
         generated: [],
+        isView: row.is_view === true,
       };
     }
 
@@ -152,7 +153,8 @@ export function generateSchemaFile(
   fields: Record<string, string>,
   colMap: Record<string, string>,
   primary?: string[],
-  generated?: string[]
+  generated?: string[],
+  isView?: boolean
 ): string {
   const fieldsStr = JSON.stringify(fields, null, 2).replace(
     /"(.*?)"\s*:\s*"Type(.*?)"/g,
@@ -164,6 +166,9 @@ export function generateSchemaFile(
   // Published so the table generator — and the runtime — know which columns the database
   // computes: those are readable but reject every write.
   const generatedLine = generated?.length ? `\n  generatedFields: ${JSON.stringify(generated)},` : '';
+  // A view has no PRIMARY KEY constraint to introspect, so the table generator has to be told
+  // it may not read the absence of one as "no key exists on this data".
+  const isViewLine = isView ? `\n  isView: true,` : '';
   const usesNullable = Object.values(fields).some((t) => t.includes('Nullable('));
   const valueImports = usesNullable ? 'Type, Nullable' : 'Type';
 
@@ -192,7 +197,7 @@ export const Schema = {
   fields: _Schema,
   validation,
   tableName: "${tableName}",
-  partialValidation,${primaryKeyLine}${generatedLine}
+  partialValidation,${primaryKeyLine}${generatedLine}${isViewLine}
 };
 export const ${schemaName} = Schema;
 export type TypeSchema = Static<typeof Schema.validation>;

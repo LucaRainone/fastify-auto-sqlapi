@@ -11,6 +11,22 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Added
 
+- **Views are supported explicitly, and PostgreSQL materialized views at all.** A view was
+  already usable — both introspections read `information_schema.columns`, which lists view
+  columns like any other — but the generator treated it as a base table and **invented a
+  primary key from the column types**: on an aggregating view that takes a count as the key,
+  and `get/:id`, `update` and `delete` then address rows by it, silently. Introspection now
+  reports `is_view` on both engines, the generated Schema carries `isView`, and the table
+  generator refuses to guess: it uses `id` when the view has one and says the key was *inferred,
+  not read from the database*, and otherwise writes a `TODO_pick_a_unique_column` placeholder
+  with `operations: ['search']` and a real `defaultOrder` — a config that works as generated,
+  since search never reads the primary key. Writes start off in the template but are **not**
+  blocked at runtime: a view the engine can make updatable is a legitimate projection layer.
+  PostgreSQL **materialized views** are now introspected from `pg_catalog`; they are absent from
+  `information_schema` and were being skipped without a word. `sqlapi-generate-schema` prints
+  the views it found and the assumptions it had to make. See
+  [ADR 0016](./docs/adr/0016-a-view-is-a-table-config.md).
+
 - **Columns the database computes are no longer offered as writable.** A
   `GENERATED ALWAYS AS (<expr>)` column — PostgreSQL STORED, MySQL VIRTUAL or STORED — is
   rejected by both engines when a write so much as names it, and the whole statement fails.
@@ -143,6 +159,11 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Fixed
 
+- **`defineTable` never validated `primary`.** A primary key naming a field the schema does not
+  have passed startup untouched and became a raw SQL error on the first request — a `500`. It
+  now throws at `defineTable` time, naming the field and the operations that need it. The one
+  exception is exact: a table exposing only `search` and declaring its own `defaultOrder` never
+  reads `primary`, which is the shape generated for a view whose key could not be inferred.
 - **PostgreSQL identity columns made a table impossible to insert into.**
   `GENERATED ... AS IDENTITY` reports no `column_default`, which is what the generator read to
   decide that the database fills a column in — so the primary key came out **mandatory** in the

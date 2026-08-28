@@ -98,3 +98,29 @@ CREATE TABLE identity_row (
   id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   label VARCHAR(255) NOT NULL
 );
+
+-- A view: an aggregation over two base tables. It has an `id` column that is unique here
+-- (one row per customer), which is the case the table generator may infer a key from.
+CREATE VIEW customer_summary AS
+  SELECT c.id, c.name, c.email,
+         count(o.id)::int AS order_count,
+         coalesce(sum(o.total), 0)::int AS total_spent
+  FROM customer c
+  LEFT JOIN customer_order o ON o.customer_id = c.id
+  GROUP BY c.id, c.name, c.email;
+
+-- A view with no plausible primary key at all: the generator must refuse to invent one
+-- rather than take `order_count` for a key.
+CREATE VIEW order_status_count AS
+  SELECT status, count(*)::int AS order_count FROM customer_order GROUP BY status;
+
+-- A materialized view. PostgreSQL does not describe these in information_schema at all, so
+-- they are introspected from pg_catalog; without that they were silently absent.
+CREATE MATERIALIZED VIEW product_stock AS
+  SELECT id, name, quantity FROM product;
+
+-- A view simple enough that PostgreSQL makes it updatable on its own. Writing through a view
+-- is a legitimate use — a projection or permission layer — so the plugin must not close it off
+-- wholesale; only the generated template starts read-only.
+CREATE VIEW customer_active AS
+  SELECT id, name, email, is_active FROM customer WHERE is_active;

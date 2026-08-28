@@ -30,6 +30,7 @@ not by editing history.
 | [0013](./0013-sanitized-db-errors.md) | Database error messages are sanitized on the wire by default (narrows 0006) |
 | [0014](./0014-what-follows-a-write-join.md) | A secondary runs the child table's transform, not its verdicts |
 | [0015](./0015-non-writable-columns.md) | A column the database computes is not writable — `writeExclude` (narrows 0004) |
+| [0016](./0016-a-view-is-a-table-config.md) | A view is a table config — the generator refuses to invent its primary key |
 
 ## When to write one
 

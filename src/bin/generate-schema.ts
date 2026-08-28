@@ -56,11 +56,13 @@ function writeSchemaFiles(tableMap: TableMap, schemasDir: string): WriteReport {
   const report: WriteReport = { created: false, touched: false, untouched: 0, files: new Set() };
 
   for (const schemaName of Object.keys(tableMap)) {
-    const { name: tableName, fields, colMap, primary, generated } = tableMap[schemaName];
+    const { name: tableName, fields, colMap, primary, generated, isView } = tableMap[schemaName];
     const filename = path.join(schemasDir, `${schemaName}.ts`);
     report.files.add(`${schemaName}.ts`);
 
-    const content = generateSchemaFile(schemaName, tableName, fields, colMap, primary, generated);
+    const content = generateSchemaFile(
+      schemaName, tableName, fields, colMap, primary, generated, isView
+    );
     const status = fileStatus(filename, content);
 
     if (status === 'created') report.created = true;
@@ -125,6 +127,37 @@ function reportGeneratedColumns(tableMap: TableMap): void {
   );
 }
 
+/**
+ * Name the relations that are views.
+ *
+ * The generated `Table*.ts` says the same thing in a comment, but a generated source file is
+ * not always read — this output is what whoever ran the command actually sees, and the two
+ * assumptions worth contesting (which column is the key, whether writes make sense) are both
+ * assumptions the generator had to make without the database's help.
+ */
+function reportViews(tableMap: TableMap): void {
+  const views = Object.keys(tableMap)
+    .map((schemaName) => tableMap[schemaName])
+    .filter((t) => t.isView);
+
+  if (views.length === 0) return;
+
+  console.log('');
+  display(`Views found: ${views.map((v) => v.name).join(', ')}`, CONSOLE_COLORS.yellow);
+  display(
+    '  A view is a table config like any other, but the database reports no PRIMARY KEY for ' +
+    'one. The table generator will NOT invent one: it uses "id" when the view has it and says ' +
+    'so, and otherwise writes a TODO placeholder. Check the key is really unique in the view ' +
+    'before exposing get/update/delete — those address rows by it.',
+    CONSOLE_COLORS.gray
+  );
+  display(
+    '  Writes are left off by default: only a view simple enough for the engine to make ' +
+    'updatable accepts one, and an aggregating view rejects every INSERT and UPDATE.',
+    CONSOLE_COLORS.gray
+  );
+}
+
 function reportOutcome(report: WriteReport): void {
   console.log('');
   if (report.untouched > 0) {
@@ -178,6 +211,7 @@ await runCli('fastify-auto-sqlapi: generating schemas', async () => {
     return;
   }
 
+  reportViews(tableMap);
   reportGeneratedColumns(tableMap);
 
   const report = writeSchemaFiles(tableMap, schemasDir);

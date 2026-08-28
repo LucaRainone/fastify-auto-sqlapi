@@ -11,6 +11,8 @@ export interface ParsedSchema {
   primary?: string[];
   /** Database-computed fields declared in the schema file (`generatedFields: [...]`). */
   generated?: string[];
+  /** True when the schema file declares `isView: true` — the relation is a view. */
+  isView?: boolean;
 }
 
 interface DetectedRelation {
@@ -47,6 +49,7 @@ export function parseSchemaFile(content: string): ParsedSchema | null {
   // DB introspection. Both are absent on hand-written schema files.
   const primary = parseFieldList(content, 'primaryKey');
   const generated = parseFieldList(content, 'generatedFields');
+  const isView = /isView:\s*true/.test(content);
 
   return {
     schemaName: exportMatch[1],
@@ -55,6 +58,7 @@ export function parseSchemaFile(content: string): ParsedSchema | null {
     fieldTypes,
     primary,
     generated,
+    ...(isView ? { isView: true } : {}),
   };
 }
 
@@ -71,24 +75,62 @@ function parseFieldList(content: string, key: string): string[] | undefined {
 
 // ─── Detection ───────────────────────────────────────────────
 
-function detectPrimaryKey(schema: ParsedSchema): { pk: string | string[]; autoIncrement: boolean } {
+/** Stands in for a primary key nobody can infer. `defineTable` refuses it beyond search. */
+const PK_PLACEHOLDER = 'TODO_pick_a_unique_column';
+
+interface DetectedPrimaryKey {
+  pk: string | string[];
+  autoIncrement: boolean;
+  /**
+   * How the key was arrived at:
+   *  - `declared`: read from the database's PRIMARY KEY constraint
+   *  - `inferred`: guessed from the field names, and worth saying so
+   *  - `unresolved`: nothing plausible to guess — `pk` is the placeholder
+   */
+  source: 'declared' | 'inferred' | 'unresolved';
+}
+
+function detectPrimaryKey(schema: ParsedSchema): DetectedPrimaryKey {
   // Preferred source: the PK introspected from the DB (primaryKey in the schema file).
   if (schema.primary?.length) {
     const pk = schema.primary.length === 1 ? schema.primary[0] : schema.primary;
     const first = schema.primary[0];
-    return { pk, autoIncrement: schema.fieldTypes[first]?.includes('Optional') ?? false };
+    return {
+      pk,
+      autoIncrement: schema.fieldTypes[first]?.includes('Optional') ?? false,
+      source: 'declared',
+    };
+  }
+
+  // A view carries no PRIMARY KEY constraint, so an absent one says nothing about the data.
+  // Only `id` is a strong enough signal to act on; the type-based fallback below would take
+  // any integer column — a count, a year — and hand back a key that is not unique, which
+  // `get/:id`, update and delete would then address rows by. Guessing is the one thing that
+  // must not happen quietly here.
+  if (schema.isView) {
+    return schema.fields.includes('id')
+      ? { pk: 'id', autoIncrement: false, source: 'inferred' }
+      : { pk: PK_PLACEHOLDER, autoIncrement: false, source: 'unresolved' };
   }
 
   // Heuristic fallback for hand-written/legacy schema files without primaryKey.
   if (schema.fields.includes('id')) {
-    return { pk: 'id', autoIncrement: schema.fieldTypes['id']?.includes('Optional') ?? false };
+    return {
+      pk: 'id',
+      autoIncrement: schema.fieldTypes['id']?.includes('Optional') ?? false,
+      source: 'inferred',
+    };
   }
   for (const field of schema.fields) {
     if (schema.fieldTypes[field]?.includes('Integer')) {
-      return { pk: field, autoIncrement: schema.fieldTypes[field].includes('Optional') };
+      return {
+        pk: field,
+        autoIncrement: schema.fieldTypes[field].includes('Optional'),
+        source: 'inferred',
+      };
     }
   }
-  return { pk: schema.fields[0], autoIncrement: false };
+  return { pk: schema.fields[0], autoIncrement: false, source: 'inferred' };
 }
 
 /**
@@ -226,10 +268,65 @@ function allowedReadJoinsLines(parentRels: DetectedRelation[]): string[] {
   return lines;
 }
 
+// ─── Views ───────────────────────────────────────────────────
+
+/**
+ * The header a view's config gets: what the generator could not read from the database, and
+ * what it therefore assumed.
+ */
+function viewNotice(schema: ParsedSchema, source: DetectedPrimaryKey['source']): string[] {
+  if (!schema.isView) return [];
+
+  const lines = [
+    `// "${schema.tableName}" is a VIEW. It is a table config like any other, but the database`,
+    `// reports no PRIMARY KEY for it and only a view the engine can make updatable accepts a`,
+    `// write — an aggregating one rejects every INSERT and UPDATE outright.`,
+  ];
+  if (source === 'inferred') {
+    lines.push(
+      `// The primary key below was inferred from the column names, NOT read from the database:`,
+      `// check that it is actually unique in this view before exposing get/update/delete.`
+    );
+  } else {
+    lines.push(
+      `// No column was a plausible primary key, so none was invented. As generated this config`,
+      `// serves search only, which never needs one. To expose get/update/delete, replace the`,
+      `// placeholder with a column that is unique in this view and widen \`operations\`.`
+    );
+  }
+  return lines;
+}
+
+/**
+ * A view's route whitelist. Reads only: writing through a view works solely when the engine
+ * can make that view updatable, which is a property of the view's own SQL rather than of
+ * anything declared here — so the generated starting point is the one that always works, and
+ * widening it is a deliberate edit. This is not the runtime default (ADR 0002), which stays
+ * open: it is what the generator writes into a file the developer then owns.
+ */
+function viewOperationsLine(
+  schema: ParsedSchema,
+  source: DetectedPrimaryKey['source']
+): string[] {
+  if (!schema.isView) return [];
+  return source === 'unresolved'
+    ? [`  operations: ['search'],`]
+    : [`  operations: ['search', 'get'],`];
+}
+
+/** Ordering must not fall back to a primary key that does not exist. */
+function defaultOrderField(
+  schema: ParsedSchema,
+  pk: string | string[],
+  source: DetectedPrimaryKey['source']
+): string {
+  return source === 'unresolved' ? schema.fields[0] : pkFirst(pk);
+}
+
 export function generateSingleTableFile(schema: ParsedSchema, allSchemas: ParsedSchema[]): string {
   const { byParent, byChild } = indexRelations(detectRelations(allSchemas));
 
-  const { pk, autoIncrement } = detectPrimaryKey(schema);
+  const { pk, autoIncrement, source } = detectPrimaryKey(schema);
   const tableVarName = 'Table' + schema.schemaName.replace(/^Schema/, '');
   const parentRels = byParent.get(schema.schemaName) ?? [];
   const childRels = byChild.get(schema.schemaName) ?? [];
@@ -256,6 +353,7 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
 
   // Table definition
   lines.push(``);
+  lines.push(...viewNotice(schema, source));
   lines.push(`// Fields: ${schema.fields.join(', ')}`);
   lines.push(`export const ${tableVarName} = defineTable({`);
   lines.push(`  primary: ${formatPrimary(pk)},`);
@@ -272,12 +370,17 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
   lines.push(`  //   }`);
   lines.push(`  // ),`);
 
-  lines.push(`  defaultOrder: '${pkFirst(pk)}',`);
+  lines.push(`  defaultOrder: '${defaultOrderField(schema, pk, source)}',`);
+  lines.push(...viewOperationsLine(schema, source));
 
-  if (autoIncrement) {
-    lines.push(`  excludeFromCreation: ['${pkFirst(pk)}'],`);
-  } else {
-    lines.push(`  // excludeFromCreation: [],`);
+  // A view is never inserted into by the auto routes as generated, so the creation whitelist
+  // would be a line about an operation that is not exposed.
+  if (!schema.isView) {
+    if (autoIncrement) {
+      lines.push(`  excludeFromCreation: ['${pkFirst(pk)}'],`);
+    } else {
+      lines.push(`  // excludeFromCreation: [],`);
+    }
   }
 
   // Hide columns from every read (writes still accept them, e.g. a password hash)
@@ -343,7 +446,7 @@ function legacyTableBlock(
   parentRels: DetectedRelation[],
   childRels: DetectedRelation[]
 ): string[] {
-  const { pk, autoIncrement } = detectPrimaryKey(schema);
+  const { pk, autoIncrement, source } = detectPrimaryKey(schema);
   const tableVarName = 'Table' + schema.schemaName.replace(/^Schema/, '');
   const upsertPk = pkFields(pk).map((p) => `'${p}'`).join(', ');
   const exampleField = schema.fields.find((f) => !pkFields(pk).includes(f)) || schema.fields[0];
@@ -351,15 +454,22 @@ function legacyTableBlock(
   const lines = [
     ``,
     `// ─── ${schema.tableName} ──────────────────────────────`,
+    ...viewNotice(schema, source),
     `// Fields: ${schema.fields.join(', ')}`,
     `const ${tableVarName} = defineTable({`,
     `  primary: ${formatPrimary(pk)},`,
     `  ...exportTableInfo(${schema.schemaName}),`,
-    `  defaultOrder: '${pkFirst(pk)}',`,
-    autoIncrement
-      ? `  excludeFromCreation: ['${pkFirst(pk)}'],`
-      : `  // excludeFromCreation: [],`,
+    `  defaultOrder: '${defaultOrderField(schema, pk, source)}',`,
+    ...viewOperationsLine(schema, source),
   ];
+
+  if (!schema.isView) {
+    lines.push(
+      autoIncrement
+        ? `  excludeFromCreation: ['${pkFirst(pk)}'],`
+        : `  // excludeFromCreation: [],`
+    );
+  }
 
   lines.push(...allowedReadJoinsLines(parentRels));
   lines.push(

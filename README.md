@@ -604,6 +604,26 @@ the table's default join selection, and cannot be referenced from `filters`, `co
 letting a hidden field be filtered would leak its value by bisection. Primary keys cannot be
 excluded.
 
+### Views
+
+A view is a table config like any other — `defineTable`, a `Table*.ts`, the same routes.
+Searching, filtering, ordering, pagination and joins all work through the same code as a base
+table, and PostgreSQL materialized views are included.
+
+The one thing the database cannot tell the generator is the **primary key**: a view carries no
+`PRIMARY KEY` constraint. So the generator does not guess one from the column types — on an
+aggregating view that would take a count as the key and address rows by it. It uses `id` when
+the view has one (saying in the file that the key was inferred, not read from the database), and
+otherwise writes a `TODO_pick_a_unique_column` placeholder together with
+`operations: ['search']` and a real `defaultOrder`. That config **works as generated**: search
+never reads the primary key. `defineTable` throws at startup on an unresolved key as soon as an
+operation that needs one is exposed.
+
+Writes start off in the generated template — an aggregating view rejects every INSERT and UPDATE
+at the database — but nothing is blocked at runtime: a view simple enough for the engine to make
+updatable accepts writes on both dialects, which is what makes a view usable as a projection or
+permission layer. See [ADR 0016](./docs/adr/0016-a-view-is-a-table-config.md).
+
 ### Write visibility
 
 `writeExclude` is the mirror image: the field stays readable, filterable and orderable, but no

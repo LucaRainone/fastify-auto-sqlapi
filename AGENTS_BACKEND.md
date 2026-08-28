@@ -20,6 +20,7 @@ be read to answer a question about the API.
 | [QueryClient API](#queryclient-api) | the raw SQL layer under SqlApi — `db.*` inside hooks |
 | [Swagger](#swagger) | exposing the generated docs |
 | [Multi-Tenant Filtering](#multi-tenant-filtering) | `tenantScope` direct / indirect / `anyOf`, `getTenantId`, admin bypass |
+| [Views](#views) | views and materialized views as table configs, the primary key a view cannot declare, why writes start off |
 | [Key Conventions](#key-conventions) | casing, nullability, `excludeFromCreation`, `readExclude`, `upsertMap`, `schemaOverrides`, `afterRead`, error shape, request limits |
 | [Common Backend Patterns](#common-backend-patterns) | auth, custom validation, audit fields, encryption at rest, full-text search, per-prefix access levels |
 | [FAQ / Gotchas](#faq--gotchas) | schema exports, prefix behavior, TypeBox conflicts, dialect differences |
@@ -894,6 +895,51 @@ Tables without `tenantScope` are unaffected — no filtering regardless of `getT
   `anyOf` write naming no owner column at all
 - **404** — Update with indirect tenant, record not found for this tenant; get/update/delete of
   an `anyOf`-scoped row outside the scope
+
+---
+
+## Views
+
+A view is a **table config** like any other — same `defineTable`, same `Table*.ts` file, same
+routes. There is no `View*` anything: searching, filtering, ordering, pagination, joins and
+computed fields all work through the same code path as a base table. Materialized views are
+included, PostgreSQL ones read from `pg_catalog` since `information_schema` does not describe
+them.
+
+What differs is what the generator can read from the database, and it is worth knowing before
+you accept the file it writes.
+
+**The primary key is not declared.** A view carries no `PRIMARY KEY` constraint, so
+`sqlapi-generate-schema` has nothing to report and the table generator **will not guess one
+from the column types** — on `SELECT status, count(*) AS order_count ... GROUP BY status` that
+would take the count as the key, and `get/:id`, `update` and `delete` would then address rows
+by it. Instead:
+
+- the view has an `id` column → it is used, and the file says the key was *inferred, not read
+  from the database*. Check that it is really unique in the view before exposing
+  `get`/`update`/`delete`.
+- no plausible column → `primary: 'TODO_pick_a_unique_column'` plus `operations: ['search']`
+  and a real `defaultOrder`. **This config works as generated**: search reads `defaultOrder`,
+  never the primary key. The TODO is what you replace to widen `operations`, not a defect.
+
+`defineTable` enforces that: a `primary` naming a field the schema does not have throws **at
+startup**, unless the table exposes only `search` and declares its own `defaultOrder`.
+
+**Writes start off, but are not forbidden.** A view's generated config is
+`operations: ['search', 'get']`. An aggregating view rejects every INSERT and UPDATE at the
+database (`cannot insert into view ...`, a raw `500`), while a view simple enough for the engine
+to make updatable accepts them on both PostgreSQL and MySQL — using one as a projection or
+permission layer is a supported pattern. The read-only start is the *generated template*, not a
+runtime rule: remove or widen `operations` and the write routes come back.
+
+**Nullability differs between engines** for the same view: PostgreSQL reports every view column
+as nullable, MySQL reports the real nullability of the underlying expression. The generated
+Schema therefore differs by dialect for one and the same view. It affects write bodies only, and
+a view is not usually written to.
+
+`sqlapi-generate-schema` prints the views it found and both assumptions above — read that
+output, it is the part that does not depend on anyone opening the generated file. See
+[ADR 0016](./docs/adr/0016-a-view-is-a-table-config.md).
 
 ---
 

@@ -101,3 +101,26 @@ CREATE TABLE identity_row (
   id INT AUTO_INCREMENT PRIMARY KEY,
   label VARCHAR(255) NOT NULL
 );
+
+-- A view: an aggregation over two base tables. It has an `id` column that is unique here
+-- (one row per customer), which is the case the table generator may infer a key from.
+CREATE VIEW customer_summary AS
+  SELECT c.id AS id, c.name AS name, c.email AS email,
+         COUNT(o.id) AS order_count,
+         CAST(COALESCE(SUM(o.total), 0) AS SIGNED) AS total_spent
+  FROM customer c
+  LEFT JOIN customer_order o ON o.customer_id = c.id
+  GROUP BY c.id, c.name, c.email;
+
+-- A view with no plausible primary key at all: the generator must refuse to invent one
+-- rather than take `order_count` for a key.
+CREATE VIEW order_status_count AS
+  SELECT status, COUNT(*) AS order_count FROM customer_order GROUP BY status;
+
+-- MySQL has no materialized views; the PostgreSQL fixture covers that path.
+
+-- A view simple enough that MySQL makes it updatable on its own. Writing through a view is a
+-- legitimate use — a projection or permission layer — so the plugin must not close it off
+-- wholesale; only the generated template starts read-only.
+CREATE VIEW customer_active AS
+  SELECT id, name, email, is_active FROM customer WHERE is_active = 1;

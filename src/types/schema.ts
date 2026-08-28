@@ -16,4 +16,12 @@ export interface SchemaDefinition<T = Record<string, TSchema>> {
    * turn a client mistake into a driver error.
    */
   generatedFields?: string[];
+  /**
+   * True when the underlying relation is a view. Set by generated schemas.
+   *
+   * A view is a table config like any other — this only records that the database had no
+   * PRIMARY KEY to report, so an absent `primaryKey` means "not declared" rather than
+   * "this data has no key".
+   */
+  isView?: boolean;
 }

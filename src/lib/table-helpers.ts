@@ -77,6 +77,7 @@ export function defineTable<F extends Record<string, TSchema>>(
   validateAliasUniqueness(config.allowedWriteJoins, 'allowedWriteJoins');
   validateWriteJoinsUnrestricted(config.allowedWriteJoins);
   validateComputedFields(config as unknown as ITable);
+  validatePrimary(config as unknown as ITable);
   validateReadExclude(config as unknown as ITable);
   validateWriteExclude(config as unknown as ITable);
   validateTenantScope(config as unknown as ITable);
@@ -186,6 +187,47 @@ function validateReadExclude(config: ITable): void {
       );
     }
   }
+}
+
+/**
+ * Every operation but `search` addresses a row by its primary key, and a `primary` naming a
+ * field the schema does not have reaches the database as a column that may not exist — a raw
+ * SQL error, so a 500 (ADR 0006), on the first request instead of at startup. Views are where
+ * this bites: they carry no PRIMARY KEY constraint, so the generator writes a placeholder
+ * rather than inventing a key that would silently address the wrong rows.
+ *
+ * `search` is the deliberate exception: it reads `primary` only as the fallback for ordering,
+ * so a table that exposes nothing else and names its own `defaultOrder` never touches it. That
+ * is exactly the shape the generator emits for a view whose key it could not infer, and it is
+ * a working config — not a broken one waiting to be fixed.
+ */
+function validatePrimary(config: ITable): void {
+  const schemaFields = Object.keys(config.Schema.fields);
+  const pkFields = Array.isArray(config.primary) ? config.primary : [config.primary];
+  const table = config.Schema.tableName;
+
+  const missing = pkFields.filter((f) => !schemaFields.includes(f));
+  if (missing.length === 0) return;
+
+  const searchOnly = config.operations?.length === 1 && config.operations[0] === 'search';
+  if (searchOnly) {
+    if (config.defaultOrder) return;
+    throw new Error(
+      `defineTable: table '${table}' exposes only 'search' with an unresolved primary key ` +
+      `('${missing[0]}'), so it must declare a 'defaultOrder' — otherwise the search orders ` +
+      `by that missing column.`
+    );
+  }
+
+  const exposed = config.operations
+    ? `operations [${config.operations.join(', ')}]`
+    : 'every operation (no `operations` whitelist, so all routes are exposed)';
+  throw new Error(
+    `defineTable: primary key field '${missing[0]}' is not a schema field on table ` +
+    `'${table}', and the table exposes ${exposed} — those address rows by the primary key. ` +
+    `Name a column that is unique in this relation, or restrict the table to ` +
+    `operations: ['search'] with an explicit defaultOrder.`
+  );
 }
 
 /**

@@ -41,6 +41,8 @@ interface MysqlColumnRow {
   column_key?: string;
   EXTRA?: string;
   extra?: string;
+  TABLE_TYPE?: string;
+  table_type?: string;
 }
 
 export function buildMysqlConnectionConfig(): MysqlConnectionConfig {
@@ -126,10 +128,13 @@ export async function introspectMysqlTables(
 
   try {
     const [rows] = await connection.query(
-      `SELECT table_name, column_name, data_type, column_default, is_nullable, column_key, extra
-       FROM information_schema.columns
-       WHERE table_schema = ?
-       ORDER BY table_name, ordinal_position`,
+      `SELECT c.table_name, c.column_name, c.data_type, c.column_default, c.is_nullable,
+              c.column_key, c.extra, t.table_type
+       FROM information_schema.columns c
+       JOIN information_schema.tables t
+         ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+       WHERE c.table_schema = ?
+       ORDER BY c.table_name, c.ordinal_position`,
       [schema]
     );
 
@@ -146,6 +151,7 @@ export async function introspectMysqlTables(
       is_auto_increment: extra(row).includes('auto_increment'),
       // 'VIRTUAL GENERATED' / 'STORED GENERATED': computed from an expression, never writable.
       is_generated: extra(row).includes('generated'),
+      is_view: (row.TABLE_TYPE || row.table_type) === 'VIEW',
     }));
   } finally {
     await connection.end();
