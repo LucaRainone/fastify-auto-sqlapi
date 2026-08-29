@@ -1,4 +1,4 @@
-import type { FastifyRequest } from 'fastify';
+import type { ApiRequest } from '../../types/request.js';
 import type { QueryClient } from '../db.js';
 import type { AfterReadContext, ITable, ReadSource } from '../../types.js';
 
@@ -18,7 +18,7 @@ import type { AfterReadContext, ITable, ReadSource } from '../../types.js';
  */
 export async function runAfterRead(
   db: QueryClient,
-  request: FastifyRequest | undefined,
+  request: ApiRequest | undefined,
   rows: Record<string, unknown>[],
   tableConf: ITable | undefined,
   source: ReadSource,

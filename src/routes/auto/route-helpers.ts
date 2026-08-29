@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { ensureSqlApiDecorator } from '../../lib/sql-api-decorator.js';
+import { ensureSqlApiDecorator } from '../sql-api-decorator.js';
 import { sanitizeRouteError } from '../../lib/errors.js';
 import { isCompositePrimary } from '../../types.js';
 import type { ITable, SqlApiPluginOptions, DbTables, TableOperation } from '../../types.js';

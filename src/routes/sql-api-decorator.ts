@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
-import { createQueryClient } from './db.js';
-import { pgQueryable } from './adapters/pg-adapter.js';
-import { mysqlQueryable } from './adapters/mysql-adapter.js';
-import { createSqlApi, type SqlApi } from './sql-api.js';
+import { createQueryClient } from '../lib/db.js';
+import { pgQueryable } from '../lib/adapters/pg-adapter.js';
+import { mysqlQueryable } from '../lib/adapters/mysql-adapter.js';
+import { createSqlApi, type SqlApi } from '../lib/sql-api.js';
 import type { SqlApiPluginOptions } from '../types.js';
 
 declare module 'fastify' {

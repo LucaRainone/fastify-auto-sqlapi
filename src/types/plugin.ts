@@ -1,4 +1,4 @@
-import type { FastifyRequest, FastifyReply } from 'fastify';
+import type { ApiRequest, ApiReply } from './request.js';
 import type { DialectName } from '../lib/dialect.js';
 import type { DbTables } from './table.js';
 import type { TenantId } from './tenant.js';
@@ -12,11 +12,11 @@ export interface SwaggerOptions {
 
 export interface SqlApiPluginOptions {
   DbTables: DbTables;
-  onRequests?: ((request: FastifyRequest, reply: FastifyReply) => Promise<void | FastifyReply>)[];
+  onRequests?: ((request: ApiRequest, reply: ApiReply) => Promise<void | ApiReply>)[];
   prefix?: string;
   swagger?: boolean | SwaggerOptions;
   dialect?: DialectName;
-  getTenantId?: (request: FastifyRequest) => TenantId | TenantId[] | null | undefined
+  getTenantId?: (request: ApiRequest) => TenantId | TenantId[] | null | undefined
     | Promise<TenantId | TenantId[] | null | undefined>;
   debug?: boolean;
   /**

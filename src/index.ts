@@ -43,7 +43,7 @@ export type { SqlApiOptions, SqlApiSearchParams, SqlApiInsertParams, SqlApiUpdat
 export { default as fastifyAutoSqlApi } from './routes/auto/plugin.js';
 
 // Swagger
-export { setupSwagger } from './lib/setup-swagger.js';
+export { setupSwagger } from './routes/setup-swagger.js';
 
 // Search
 export { searchEngine } from './lib/engine/search/search.js';

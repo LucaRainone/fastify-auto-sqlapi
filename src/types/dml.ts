@@ -1,4 +1,4 @@
-import type { FastifyRequest } from 'fastify';
+import type { ApiRequest } from './request.js';
 import type { QueryClient } from '../lib/db.js';
 import type { ITable, DbTables } from './table.js';
 import type { TenantContext } from './tenant.js';
@@ -11,7 +11,7 @@ interface DmlBaseParams {
 
 interface DmlWriteBaseParams extends DmlBaseParams {
   dbTables: DbTables;
-  request: FastifyRequest;
+  request: ApiRequest;
 }
 
 // ─── Insert ──────────────────────────────────────────────────
@@ -45,7 +45,7 @@ export interface UpdateResult {
 export interface GetParams extends DmlBaseParams {
   id: string | number;
   /** Handed to the `afterRead` hook; absent for a programmatic caller that did not pass one. */
-  request?: FastifyRequest;
+  request?: ApiRequest;
 }
 
 export interface GetResult {
@@ -56,7 +56,7 @@ export interface GetResult {
 
 export interface DeleteParams extends DmlBaseParams {
   id: string | number;
-  request?: FastifyRequest;
+  request?: ApiRequest;
 }
 
 export interface DeleteResult {
@@ -85,7 +85,7 @@ export interface BulkUpsertResult {
 
 export interface BulkDeleteParams extends DmlBaseParams {
   ids: (string | number)[];
-  request?: FastifyRequest;
+  request?: ApiRequest;
 }
 
 export interface BulkDeleteResult {

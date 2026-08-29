@@ -6,7 +6,7 @@
  *   joinGroup      child -> main, 1:N   aggregations under result.joinGroup.<alias>
  *   joinLeft       parent -> main, N:1  real LEFT JOIN on demand + side query for the rows
  */
-import type { FastifyRequest } from 'fastify';
+import type { ApiRequest } from '../../../types/request.js';
 import { ConditionBuilder, Expression, type ConditionValue } from 'node-condition-builder';
 import type { QueryClient } from '../../db.js';
 import type { QueryParams } from '../query-params.js';
@@ -284,7 +284,7 @@ async function fetchJoinRows(
   requests: Record<string, JoinFetchRequest>,
   mode: JoinFetchMode,
   tenant?: TenantContext,
-  request?: FastifyRequest
+  request?: ApiRequest
 ): Promise<Record<string, Record<string, unknown>[]>> {
   const result: Record<string, Record<string, unknown>[]> = {};
 
@@ -340,7 +340,7 @@ export function executeJoinMultiple(
   mainResults: Record<string, unknown>[],
   joinMultiple: Record<string, JoinFetchRequest>,
   tenant?: TenantContext,
-  request?: FastifyRequest
+  request?: ApiRequest
 ): Promise<Record<string, Record<string, unknown>[]>> {
   return fetchJoinRows(db, dbTables, tableConf, mainResults, joinMultiple, {
     source: 'joinMultiple',
@@ -357,7 +357,7 @@ export function executeJoinLeft(
   mainResults: Record<string, unknown>[],
   joinLeft: Record<string, JoinFetchRequest>,
   tenant?: TenantContext,
-  request?: FastifyRequest
+  request?: ApiRequest
 ): Promise<Record<string, Record<string, unknown>[]>> {
   return fetchJoinRows(db, dbTables, tableConf, mainResults, joinLeft, {
     source: 'joinLeft',

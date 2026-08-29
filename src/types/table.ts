@@ -1,6 +1,6 @@
 import type { Expression, ConditionBuilder, ConditionValueOrUndefined, DialectName as CbDialect } from 'node-condition-builder';
 import type { TSchema, Static } from '@sinclair/typebox';
-import type { FastifyRequest, FastifyReply } from 'fastify';
+import type { ApiRequest, ApiReply } from './request.js';
 import type { QueryClient } from '../lib/db.js';
 import type { SchemaDefinition } from './schema.js';
 import type { ComputedFieldFn } from './computed.js';
@@ -87,18 +87,18 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
   validateBulk?: BulkValidatorFn<F>;
   beforeInsert?: (
     db: QueryClient,
-    req: FastifyRequest,
+    req: ApiRequest,
     record: { [K in keyof F]?: Static<F[K]> | Expression | null }
   ) => Promise<void>;
   beforeUpdate?: (
     db: QueryClient,
-    req: FastifyRequest,
+    req: ApiRequest,
     fields: { [K in keyof F]?: Static<F[K]> | Expression | null },
     secondaryFieldsFetcher?: unknown
   ) => void | Promise<void>;
   afterInsert?: (
     db: QueryClient,
-    req: FastifyRequest,
+    req: ApiRequest,
     record: { [K in keyof F]?: Static<F[K]> },
     secondaryRecords?: unknown
   ) => Promise<void>;
@@ -110,7 +110,7 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
    */
   afterUpdate?: (
     db: QueryClient,
-    req: FastifyRequest,
+    req: ApiRequest,
     record: { [K in keyof F]?: Static<F[K]> | Expression | null },
     secondaryRecords?: unknown,
     deletionRecords?: unknown
@@ -135,13 +135,13 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
    * the response schema, so a transform that changes a field's JSON type needs a matching
    * `schemaOverrides` entry — without it `fast-json-stringify` coerces the value silently.
    *
-   * `req` is the Fastify request that triggered the read. Same caveat as `beforeDelete`:
+   * `req` is the request that triggered the read. Same caveat as `beforeDelete`:
    * present through the auto-generated HTTP routes, `undefined` when a programmatic caller
    * invokes `sqlApi.search()`/`sqlApi.get()` without passing one.
    */
   afterRead?: (
     db: QueryClient,
-    req: FastifyRequest | undefined,
+    req: ApiRequest | undefined,
     rows: Record<string, unknown>[],
     ctx: AfterReadContext
   ) => void | Promise<void>;
@@ -153,14 +153,14 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
    * For tenant-scoped tables the hook only runs once ownership has been verified, so it
    * never fires for rows the caller cannot access.
    *
-   * `req` is the Fastify request that triggered the operation. It is always present when
+   * `req` is the request that triggered the operation. It is always present when
    * the delete comes through the auto-generated HTTP route. It is `undefined` only if you
    * call `sqlApi.delete(table, id)` programmatically without passing a request — in that
    * case any hook that reads request context (e.g. `req.user`) must guard for it.
    */
   beforeDelete?: (
     db: QueryClient,
-    req: FastifyRequest,
+    req: ApiRequest,
     id: string | number
   ) => void | Promise<void>;
   /**
@@ -169,7 +169,7 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
    */
   afterDelete?: (
     db: QueryClient,
-    req: FastifyRequest,
+    req: ApiRequest,
     id: string | number
   ) => void | Promise<void>;
   /**
@@ -183,7 +183,7 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
    */
   beforeBulkDelete?: (
     db: QueryClient,
-    req: FastifyRequest,
+    req: ApiRequest,
     ids: (string | number)[]
   ) => void | Promise<void>;
   /**
@@ -193,7 +193,7 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
    */
   afterBulkDelete?: (
     db: QueryClient,
-    req: FastifyRequest,
+    req: ApiRequest,
     deletedIds: (string | number)[]
   ) => void | Promise<void>;
   /**
@@ -241,7 +241,7 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
   defaultOrder?: string;
   excludeFromCreation?: (string & keyof F)[];
   distinctResults?: boolean;
-  onRequests?: ((request: FastifyRequest, reply: FastifyReply) => Promise<void | FastifyReply>)[];
+  onRequests?: ((request: ApiRequest, reply: ApiReply) => Promise<void | ApiReply>)[];
   tenantScope?: TenantScope;
 }
 

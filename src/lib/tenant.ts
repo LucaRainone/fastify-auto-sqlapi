@@ -1,4 +1,4 @@
-import type { FastifyRequest } from 'fastify';
+import type { ApiRequest } from '../types/request.js';
 import type { QueryClient } from './db.js';
 import { ConditionBuilder, type ConditionValue, type ConditionValueOrUndefined } from 'node-condition-builder';
 import { httpError } from './errors.js';
@@ -55,7 +55,7 @@ function scopeInReach(tableConf: ITable, dbTables: DbTables | undefined): boolea
 export async function resolveTenant(
   options: SqlApiPluginOptions,
   tableConf: ITable,
-  request: FastifyRequest
+  request: ApiRequest
 ): Promise<TenantContext | undefined> {
   if (!options.getTenantId) return undefined;
   if (!scopeInReach(tableConf, options.DbTables)) return undefined;

@@ -2,6 +2,7 @@
 // namespace so consumers can keep importing from `'fastify-auto-sqlapi'`/`./types`.
 export type { DialectName } from './lib/dialect.js';
 
+export * from './types/request.js';
 export * from './types/cli.js';
 export * from './types/db.js';
 export * from './types/schema.js';

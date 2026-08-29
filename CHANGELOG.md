@@ -11,6 +11,17 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Added
 
+- **`ApiRequest` — one seam between the core and the HTTP framework.** The engines, the schema
+  builders and the write pipeline never read a property off the request: it arrives from the
+  route, is forwarded to `getTenantId`, `validate` and the hooks, and is otherwise untouched. That
+  dependency was spread over thirteen files as a `FastifyRequest` type import; it is now declared
+  once in `src/types/request.ts` and exported from the package. `ApiRequest` *is* `FastifyRequest`,
+  so nothing changes for consumers — hooks keep their exact types. A new dependency-cruiser rule
+  fails the build on a `fastify` import (type-only included) anywhere under `src/lib/`,
+  `src/types/` or `src/bin/` but that file, and the two Fastify bridge helpers that lived in
+  `lib/` (`setupSwagger`, the `sqlApi` decorator) moved to `src/routes/` so the rule needs no
+  exceptions. See [ADR 0018](./docs/adr/0018-one-seam-to-the-http-framework.md).
+
 - **Views are supported explicitly, and PostgreSQL materialized views at all.** A view was
   already usable — both introspections read `information_schema.columns`, which lists view
   columns like any other — but the generator treated it as a base table and **invented a
@@ -159,6 +170,13 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Fixed
 
+- **The `no-static-optional-peer` gate had never been able to fire.** `includeOnly: '^src/'` in
+  `.dependency-cruiser.mjs` dropped every npm edge from the dependency graph, so the rule meant to
+  stop a static import of `pg` / `mysql2` / `@fastify/*` — which breaks installs that use the other
+  dialect — matched nothing, ever. The graph now keeps npm dependencies as leaves, and the rule is
+  qualified to what its name says: static, value-level imports only, since a type-only import is
+  erased at compile time and a dynamic one is what the rule asks for. Both gates were verified by
+  introducing a violation and watching them fail.
 - **`defineTable` never validated `primary`.** A primary key naming a field the schema does not
   have passed startup untouched and became a raw SQL error on the first request — a `500`. It
   now throws at `defineTable` time, naming the field and the operations that need it. The one

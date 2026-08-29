@@ -63,9 +63,25 @@ export default {
     {
       name: 'engine-not-to-adapters',
       severity: 'error',
-      comment: 'Engines talk to the DB through QueryClient/dialect, never to a concrete driver adapter.',
-      from: { path: '^src/(lib/engine|lib/schema|routes)/' },
+      comment:
+        'Engines talk to the DB through QueryClient/dialect, never to a concrete driver adapter. ' +
+        'Route handlers under routes/auto are held to the same rule; src/routes/sql-api-decorator.ts ' +
+        'is the composition root and is deliberately outside it — picking the driver off the ' +
+        'Fastify instance is the one thing it exists to do.',
+      from: { path: '^src/(lib/engine|lib/schema|routes/auto)/' },
       to: { path: '^src/lib/adapters/' },
+    },
+    {
+      name: 'http-framework-behind-one-seam',
+      severity: 'error',
+      comment:
+        'The core never depends on a web framework. Engines, schema builders and the write ' +
+        'pipeline receive the request as an opaque token and read nothing off it, so `fastify` ' +
+        'may be imported only by the HTTP adapter (src/routes/) and by the single type seam ' +
+        'src/types/request.ts. A second adapter changes that file and nothing under src/lib/. ' +
+        'See ADR 0018.',
+      from: { path: '^src/(lib|types|bin)/', pathNot: ['^src/types/request\\.ts$'] },
+      to: { path: 'node_modules/fastify/' },
     },
     {
       name: 'adapters-are-isolated',
@@ -78,14 +94,23 @@ export default {
       name: 'no-static-optional-peer',
       severity: 'error',
       comment:
-        'pg/mysql2/@fastify/* are optional peers: a static import breaks installs that use the other dialect. Load them dynamically.',
+        'pg/mysql2/@fastify/* are optional peers: a static import breaks installs that use the other ' +
+        'dialect. Load them dynamically. Type-only imports are exempt — they are erased at compile ' +
+        'time and reach no install.',
       from: { path: '^src/' },
-      to: { dependencyTypes: ['npm-peer', 'npm-no-pkg', 'npm-unknown'], pathNot: ['^@sinclair/typebox', '^node-condition-builder'] },
+      to: {
+        dependencyTypes: ['npm-peer', 'npm-no-pkg', 'npm-unknown'],
+        dependencyTypesNot: ['type-only'],
+        dynamic: false,
+        pathNot: ['node_modules/(@sinclair/typebox|node-condition-builder)/'],
+      },
     },
   ],
   options: {
+    // `doNotFollow` keeps an npm dependency visible as a leaf without traversing into it,
+    // which is what the peer/framework rules below match on. An `includeOnly: '^src/'` here
+    // would drop those edges from the graph entirely and silently disarm both rules.
     doNotFollow: { path: 'node_modules' },
-    includeOnly: '^src/',
     tsPreCompilationDeps: true,
     tsConfig: { fileName: 'tsconfig.json' },
     exclude: { path: '^src/example' },

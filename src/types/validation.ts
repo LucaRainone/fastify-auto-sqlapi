@@ -1,5 +1,5 @@
 import type { TSchema, Static } from '@sinclair/typebox';
-import type { FastifyRequest } from 'fastify';
+import type { ApiRequest } from './request.js';
 import type { QueryClient } from '../lib/db.js';
 
 /**
@@ -14,7 +14,7 @@ export type ValidationError =
 
 export type ValidatorFn<F extends Record<string, TSchema> = Record<string, TSchema>> = (
   db: QueryClient,
-  req: FastifyRequest,
+  req: ApiRequest,
   main: { [K in keyof F]?: Static<F[K]> },
   secondaries?: Record<string, Record<string, unknown>[]>
 ) => Promise<ValidationError[]> | ValidationError[];
@@ -26,6 +26,6 @@ export interface BulkValidatorItem<F extends Record<string, TSchema> = Record<st
 
 export type BulkValidatorFn<F extends Record<string, TSchema> = Record<string, TSchema>> = (
   db: QueryClient,
-  req: FastifyRequest,
+  req: ApiRequest,
   items: BulkValidatorItem<F>[]
 ) => Promise<ValidationError[]> | ValidationError[];

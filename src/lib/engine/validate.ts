@@ -1,4 +1,4 @@
-import type { FastifyRequest } from 'fastify';
+import type { ApiRequest } from '../../types/request.js';
 import type { QueryClient } from '../db.js';
 import type { ITable, ValidationError, BulkValidatorItem } from '../../types.js';
 
@@ -18,7 +18,7 @@ function toResponseFields(errors: ValidationError[]): ValidationResponseField[] 
 
 export async function runValidation(
   db: QueryClient,
-  request: FastifyRequest,
+  request: ApiRequest,
   tableConf: ITable,
   main: Record<string, unknown>,
   secondaries?: Record<string, Record<string, unknown>[]>
@@ -33,7 +33,7 @@ export async function runValidation(
 
 export async function runBulkValidation(
   db: QueryClient,
-  request: FastifyRequest,
+  request: ApiRequest,
   tableConf: ITable,
   items: BulkValidatorItem[]
 ): Promise<void> {

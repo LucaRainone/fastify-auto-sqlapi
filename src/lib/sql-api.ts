@@ -1,4 +1,4 @@
-import type { FastifyRequest } from 'fastify';
+import type { ApiRequest } from '../types/request.js';
 import { ConditionBuilder } from 'node-condition-builder';
 import { createQueryClient, QueryClient } from './db.js';
 import { getDialect, type DialectName } from './dialect.js';
@@ -67,7 +67,7 @@ export interface SqlApiUpdateParams {
 
 export interface SqlApiOptions {
   dialect?: DialectName;
-  getTenantId?: (request: FastifyRequest) => TenantId | TenantId[] | null | undefined
+  getTenantId?: (request: ApiRequest) => TenantId | TenantId[] | null | undefined
     | Promise<TenantId | TenantId[] | null | undefined>;
 }
 
@@ -99,7 +99,7 @@ export class SqlApi {
     return conf;
   }
 
-  private async getTenant(tableName: string, request?: FastifyRequest): Promise<TenantContext | undefined> {
+  private async getTenant(tableName: string, request?: ApiRequest): Promise<TenantContext | undefined> {
     if (!request || !this.options.getTenantId) return undefined;
     const tableConf = this.getTableConf(tableName);
     return resolveTenant(
@@ -109,7 +109,7 @@ export class SqlApi {
     );
   }
 
-  async search(tableName: string, params: SqlApiSearchParams = {}, request?: FastifyRequest): Promise<SearchResult> {
+  async search(tableName: string, params: SqlApiSearchParams = {}, request?: ApiRequest): Promise<SearchResult> {
     const tableConf = this.getTableConf(tableName);
     const tenant = await this.getTenant(tableName, request);
     return searchEngine(this.dbTables, {
@@ -134,34 +134,34 @@ export class SqlApi {
     });
   }
 
-  async get(tableName: string, id: string | number, request?: FastifyRequest): Promise<GetResult> {
+  async get(tableName: string, id: string | number, request?: ApiRequest): Promise<GetResult> {
     const tableConf = this.getTableConf(tableName);
     const tenant = await this.getTenant(tableName, request);
     return getEngine({ db: this.db, tableConf, id, tenant, request });
   }
 
-  async insert(tableName: string, params: SqlApiInsertParams, request?: FastifyRequest): Promise<InsertResult> {
+  async insert(tableName: string, params: SqlApiInsertParams, request?: ApiRequest): Promise<InsertResult> {
     const tableConf = this.getTableConf(tableName);
     const tenant = await this.getTenant(tableName, request);
     return insertEngine({
       db: this.db,
       tableConf,
       dbTables: this.dbTables,
-      request: request as FastifyRequest,
+      request: request as ApiRequest,
       record: params.record,
       secondaries: params.secondaries,
       tenant,
     });
   }
 
-  async update(tableName: string, params: SqlApiUpdateParams, request?: FastifyRequest): Promise<UpdateResult> {
+  async update(tableName: string, params: SqlApiUpdateParams, request?: ApiRequest): Promise<UpdateResult> {
     const tableConf = this.getTableConf(tableName);
     const tenant = await this.getTenant(tableName, request);
     return updateEngine({
       db: this.db,
       tableConf,
       dbTables: this.dbTables,
-      request: request as FastifyRequest,
+      request: request as ApiRequest,
       record: params.record,
       secondaries: params.secondaries,
       deletions: params.deletions,
@@ -169,26 +169,26 @@ export class SqlApi {
     });
   }
 
-  async delete(tableName: string, id: string | number, request?: FastifyRequest): Promise<DeleteResult> {
+  async delete(tableName: string, id: string | number, request?: ApiRequest): Promise<DeleteResult> {
     const tableConf = this.getTableConf(tableName);
     const tenant = await this.getTenant(tableName, request);
     return deleteEngine({ db: this.db, tableConf, id, tenant, request });
   }
 
-  async bulkUpsert(tableName: string, items: BulkUpsertItem[], request?: FastifyRequest): Promise<BulkUpsertResult[]> {
+  async bulkUpsert(tableName: string, items: BulkUpsertItem[], request?: ApiRequest): Promise<BulkUpsertResult[]> {
     const tableConf = this.getTableConf(tableName);
     const tenant = await this.getTenant(tableName, request);
     return bulkUpsertEngine({
       db: this.db,
       tableConf,
       dbTables: this.dbTables,
-      request: request as FastifyRequest,
+      request: request as ApiRequest,
       items,
       tenant,
     });
   }
 
-  async bulkDelete(tableName: string, ids: (string | number)[], request?: FastifyRequest): Promise<BulkDeleteResult[]> {
+  async bulkDelete(tableName: string, ids: (string | number)[], request?: ApiRequest): Promise<BulkDeleteResult[]> {
     const tableConf = this.getTableConf(tableName);
     const tenant = await this.getTenant(tableName, request);
     return bulkDeleteEngine({ db: this.db, tableConf, ids, tenant, request });

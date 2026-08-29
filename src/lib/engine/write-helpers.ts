@@ -1,4 +1,4 @@
-import type { FastifyRequest } from 'fastify';
+import type { ApiRequest } from '../../types/request.js';
 import { camelcaseObject, snakecaseRecord } from '../naming.js';
 import type { QueryClient } from '../db.js';
 import { runValidation } from './validate.js';
@@ -73,7 +73,7 @@ export interface WriteJoinPass {
   mainRecord: Record<string, unknown>;
   tenant?: TenantContext;
   /** The request that triggered the write, handed to the child table's `beforeInsert`. */
-  request: FastifyRequest;
+  request: ApiRequest;
 }
 
 /** Everything both `processSecondaries` and `processDeletions` need to write one alias. */
@@ -112,7 +112,7 @@ function resolveWriteJoinTarget(
 interface PrepareCtx {
   db: QueryClient;
   tableConf: ITable;
-  request: FastifyRequest;
+  request: ApiRequest;
 }
 
 /**
