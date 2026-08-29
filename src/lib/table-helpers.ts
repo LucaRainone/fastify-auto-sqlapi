@@ -5,8 +5,10 @@ import type {
   JoinDefinition,
   TableFilterFn,
   ITable,
+  TenantScopeIndirect,
 } from '../types.js';
 import { getDialect } from './dialect.js';
+import { hasOwnField } from './read-access.js';
 
 // Quote an identifier using the given ConditionBuilder dialect (or the global
 // default when not provided). Needed so that DB columns with uppercase letters
@@ -81,6 +83,7 @@ export function defineTable<F extends Record<string, TSchema>>(
   validateReadExclude(config as unknown as ITable);
   validateWriteExclude(config as unknown as ITable);
   validateTenantScope(config as unknown as ITable);
+  validateTenantColumnNames(config as unknown as ITable);
   return config;
 }
 
@@ -90,9 +93,42 @@ export function defineTable<F extends Record<string, TSchema>>(
  * entry reached through a parent FK would need its own join per entry — and an empty `anyOf`
  * would fail closed on every row, which looks like a broken deployment rather than a rule.
  *
- * Column *names* are not checked against the schema: a tenant column may legitimately be kept
- * out of the generated schema (see ADR 0009) while still scoping the table.
+ * The columns it names are **real DB column names**, not camelCase schema fields — the one place
+ * in `defineTable` where the convention flips. That is not an oversight: a scope is applied to
+ * the SQL, after the payload has already been converted, and `through.foreignField` belongs to a
+ * parent table that may have no config, no `colMap`, or no generated schema at all. It is the
+ * same category as `db.*` and `extendedCondition`: names that go straight to the database.
+ *
+ * So existence cannot be checked — a hand-written schema may legitimately omit the column. What
+ * *is* checked is the mistake that exception invites: naming the schema **field** whose real
+ * column is something else. Left alone that surfaces as `column "organizationId" does not exist`
+ * on every request to the table — an opaque 500 (ADR 0006), failing closed but saying nothing.
  */
+/**
+ * Reject a tenant column that is really a schema field name mapping to a different column.
+ *
+ * The check is deliberately narrow, and it self-adjusts: on a camelCase database `col()` is the
+ * identity, so a camelCase name raises nothing. A name the schema does not carry raises nothing
+ * either — that is the hand-written-schema case, and there is nothing to compare it against.
+ */
+function assertNamesColumn(
+  schema: SchemaDefinition,
+  name: string,
+  where: string,
+  table: string
+): void {
+  if (!hasOwnField(schema.fields, name)) return;
+  const column = schema.col(name);
+  if (column === name) return;
+
+  throw new Error(
+    `defineTable: tenantScope ${where} on table '${table}' names '${name}', which is a ` +
+    `schema field, not a column: its column is '${column}'. tenantScope names real DB ` +
+    `columns — the scope is applied to the SQL, after the payload has been converted — so ` +
+    `write '${column}' here. Clients keep sending '${name}'.`
+  );
+}
+
 function validateTenantScope(config: ITable): void {
   const scope = config.tenantScope;
   if (!scope) return;
@@ -144,6 +180,37 @@ function validateTenantScope(config: ITable): void {
       `defineTable: tenantScope on table '${table}' declares neither 'column' nor 'anyOf'. ` +
       `A scope with no owner column would filter nothing.`
     );
+  }
+}
+
+/**
+ * Every column a scope names, checked against the schema it belongs to. Runs after
+ * `validateTenantScope`, so the shape is already known to be one of the three valid forms.
+ */
+function validateTenantColumnNames(config: ITable): void {
+  const scope = config.tenantScope;
+  if (!scope) return;
+  const table = config.Schema.tableName;
+
+  if ('anyOf' in scope) {
+    for (const entry of scope.anyOf) {
+      assertNamesColumn(config.Schema, entry, "'anyOf'", table);
+    }
+    return;
+  }
+
+  const direct = scope as TenantScopeIndirect;
+  assertNamesColumn(config.Schema, direct.column, "'column'", table);
+
+  // `through.localField` is a column of THIS table; `through.foreignField` one of the parent's,
+  // which is why the parent schema travels in the scope.
+  const through = direct.through;
+  if (!through || typeof through !== 'object') return;
+  if (typeof through.localField === 'string') {
+    assertNamesColumn(config.Schema, through.localField, "'through.localField'", table);
+  }
+  if (typeof through.foreignField === 'string' && typeof through.schema?.col === 'function') {
+    assertNamesColumn(through.schema, through.foreignField, "'through.foreignField'", table);
   }
 }
 

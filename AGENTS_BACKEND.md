@@ -835,10 +835,24 @@ await app.register(fastifyAutoSqlApi, {
 ```
 
 Every column named in a `tenantScope` — `column`, the entries of `anyOf`, `through.localField`
-and `through.foreignField` — is a **real DB column name**, not a camelCase schema field: the scope
-is applied to the SQL, after the request payload has been converted. Write them as the table
-declares them (`organization_id` below, but `organizationId` on a camelCase table); clients keep
-sending the camelCase field name either way, including when anchoring an `anyOf` write.
+and `through.foreignField` — is a **real DB column name**, not a camelCase schema field. This is
+the one key of `defineTable` where the convention flips, and it is deliberate: a scope is applied
+to the SQL, *after* the payload has been converted, and `through.foreignField` belongs to a parent
+table that may have no config, no `colMap`, or no generated schema at all. Same category as `db.*`
+and `extendedCondition` — names that go straight to the database.
+
+Write them as the table declares them (`organization_id` below, but `organizationId` on a
+camelCase table); clients keep sending the camelCase field name either way, including when
+anchoring an `anyOf` write.
+
+`defineTable` catches the mistake this exception invites: naming the schema **field** whose real
+column is something else (`organizationId` where the column is `organization_id`) throws at
+startup, on all four positions, checking `through.foreignField` against the parent schema. It
+cannot check that a column *exists* — a hand-written schema may legitimately omit it — but it can
+tell you that you named a field. Without it the mistake surfaces as
+`column "organizationId" does not exist` on every request to the table: an opaque `500` that fails
+closed and says nothing. On a camelCase database the check raises nothing, since `col()` is the
+identity there.
 
 ### Direct tenant (column on the table itself)
 

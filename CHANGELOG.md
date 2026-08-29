@@ -170,6 +170,16 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Fixed
 
+- **A `tenantScope` naming a schema field instead of a column now fails at startup.**
+  `tenantScope` names real DB columns — the scope is applied to the SQL, after the payload has
+  been converted, and `through.foreignField` belongs to a parent table that may have no config of
+  its own. Nothing checked it, so writing `organizationId` where the column is `organization_id`
+  passed `defineTable` and surfaced as `column "organizationId" does not exist` on every request
+  to the table: an opaque `500`, failing closed but saying nothing. All four positions are now
+  checked (`column`, each `anyOf` entry, `through.localField`, and `through.foreignField` against
+  the parent schema). The check is narrow by design — it fires only when the name *is* a schema
+  field whose column differs, so a column absent from the schema raises nothing and a camelCase
+  database, where `col()` is the identity, raises nothing either.
 - **The `no-static-optional-peer` gate had never been able to fire.** `includeOnly: '^src/'` in
   `.dependency-cruiser.mjs` dropped every npm edge from the dependency graph, so the rule meant to
   stop a static import of `pg` / `mysql2` / `@fastify/*` — which breaks installs that use the other

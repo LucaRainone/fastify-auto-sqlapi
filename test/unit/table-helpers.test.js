@@ -292,3 +292,129 @@ describe('buildUpsertRules', () => {
     assert.deepEqual(map.get(schema2), ['id', 'name']);
   });
 });
+
+// `tenantScope` names real DB columns, not camelCase schema fields: the scope is applied to the
+// SQL after the payload has been converted, and `through.foreignField` belongs to a parent table
+// that may have no config of its own. That exception is the one place in `defineTable` where the
+// naming convention flips, so the most likely mistake — writing the schema field name — is
+// caught here rather than surfacing as `column "organizationId" does not exist`, a bare 500 on
+// every request to the table.
+describe('defineTable - tenantScope names columns, not schema fields', () => {
+  const snakeSchema = createMockSchema('customer', {
+    id: Type.Number(),
+    name: Type.String(),
+    organizationId: Type.Number(),
+    ownerId: Type.Number(),
+    otherOwnerId: Type.Number(),
+    customerId: Type.Number(),
+  });
+  // betterauth-style: the DB columns are already camelCase, so col() is the identity.
+  const camelSchema = {
+    col: (f) => f,
+    fields: { id: Type.Number(), organizationId: Type.Number() },
+    validation: Type.Object({}),
+    partialValidation: Type.Object({}),
+    tableName: 'userAccount',
+  };
+
+  it('rejects a schema field name whose real column is different', async () => {
+    const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+    assert.throws(
+      () => defineTable({
+        primary: 'id',
+        ...exportTableInfo(snakeSchema),
+        tenantScope: { column: 'organizationId' },
+      }),
+      /tenantScope.*'organizationId'.*schema field.*organization_id/s
+    );
+  });
+
+  it('accepts the real column name', async () => {
+    const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+    assert.doesNotThrow(() => defineTable({
+      primary: 'id',
+      ...exportTableInfo(snakeSchema),
+      tenantScope: { column: 'organization_id' },
+    }));
+  });
+
+  it('accepts a camelCase column when the database really names it that way', async () => {
+    // col() is the identity here, so there is nothing to warn about: no false positive on a
+    // camelCase database.
+    const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+    assert.doesNotThrow(() => defineTable({
+      primary: 'id',
+      ...exportTableInfo(camelSchema),
+      tenantScope: { column: 'organizationId' },
+    }));
+  });
+
+  it('accepts a tenant column the schema does not carry at all', async () => {
+    // A hand-written schema may legitimately omit it; nothing can be checked, and nothing is.
+    const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+    assert.doesNotThrow(() => defineTable({
+      primary: 'id',
+      ...exportTableInfo(snakeSchema),
+      tenantScope: { column: 'tenant_col' },
+    }));
+  });
+
+  it('checks every entry of an anyOf scope', async () => {
+    const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+    assert.throws(
+      () => defineTable({
+        primary: 'id',
+        ...exportTableInfo(snakeSchema),
+        tenantScope: { anyOf: ['owner_id', 'otherOwnerId'] },
+      }),
+      /'otherOwnerId'.*other_owner_id/s
+    );
+  });
+
+  it('checks the through FK on this table', async () => {
+    const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+    assert.throws(
+      () => defineTable({
+        primary: 'id',
+        ...exportTableInfo(snakeSchema),
+        tenantScope: {
+          column: 'organization_id',
+          through: { schema: snakeSchema, localField: 'customerId', foreignField: 'id' },
+        },
+      }),
+      /'customerId'.*customer_id/s
+    );
+  });
+
+  it('checks the through column against the parent schema, not this one', async () => {
+    const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+    const parent = createMockSchema('organization', {
+      id: Type.Number(),
+      ownerId: Type.Number(),
+    });
+    assert.throws(
+      () => defineTable({
+        primary: 'id',
+        ...exportTableInfo(snakeSchema),
+        tenantScope: {
+          column: 'organization_id',
+          through: { schema: parent, localField: 'customer_id', foreignField: 'ownerId' },
+        },
+      }),
+      /'ownerId'.*owner_id/s
+    );
+  });
+
+  it('accepts a fully spelled-out indirect scope', async () => {
+    const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+    const parent = createMockSchema('organization', { id: Type.Number() });
+    assert.doesNotThrow(() => defineTable({
+      primary: 'id',
+      ...exportTableInfo(snakeSchema),
+      tenantScope: {
+        column: 'organization_id',
+        through: { schema: parent, localField: 'customer_id', foreignField: 'id' },
+      },
+    }));
+  });
+});
