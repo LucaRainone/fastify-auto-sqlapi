@@ -62,6 +62,8 @@ And multi-tenancy is one plugin option (`getTenantId: (req) => req.user?.organiz
 // → 403 Forbidden — cross-tenant references are rejected server-side
 ```
 
+> ⚠️ **`getTenantId` returning `null`/`undefined` means _admin_ — no filtering, full cross-tenant access.** So "unauthenticated" and "admin" collapse to the same value: if your auth hook is missing or fails, `req.user` is `undefined` and the `?? null` above serves the request as admin. Nothing fails closed. In production, make `getTenantId` (or the auth hook) **reject when there is no authenticated principal**, and reserve `null` for a real superadmin — see the `getTenantId` option docs.
+
 No endpoint written by hand, no resolvers, no query language on the server — and these requests are schema-validated, Swagger-documented, size-capped and tenant-isolated like every other one.
 
 ## What you get
