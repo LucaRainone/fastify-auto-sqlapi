@@ -368,10 +368,16 @@ export async function assertTenantOwnsConflicts(
 
   let mismatchSql: string;
   if (tenantCols.length === 1) {
-    mismatchSql = `${tenantCols[0]} NOT IN (${tenant.ids.map((id) => {
+    const col = tenantCols[0];
+    const notIn = `${col} NOT IN (${tenant.ids.map((id) => {
       values.push(id);
       return db.ph(values.length);
     }).join(', ')})`;
+    // A NULL owner makes `col NOT IN (...)` return NULL, not TRUE, so an unowned row would slip
+    // past the probe and be claimable/overwritten by the upsert. Treat NULL as "not mine" — the
+    // same way the multi-column branch (NOT COALESCE(..., FALSE)) and the read side already do —
+    // so a NULL-owner conflict row is flagged as foreign.
+    mismatchSql = `(${col} IS NULL OR ${notIn})`;
   } else {
     // A NULL party makes `IN` return NULL, and `NOT NULL` is not TRUE — a plain negation would
     // let a row with one party NULL and the other owned by a stranger pass the probe unflagged.

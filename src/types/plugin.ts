@@ -16,6 +16,27 @@ export interface SqlApiPluginOptions {
   prefix?: string;
   swagger?: boolean | SwaggerOptions;
   dialect?: DialectName;
+  /**
+   * Resolve the caller's tenant id(s) for this request. Returning one id (or an array, for a
+   * caller who belongs to several tenants) scopes every read and write to rows that tenant owns.
+   *
+   * ⚠️ **Returning `null`/`undefined` means ADMIN — no tenant filtering at all, i.e. full
+   * cross-tenant access.** "Unauthenticated" and "admin" therefore collapse to the same value.
+   * The tenant identity is read from the request (typically `request.user`, populated by your own
+   * auth hook in {@link onRequests}), which this plugin does not set. If that hook is missing,
+   * mis-ordered, or fails, `request.user` is `undefined` and the common `?? null` pattern yields
+   * `null` → the request is served as admin. Nothing here fails closed.
+   *
+   * To fail closed, make this callback (or the auth hook) **reject when there is no authenticated
+   * principal** instead of returning `null`, and reserve `null` for a real, authorized superadmin:
+   *
+   * ```ts
+   * getTenantId: (req) => {
+   *   if (!req.user) throw app.httpErrors.unauthorized(); // no principal → deny, never admin
+   *   return req.user.isSuperadmin ? null : req.user.organizationId;
+   * }
+   * ```
+   */
   getTenantId?: (request: ApiRequest) => TenantId | TenantId[] | null | undefined
     | Promise<TenantId | TenantId[] | null | undefined>;
   debug?: boolean;

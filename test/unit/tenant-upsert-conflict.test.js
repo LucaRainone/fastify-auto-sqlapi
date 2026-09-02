@@ -68,6 +68,21 @@ for (const dialect of DIALECTS) {
       assert.deepEqual(mockPg.calls[0].values, [7, 8, 42]);
     });
 
+    it('flags a NULL-owner conflict row as foreign (single-column scope)', async () => {
+      // Security: `organization_id NOT IN (...)` evaluates to NULL — not TRUE — for a NULL
+      // owner, so an unowned row would slip past the probe and be claimable/overwritable by
+      // the upsert. The mismatch clause must treat a NULL owner as "not mine", the same way
+      // the anyOf branch (NOT COALESCE(..., FALSE)) and the read side already do.
+      const mockPg = createMockPg([{ rows: [] }]);
+      await assertTenantOwnsConflicts(client(mockPg), directTenant, 'customer', ['id'], [{ id: 7 }]);
+      const sql = mockPg.calls[0].text;
+      const org = qcol(dialect, 'customer', 'organization_id');
+      assert.ok(sql.includes(`${org} IS NULL`), `mismatch must guard a NULL owner: ${sql}`);
+      // The foreign-tenant probe and the value order stay intact.
+      assert.ok(sql.includes(`${org} NOT IN (`), sql);
+      assert.deepEqual(mockPg.calls[0].values, [7, 42]);
+    });
+
     it('throws 403 when a conflict row belongs to another tenant', async () => {
       const mockPg = createMockPg([{ rows: [{ x: 1 }] }]);
       await assert.rejects(
