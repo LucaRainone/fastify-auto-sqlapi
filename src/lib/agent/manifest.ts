@@ -162,13 +162,15 @@ export function buildAgentManifest(dbTables: DbTables): AgentManifest {
 
 /**
  * Compact markdown rendering of the manifest, designed for an LLM system prompt.
- * Notation: `!` required on insert, `?` nullable, `(writeOnly)` never returned by reads.
+ * Notation: `!` required on insert, `?` nullable, `(writeOnly)` never returned by reads,
+ * `(readOnly)` returned by reads and refused by every write.
  */
 export function renderAgentManifestMd(manifest: AgentManifest): string {
   const lines: string[] = [
     '# Tables',
     '',
-    'Notation: `!`=required on insert, `?`=nullable, `(writeOnly)`=writable, never in reads.',
+    'Notation: `!`=required on insert, `?`=nullable, `(writeOnly)`=writable, never in reads, ' +
+      '`(readOnly)`=returned by reads, refused by every write (omit it from write payloads).',
     'serverGenerated fields: omit on insert (values from client are ignored).',
     'readJoins aliases: `1:N` → joinMustExist/joinMultiple/joinGroup; `N:1` → joinLeft.',
     'writeJoins aliases: keys for `secondaries`/`deletions` in writes.',
@@ -189,12 +191,17 @@ function namedTypes(map: Record<string, string>): string {
   return Object.entries(map).map(([n, ty]) => `${n}:${ty}`).join(', ');
 }
 
-/** A field's type with its notation suffixes: `!` required, `?` nullable, `(writeOnly)`. */
+/**
+ * A field's type with its notation suffixes: `!` required, `?` nullable, `(writeOnly)`,
+ * `(readOnly)`. The two exclusion suffixes are mutually exclusive — `defineTable` rejects a
+ * field that is both — so at most one of them is ever appended.
+ */
 function fieldNotation(f: ManifestField): string {
   let s = f.type;
   if (f.required) s += '!';
   if (f.nullable) s += '?';
   if (f.writeOnly) s += '(writeOnly)';
+  if (f.readOnly) s += '(readOnly)';
   return s;
 }
 

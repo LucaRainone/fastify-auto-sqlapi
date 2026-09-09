@@ -77,7 +77,7 @@ Response (each section present only if requested):
 
 `orderBy` forms (comma-separable): `field [ASC|DESC]` | `alias.parentField` (joinLeft-eligible alias, adds LEFT JOIN) | `alias.fn.field` (fn: sum|min|max|avg|count|distinctCount — the joinGroup with that fn+field MUST be in the body; rows without children sort as 0). For 3-part orderBy and HAVING-style conditions: `aggregations.by` is allowed only when it equals the correlation FK (else 400); aggregation orderBy is rejected (400) on tables with distinctResults.
 
-Condition methods (params arity): `isEqual|isNotEqual|isGreater|isGreaterOrEqual|isLess|isLessOrEqual|isNotGreater|isNotGreaterOrEqual|isNotLess|isNotLessOrEqual` → `[v]`; `isLike|isNotLike|isILike|isNotILike` → `["%p%"]`; `isBetween|isNotBetween` → `[from,to]`; `isIn|isNotIn` → `[[v1,v2]]`; `isNull|isNotNull` → `[]`. Unknown field or method → 400.
+Condition methods (params arity): `isEqual|isNotEqual|isGreater|isGreaterOrEqual|isLess|isLessOrEqual|isNotGreater|isNotGreaterOrEqual|isNotLess|isNotLessOrEqual` → `[v]`; `isLike|isNotLike|isILike|isNotILike` → `["%p%"]`; `isBetween|isNotBetween` → `[from,to]`; `isIn|isNotIn` → `[[v1,v2]]`; `isNull|isNotNull` → `[]`. Unknown field or method → 400; so is a `params` that is not an array or is shorter than the arity above (`isNull`/`isNotNull` take none).
 
 ## WRITES
 
@@ -108,4 +108,4 @@ Condition methods (params arity): `isEqual|isNotEqual|isGreater|isGreaterOrEqual
   "fields": [ { "path": "body.main.name", "code": "required", "message": "must have required property 'name'" } ] }
 ```
 
-Other: 404 (get/delete not found), 400 `itemsPerPage exceeds the maximum` (lower it), 500 raw DB errors (constraint violations surface unmapped).
+Other: 404 (get/delete not found), 400 `itemsPerPage exceeds the maximum` (lower it), 500 raw DB errors (constraint violations surface unmapped). Fixed complexity caps, per search: **100 `conditions`** per section (top level and each join family) and **20** comma-separated `orderBy` parts (`orderBy` string ≤ 1024 chars) — over either → 400: collapse a long list of equality conditions into one `isIn`. `paginator.page` and `paginator.itemsPerPage` must be integers ≥ 1 — send numbers, not querystring strings.

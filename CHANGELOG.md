@@ -9,6 +9,49 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ## [Unreleased]
 
+### Fixed
+
+- **MySQL read every default *expression* as a database-computed column.** The generator
+  matched `information_schema.columns.EXTRA` on the substring `generated`, and MySQL writes
+  `DEFAULT_GENERATED` there for **any** column whose default is an expression —
+  `DEFAULT CURRENT_TIMESTAMP` above all, but also `DEFAULT (UUID())`, `DEFAULT (CURRENT_DATE)`,
+  a JSON default. Every one of those columns came out of `sqlapi-generate-schema` listed under
+  `generatedFields`, which the runtime strips from the insert, update and bulk-upsert bodies and
+  again inside the engines: the column stopped being writable, silently, with no error anywhere —
+  a client sending it had the value dropped and read back whatever the default had produced. On a
+  schema that timestamps its tables, that is every table. Only `GENERATION_EXPRESSION` separates
+  the two cases — it is non-empty for a real `GENERATED ALWAYS AS (<expr>)` column and empty for a
+  default expression — and it is now what the flag reads, with the `EXTRA` markers
+  (`VIRTUAL GENERATED`, `STORED GENERATED`, `PERSISTENT GENERATED`) kept as a fallback for a
+  server or driver that does not return it. MySQL and MariaDB only; PostgreSQL was never
+  affected. **Regenerate your schemas** (`sqlapi-generate-schema`) to get the columns back.
+
+- **The agent manifest's markdown never rendered `readOnly`.** The JSON manifest has carried the
+  flag since 0.2.2, but `/agent/manifest.md` — the rendering built to go into a system prompt —
+  dropped it, so the one consumer that reads the markdown, a model, kept putting non-writable
+  columns in write payloads and kept having them dropped. The notation now carries `(readOnly)`
+  alongside `(writeOnly)`, and the legend explains it.
+
+- **`ApiRequest` was documented as exported and was not.** [ADR 0018](./docs/adr/0018-one-seam-to-the-http-framework.md)
+  and the 0.2.2 entry below both say the type is exported from the package; `src/index.ts` never
+  re-exported it, so a consumer typing a hook or a `getTenantId` against it had to import from a
+  `dist/` internal path. It is now part of the public type exports.
+
+- **The upsert conflict guard failed open on a `NULL` owner in single-column tenant scopes.**
+  `col NOT IN (...)` evaluates to `NULL`, not `TRUE`, when the column is `NULL`, so a conflicting
+  row belonging to nobody slipped past the probe and could be claimed and overwritten by any
+  tenant's upsert. The single-column branch now reads `(col IS NULL OR col NOT IN (...))` —
+  an unowned row is foreign — which is what the `anyOf` branch and the read side already did.
+
+- **Documentation corrections.** `AGENTS_BACKEND.md` stated that programmatic `sqlApi.*` calls
+  are uncapped. The two *configurable* caps do belong to the routes (`maxItemsPerPage`,
+  `maxBulkItems` — `sqlApi.search()` takes `maxRows` for the first), but the complexity caps
+  (100 `conditions`, 20 `orderBy` parts) and the `paginator` integer guard live in the engine and
+  have always applied to `sqlApi.search()` too. `AGENTS_BACKEND.md` and `README.md` now say which
+  cap sits where, and the fixed caps are documented at all.
+
+## [0.2.2]
+
 ### Added
 
 - **`ApiRequest` — one seam between the core and the HTTP framework.** The engines, the schema
@@ -50,6 +93,7 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   `Table*.ts` the generator never overwrites. The CLI also prints the columns it found, per
   table, since a generated source file is not always read. See
   [ADR 0015](./docs/adr/0015-non-writable-columns.md).
+
 - **`writeExclude` on `defineTable`** — the write-side counterpart of `readExclude`, for the
   non-writable columns introspection cannot know about (one a trigger owns, one a migration is
   about to drop). Reads are untouched: the field stays projected, filterable and orderable. It
@@ -57,6 +101,7 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   (ADR 0005): a hook cannot put back a value the database will refuse. `defineTable` rejects an
   unknown field, the primary key, and a field that is also `readExclude`d. It is static and
   applies to everyone — a rule that depends on *who* is asking is still product logic (ADR 0004).
+
 - **The agent manifest marks non-writable fields** `readOnly`, alongside the existing
   `writeOnly` for `readExclude`.
 
@@ -73,6 +118,70 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   join side queries, which correlate on the values the database returned, so a hook rewriting the
   column a relation joins on cannot break the correlation. `SearchParams`/`GetParams` now carry
   the optional `request`, which `sqlApi.search()`/`sqlApi.get()` forward when given one.
+
+### Changed
+
+- **The update body requires the primary key**, which identifies the row it updates
+  (`PUT /rest/:table` carries it in `main`). The generated PK field is `Optional` — it is
+  absent on insert — and that modifier reached the update body unchanged, so a request omitting
+  `main.id` built its `WHERE` on `undefined` instead of being rejected. The code comment said
+  "PK required" all along.
+
+- **A secondary now runs the child table's `beforeInsert`.** `processSecondaries` already applied
+  the child's `excludeFromCreation` and its `tenantScope` but skipped its `beforeInsert`, so a
+  table whose hook *transformed* a value — encrypting a column, normalising a unit — stored the
+  raw client value whenever its rows arrived as another table's children, and the correct one
+  through its own route. Nothing failed at write time; the row read back as garbage later. The
+  hook runs after the exclusion strip and before the engine's FK auto-fill, which stays
+  authoritative, and receives the transaction connection. The child's `validate` and
+  `afterInsert` deliberately still do not run — see
+  [ADR 0014](./docs/adr/0014-what-follows-a-write-join.md). **Breaking** for a `beforeInsert`
+  written assuming it only ever ran on its own table's route.
+
+- **The get response schema honours `readExclude`**, like the search response already did; it
+  previously advertised fields the engine never selects. It now lives in `lib/schema/get.ts`
+  (`GetTableResponse`) instead of inline in the route, which is how it had drifted.
+  `schemaOverrides` stays where it was — write bodies only: an override rules what the API
+  accepts from now on, while the rows already stored predate it, so narrowing the response
+  would promise something no one can retroactively make true.
+
+### Fixed
+
+- **A `tenantScope` naming a schema field instead of a column now fails at startup.**
+  `tenantScope` names real DB columns — the scope is applied to the SQL, after the payload has
+  been converted, and `through.foreignField` belongs to a parent table that may have no config of
+  its own. Nothing checked it, so writing `organizationId` where the column is `organization_id`
+  passed `defineTable` and surfaced as `column "organizationId" does not exist` on every request
+  to the table: an opaque `500`, failing closed but saying nothing. All four positions are now
+  checked (`column`, each `anyOf` entry, `through.localField`, and `through.foreignField` against
+  the parent schema). The check is narrow by design — it fires only when the name *is* a schema
+  field whose column differs, so a column absent from the schema raises nothing and a camelCase
+  database, where `col()` is the identity, raises nothing either.
+
+- **The `no-static-optional-peer` gate had never been able to fire.** `includeOnly: '^src/'` in
+  `.dependency-cruiser.mjs` dropped every npm edge from the dependency graph, so the rule meant to
+  stop a static import of `pg` / `mysql2` / `@fastify/*` — which breaks installs that use the other
+  dialect — matched nothing, ever. The graph now keeps npm dependencies as leaves, and the rule is
+  qualified to what its name says: static, value-level imports only, since a type-only import is
+  erased at compile time and a dynamic one is what the rule asks for. Both gates were verified by
+  introducing a violation and watching them fail.
+
+- **`defineTable` never validated `primary`.** A primary key naming a field the schema does not
+  have passed startup untouched and became a raw SQL error on the first request — a `500`. It
+  now throws at `defineTable` time, naming the field and the operations that need it. The one
+  exception is exact: a table exposing only `search` and declaring its own `defaultOrder` never
+  reads `primary`, which is the shape generated for a view whose key could not be inferred.
+
+- **PostgreSQL identity columns made a table impossible to insert into.**
+  `GENERATED ... AS IDENTITY` reports no `column_default`, which is what the generator read to
+  decide that the database fills a column in — so the primary key came out **mandatory** in the
+  write body while PostgreSQL rejected any explicit value for it (`Column "id" is an identity
+  column defined as GENERATED ALWAYS`). Identity columns are now flagged like MySQL's
+  `AUTO_INCREMENT`: the field is Optional and the CLI lists it under `excludeFromCreation`.
+
+## [0.2.1]
+
+### Added
 
 - **`tenantScope` over several owner columns — `{ anyOf: [...] }`.** A row that belongs to two
   parties and is visible to either — a message (`sender_id` / `recipient_id`), a transfer
@@ -91,6 +200,7 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   byte-identical SQL. The three forms do not mix — `defineTable` throws at startup on `anyOf`
   combined with `column` or `through`, on an empty or malformed `anyOf`, and on a scope
   declaring no owner column at all.
+
 - `QueryClient.bulkInsertOrUpdate` takes an optional trailing `immutableCols`: columns written
   on insert but left untouched when the statement lands on an existing row. Additive.
 
@@ -111,6 +221,7 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   their own scope emit unchanged SQL. Migration — including the `getTenantId` body that now needs
   to tolerate an unauthenticated request — in
   [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--the-tenant-follows-the-request-not-the-table-it-addresses).
+
 - **Database errors no longer reach clients verbatim.** Any error escaping an auto-generated
   route that the plugin did not raise itself now answers `{"statusCode":500,"error":"Internal
   Server Error","message":"Internal Server Error"}` instead of the driver message, which names
@@ -131,80 +242,69 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   controlled) rather than the response body (not, and these routes are open by default). See
   [ADR 0013](./docs/adr/0013-sanitized-db-errors.md).
 
-- **Unknown `filters` keys are now rejected with `400 Unknown filter field: <key>`** instead
-  of being dropped in silence — on the main table and on every join family. The engine only
-  ever visited keys matching a schema field, an `extraFilters` entry or a computed field, so a
-  mistyped filter name came back as an unfiltered (wider) result set with no error: the
-  dangerous direction to fail in, and inconsistent with `selection`, `conditions`, `orderBy`
-  and aggregations, which have always answered 400. The check lives in the engine, so it
-  covers `sqlApi.search()` as well as the HTTP routes. `undefined` values still mean "filter
-  not supplied" and are ignored; an explicit `null` still filters by `IS NULL`. See
-  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--unknown-filter-keys-are-rejected).
-- **`joinLeft.<alias>.filters` no longer advertises the parent's `extraFilters`.** They were
-  present in the generated body schema and in Swagger, but `buildLeftJoinClauses` never runs
-  the target's `extendedCondition` (its column references cannot be qualified with the
-  `LEFT JOIN` alias), so the filter applied nothing. They are now rejected with a `400` naming
-  the reason and pointing at `joinMustExist` on the same relation.
+## [0.2.0]
 
-- **The update body requires the primary key**, which identifies the row it updates
-  (`PUT /rest/:table` carries it in `main`). The generated PK field is `Optional` — it is
-  absent on insert — and that modifier reached the update body unchanged, so a request omitting
-  `main.id` built its `WHERE` on `undefined` instead of being rejected. The code comment said
-  "PK required" all along.
-- **A secondary now runs the child table's `beforeInsert`.** `processSecondaries` already applied
-  the child's `excludeFromCreation` and its `tenantScope` but skipped its `beforeInsert`, so a
-  table whose hook *transformed* a value — encrypting a column, normalising a unit — stored the
-  raw client value whenever its rows arrived as another table's children, and the correct one
-  through its own route. Nothing failed at write time; the row read back as garbage later. The
-  hook runs after the exclusion strip and before the engine's FK auto-fill, which stays
-  authoritative, and receives the transaction connection. The child's `validate` and
-  `afterInsert` deliberately still do not run — see
-  [ADR 0014](./docs/adr/0014-what-follows-a-write-join.md). **Breaking** for a `beforeInsert`
-  written assuming it only ever ran on its own table's route.
-- **The get response schema honours `readExclude`**, like the search response already did; it
-  previously advertised fields the engine never selects. It now lives in `lib/schema/get.ts`
-  (`GetTableResponse`) instead of inline in the route, which is how it had drifted.
-  `schemaOverrides` stays where it was — write bodies only: an override rules what the API
-  accepts from now on, while the rows already stored predate it, so narrowing the response
-  would promise something no one can retroactively make true.
+### Added
 
-### Fixed
+- `QueryClient.update` and `QueryClient.delete` take an optional trailing `extraCondition`
+  (a `ConditionBuilder`) merged into the `WHERE` with its values bound in order — how the tenant
+  row guard reaches a write. Additive.
 
-- **A `tenantScope` naming a schema field instead of a column now fails at startup.**
-  `tenantScope` names real DB columns — the scope is applied to the SQL, after the payload has
-  been converted, and `through.foreignField` belongs to a parent table that may have no config of
-  its own. Nothing checked it, so writing `organizationId` where the column is `organization_id`
-  passed `defineTable` and surfaced as `column "organizationId" does not exist` on every request
-  to the table: an opaque `500`, failing closed but saying nothing. All four positions are now
-  checked (`column`, each `anyOf` entry, `through.localField`, and `through.foreignField` against
-  the parent schema). The check is narrow by design — it fires only when the name *is* a schema
-  field whose column differs, so a column absent from the schema raises nothing and a camelCase
-  database, where `col()` is the identity, raises nothing either.
-- **The `no-static-optional-peer` gate had never been able to fire.** `includeOnly: '^src/'` in
-  `.dependency-cruiser.mjs` dropped every npm edge from the dependency graph, so the rule meant to
-  stop a static import of `pg` / `mysql2` / `@fastify/*` — which breaks installs that use the other
-  dialect — matched nothing, ever. The graph now keeps npm dependencies as leaves, and the rule is
-  qualified to what its name says: static, value-level imports only, since a type-only import is
-  erased at compile time and a dynamic one is what the rule asks for. Both gates were verified by
-  introducing a violation and watching them fail.
-- **`defineTable` never validated `primary`.** A primary key naming a field the schema does not
-  have passed startup untouched and became a raw SQL error on the first request — a `500`. It
-  now throws at `defineTable` time, naming the field and the operations that need it. The one
-  exception is exact: a table exposing only `search` and declaring its own `defaultOrder` never
-  reads `primary`, which is the shape generated for a view whose key could not be inferred.
-- **PostgreSQL identity columns made a table impossible to insert into.**
-  `GENERATED ... AS IDENTITY` reports no `column_default`, which is what the generator read to
-  decide that the database fills a column in — so the primary key came out **mandatory** in the
-  write body while PostgreSQL rejected any explicit value for it (`Column "id" is an identity
-  column defined as GENERATED ALWAYS`). Identity columns are now flagged like MySQL's
-  `AUTO_INCREMENT`: the field is Optional and the CLI lists it under `excludeFromCreation`.
-- **Join validation no longer depends on the main result set.** `joinMultiple` / `joinLeft` /
-  `joinGroup` skip their side query entirely when the main query matched no rows, so everything
-  validated inside it was skipped with it — the same request answered 400 or 200 depending on
-  the data. This covered filter keys and `readExclude` on join filters, an explicit `selection`
-  naming an unknown field, and `joinGroup` aggregation fields including `aggregations.by`. Join
-  filters are now validated up front, and the selection and aggregation lists are resolved
-  before the empty-result bail-out.
+### Changed
+
+- **BREAKING: `conditions` and `orderBy` are capped.** `maxItemsPerPage` bounds the rows a
+  search returns, not the work done to find them: every dotted `conditions` entry and every
+  3-part `orderBy` token becomes its own correlated subquery, so an uncapped list turned one
+  request into arbitrarily many. `conditions` now takes at most **100** entries per section — the
+  top level and each join family — and `orderBy` at most **20** comma-separated parts; over
+  either, the answer is a **400**. The request schemas carry the same numbers (`maxItems`, plus a
+  1024-character cap on the `orderBy` string), so Swagger advertises exactly what the engine
+  enforces. Both are exported as `MAX_CONDITIONS` and `MAX_ORDER_BY_PARTS`, and both are checked
+  **in the engine**, which is what covers `sqlApi.search()` — no schema validates a programmatic
+  caller. See [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--request-limits-condition-arity-and-tenant-scope-inside-subqueries).
+
+- **BREAKING: `paginator` is validated at runtime.** `page` and `itemsPerPage` are rendered
+  straight into `LIMIT`/`OFFSET`, and `Paginator` is a compile-time type only: nothing stopped a
+  string, a fraction, a zero or a `NaN` — or a SQL fragment, on the documented path where a
+  consumer hands `sqlApi.search()` an unvalidated querystring. Both must now be integers `>= 1`,
+  checked before any query runs; anything else is a **400**. A numeric *string* (`itemsPerPage:
+  '10'`) is rejected too, so a querystring must be parsed before it is forwarded.
+
+- **BREAKING: a malformed condition `params` answers 400 instead of 500.** The method was
+  dispatched with whatever `params` carried, so a missing or wrongly shaped one threw a
+  `TypeError` inside the builder — which the error handler could only report as an
+  `Internal Server Error`. Arity is now checked once, at dispatch, for every call site:
+  `params` must be an array, the single-value methods need one entry, `isBetween`/`isNotBetween`
+  need two, and `isIn`/`isNotIn` need an array as their first entry. `isNull`/`isNotNull` still
+  take none, and an explicit `undefined` to `isIn` stays the documented no-op.
+
+- **BREAKING: inherited `Object.prototype` keys are no longer field names.** `key in map` and
+  `map[key]` walk the prototype chain, so `constructor`, `toString`, `valueOf`, `hasOwnProperty`
+  and `__proto__` satisfied every "is this a known field" check and reached the SQL builders,
+  where they rendered as `undefined` or as a column that does not exist. Every allowlist and every
+  field lookup in the search engine now tests own properties, so an inherited name is simply
+  unknown — a **400** in `filters`, condition fields, `orderBy` and `selectComputed`.
+
+- **BREAKING: `tenantScope` reaches the subqueries and the child writes of a request.** The
+  scope was applied to the main query and to the tables addressed directly, and nowhere else, so
+  the same request could still read and write other tenants' rows through its own joins:
+  **secondaries** were written without the child table's scope, **`joinLeft`** embedded the parent
+  unscoped, and the **`joinGroup` aggregation subqueries** — with the 3-part aggregation
+  `orderBy` built on them — counted and summed every tenant's child rows, disagreeing with the
+  scoped `result.joinGroup` for the same alias and leaking the existence of the rest. All four
+  now carry the scope of the table they touch; on `joinLeft` the predicate lands in the `ON`
+  clause, so `LEFT` semantics survive. Aggregates that used to count across tenants return
+  smaller numbers, and an ordering built on them changes with it.
+
+### Internal
+
+- The quality gates became executable and zero-tolerance (eslint, jscpd, knip,
+  dependency-cruiser, lefthook, CI), `search.ts` was split into seven layered modules with an
+  acyclic graph, and `docs/INDEX.md` plus `npm run find-similar` were added as the anti-duplication
+  surface. No runtime behaviour changes with any of it. See
+  [ADR 0012](./docs/adr/0012-anti-duplication-tooling.md).
+
+## [0.1.14]
 
 ### Added
 
@@ -219,12 +319,45 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   must include the join field, and is rejected on `allowedWriteJoins` (write paths resolve
   `upsertMap` by schema identity and must write every column the caller sent). Fail-closed by
   design — see [ADR 0011](./docs/adr/0011-join-fields-allowlist.md) for allowlist vs blocklist.
+
 - **[ADR 0010](./docs/adr/0010-joins-do-not-run-route-guards.md)** — a declared join is a read
   grant: `onRequests` and `operations` are route-level and do not follow a join, so
   `allowedReadJoins` grants read access to the target table under the *host* table's
   authorization. Documents what does cross a join (`readExclude`, `tenantScope`, the relation's
   schema), the trimmed-schema + explicit-`selection` pattern for column-level narrowing, and
   the rejected alternatives (`canBeJoined` hook, `selection` as a ceiling).
+
+### Changed
+
+- **Unknown `filters` keys are now rejected with `400 Unknown filter field: <key>`** instead
+  of being dropped in silence — on the main table and on every join family. The engine only
+  ever visited keys matching a schema field, an `extraFilters` entry or a computed field, so a
+  mistyped filter name came back as an unfiltered (wider) result set with no error: the
+  dangerous direction to fail in, and inconsistent with `selection`, `conditions`, `orderBy`
+  and aggregations, which have always answered 400. The check lives in the engine, so it
+  covers `sqlApi.search()` as well as the HTTP routes. `undefined` values still mean "filter
+  not supplied" and are ignored; an explicit `null` still filters by `IS NULL`. See
+  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--unknown-filter-keys-are-rejected).
+
+- **`joinLeft.<alias>.filters` no longer advertises the parent's `extraFilters`.** They were
+  present in the generated body schema and in Swagger, but `buildLeftJoinClauses` never runs
+  the target's `extendedCondition` (its column references cannot be qualified with the
+  `LEFT JOIN` alias), so the filter applied nothing. They are now rejected with a `400` naming
+  the reason and pointing at `joinMustExist` on the same relation.
+
+### Fixed
+
+- **Join validation no longer depends on the main result set.** `joinMultiple` / `joinLeft` /
+  `joinGroup` skip their side query entirely when the main query matched no rows, so everything
+  validated inside it was skipped with it — the same request answered 400 or 200 depending on
+  the data. This covered filter keys and `readExclude` on join filters, an explicit `selection`
+  naming an unknown field, and `joinGroup` aggregation fields including `aggregations.by`. Join
+  filters are now validated up front, and the selection and aggregation lists are resolved
+  before the empty-result bail-out.
+
+## [0.1.13]
+
+### Added
 
 - **`excludeTables` config option** — blacklist for `sqlapi-generate-schema`. Tables
   listed in `excludeTables` in `sqlapi.config.ts` (exact names or `*` globs, e.g.

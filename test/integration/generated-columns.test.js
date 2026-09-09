@@ -52,6 +52,17 @@ describe(`[${DIALECT}] introspection of database-computed columns`, () => {
     assert.ok(!qty.is_generated);
   });
 
+  // MySQL reports EXTRA='DEFAULT_GENERATED' for any default *expression*, so this column
+  // looks generated to a substring match on 'generated' and stops being writable.
+  it('leaves a column with a default expression writable', async () => {
+    const rows = await introspect();
+    const createdAt = rows.find(
+      (r) => r.table_name === 'customer' && r.column_name === 'created_at'
+    );
+    assert.ok(createdAt, 'customer.created_at should be introspected');
+    assert.ok(!createdAt.is_generated);
+  });
+
   it('flags the auto-generated primary key even without a column_default', async () => {
     const rows = await introspect();
     const id = rows.find((r) => r.table_name === 'identity_row' && r.column_name === 'id');

@@ -30,6 +30,7 @@ const customerSchema = makeSchema('customer', {
   id: Type.Number(),
   name: Type.String(),
   secret: Type.String(),
+  createdAt: Type.Optional(Type.String()),
   parentId: Type.Optional(Nullable(Type.Number())),
 });
 const orderSchema = makeSchema('customer_order', {
@@ -46,6 +47,7 @@ function makeDbTables() {
       ...exportTableInfo(customerSchema, { q: Type.String() }),
       excludeFromCreation: ['id'],
       readExclude: ['secret'],
+      writeExclude: ['createdAt'],
       defaultOrder: 'name',
       computedFields: {
         upperName: ({ qiCol }) => ({ expr: `UPPER(${qiCol('name')})`, type: Type.String() }),
@@ -79,6 +81,7 @@ describe('buildAgentManifest', () => {
     assert.deepEqual(f.id, { type: 'number', required: true });
     assert.deepEqual(f.parentId, { type: 'number', nullable: true });
     assert.deepEqual(f.secret, { type: 'string', required: true, writeOnly: true });
+    assert.deepEqual(f.createdAt, { type: 'string', readOnly: true });
   });
 
   it('reports operations honoring the whitelist and composite-PK rules', () => {
@@ -107,8 +110,17 @@ describe('renderAgentManifestMd', () => {
     assert.match(md, /## customer {2}PK:id {2}ops:search,get,insert,update,delete,bulkUpsert,bulkDelete/);
     assert.match(md, /parentId:number\?/);
     assert.match(md, /secret:string!\(writeOnly\)/);
+    assert.match(md, /createdAt:string\(readOnly\)/);
     assert.match(md, /readJoins: orders→customer_order\(1:N\), creator→app_user\(N:1\)/);
     assert.match(md, /## agent_team {2}PK:agentId\+teamId/);
+  });
+
+  // A field the API returns but refuses on every write has to say so in the notation the
+  // model actually reads: without it an agent keeps sending the column back and keeps
+  // getting it dropped.
+  it('explains the readOnly notation in the legend', () => {
+    const md = renderAgentManifestMd(buildAgentManifest(makeDbTables()));
+    assert.match(md, /`\(readOnly\)`=returned by reads, refused by every write/);
   });
 });
 

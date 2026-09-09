@@ -84,6 +84,7 @@ export { ConditionBuilder, Expression } from 'node-condition-builder';
 
 // Types
 export type {
+  ApiRequest,
   SqlApiConfig,
   ColumnInfo,
   TableMap,

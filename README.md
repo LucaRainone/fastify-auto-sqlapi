@@ -293,9 +293,12 @@ mapping is product logic, for your `setErrorHandler`). Set `exposeDebugInfo: tru
 developing to get the driver detail on the wire, additively.
 ([ADR 0013](./docs/adr/0013-sanitized-db-errors.md))
 
-Two caps are on by default: `maxItemsPerPage` (1000) bounds a search — and is applied as the
-`LIMIT` even with no paginator, so an empty-body search cannot dump a table — and `maxBulkItems`
-(1000) bounds a bulk array. Write bodies are `additionalProperties: false`, so the Schema is the
+Two caps are on by default and configurable: `maxItemsPerPage` (1000) bounds a search — and is
+applied as the `LIMIT` even with no paginator, so an empty-body search cannot dump a table — and
+`maxBulkItems` (1000) bounds a bulk array. Two more are fixed and bound the *work* a search asks
+for rather than the rows it returns: 100 `conditions` and 20 `orderBy` parts, each over-limit
+request answered with a 400. Those two are enforced in the engine, so `sqlApi.search()` gets them
+too. Write bodies are `additionalProperties: false`, so the Schema is the
 write whitelist and there is no mass assignment; note that Fastify *strips* an unknown field by
 default rather than rejecting it.
 
@@ -329,3 +332,4 @@ request says exactly what to fix.
 ## License
 
 MIT
+

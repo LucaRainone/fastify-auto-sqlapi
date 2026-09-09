@@ -41,6 +41,8 @@ interface MysqlColumnRow {
   column_key?: string;
   EXTRA?: string;
   extra?: string;
+  GENERATION_EXPRESSION?: string | null;
+  generation_expression?: string | null;
   TABLE_TYPE?: string;
   table_type?: string;
 }
@@ -119,6 +121,46 @@ function extra(row: { EXTRA?: string; extra?: string }): string {
   return String(row.EXTRA || row.extra || '').toLowerCase();
 }
 
+/** The two `EXTRA` markers that mean a real `GENERATED ALWAYS AS (...)` column. */
+const GENERATED_EXTRA = /\b(?:virtual|stored|persistent) generated\b/;
+
+/**
+ * True only for a column the database computes from an expression — never writable.
+ *
+ * `EXTRA` cannot be matched on the word 'generated': MySQL writes `DEFAULT_GENERATED` there
+ * for any column with a default *expression*, `DEFAULT CURRENT_TIMESTAMP` included, so a
+ * substring match takes every such timestamp column out of the write bodies. Only
+ * `GENERATION_EXPRESSION` separates the two, and it is non-empty for generated columns alone.
+ * `EXTRA` stays as a fallback, matched on the exact markers, for a driver or an older server
+ * that does not return the expression.
+ */
+function isGenerated(row: MysqlColumnRow): boolean {
+  const expression = String(row.GENERATION_EXPRESSION ?? row.generation_expression ?? '').trim();
+  return expression !== '' || GENERATED_EXTRA.test(extra(row));
+}
+
+/**
+ * One `information_schema.columns` row as the generator sees it.
+ *
+ * @testonly Exported only so unit tests can exercise it directly.
+ */
+export function mapMysqlColumnRow(row: MysqlColumnRow): ColumnInfo {
+  // `||` is kept as-is from the untyped version: this change types the driver, it does
+  // not alter behaviour. The trailing fallbacks only satisfy ColumnInfo, which cannot
+  // hold `undefined`.
+  return {
+    table_name: row.TABLE_NAME || row.table_name || '',
+    column_name: row.COLUMN_NAME || row.column_name || '',
+    udt_name: mapMysqlType(row.DATA_TYPE || row.data_type || ''),
+    column_default: row.COLUMN_DEFAULT || row.column_default || null,
+    is_nullable: row.IS_NULLABLE || row.is_nullable || '',
+    is_primary: (row.COLUMN_KEY || row.column_key) === 'PRI',
+    is_auto_increment: extra(row).includes('auto_increment'),
+    is_generated: isGenerated(row),
+    is_view: (row.TABLE_TYPE || row.table_type) === 'VIEW',
+  };
+}
+
 export async function introspectMysqlTables(
   connectionConfig: MysqlConnectionConfig,
   schema: string
@@ -129,7 +171,7 @@ export async function introspectMysqlTables(
   try {
     const [rows] = await connection.query(
       `SELECT c.table_name, c.column_name, c.data_type, c.column_default, c.is_nullable,
-              c.column_key, c.extra, t.table_type
+              c.column_key, c.extra, c.generation_expression, t.table_type
        FROM information_schema.columns c
        JOIN information_schema.tables t
          ON t.table_schema = c.table_schema AND t.table_name = c.table_name
@@ -138,21 +180,7 @@ export async function introspectMysqlTables(
       [schema]
     );
 
-    // `||` is kept as-is from the untyped version: this change types the driver, it does
-    // not alter behaviour. The trailing fallbacks only satisfy ColumnInfo, which cannot
-    // hold `undefined`.
-    return rows.map((row) => ({
-      table_name: row.TABLE_NAME || row.table_name || '',
-      column_name: row.COLUMN_NAME || row.column_name || '',
-      udt_name: mapMysqlType(row.DATA_TYPE || row.data_type || ''),
-      column_default: row.COLUMN_DEFAULT || row.column_default || null,
-      is_nullable: row.IS_NULLABLE || row.is_nullable || '',
-      is_primary: (row.COLUMN_KEY || row.column_key) === 'PRI',
-      is_auto_increment: extra(row).includes('auto_increment'),
-      // 'VIRTUAL GENERATED' / 'STORED GENERATED': computed from an expression, never writable.
-      is_generated: extra(row).includes('generated'),
-      is_view: (row.TABLE_TYPE || row.table_type) === 'VIEW',
-    }));
+    return rows.map(mapMysqlColumnRow);
   } finally {
     await connection.end();
   }

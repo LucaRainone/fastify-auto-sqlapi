@@ -1,5 +1,7 @@
 # Breaking Changes — Join API redesign
 
+*Landed in **0.1.3**.*
+
 The join API was rewritten to be explicit, alias-based, and to add a real `LEFT JOIN` mode (`joinLeft`) for N:1 relationships. **No backward compatibility** — old names are rejected with 400. Both backend (table configuration) and frontend (request/response shapes) are affected. This document is the single source of truth for migrating either side.
 
 ## Why this changed
@@ -265,6 +267,8 @@ The engine rejects, with `statusCode: 400`, any of:
 
 # Breaking Change — computed field placeholders use `?` markers
 
+*Landed in **0.1.6**.*
+
 `ComputedFieldExpr.expr` must now mark each bound value with `?`. The engine assigns the
 placeholder positions. Writing `$1` (or `db.ph(n)`) inside the expression no longer works and
 is rejected with a descriptive error.
@@ -319,6 +323,8 @@ them with 400. They remain rejected in `selectComputed`, `computeMin/Max/Sum/Avg
 values in the parameter order.
 
 # Breaking Change — by-single-id operations disabled for composite primary keys
+
+*Landed in **0.1.11**.*
 
 Since **0.1.11**, tables whose `primary` is an array of more than one field no longer expose
 the operations that address a record by a single PK value:
@@ -384,6 +390,8 @@ endpoints previously behaved correctly for you — they are now gone and you mus
 ---
 
 # Breaking Change — unknown filter keys are rejected
+
+*Landed in **0.1.14**.*
 
 `filters` keys that match nothing are now a `400`, on the main table and on every join family.
 Previously they were dropped without a word.
@@ -458,7 +466,102 @@ delegates to the target's own `filters()` and does run `extendedCondition`.
 
 ---
 
+# Breaking Change — request limits, condition arity and tenant scope inside subqueries
+
+*Landed in **0.2.0**.*
+
+## Why this changed
+
+Four ways a single search request could do more than the plugin admitted, and one where the
+declared scope was not the enforced one.
+
+- `maxItemsPerPage` bounds the **rows a search returns**, not the work done to find them. Every
+  dotted `conditions` entry and every 3-part `orderBy` token becomes its own correlated subquery,
+  so an uncapped list turned one request into arbitrarily many.
+- `paginator.page` and `paginator.itemsPerPage` are rendered straight into `LIMIT`/`OFFSET`.
+  `Paginator` is a compile-time type only, and `sqlApi.search()` is a documented public API a
+  consumer may hand an unvalidated querystring — the integer check has to exist at runtime.
+- `key in map` and `map[key]` walk `Object.prototype`, so `constructor`, `toString`, `valueOf`,
+  `hasOwnProperty` and `__proto__` satisfied every "is this a known field" check and reached the
+  SQL builders, where they rendered as `undefined` or as a column that does not exist.
+- A condition method was dispatched with whatever `params` carried. A missing or wrongly shaped
+  one threw a `TypeError` inside the builder, which the error handler can only report as a 500.
+- `tenantScope` was applied to the main query and to the tables a request addressed directly. The
+  subqueries and child writes the same request produced carried no scope, so a scoped table was
+  still readable and writable through its own relations.
+
+## What changed
+
+Every row below answers **400** where it previously did something else.
+
+| Input | Rule now | Before |
+|---|---|---|
+| `conditions` | at most **100** entries, per section (top level and each join family) — schema `maxItems` plus an engine backstop | unbounded |
+| `orderBy` | at most **20** comma-separated parts; the request schema also caps the string at **1024** characters | unbounded |
+| `paginator` | `page` and `itemsPerPage` must both be integers `>= 1`, checked before any query runs | any value, rendered into `LIMIT`/`OFFSET` as-is |
+| condition `params` | must be an array; single-value methods need 1 entry, `isBetween`/`isNotBetween` 2, `isIn`/`isNotIn` an array as the first entry | passed to the builder as-is → `TypeError` → 500 |
+| field names | inherited `Object.prototype` keys are not fields, in `filters`, condition fields, `orderBy` and `selectComputed` | resolved as known fields and reached the SQL |
+
+The two caps are exported as `MAX_CONDITIONS` and `MAX_ORDER_BY_PARTS`. Both checks live in the
+**engine**, not in the route, which is what covers `sqlApi.search()` — no schema validates a
+programmatic caller. `isNull`/`isNotNull` still take no params, and an explicit `undefined` handed
+to `isIn` remains the documented no-op.
+
+And `tenantScope` now follows the request into everything it touches:
+
+- **secondaries** — a child row written alongside a main row is scoped and anchored by the child
+  table's own `tenantScope`;
+- **`joinLeft`** — the predicate lands in the `ON` clause, so `LEFT` semantics survive;
+- **`joinGroup` aggregation subqueries**, and the 3-part aggregation `orderBy` built on them —
+  they counted and summed every tenant's child rows, which disagreed with the scoped
+  `result.joinGroup` for the same alias and leaked the existence of the rest.
+
+## Who is affected
+
+- **A client that sends more than 100 `conditions` or more than 20 `orderBy` parts.** Generated
+  filter UIs are the realistic case: a "select all" that emits one condition per row.
+- **A caller that forwards a raw querystring to `sqlApi.search()`.** `itemsPerPage: '10'` is a
+  string and is now a 400: parse the querystring before you forward it.
+- **Conditions assembled programmatically.** One built with a missing `params` used to reach the
+  builder; it is now refused up front, with the method named.
+- **Any deployment using `tenantScope` with `secondaries`, `joinLeft` or `joinGroup`.**
+  Aggregates that used to count across tenants return smaller numbers, and an ordering built on
+  them changes with it. A secondary write that used to land in another tenant's rows is now
+  refused. This is the fix, not a regression — but a dashboard whose numbers were computed
+  cross-tenant will move.
+
+Not affected: requests within the caps, a well-formed integer `paginator`, and any deployment
+without `tenantScope`.
+
+## Migration
+
+Split an oversized `conditions` list rather than raising anything — the caps are not configurable:
+
+```typescript
+// Before: one request with 400 conditions
+{ conditions: ids.map((id) => ({ field: 'id', method: 'isEqual', params: [id] })) }
+
+// After: one condition, one bound array
+{ conditions: [{ field: 'id', method: 'isIn', params: [ids] }] }
+```
+
+Parse a querystring before it reaches `sqlApi.search()`:
+
+```typescript
+const paginator = {
+  page: Number.parseInt(req.query.page ?? '1', 10),
+  itemsPerPage: Number.parseInt(req.query.itemsPerPage ?? '50', 10),
+};
+```
+
+Then re-read any number your product computes from `joinGroup`: if it was collected under a
+tenant scope, it was counting rows that tenant cannot see, and it changes with this release.
+
+---
+
 # Breaking Change — the tenant follows the request, not the table it addresses
+
+*Landed in **0.2.1**.*
 
 `tenantScope` on a table is now enforced even when the request was addressed to a **different**
 table that reaches it through a relation. Previously the tenant was resolved from the addressed
@@ -540,6 +643,8 @@ grant, and the scope is only the cap on it.
 ---
 
 # Breaking Change — secondaries run the child table's `beforeInsert`
+
+*Landed in **0.2.2**.*
 
 ## Why this changed
 
