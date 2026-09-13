@@ -229,3 +229,121 @@ describe('tenant scoping on join side-queries', () => {
     assert.ok(joinQuery.values.includes(9));
   });
 });
+
+// An indirect scope whose through table is NEITHER the main table nor the join table: the
+// predicate cannot borrow a table that is already in the FROM, so every subquery family must
+// bring the parent in on its own — a bare `"account"."organization_id"` would be an unknown
+// reference at best, and a silent reference to the wrong table at worst.
+describe('indirect join-table scope through a third table', () => {
+  const accountFields = { id: Type.Number(), organizationId: Type.Number() };
+  const orderWithAccountFields = { ...orderFields, accountId: Type.Number() };
+
+  function createThirdTableDbTables(mockPg) {
+    const customerSchema = createMockSchema('customer', customerFields);
+    const orderSchema = createMockSchema('customer_order', orderWithAccountFields);
+    const accountSchema = createMockSchema('account', accountFields);
+
+    const DbTables = {
+      customer: {
+        primary: 'id',
+        ...exportTableInfo(customerSchema),
+        defaultOrder: 'id',
+        tenantScope: { column: 'organization_id' },
+        allowedReadJoins: [
+          buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
+        ],
+      },
+      customer_order: {
+        primary: 'id',
+        ...exportTableInfo(orderSchema),
+        defaultOrder: 'id',
+        tenantScope: {
+          column: 'organization_id',
+          through: { schema: accountSchema, localField: 'account_id', foreignField: 'id' },
+        },
+      },
+      account: {
+        primary: 'id',
+        ...exportTableInfo(accountSchema),
+        defaultOrder: 'id',
+        tenantScope: { column: 'organization_id' },
+      },
+    };
+    return { DbTables, db: new QueryClient(mockPg) };
+  }
+
+  /** The scope reaches `account` and filters on its tenant column, in the given fragment. */
+  function assertScopedThroughAccount(fragment) {
+    assert.ok(fragment.includes('"account"'), `the through table must be brought in, got: ${fragment}`);
+    assert.ok(
+      fragment.includes('"account"."organization_id" IN'),
+      `the predicate must sit on the through table tenant column, got: ${fragment}`
+    );
+  }
+
+  it('joinMustExist: the EXISTS subquery reaches the through table', async () => {
+    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
+    const { DbTables, db } = createThirdTableDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      joinMustExist: { customer_order: { filters: { total: 10 } } },
+      tenant: TENANT,
+    });
+
+    const sql = mockPg.calls[0].text;
+    assertScopedThroughAccount(sql.slice(sql.indexOf('EXISTS')));
+    assert.ok(mockPg.calls[0].values.includes(9));
+  });
+
+  it('joinGroup: the aggregation side query reaches the through table', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 1, name: 'Mario', organization_id: 9 }], affectedRows: 1 },
+      { rows: [], affectedRows: 0 },
+    ]);
+    const { DbTables, db } = createThirdTableDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      joinGroup: { customer_order: { aggregations: { count: ['id'] } } },
+      tenant: TENANT,
+    });
+
+    assertScopedThroughAccount(mockPg.calls[1].text);
+    assert.ok(mockPg.calls[1].values.includes(9));
+  });
+
+  it('dotted aggregation condition: the correlated subquery reaches the through table', async () => {
+    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
+    const { DbTables, db } = createThirdTableDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      joinGroup: { customer_order: { aggregations: { count: ['id'] } } },
+      conditions: [{ field: 'customer_order.count.id', method: 'isGreater', params: [0] }],
+      tenant: TENANT,
+    });
+
+    const sql = mockPg.calls[0].text;
+    assertScopedThroughAccount(sql.slice(sql.indexOf('COALESCE((SELECT')));
+  });
+
+  it('3-part orderBy: the correlated subquery reaches the through table', async () => {
+    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
+    const { DbTables, db } = createThirdTableDbTables(mockPg);
+
+    await searchEngine(DbTables, {
+      db,
+      tableConf: DbTables.customer,
+      joinGroup: { customer_order: { aggregations: { sum: ['total'] } } },
+      orderBy: 'customer_order.sum.total',
+      tenant: TENANT,
+    });
+
+    const sql = mockPg.calls[0].text;
+    assertScopedThroughAccount(sql.slice(sql.indexOf('ORDER BY')));
+  });
+});

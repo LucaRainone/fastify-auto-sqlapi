@@ -9,6 +9,15 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ## [Unreleased]
 
+### Fixed
+
+- **An empty tenant list is refused, not executed.** `getTenantId` returning `[]` (a caller
+  who belongs to no tenant) used to reach the database as `organization_id IN ()` — a syntax
+  error on both dialects, so a `500` that failed closed only by accident, and one step away
+  from a leak had any builder dropped the empty predicate. `resolveTenant` now answers `403`
+  before any SQL exists, on every operation and through relations from an unscoped host.
+  `null`/`undefined` remain the only admin values; `0` and `''` remain ordinary tenant ids.
+
 ### Changed
 
 - **`fastify-plugin` 5 → 6.** The only runtime dependency bump: v6 renames its entry files and
@@ -20,6 +29,14 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Internal
 
+- **Tenant isolation test audit.** New specs pin what was enforced but unproven: the tenant
+  reaches every HTTP route and every `SqlApi` method; `deletions` bind the child to the main
+  row FK (an unscoped child under a scoped parent included) and follow indirect and `anyOf`
+  child scopes; a secondary cannot be re-parented by a payload FK; upserted secondaries are
+  conflict-guarded on update and bulk upsert; a multi-tenant caller cannot write an unanchored
+  secondary; direct-scope update and bulk upsert; indirect-scope delete and bulk delete; request
+  predicates on the tenant column never widen the scope; an indirect join-table scope through a
+  third table is enforced inside `joinMustExist`, `joinGroup` and aggregation subqueries.
 - **`swagger: true` is now tested.** `setupSwagger` swallows a failed import of
   `@fastify/swagger`/`@fastify/swagger-ui` and only logs a warning, so a dependency bump that
   broke the documentation would have passed every test. Unit tests now assert the served

@@ -948,9 +948,14 @@ getTenantId: (request) => {
 
 Uses `IN ($N, $M, ...)` for all WHERE clauses (same as single tenant, just with more values).
 
+An **empty array** is a caller who belongs to no tenant, not an admin: every request that
+reaches a scoped table (directly or through a relation) is refused with `403` before any SQL
+runs. `0` and `''` are ordinary tenant ids and filter like any other value.
+
 ### Admin bypass
 
-When `getTenantId` returns `null` or `undefined`, no filtering is applied (full access).
+When `getTenantId` returns `null` or `undefined`, no filtering is applied (full access). Only
+these two values bypass; `[]`, `0` and `''` do not.
 
 ### Tables without tenant
 
@@ -958,7 +963,8 @@ Tables without `tenantScope` are unaffected — no filtering regardless of `getT
 
 ### Error codes
 
-- **403** — Record doesn't belong to tenant, or explicit tenant value doesn't match
+- **403** — Record doesn't belong to tenant, explicit tenant value doesn't match, or
+  `getTenantId` returned an empty array (a caller with no tenant at all)
 - **400** — Multi-tenant user on insert without explicit tenant value (ambiguous), or an
   `anyOf` write naming no owner column at all
 - **404** — Update with indirect tenant, record not found for this tenant; get/update/delete of

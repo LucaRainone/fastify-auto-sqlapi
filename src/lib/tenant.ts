@@ -64,6 +64,12 @@ export async function resolveTenant(
   if (raw == null) return undefined; // admin
 
   const ids: TenantId[] = Array.isArray(raw) ? raw : [raw];
+  // An empty list is a caller with no tenant at all — not an admin. Every consumer of `ids`
+  // would emit `IN ()` (a syntax error on both dialects) or, worse, a builder could drop the
+  // empty predicate and open the table. Refuse here, once, before any SQL exists.
+  if (ids.length === 0) {
+    throw httpError(403, 'Tenant required: the caller belongs to no tenant');
+  }
   // `scope` stays undefined for an unscoped host: the ids still travel, so the tables it reaches
   // enforce their own scopes, while the host itself keeps no filter.
   return { ids, scope: tableConf.tenantScope };

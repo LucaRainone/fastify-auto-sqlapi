@@ -16,6 +16,8 @@ const { getEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/get.js'
 const { deleteEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/delete.js'));
 const { bulkDeleteEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk/bulk-delete.js'));
 const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/insert.js'));
+const { updateEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/update.js'));
+const { bulkUpsertEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk/bulk-upsert.js'));
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
 const { Type } = await import('@sinclair/typebox');
 
@@ -493,5 +495,175 @@ describe('searchEngine with direct tenant', () => {
 
     const sql = mockPg.calls[0].text;
     assert.ok(!sql.includes('organization_id'));
+  });
+});
+
+// ─── Engine integration: updateEngine with direct tenant ────
+
+describe('updateEngine with direct tenant', () => {
+  const customerFields = { id: Type.Number(), name: Type.String(), organizationId: Type.Number() };
+  const customerSchema = createMockSchema('customer', customerFields);
+  const tableConf = { primary: 'id', ...exportTableInfo(customerSchema), defaultOrder: 'id' };
+  const tenant = { ids: [42], scope: { column: 'organization_id' } };
+
+  it('scopes the WHERE by tenant and keeps the tenant column out of the SET', async () => {
+    const mockPg = createMockPg([{ rows: [], affectedRows: 1 }]);
+    const db = new QueryClient(mockPg);
+
+    await updateEngine({
+      db, tableConf, dbTables: {}, request: {},
+      record: { id: 1, name: 'Mario', organizationId: 99 },
+      tenant,
+    });
+
+    const sql = mockPg.calls[0].text;
+    const [set, where] = sql.split(' WHERE ');
+    assert.ok(!set.includes('organization_id'), `a scoped caller cannot re-tenant a row, got: ${set}`);
+    assert.ok(/organization_id"? (=|IN) \(?\$\d+\)?/.test(where), `WHERE must be tenant-scoped, got: ${where}`);
+    assert.ok(mockPg.calls[0].values.includes(42));
+    assert.ok(!mockPg.calls[0].values.includes(99));
+  });
+
+  it('answers 404 when the row is outside the tenant', async () => {
+    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
+    const db = new QueryClient(mockPg);
+
+    await assert.rejects(
+      () => updateEngine({ db, tableConf, dbTables: {}, request: {}, record: { id: 1, name: 'Mario' }, tenant }),
+      (err) => err.statusCode === 404
+    );
+  });
+});
+
+// ─── Engine integration: bulkUpsertEngine with direct tenant ─
+
+describe('bulkUpsertEngine with direct tenant', () => {
+  const customerFields = { id: Type.Number(), name: Type.String(), organizationId: Type.Number() };
+  const customerSchema = createMockSchema('customer', customerFields);
+  const tableConf = { primary: 'id', ...exportTableInfo(customerSchema), defaultOrder: 'id' };
+  const tenant = { ids: [42], scope: { column: 'organization_id' } };
+
+  it('injects the tenant value into every main row', async () => {
+    const mockPg = createMockPg([{ rows: [{ id: 1 }, { id: 2 }], affectedRows: 2 }]);
+    const db = new QueryClient(mockPg);
+
+    await bulkUpsertEngine({
+      db, tableConf, dbTables: {}, request: {},
+      items: [{ main: { name: 'A' } }, { main: { name: 'B' } }],
+      tenant,
+    });
+
+    assert.ok(mockPg.calls[0].text.includes('"organization_id"'));
+    assert.equal(mockPg.calls[0].values.filter((v) => v === 42).length, 2, 'one tenant value per row');
+  });
+
+  it('rejects the whole batch (403) when any main row names a foreign tenant', async () => {
+    const mockPg = createMockPg([]);
+    const db = new QueryClient(mockPg);
+
+    await assert.rejects(
+      () => bulkUpsertEngine({
+        db, tableConf, dbTables: {}, request: {},
+        items: [{ main: { name: 'A' } }, { main: { name: 'B', organizationId: 99 } }],
+        tenant,
+      }),
+      (err) => err.statusCode === 403
+    );
+    assert.equal(mockPg.calls.length, 0, 'nothing may be written');
+  });
+
+  it('rejects (400) a multi-tenant caller whose rows do not name the tenant', async () => {
+    const mockPg = createMockPg([]);
+    const db = new QueryClient(mockPg);
+
+    await assert.rejects(
+      () => bulkUpsertEngine({
+        db, tableConf, dbTables: {}, request: {},
+        items: [{ main: { name: 'A' } }],
+        tenant: { ids: [1, 2], scope: { column: 'organization_id' } },
+      }),
+      (err) => err.statusCode === 400
+    );
+    assert.equal(mockPg.calls.length, 0);
+  });
+});
+
+// ─── Engine integration: delete engines with indirect tenant ─
+
+describe('delete engines with indirect tenant', () => {
+  const orderSchema = createMockSchema('customer_order', { id: Type.Number(), customerId: Type.Number(), total: Type.Number() });
+  const customerSchema = createMockSchema('customer', { id: Type.Number(), organizationId: Type.Number() });
+  const tableConf = { primary: 'id', ...exportTableInfo(orderSchema), defaultOrder: 'id' };
+  const tenant = {
+    ids: [42],
+    scope: { column: 'organization_id', through: { schema: customerSchema, localField: 'customer_id', foreignField: 'id' } },
+  };
+  // The outer `DELETE ... WHERE "id" IN (SELECT ...)` is single-table: its bare pk is legitimate,
+  // but the harness sees the JOIN inside the subquery and would flag it.
+  const opts = { checkQualification: false };
+
+  it('deleteEngine restricts the row through the parent tenant column', async () => {
+    const mockPg = createMockPg([{ rows: [], affectedRows: 1 }], opts);
+    const db = new QueryClient(mockPg);
+
+    await deleteEngine({ db, tableConf, id: '1', tenant });
+
+    const del = mockPg.calls.find((c) => c.text.startsWith('DELETE FROM "customer_order"'));
+    assert.ok(del, mockPg.calls.map((c) => c.text).join('\n'));
+    assert.ok(del.text.includes('INNER JOIN "customer"'), del.text);
+    assert.ok(del.text.includes('"customer"."organization_id" IN'), del.text);
+    assert.ok(del.values.includes(42));
+  });
+
+  it('bulkDeleteEngine restricts every row through the parent tenant column', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ pk: 1 }, { pk: 2 }], affectedRows: 2 }, // ownership probe: all owned
+      { rows: [], affectedRows: 2 },                     // DELETE
+    ], opts);
+    const db = new QueryClient(mockPg);
+
+    await bulkDeleteEngine({ db, tableConf, ids: [1, 2], request: {}, tenant });
+
+    for (const call of mockPg.calls) {
+      assert.ok(call.text.includes('INNER JOIN "customer"'), call.text);
+      assert.ok(call.text.includes('"customer"."organization_id" IN'), call.text);
+      assert.ok(call.values.includes(42));
+    }
+  });
+});
+
+// ─── searchEngine: the request cannot widen the tenant scope ─
+
+describe('searchEngine: request predicates on the tenant column stay inside the scope', () => {
+  const customerFields = { id: Type.Number(), name: Type.String(), organizationId: Type.Number() };
+  const customerSchema = createMockSchema('customer', customerFields);
+  const tableConf = { primary: 'id', ...exportTableInfo(customerSchema), defaultOrder: 'id' };
+  const dbTables = { customer: tableConf };
+  const tenant = { ids: [42], scope: { column: 'organization_id' } };
+
+  it('a filter on another tenant is ANDed with the scope, never ORed', async () => {
+    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
+    const db = new QueryClient(mockPg);
+
+    await searchEngine(dbTables, { db, tableConf, filters: { organizationId: 99 }, tenant });
+
+    const sql = mockPg.calls[0].text;
+    assert.ok(sql.includes('"organization_id" IN ($'), sql);
+    assert.ok(!sql.includes(' OR '), `the scope must not be widened by the request, got: ${sql}`);
+    assert.ok(mockPg.calls[0].values.includes(42));
+  });
+
+  it('an isIn condition listing foreign tenants is ANDed with the scope', async () => {
+    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
+    const db = new QueryClient(mockPg);
+
+    await searchEngine(dbTables, {
+      db, tableConf, tenant,
+      conditions: [{ field: 'organizationId', method: 'isIn', params: [[99, 42]] }],
+    });
+
+    const sql = mockPg.calls[0].text;
+    assert.ok(!sql.includes(' OR '), sql);
+    assert.equal(mockPg.calls[0].values.filter((v) => v === 42).length, 2, 'request value and scope value are both bound');
   });
 });
