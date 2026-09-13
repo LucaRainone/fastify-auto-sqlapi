@@ -2,6 +2,7 @@ import { Type, OptionalKind, type TSchema } from '@sinclair/typebox';
 import type { ITable, SchemaDefinition, DbTables, JoinDefinition } from '../../types.js';
 import { readableFieldNames } from '../read-access.js';
 import { writableFields } from '../write-access.js';
+import { tenantOwnColumns } from '../tenant.js';
 import { findSecondaryTableConf } from '../engine/write-helpers.js';
 
 /**
@@ -19,9 +20,28 @@ export function pkSchema(tableConf: ITable | undefined, schema: SchemaDefinition
 }
 
 /**
+ * Make the tenant column(s) of a scoped table Optional in a write body. The engine injects the
+ * value for a single-tenant caller and validates the one a multi-tenant or `anyOf` caller sends,
+ * so the body must offer the field without demanding it — the same reason a secondary's FK is
+ * Optional. `tenantScope` names real DB columns; the schema field is found through `col()`.
+ */
+export function relaxTenantColumns(
+  fields: Record<string, TSchema>,
+  tableConf: ITable | undefined,
+  schema: SchemaDefinition
+): void {
+  const columns = tenantOwnColumns(tableConf?.tenantScope);
+  if (columns.length === 0) return;
+  for (const field of Object.keys(fields)) {
+    if (columns.includes(schema.col(field))) fields[field] = Type.Optional(fields[field]);
+  }
+}
+
+/**
  * Build secondary table fields for body schemas:
  * - FK field becomes Optional (auto-filled from main)
  * - excludeFromCreation fields become Optional
+ * - tenant column(s) become Optional (injected or validated by the engine)
  */
 function buildSecondaryFields(
   joinSchema: SchemaDefinition,
@@ -45,6 +65,8 @@ function buildSecondaryFields(
       }
     }
   }
+
+  relaxTenantColumns(fields, secondaryTableConf, joinSchema);
 
   return fields;
 }

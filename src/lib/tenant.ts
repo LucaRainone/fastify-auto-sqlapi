@@ -32,6 +32,16 @@ function ownColumns(scope: TenantScope): string[] {
 }
 
 /**
+ * The columns of a scoped table that the engine fills or validates on insert, i.e. the ones a
+ * write body must offer without requiring: the own column of a direct scope, every column of an
+ * `anyOf` scope. An indirect scope names no column of its own — its FK is an ordinary field.
+ */
+export function tenantOwnColumns(scope: TenantScope | undefined): string[] {
+  if (!scope || isIndirect(scope)) return [];
+  return ownColumns(scope);
+}
+
+/**
  * Whether this request could touch a scoped row at all: the addressed table is scoped, or one of
  * the tables it can reach through a declared relation is.
  *

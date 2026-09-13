@@ -869,7 +869,7 @@ const TableCustomer = defineTable({
 
 Behavior:
 - **Read** (search, get, delete, bulk-delete): adds `AND organization_id IN ($N)` to WHERE
-- **Insert**: auto-injects `organization_id` if single tenant; validates if already present (403 if mismatch); 400 if multi-tenant without explicit value
+- **Insert**: auto-injects `organization_id` if single tenant; validates if already present (403 if mismatch); 400 if multi-tenant without explicit value. The insert body (main and secondaries items) offers the column as **optional**, whatever the generated schema says: a single-tenant client omits it, a multi-tenant client names it. An admin (`getTenantId` → `null`) who omits it reaches the database's own `NOT NULL`, like any other column.
 - **Update**: strips `organization_id` from SET (can't change tenant), adds to WHERE condition
 - **Bulk upsert**: auto-injects on all records
 - **Upsert conflict guard** (`upsertMap` set): before the `ON CONFLICT DO UPDATE`, a probe rejects (403) any incoming conflict key that matches a row owned by another tenant — an upsert cannot overwrite or re-assign a foreign tenant's row.
@@ -922,7 +922,8 @@ Behavior:
 - **Insert**: no auto-injection. The payload must **anchor** the row: at least one listed column
   present and holding a tenant id → `400` if none is present, `403` if present but all foreign.
   The other parties are stored exactly as sent. A multi-id caller is never ambiguous here,
-  because nothing is being guessed.
+  because nothing is being guessed. Every listed column is **optional** in the insert body, so
+  the anchor rule is the runtime's to enforce, not the schema's.
 - **Update**: strips **every** listed column from the `SET` — neither party can be re-assigned —
   and adds the OR predicate to the `WHERE`. A row outside the scope answers `404`.
 - **Bulk upsert**: the anchor rule applies to every item (so an upsert must name a party even

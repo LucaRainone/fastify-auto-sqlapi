@@ -6,6 +6,7 @@ import {
   pkSchema,
   applySchemaOverrides,
   attachWriteJoinSections,
+  relaxTenantColumns,
   writeJoinBodyFields,
   writeJoinResponseFields,
 } from './helpers.js';
@@ -27,6 +28,8 @@ export function InsertTableBody(dbTables: DbTables, tableName: string): TObject 
       if (field in mainFields) mainFields[field] = Type.Optional(mainFields[field]);
     }
   }
+  // The tenant column is the engine's to fill or check, never the client's to be forced to send.
+  relaxTenantColumns(mainFields, tableConf, schema);
 
   const bodyProperties: Record<string, TSchema> = {
     // additionalProperties:false makes the schema the real write whitelist — unknown keys are

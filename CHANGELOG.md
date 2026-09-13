@@ -17,6 +17,15 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   from a leak had any builder dropped the empty predicate. `resolveTenant` now answers `403`
   before any SQL exists, on every operation and through relations from an unscoped host.
   `null`/`undefined` remain the only admin values; `0` and `''` remain ordinary tenant ids.
+- **The tenant column is optional in the insert body.** The engine injects it for a
+  single-tenant caller and validates it for a multi-tenant or `anyOf` one, yet the body schema
+  still required it whenever the generated schema did — so the documented injection answered
+  `400 must have required property` over HTTP, and the only way out was a `schemaOverrides`
+  workaround (or `excludeFromCreation`, which silently broke multi-tenant callers by stripping
+  the value they must send). The own column of a direct scope and every column of an `anyOf`
+  scope are now `Optional` on insert `main` and on secondaries items of every write body — the
+  same rule that already made a secondary's FK optional. Indirect scopes are untouched: their
+  FK is an ordinary field.
 
 ### Changed
 

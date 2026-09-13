@@ -14,12 +14,11 @@ const { createSqlApi } = await import(path.join(ROOT, 'dist/lib/sql-api.js'));
 const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { Type } = await import('@sinclair/typebox');
 
-// `id` is optional so the same schema validates an insert body (no id yet) and an update body;
-// the tenant column is optional so the body can leave it to the engine's injection.
+// `id` is optional so the same schema validates an insert body (no id yet) and an update body.
 const customerSchema = createMockSchema('customer', {
   id: Type.Optional(Type.Number()),
   name: Type.String(),
-  organizationId: Type.Optional(Type.Number()),
+  organizationId: Type.Number(),
 });
 
 function createDbTables() {
