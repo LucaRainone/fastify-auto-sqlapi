@@ -18,6 +18,13 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   `>=5.0.0` peer range), `fastify` pinned to 5.12.4, and the latest minors of the lint and
   gate tooling. TypeScript stays on 5.9: `typescript-eslint` does not support TypeScript 7 yet.
 
+### Internal
+
+- **`swagger: true` is now tested.** `setupSwagger` swallows a failed import of
+  `@fastify/swagger`/`@fastify/swagger-ui` and only logs a warning, so a dependency bump that
+  broke the documentation would have passed every test. Unit tests now assert the served
+  OpenAPI spec and UI — default path, custom `SwaggerOptions`, and under the plugin `prefix`.
+
 ## [0.2.4]
 
 ### Added
