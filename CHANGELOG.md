@@ -7,6 +7,17 @@ All notable changes to this project are documented here. This project follows
 
 Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)**.
 
+## [Unreleased]
+
+### Changed
+
+- **`fastify-plugin` 5 → 6.** The only runtime dependency bump: v6 renames its entry files and
+  drops the long-deprecated `PluginOptions` type (now `PluginMetadata`), neither of which this
+  library uses. No change for consumers; still Fastify 5.
+- **Development dependencies updated** — `@fastify/swagger-ui` 6 (still covered by the
+  `>=5.0.0` peer range), `fastify` pinned to 5.12.4, and the latest minors of the lint and
+  gate tooling. TypeScript stays on 5.9: `typescript-eslint` does not support TypeScript 7 yet.
+
 ## [0.2.4]
 
 ### Added

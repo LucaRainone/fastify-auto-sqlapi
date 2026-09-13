@@ -83,20 +83,20 @@
   "homepage": "https://github.com/LucaRainone/fastify-auto-sqlapi#readme",
   "dependencies": {
     "@sinclair/typebox": "^0.34.14",
-    "fastify-plugin": "^5.1.0",
+    "fastify-plugin": "^6.0.0",
     "node-condition-builder": "^1.2.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@fastify/postgres": "^6.0.2",
     "@fastify/swagger": "^9.0.0",
-    "@fastify/swagger-ui": "^5.0.0",
+    "@fastify/swagger-ui": "^6.1.1",
     "@types/node": "^22.13.4",
     "@types/pg": "^8.11.11",
     "dependency-cruiser": "^18.1.0",
     "eslint": "^10.8.0",
     "eslint-plugin-sonarjs": "^4.2.0",
-    "fastify": "5.8.5",
+    "fastify": "5.12.4",
     "fuse.js": "^7.5.0",
     "jscpd": "^5.0.14",
     "knip": "^6.31.0",
