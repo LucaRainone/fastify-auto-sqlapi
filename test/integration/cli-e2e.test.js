@@ -96,3 +96,66 @@ describe(`[${DIALECT}] CLI generate-schema`, () => {
     assert.ok(!fs.existsSync(path.join(outputDir, 'SchemaOldTable.ts')));
   });
 });
+
+describe(`[${DIALECT}] CLI generate-schema with excludeColumns`, () => {
+  let tmpDir;
+  let outputDir;
+
+  function writeConfig(excludeColumns) {
+    fs.writeFileSync(
+      path.join(tmpDir, 'sqlapi.config.js'),
+      `export default { outputDir: ${JSON.stringify(tmpDir)}, schema: '${CONFIG_SCHEMA}', ` +
+      `dialect: '${DIALECT}', excludeColumns: ${JSON.stringify(excludeColumns)} };\n`
+    );
+  }
+
+  before(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `sqlapi-excl-${DIALECT}-`));
+    outputDir = path.join(tmpDir, 'schemas');
+  });
+
+  after(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('drops the excluded columns from the generated Schema and reports them', () => {
+    writeConfig(['customer.tax_number', '*.fiscal_code', 'computed_line.subtotal']);
+
+    const result = runCli(tmpDir);
+    const reportLine = result.split('\n').find((l) => l.includes('Excluded by config (excludeColumns):'));
+    assert.ok(reportLine, result);
+    for (const entry of ['customer.tax_number', 'customer.fiscal_code', 'computed_line.subtotal']) {
+      assert.ok(reportLine.includes(entry), `${entry} missing from: ${reportLine}`);
+    }
+
+    const customer = fs.readFileSync(path.join(outputDir, 'SchemaCustomer.ts'), 'utf-8');
+    assert.ok(!customer.includes('taxNumber'), 'taxNumber still in fields/colMap');
+    assert.ok(!customer.includes('fiscalCode'), 'fiscalCode still in fields/colMap');
+    assert.ok(customer.includes('phoneNumber'), 'sibling column must survive');
+    assert.ok(customer.includes('primaryKey: ["id"]'));
+
+    // A database-computed column leaves generatedFields with the field itself.
+    const computed = fs.readFileSync(path.join(outputDir, 'SchemaComputedLine.ts'), 'utf-8');
+    assert.ok(!computed.includes('subtotal'));
+    assert.ok(computed.includes('generatedFields: ["statusCode"]'), computed);
+  });
+
+  it('brings the column back when the entry is removed', () => {
+    writeConfig([]);
+
+    const result = runCli(tmpDir);
+    assert.ok(result.includes('updated'));
+
+    const customer = fs.readFileSync(path.join(outputDir, 'SchemaCustomer.ts'), 'utf-8');
+    assert.ok(customer.includes('taxNumber'));
+  });
+
+  it('refuses a primary key column with a non-zero exit', () => {
+    writeConfig(['*.id']);
+
+    assert.throws(
+      () => runCli(tmpDir),
+      (err) => err.status !== 0 && /primary key column/.test(`${err.stdout}${err.stderr}`)
+    );
+  });
+});
