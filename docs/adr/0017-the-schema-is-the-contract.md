@@ -1,6 +1,7 @@
 # 0017. The database schema is the API contract — by default, and only by default
 
-- **Status**: accepted
+- **Status**: accepted (the "trim it out of the Schema" lever below is `excludeColumns` since
+  [0019](./0019-column-exclusion-is-generation-time-config.md) — the Schema file is never edited)
 - **Date**: 2026-08-28
 
 ## Context

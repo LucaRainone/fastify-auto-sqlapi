@@ -33,6 +33,7 @@ not by editing history.
 | [0016](./0016-a-view-is-a-table-config.md) | A view is a table config — the generator refuses to invent its primary key |
 | [0017](./0017-the-schema-is-the-contract.md) | The database schema is the API contract — by default, and only by default |
 | [0018](./0018-one-seam-to-the-http-framework.md) | The HTTP framework is reachable through one seam — `ApiRequest` |
+| [0019](./0019-column-exclusion-is-generation-time-config.md) | Removing a column from the API is generation-time config — `excludeColumns`, never a Schema edit |
 
 ## When to write one
 

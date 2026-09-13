@@ -215,7 +215,7 @@ each way they need to differ:
 |---|---|
 | a column must never be read | `readExclude` |
 | a column must never be written | `writeExclude` |
-| a column must not exist for the API at all | trim it out of the Schema |
+| a column must not exist for the API at all | `excludeColumns` in `sqlapi.config.ts` |
 | the API type must be stricter than the column | `schemaOverrides` |
 | the value is derived, not stored | `computedFields` |
 | the stored representation is not the API one | `afterRead` (decrypt, unpack, rescale) |

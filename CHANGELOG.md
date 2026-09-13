@@ -7,6 +7,31 @@ All notable changes to this project are documented here. This project follows
 
 Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)**.
 
+## [Unreleased]
+
+### Added
+
+- **`excludeColumns` config option** — the lever for *"this column must not exist for the API at
+  all"*. [ADR 0017](./docs/adr/0017-the-schema-is-the-contract.md), the README and `AGENTS.md`
+  all pointed at "trim it out of the Schema" for that case, and no such lever existed: Schema
+  files are generated and overwritten on every run, so the only way to drop a column was to
+  re-edit the file after each `sqlapi-generate-schema` — or to pair `readExclude` with
+  `writeExclude`, which `defineTable` refuses. `excludeColumns` in `sqlapi.config.ts` takes
+  `"<table>.<column>"` entries matched against the DB names, with `*` as a wildcard on either
+  side (`'user.password_hash'`, `'*.internal_*'`), and drops the column from the generated Schema
+  — its fields, `colMap` and `generatedFields` — so no route, filter, order or manifest ever
+  sees it. A primary key column is refused (every route identifies rows with it), and so is a
+  pattern that would leave a table with no columns: that is `excludeTables`' job. Applied after
+  `excludeTables`, so a column pattern is never checked against a table the generator does not
+  see. **Regenerate your schemas** after adding entries. See
+  [ADR 0019](./docs/adr/0019-column-exclusion-is-generation-time-config.md).
+
+### Changed
+
+- **The docs no longer say "trim the Schema".** The README lever table, `AGENTS.md`,
+  `AGENTS_BACKEND.md` and the `defineTable` error for a field in both `readExclude` and
+  `writeExclude` now point at `excludeColumns`.
+
 ## [0.2.3]
 
 ### Fixed

@@ -4,7 +4,9 @@ import * as path from 'node:path';
 import { loadConfig } from '../lib/cli/config.js';
 import { buildConnectionString, introspectTables } from '../lib/cli/pg-introspect.js';
 import { buildMysqlConnectionConfig, introspectMysqlTables } from '../lib/cli/mysql-introspect.js';
-import { applyExcludeTables, buildTableMap, generateSchemaFile } from '../lib/cli/schema-codegen.js';
+import {
+  applyExcludeColumns, applyExcludeTables, buildTableMap, generateSchemaFile,
+} from '../lib/cli/schema-codegen.js';
 import { loadEnvFile, CONSOLE_COLORS, display, displayAsTableRow, parseArgs, runCli } from './utils.js';
 import type { ColumnInfo, DialectName, TableMap } from '../types.js';
 
@@ -203,6 +205,13 @@ await runCli('fastify-auto-sqlapi: generating schemas', async () => {
   const excluded = applyExcludeTables(tableMap, config.excludeTables);
   if (excluded.length) {
     display(`Excluded by config (excludeTables): ${excluded.join(', ')}`, CONSOLE_COLORS.gray);
+  }
+
+  // Runs after the table blacklist so a column pattern is never checked against a table the
+  // generator will not see anyway (its primary key included).
+  const excludedColumns = applyExcludeColumns(tableMap, config.excludeColumns);
+  if (excludedColumns.length) {
+    display(`Excluded by config (excludeColumns): ${excludedColumns.join(', ')}`, CONSOLE_COLORS.gray);
   }
 
   const tableNames = cliArgs.tables;

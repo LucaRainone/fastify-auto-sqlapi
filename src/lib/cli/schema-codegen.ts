@@ -119,6 +119,17 @@ export function buildTableMap(rows: ColumnInfo[]): TableMap {
   }, {});
 }
 
+/** Compile a config glob — `*` is the only wildcard, everything else is literal. */
+function globToRegExp(pattern: string): RegExp {
+  return new RegExp(`^${pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replaceAll('\\*', '.*')}$`);
+}
+
+function assertPatternList(option: string, value: unknown): asserts value is string[] {
+  if (!Array.isArray(value) || value.some((p) => typeof p !== 'string')) {
+    throw new Error(`Invalid config: "${option}" must be an array of strings.`);
+  }
+}
+
 /**
  * Remove from `tableMap` the tables matching any of the `excludeTables` config patterns.
  * Patterns are matched against the DB table name (not the generated schema name);
@@ -127,14 +138,10 @@ export function buildTableMap(rows: ColumnInfo[]): TableMap {
  */
 export function applyExcludeTables(tableMap: TableMap, excludeTables?: string[]): string[] {
   if (excludeTables === undefined) return [];
-  if (!Array.isArray(excludeTables) || excludeTables.some((p) => typeof p !== 'string')) {
-    throw new Error('Invalid config: "excludeTables" must be an array of strings.');
-  }
+  assertPatternList('excludeTables', excludeTables);
   if (excludeTables.length === 0) return [];
 
-  const regexes = excludeTables.map(
-    (pattern) => new RegExp(`^${pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replaceAll('\\*', '.*')}$`)
-  );
+  const regexes = excludeTables.map(globToRegExp);
 
   const excluded: string[] = [];
   for (const schemaName of Object.keys(tableMap)) {
@@ -142,6 +149,70 @@ export function applyExcludeTables(tableMap: TableMap, excludeTables?: string[])
     if (regexes.some((re) => re.test(tableName))) {
       excluded.push(tableName);
       delete tableMap[schemaName];
+    }
+  }
+  return excluded;
+}
+
+/**
+ * Remove from every table in `tableMap` the columns matching any of the `excludeColumns`
+ * config patterns. A pattern is `<table>.<column>`, both parts matched against the DB names
+ * (not the generated field names) with `*` as the only wildcard on either side.
+ *
+ * An excluded column does not exist for the API at all: it leaves the Schema's fields, its
+ * `colMap` and its `generatedFields`, so every read, write, filter and manifest built from the
+ * Schema is unaware of it. That is also why the primary key is refused — every engine
+ * identifies rows with it — and why a table that would end up empty is refused too: that
+ * is `excludeTables`' job.
+ *
+ * Returns the excluded columns as `table.column`, in map order.
+ */
+export function applyExcludeColumns(tableMap: TableMap, excludeColumns?: string[]): string[] {
+  if (excludeColumns === undefined) return [];
+  assertPatternList('excludeColumns', excludeColumns);
+  if (excludeColumns.length === 0) return [];
+
+  const matchers = excludeColumns.map((pattern) => {
+    const dot = pattern.indexOf('.');
+    if (dot <= 0 || dot === pattern.length - 1) {
+      throw new Error(
+        `Invalid config: excludeColumns entry "${pattern}" must be in the form "table.column" ` +
+        `(a "*" wildcard is allowed on either side, e.g. "*.password_hash").`
+      );
+    }
+    return {
+      table: globToRegExp(pattern.slice(0, dot)),
+      column: globToRegExp(pattern.slice(dot + 1)),
+    };
+  });
+
+  const excluded: string[] = [];
+  for (const schemaName of Object.keys(tableMap)) {
+    const table = tableMap[schemaName];
+    const tableMatchers = matchers.filter((m) => m.table.test(table.name));
+    if (tableMatchers.length === 0) continue;
+
+    for (const field of Object.keys(table.fields)) {
+      const columnName = table.colMap[field];
+      if (!tableMatchers.some((m) => m.column.test(columnName))) continue;
+
+      if (table.primary.includes(field)) {
+        throw new Error(
+          `Invalid config: excludeColumns cannot exclude the primary key column ` +
+          `"${table.name}.${columnName}" — every route identifies rows with it.`
+        );
+      }
+      delete table.fields[field];
+      delete table.colMap[field];
+      table.generated = table.generated.filter((f) => f !== field);
+      excluded.push(`${table.name}.${columnName}`);
+    }
+
+    if (Object.keys(table.fields).length === 0) {
+      throw new Error(
+        `Invalid config: excludeColumns leaves table "${table.name}" with no columns. ` +
+        `To hide a whole table use excludeTables instead.`
+      );
     }
   }
   return excluded;

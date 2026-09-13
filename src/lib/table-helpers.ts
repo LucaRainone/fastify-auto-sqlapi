@@ -326,7 +326,8 @@ function validateWriteExclude(config: ITable): void {
     if (config.readExclude?.includes(field)) {
       throw new Error(
         `defineTable: field '${field}' on table '${table}' is in both readExclude and ` +
-        `writeExclude, leaving it neither readable nor writable. Remove it from the Schema instead.`
+        `writeExclude, leaving it neither readable nor writable. Exclude it at generation time ` +
+        `with excludeColumns in sqlapi.config.ts instead.`
       );
     }
   }

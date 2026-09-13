@@ -11,6 +11,16 @@ export interface SqlApiConfig {
    * Excluded schemas already on disk are removed as orphans on the next full run.
    */
   excludeTables?: string[];
+  /**
+   * Columns to leave out of the generated Schemas (`sqlapi-generate-schema`), as
+   * `"<table>.<column>"` entries matched against the DB names; `*` is a wildcard on either
+   * side (e.g. "user.password_hash", "*.internal_*"). An excluded column does not exist for
+   * the API at all — no read, no write, no filter — unlike `readExclude` / `writeExclude`
+   * on the table config, which hide one side of a column that stays in the Schema. A primary
+   * key column cannot be excluded, and a table left with no columns is refused: use
+   * `excludeTables` for that.
+   */
+  excludeColumns?: string[];
 }
 
 export interface ColumnInfo {
