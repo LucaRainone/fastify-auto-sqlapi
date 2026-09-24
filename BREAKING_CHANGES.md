@@ -697,7 +697,7 @@ beforeInsert: async (db, req, record) => {
 
 # Breaking Change — the route URL is the `DbTables` key
 
-*Landed in **Unreleased**.*
+*Landed in **0.3.0**.*
 
 ## Why this changed
 
