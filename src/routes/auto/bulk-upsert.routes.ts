@@ -11,7 +11,7 @@ export default async function bulkUpsertRoutes(
   await registerForAllTables(fastify, options, {
     operation: 'bulkUpsert',
     method: 'PUT',
-    url: (tc) => `/bulk/${tc.Schema.tableName}`,
+    url: (tableName) => `/bulk/${tableName}`,
     successStatus: 200,
     schemas: (db, table) => ({
       body: BulkUpsertTableBody(db, table, options.maxBulkItems ?? DEFAULT_MAX_BULK_ITEMS),

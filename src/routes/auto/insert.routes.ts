@@ -10,7 +10,7 @@ export default async function insertRoutes(
   await registerForAllTables(fastify, options, {
     operation: 'insert',
     method: 'POST',
-    url: (tc) => `/rest/${tc.Schema.tableName}`,
+    url: (tableName) => `/rest/${tableName}`,
     successStatus: 201,
     schemas: (db, table) => ({
       body: InsertTableBody(db, table),

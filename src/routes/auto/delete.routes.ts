@@ -12,7 +12,7 @@ export default async function deleteRoutes(
     operation: 'delete',
     singlePkOnly: true,
     method: 'DELETE',
-    url: (tc) => `/rest/${tc.Schema.tableName}/:id`,
+    url: (tableName) => `/rest/${tableName}/:id`,
     successStatus: 200,
     schemas: (_db, _table, tc) => {
       const pkField = primaryAsString(tc.primary);

@@ -13,7 +13,7 @@ export default async function bulkDeleteRoutes(
     operation: 'bulkDelete',
     singlePkOnly: true,
     method: 'POST',
-    url: (tc) => `/bulk/${tc.Schema.tableName}/delete`,
+    url: (tableName) => `/bulk/${tableName}/delete`,
     successStatus: 200,
     schemas: (db, table) => ({
       body: BulkDeleteTableBody(db, table, options.maxBulkItems ?? DEFAULT_MAX_BULK_ITEMS),

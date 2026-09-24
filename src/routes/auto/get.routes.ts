@@ -12,7 +12,7 @@ export default async function getRoutes(
     operation: 'get',
     singlePkOnly: true,
     method: 'GET',
-    url: (tc) => `/rest/${tc.Schema.tableName}/:id`,
+    url: (tableName) => `/rest/${tableName}/:id`,
     successStatus: 200,
     schemas: (db, table) => ({
       params: Type.Object({ id: Type.String() }),

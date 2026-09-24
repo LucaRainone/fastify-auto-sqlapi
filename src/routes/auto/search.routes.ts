@@ -12,7 +12,7 @@ export default async function searchRoutes(
   await registerForAllTables(fastify, options, {
     operation: 'search',
     method: 'POST',
-    url: (tc) => `/search/${tc.Schema.tableName}`,
+    url: (tableName) => `/search/${tableName}`,
     successStatus: 200,
     schemas: (db, table) => ({
       body: SearchTableBodyPost(db, table),
@@ -31,7 +31,7 @@ export default async function searchRoutes(
         leftAliases.length && `Available joinLeft aliases: ${leftAliases.join(', ')}`,
       ].filter(Boolean).join('. ');
     },
-    handle: async (fastify, tableName, tc, request) => {
+    handle: async (fastify, tableName, _tc, request) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = request.body as Record<string, any>;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -62,7 +62,7 @@ export default async function searchRoutes(
         maxRows,
       }, request);
 
-      return { table: tc.Schema.tableName, ...result };
+      return { table: tableName, ...result };
     },
   });
 }

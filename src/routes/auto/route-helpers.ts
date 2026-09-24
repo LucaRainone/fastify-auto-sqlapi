@@ -42,8 +42,11 @@ export interface AutoRouteSpec {
    */
   singlePkOnly?: boolean;
   method: 'GET' | 'POST' | 'PUT' | 'DELETE';
-  /** URL builder receiving the table configuration to read `Schema.tableName`. */
-  url: (tableConf: ITable) => string;
+  /**
+   * URL builder receiving the `DbTables` key — never `Schema.tableName`: several table
+   * configs may expose the same physical table, and each key needs its own route.
+   */
+  url: (tableName: string) => string;
   successStatus: 200 | 201;
   /** Build per-table schemas (body, params, querystring, response). Response is wrapped with `{ [successStatus]: ... }` automatically. */
   schemas: (dbTables: DbTables, tableName: string, tableConf: ITable) => RouteSchema;
@@ -137,7 +140,7 @@ export async function registerForAllTables(
 
     fastify.route({
       method: spec.method,
-      url: spec.url(tableConf),
+      url: spec.url(tableName),
       schema: buildRouteSchema(tableName, tableConf, spec, schemas),
       onRequest: mergeOnRequests(options, tableConf),
       handler: async (request, reply) => {

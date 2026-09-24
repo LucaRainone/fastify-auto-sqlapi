@@ -291,7 +291,18 @@ export const TableCustomer = defineTable({
 
 `exportTableInfo(Schema)` returns `{ Schema, filters, extraFilters }`. The `filters` function auto-builds WHERE conditions from any schema field present in the request.
 
-**Important**: there is no `tableName` key in `defineTable()`. The SQL table name comes from `Schema.tableName` (set by the CLI). The route URL name is the key you use in the `dbTables` record (e.g. `{ customer: TableCustomer }` → `/search/customer`).
+**Important**: there is no `tableName` key in `defineTable()`. The SQL table name comes from `Schema.tableName` (set by the CLI). The route URL name is the key you use in the `dbTables` record (e.g. `{ customer: TableCustomer }` → `/search/customer`). The key also names the table in search responses (`table`) and in the agent manifest.
+
+Because routes follow the key, the same physical table can be exposed by several table configs, each with its own `operations`, `onRequests`, `tenantScope`, `readExclude` and joins:
+
+```typescript
+export const dbTables: DbTables = {
+  conversation: TableConversation,             // owner: list, rename, delete
+  sharedConversation: TableSharedConversation, // anyone with the link: search only, shared rows only
+  conversationHistory: TableConversationHistory, // server-side only: operations: []
+};
+// → /search/conversation, /rest/conversation, /search/sharedConversation — all SQL on "conversation"
+```
 
 ### Composite primary key (link/junction tables)
 

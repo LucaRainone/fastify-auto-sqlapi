@@ -10,7 +10,7 @@ export default async function updateRoutes(
   await registerForAllTables(fastify, options, {
     operation: 'update',
     method: 'PUT',
-    url: (tc) => `/rest/${tc.Schema.tableName}`,
+    url: (tableName) => `/rest/${tableName}`,
     successStatus: 200,
     schemas: (db, table) => ({
       body: UpdateTableBody(db, table),
