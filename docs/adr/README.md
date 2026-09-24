@@ -34,6 +34,7 @@ not by editing history.
 | [0017](./0017-the-schema-is-the-contract.md) | The database schema is the API contract — by default, and only by default |
 | [0018](./0018-one-seam-to-the-http-framework.md) | The HTTP framework is reachable through one seam — `ApiRequest` |
 | [0019](./0019-column-exclusion-is-generation-time-config.md) | Removing a column from the API is generation-time config — `excludeColumns`, never a Schema edit |
+| [0020](./0020-no-conditional-or-mass-update-route.md) | No conditional or mass update route — a predicate write is a custom route |
 
 ## When to write one
 

@@ -1232,6 +1232,48 @@ const TableUser = defineTable({
 For privileged transitions (promote to admin, move across tenants) prefer a dedicated
 endpoint with its own auth/audit, and keep the operation off the auto routes via `operations`.
 
+### Conditional update — claim a row atomically
+
+The `update` route matches the primary key (plus the tenant scope) and nothing else, so it
+cannot express "update only if the row is still in the state I saw": claiming a row that two
+clients must not both claim, a guarded state transition, optimistic locking on a `version`
+column. There is deliberately no auto route for that, nor for updating every row matching a
+filter ([ADR 0020](./docs/adr/0020-no-conditional-or-mass-update-route.md)). Write it as a
+custom route: the check and the write must be **one** `UPDATE`, which `db.update()` does with
+an `extraCondition`, returning how many rows it changed.
+
+```typescript
+import { ConditionBuilder, createQueryClient, pgQueryable, Type } from 'fastify-auto-sqlapi';
+import { SchemaRequest } from './schemas/SchemaRequest';
+
+const db = createQueryClient(pgQueryable(fastify.pg), 'postgres');
+
+fastify.post('/requests/:id/claim', {
+  schema: { params: Type.Object({ id: Type.Integer() }) },
+}, async (req, reply) => {
+  const { id } = req.params as { id: number };
+  const col = (f: string) => SchemaRequest.col(f);   // real column names: QueryClient speaks the DB's
+
+  const guard = new ConditionBuilder('AND', db.cbDialect)
+    .isNull(db.qi(col('inProgressSince')), true)              // the precondition — second arg enables it
+    .isEqual(db.qi(col('organizationId')), req.user.orgId);   // tenant: QueryClient applies none for you
+  // Record/where keys are quoted by db.update(); ConditionBuilder operands are raw SQL, so qi() them.
+
+  const affected = await db.update(
+    SchemaRequest.tableName,
+    { [col('inProgressSince')]: new Date(), [col('inProgressBy')]: req.user.id },
+    { [col('id')]: id },
+    guard
+  );
+  if (affected === 0) return reply.code(409).send({ message: 'Already claimed, or not found' });
+  return { claimed: true };
+});
+```
+
+`QueryClient` runs no hooks, no validation and **no tenant scoping**: the route owns all three.
+Keep the predicate server-chosen, as above. Letting the client name the column it compares on
+turns `affected` into an oracle on values it cannot read.
+
 ### Encrypt a column at rest (storage representation ≠ API representation)
 
 Three declarations on the table that owns the column — in on the write hooks, out on the read
