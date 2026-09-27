@@ -1,115 +1,134 @@
 # fastify-auto-sqlapi — client API (LLM reference)
 
-This file is the request GRAMMAR. For this deployment's tables/fields/aliases (the
-vocabulary), fetch `GET {p}/agent/manifest.md` if available, or consult Swagger.
+This is the request GRAMMAR. The vocabulary (this deployment's tables, fields, join aliases, computed fields, extra filters) comes from `GET {p}/agent/manifest.md` when enabled, or from Swagger.
 
-Rules: all request/response fields are camelCase schema field names — how the database names its columns is invisible here and irrelevant, the server maps them. `{p}` = deployment prefix (e.g. `/api`). `{table}` = the table's key in the manifest, which may differ from the database table name (one table can be exposed under several keys, each with its own rules). Join keys are backend-declared ALIASES (default = joined table name; list per table in Swagger). Write responses are PK-only. Write bodies reject unknown properties (400) — send only real schema fields. Arrays for bulk are capped (default 1000/request; chunk client-side). Composite-PK tables have no get/delete/bulk-delete (404) — use search / update.
+- All request/response fields are camelCase schema field names; the server maps them to columns.
+- `{p}` = deployment prefix (e.g. `/api`). `{table}` = the table's key in the manifest, which may differ from the DB table name (one table can be exposed under several keys, each with its own rules).
+- Join keys are backend-declared ALIASES (default: the joined table name).
+- Write responses return PKs only. Send only real schema fields in write bodies: unknown ones are dropped or rejected (400), depending on the server.
+- Composite-PK tables have no get/delete/bulk-delete routes (404): use search / update.
 
 ## Endpoints
 
 ```
-POST   {p}/search/{table}        body=search request           → {table, main:[...], ...}
-GET    {p}/rest/{table}/:id                                    → {main:{...}} | 404
-POST   {p}/rest/{table}          body={main, secondaries?}     → 201 {main:{id}, secondaries?}
-PUT    {p}/rest/{table}          body={main(+PK), secondaries?, deletions?} → {main:{id}, ...}
-DELETE {p}/rest/{table}/:id                                    → {main:{id}} | 404
-PUT    {p}/bulk/{table}          body=[{main, secondaries?, deletions?},...] → [{main:{id}},...]
-POST   {p}/bulk/{table}/delete   body=[{id:1},{id:2}]          → [{main:{id:1}},...]
+POST {p}/search/{table} body=search request → {table, main:[...], ...}
+GET {p}/rest/{table}/:id → {main:{...}} | 404
+POST {p}/rest/{table} body={main, secondaries?} → 201 {main:{id}, secondaries?}
+PUT {p}/rest/{table} body={main(+PK), secondaries?, deletions?} → {main:{id}, secondaries?, deletions?}
+DELETE {p}/rest/{table}/:id → {main:{id}} | 404
+PUT {p}/bulk/{table} body=[{main, secondaries?, deletions?}, ...] → [{main:{id}}, ...]
+POST {p}/bulk/{table}/delete body=[{id:1}, {id:2}] → [{main:{id:1}}, ...] // key = the table's PK field
 ```
 
-## SEARCH
+## Search
 
-Query string (all optional): `?orderBy=...&page=1&itemsPerPage=20&computeMin=f&computeMax=f&computeSum=f&computeAvg=f`
-Body (all optional; `{}` = first N rows). Everything below is combinable in one request:
+Querystring, all optional: `orderBy`, `page`, `itemsPerPage`, `computeMin|Max|Sum|Avg=<field>`. Body, all optional and combinable; `{}` returns the first N rows.
 
 ```jsonc
 // POST {p}/search/customer?orderBy=orders.sum.total DESC, creator.name ASC, id&page=1&itemsPerPage=20&computeSum=total
 {
-  "filters": { "status": "active", "deletedById": null },   // equality AND; null → IS NULL; extraFilters names (backend-defined, see manifest) also accepted here
-  "conditions": [                                            // advanced, AND, same field repeatable
+  "filters": { "status": "active", "deletedById": null }, // equality, AND; null → IS NULL; also computed fields and backend extra filters (see manifest). Unknown key → 400
+  "conditions": [ // AND; the same field may repeat
     { "field": "total", "method": "isBetween", "params": [100, 500] },
     { "field": "name", "method": "isILike", "params": ["%mario%"] },
     { "field": "status", "method": "isIn", "params": [["active", "pending"]] },
-    { "field": "orders.count.id", "method": "isGreaterOrEqual", "params": [4] }  // HAVING-style: needs matching joinGroup below
+    { "field": "orders.count.id", "method": "isGreaterOrEqual", "params": [4] } // alias.fn.field, HAVING-style: needs the matching joinGroup below
   ],
-  "selectComputed": ["displayName"],       // backend computed fields, projected into main rows only if listed
-  "joinMustExist": {                       // EXISTS on child: filters WHICH main rows return; no data fetched
+  "selectComputed": ["displayName"], // computed fields are projected into main rows only when listed
+  "joinMustExist": { // EXISTS on children: decides WHICH main rows return; fetches nothing
     "labels": { "filters": { "labelId": 1 }, "conditions": [] }
   },
-  "joinMultiple": {                        // side query: fetches child rows OF the returned mains
-    "orders": { "filters": { "status": "pending" }, "selection": "id,total,status" }
+  "joinMultiple": { // side query: child rows of the returned main rows
+    "orders": { "filters": { "status": "pending" }, "conditions": [], "selection": "id,total,status" }
   },
-  "joinGroup": {                           // aggregations on child rows
+  "joinGroup": { // aggregates child rows of the returned main rows
     "orders": {
-      "aggregations": {
-        "by": "status",                    // optional GROUP BY (schema field or backend computed, e.g. month bucket)
-        "sum": ["total"], "min": ["total"], "max": ["total"], "avg": ["total"],
-        "count": ["id"], "distinctCount": ["status"]
-      },
-      "filters": { "status": "active" }    // narrows child rows before aggregating
+      "aggregations": { "by": "status", "sum": ["total"], "min": ["total"], "max": ["total"], "avg": ["total"], "count": ["id"], "distinctCount": ["status"] }, // by: optional GROUP BY (field or computed)
+      "filters": { "status": "active" }, "conditions": [] // narrow children before aggregating
     }
   },
-  "joinLeft": {                            // N:1 parent embed (alias declared unique by backend)
-    "creator": { "selection": "id,name" }  // filters/conditions here EXCLUDE mains whose parent doesn't match; schema fields only (extraFilters NOT usable here)
+  "joinLeft": { // N:1 parent (alias declared unique by the backend)
+    "creator": { "selection": "id,name", "filters": {}, "conditions": [] } // filters here EXCLUDE mains whose parent does not match; no extra filters here
   }
 }
 ```
 
-Response (each section present only if requested):
+Response; each section is present only if requested:
 
 ```jsonc
 {
   "table": "customer",
   "main": [{ "id": 1, "name": "Mario", "creatorId": 7, "displayName": "..." }],
-  "joinMultiple": { "orders": [{ "id": 10, "customerId": 1, "total": 50 }] },
+  "joinMultiple": { "orders": [{ "id": 10, "customerId": 1, "total": 50 }] }, // flat list for all mains: group client-side by FK
   "joinGroup": { "orders": {
-    "sum": { "total": 150 },                                  // keyed by fn when no "by"
-    "rows": [{ "by": "pending", "sum_total": 100 }]           // rows[] when "by" is set
+    "sum": { "total": 150 }, // no "by": ONE total over the children of ALL returned mains
+    "rows": [{ "by": "pending", "sum_total": 100 }] // with "by": one row per group; by = FK field gives per-main values
   }},
-  "joinLeft": { "creator": [{ "id": 7, "name": "Alice" }] },  // deduped; map client-side: main.creatorId === creator.id
-  "pagination": {                                             // present when page/itemsPerPage sent
+  "joinLeft": { "creator": [{ "id": 7, "name": "Alice" }] }, // deduplicated: match main.creatorId === creator.id
+  "pagination": { // only when page or itemsPerPage is sent
     "total": 25, "pages": 3,
-    "computed": { "sum": { "total": 999 } },                  // computeMin/Max/Sum/Avg (require pagination)
+    "computed": { "sum": { "total": 999 } }, // computeMin/Max/Sum/Avg over all matching rows; require pagination
     "paginator": { "page": 1, "itemsPerPage": 20 }
   }
 }
 ```
 
-`orderBy` forms (comma-separable): `field [ASC|DESC]` | `alias.parentField` (joinLeft-eligible alias, adds LEFT JOIN) | `alias.fn.field` (fn: sum|min|max|avg|count|distinctCount — the joinGroup with that fn+field MUST be in the body; rows without children sort as 0). For 3-part orderBy and HAVING-style conditions: `aggregations.by` is allowed only when it equals the correlation FK (else 400); aggregation orderBy is rejected (400) on tables with distinctResults.
+Pagination:
+- Without `page`/`itemsPerPage`, the server caps rows at its maximum (default 1000) and returns no `pagination` block.
+- With `page` only, `itemsPerPage` defaults to 500 (or the server maximum if lower).
+- Both are integers ≥ 1. `itemsPerPage` above the server maximum → 400.
 
-Condition methods (params arity): `isEqual|isNotEqual|isGreater|isGreaterOrEqual|isLess|isLessOrEqual|isNotGreater|isNotGreaterOrEqual|isNotLess|isNotLessOrEqual` → `[v]`; `isLike|isNotLike|isILike|isNotILike` → `["%p%"]`; `isBetween|isNotBetween` → `[from,to]`; `isIn|isNotIn` → `[[v1,v2]]`; `isNull|isNotNull` → `[]`. Unknown field or method → 400; so is a `params` that is not an array or is shorter than the arity above (`isNull`/`isNotNull` take none).
+`orderBy` is a comma-separated list, each part one of:
+- `field [ASC|DESC]`, including computed fields.
+- `alias.parentField`: joinLeft alias; adds the LEFT JOIN.
+- `alias.fn.field`, with fn one of `sum|min|max|avg|count|distinctCount`. The joinGroup with that fn and field must be in the body; mains without children sort as 0.
 
-## WRITES
+For `alias.fn.field`, in both `orderBy` and conditions, the joinGroup `by` must be absent or equal to the FK (else 400). In `orderBy` it is also a 400 on tables with distinct results.
+
+Condition methods and `params` arity:
+- `[v]`: `isEqual|isNotEqual|isGreater|isGreaterOrEqual|isLess|isLessOrEqual|isNotGreater|isNotGreaterOrEqual|isNotLess|isNotLessOrEqual`
+- `["%p%"]`: `isLike|isNotLike|isILike|isNotILike`
+- `[from, to]`: `isBetween|isNotBetween`
+- `[[v1, v2]]`: `isIn|isNotIn`
+- `[]`: `isNull|isNotNull`
+
+An unknown field or method, or `params` that is not an array or is too short → 400.
+
+## Writes
 
 ```jsonc
-// POST {p}/rest/customer  (insert; omit auto-generated PKs)
+// POST {p}/rest/customer — insert; omit auto-generated PKs
 { "main": { "name": "Mario", "email": "m@t.it" },
-  "secondaries": { "orders": [{ "total": 50, "status": "pending" }] } }  // child FK auto-filled from new main PK
+  "secondaries": { "orders": [{ "total": 50, "status": "pending" }] } } // child FK auto-filled from the new main PK
 // → 201 { "main": { "id": 1 }, "secondaries": { "orders": [{ "id": 10 }] } }
 
-// PUT {p}/rest/customer  (update; main MUST include PK; partial fields ok; null = set column NULL)
+// PUT {p}/rest/customer — update; main MUST include the PK; send only the fields to change; null sets NULL
 { "main": { "id": 1, "email": "new@t.it" },
-  "secondaries": { "orders": [{ "total": 75 }] },      // inserts/upserts children, FK auto-filled
-  "deletions":   { "orders": [{ "id": 10 }] } }        // deletes children by PK (scoped to this main)
+  "secondaries": { "orders": [{ "total": 75 }] }, // insert (or upsert) children, FK auto-filled
+  "deletions": { "orders": [{ "id": 10 }] } } // delete children by PK, only children of this main
 // → 200 { "main": { "id": 1 }, "secondaries": { "orders": [{ "id": 20 }] }, "deletions": { "orders": [{ "id": 10 }] } }
 
-// PUT {p}/bulk/customer  (bulk upsert; one SQL per distinct set of main fields; per-item secondaries/deletions)
-// Each item writes only its own fields: a field an item omits keeps the stored value on update and
-// takes the column default on insert — items need not share the same keys.
-// On an upsert table every row (main or child) carries its conflict key — 400 if missing/null, or if two
-// rows of the request share it. Rows without any id are inserted when the key is the id.
+// PUT {p}/bulk/customer — bulk upsert; items need not share keys: an omitted field keeps the stored value (update) or takes the column default (insert)
 [ { "main": { "name": "Mario" }, "secondaries": { "orders": [{ "total": 50 }] } },
   { "main": { "name": "Luigi" } } ]
 // → 200 [ { "main": { "id": 1 }, "secondaries": {...} }, { "main": { "id": 2 } } ]
 ```
 
+Upsert tables (see manifest):
+- Every row, main or child, carries its conflict key: missing, null, or shared by two rows of one request → 400.
+- When the key is the id, rows without an id are inserted.
+- Bulk arrays are capped (default 1000): chunk client-side.
+
 ## Errors
 
-400 (schema or business validation) — map `fields[].path` to form fields:
+400 (schema or business validation): map `fields[].path` to form fields.
 
 ```json
 { "statusCode": 400, "error": "Bad Request", "message": "Validation failed",
   "fields": [ { "path": "body.main.name", "code": "required", "message": "must have required property 'name'" } ] }
 ```
 
-Other: 404 (get/delete not found), 400 `itemsPerPage exceeds the maximum` (lower it), 500 raw DB errors (constraint violations surface unmapped). Fixed complexity caps, per search: **100 `conditions`** per section (top level and each join family) and **20** comma-separated `orderBy` parts (`orderBy` string ≤ 1024 chars) — over either → 400: collapse a long list of equality conditions into one `isIn`. `paginator.page` and `paginator.itemsPerPage` must be integers ≥ 1 — send numbers, not querystring strings.
+- 403: tenant violation.
+- 404: record not found, or outside your tenant.
+- 500: DB errors (e.g. constraint violations), unmapped, with a `requestId` to report.
+- Per search, max 100 `conditions` per section (top level and each join) and max 20 `orderBy` parts (≤ 1024 chars); over either → 400. Collapse many equality conditions into one `isIn`.
