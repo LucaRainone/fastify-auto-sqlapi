@@ -20,6 +20,11 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   Each record now writes exactly its own fields: records are grouped by column set, one
   statement per group, PKs still returned in input order. Batches whose items share the same
   keys still run as a single statement.
+- **An upsert item holding only its conflict keys returns its PK.** Such an item has nothing
+  to update, so an existing row is left untouched — but postgres `DO NOTHING` returns no row
+  for it and mysql's `insertId` says nothing about it: the single upsert returned `undefined`
+  and a bulk upsert failed with a 500 after writing. The PK now comes from the item when it
+  holds it, otherwise it is looked up by the conflict keys.
 
 ## [0.3.0]
 

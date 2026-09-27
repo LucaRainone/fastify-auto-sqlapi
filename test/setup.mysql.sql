@@ -102,6 +102,14 @@ CREATE TABLE identity_row (
   label VARCHAR(255) NOT NULL
 );
 
+-- A natural key that is not the primary key: an upsert conflicting on `code` does not carry
+-- the id, so the id of a row the upsert leaves untouched must be looked up.
+CREATE TABLE tag (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  code VARCHAR(50) NOT NULL UNIQUE,
+  label VARCHAR(255)
+);
+
 -- A view: an aggregation over two base tables. It has an `id` column that is unique here
 -- (one row per customer), which is the case the table generator may infer a key from.
 CREATE VIEW customer_summary AS

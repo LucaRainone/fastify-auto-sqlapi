@@ -207,3 +207,93 @@ describe(`[${DIALECT}] bulk upsert — each item writes its own fields`, () => {
     ]);
   });
 });
+
+const tagSchema = createSchema('tag', {
+  id: Type.Optional(Type.Integer()),
+  code: Type.Optional(Type.String()),
+  label: Type.Optional(Type.String()),
+});
+
+// An item holding only its conflict keys has nothing to update: the existing row is left
+// untouched, and its PK must still come back in position — never a missing result or a 500.
+describe(`[${DIALECT}] upsert — an item holding only the conflict keys`, () => {
+  let app;
+  let db;
+
+  before(async () => {
+    ({ app, db } = await createTestApp({
+      ...DbTables,
+      tag: {
+        primary: 'id',
+        ...exportTableInfo(tagSchema),
+        defaultOrder: 'id',
+        upsertMap: new Map([[tagSchema, ['code']]]),
+      },
+    }, { prefix: '/auto' }));
+  });
+
+  beforeEach(async () => {
+    await cleanTables(db, ['customer_order', 'customer', 'tag']);
+  });
+
+  after(async () => {
+    await app.close();
+  });
+
+  async function names() {
+    const res = await db.query(
+      `SELECT ${db.qi('id')} AS id, ${db.qi('name')} AS name FROM ${db.qi('customer')} ORDER BY ${db.qi('id')}`
+    );
+    return res.rows;
+  }
+
+  it('bulk: leaves the row untouched and returns its PK in position', async () => {
+    await seedRows(db, 'customer', [{ id: 1, name: 'one' }, { id: 2, name: 'two' }]);
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/auto/bulk/customer',
+      payload: [{ main: { id: 1, name: 'uno' } }, { main: { id: 2 } }],
+    });
+
+    assert.equal(res.statusCode, 200, res.payload);
+    assert.deepEqual(JSON.parse(res.payload).map((r) => r.main.id), [1, 2]);
+    assert.deepEqual(await names(), [{ id: 1, name: 'uno' }, { id: 2, name: 'two' }]);
+  });
+
+  it('single insert: leaves the row untouched and returns its PK', async () => {
+    await seedRows(db, 'customer', [{ id: 2, name: 'two' }]);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auto/rest/customer',
+      payload: { main: { id: 2 } },
+    });
+
+    assert.equal(res.statusCode, 201, res.payload);
+    assert.equal(JSON.parse(res.payload).main.id, 2);
+    assert.deepEqual(await names(), [{ id: 2, name: 'two' }]);
+  });
+
+  it('looks up the PK when the conflict key is not the PK', async () => {
+    const [existing] = await seedRows(db, 'tag', [{ code: 'old', label: 'Old tag' }]);
+
+    const results = await app.sqlApi.bulkUpsert('tag', [
+      { main: { code: 'new', label: 'New tag' } },
+      { main: { code: 'old' } },
+      { main: { code: 'fresh' } },
+    ]);
+
+    const res = await db.query(
+      `SELECT ${db.qi('id')} AS id, ${db.qi('code')} AS code, ${db.qi('label')} AS label ` +
+      `FROM ${db.qi('tag')} ORDER BY ${db.qi('code')}`
+    );
+    const byCode = Object.fromEntries(res.rows.map((r) => [r.code, r]));
+    assert.deepEqual(
+      results.map((r) => r.main.id),
+      [byCode.new.id, existing.id, byCode.fresh.id],
+    );
+    assert.equal(byCode.old.label, 'Old tag');
+    assert.equal(byCode.fresh.label, null);
+  });
+});

@@ -132,6 +132,12 @@ export class QueryClient {
     return { fields, placeholders };
   }
 
+  // Builds `col = placeholder` pairs joined by `separator` (', ' for SET, ' AND ' for WHERE)
+  #equalities(record: DbRecord, values: unknown[], separator: string): string {
+    const { fields, placeholders } = this.#params(record, values);
+    return fields.map((f, i) => `${this.dialect.qi(f)} = ${placeholders[i]}`).join(separator);
+  }
+
   // Builds multi-row VALUES string for bulk operations
   #bulkValues(
     fields: string[],
@@ -223,21 +229,9 @@ export class QueryClient {
     conflictKeys: string[],
     pkCol: string | string[]
   ): Promise<Record<string, unknown>> {
-    const values: unknown[] = [];
-    const { fields, placeholders } = this.#params(record, values);
-    if (!fields.length) throw new Error('Cannot execute empty insert');
-
-    const upsertClause = this.dialect.upsertSql(this.#q(conflictKeys), this.dialect.upsertUpdateSet(fields, conflictKeys));
-    const returning = this.dialect.returningPk(this.#quotedPkCols(pkCol));
-
-    const result = await this.query(
-      `${this.#insertHead(table, fields)}
-       VALUES (${placeholders.join(', ')})
-       ${upsertClause}${returning}`,
-      values
-    );
-
-    return this.#extractPkRows(result, pkCol, [record])[0];
+    if (!Object.keys(record).length) throw new Error('Cannot execute empty insert');
+    const [pkRow] = await this.#bulkWrite(table, [record], pkCol, 1, { conflictKeys, keepAsIs: conflictKeys });
+    return pkRow;
   }
 
   /**
@@ -260,22 +254,64 @@ export class QueryClient {
   }
 
   /**
+   * PK rows for upsert records that update nothing on conflict: the statement leaves an
+   * existing row untouched, and neither RETURNING (postgres `DO NOTHING`) nor `insertId`
+   * (mysql) tells anything about it. The record gives its PK when it holds every PK column;
+   * otherwise the row — inserted or untouched — is looked up by its conflict keys, which
+   * identify it uniquely.
+   */
+  async #untouchedPkRows(
+    table: string,
+    records: DbRecord[],
+    pkCol: string | string[],
+    conflictKeys: string[]
+  ): Promise<Record<string, unknown>[]> {
+    const pkCols = Array.isArray(pkCol) ? pkCol : [pkCol];
+    const pkRows: Record<string, unknown>[] = [];
+
+    for (const record of records) {
+      if (pkCols.every((c) => record[c] != null && !(record[c] instanceof Expression))) {
+        pkRows.push(Object.fromEntries(pkCols.map((c) => [c, record[c]])));
+        continue;
+      }
+      const values: unknown[] = [];
+      const where = this.#equalities(
+        Object.fromEntries(conflictKeys.map((k) => [k, record[k]])), values, ' AND '
+      );
+      const result = await this.query(
+        `SELECT ${this.#quotedPkCols(pkCol)} FROM ${this.dialect.qi(table)} WHERE ${where}`,
+        values
+      );
+      if (!result.rows.length) {
+        throw new Error(
+          `Cannot resolve the primary key of an upserted "${table}" row: no row matches its conflict keys (${conflictKeys.join(', ')})`
+        );
+      }
+      pkRows.push(result.rows[0]);
+    }
+
+    return pkRows;
+  }
+
+  /**
    * Multi-row INSERT, one statement per chunk of each same-fields group (a single statement
-   * when every record has the same fields). `clause` builds what follows the VALUES for a
-   * group's fields (e.g. the upsert clause). PK rows are returned in input order.
+   * when every record has the same fields). With `upsert`, a conflicting row gets the
+   * record's non-key fields; `keepAsIs` are the columns never overwritten on conflict. PK rows
+   * are returned in input order.
    */
   async #bulkWrite(
     table: string,
     records: DbRecord[],
     pkCol: string | string[],
     chunkSize: number,
-    clause: (fields: string[]) => string
+    upsert?: { conflictKeys: string[]; keepAsIs: string[] }
   ): Promise<Record<string, unknown>[]> {
     const returning = this.dialect.returningPk(this.#quotedPkCols(pkCol));
     const results: Record<string, unknown>[] = new Array(records.length);
 
     for (const { fields, indexes } of this.#groupByFields(records)) {
-      const tail = clause(fields);
+      const updateSet = upsert ? this.dialect.upsertUpdateSet(fields, upsert.keepAsIs) : '';
+      const tail = upsert ? this.dialect.upsertSql(this.#q(upsert.conflictKeys), updateSet) : '';
       for (let i = 0; i < indexes.length; i += chunkSize) {
         const chunkIndexes = indexes.slice(i, i + chunkSize);
         const chunk = chunkIndexes.map((j) => records[j]);
@@ -286,7 +322,10 @@ export class QueryClient {
            ${tail}${returning}`,
           values
         );
-        this.#extractPkRows(result, pkCol, chunk).forEach((row, k) => {
+        const pkRows = upsert && !updateSet
+          ? await this.#untouchedPkRows(table, chunk, pkCol, upsert.conflictKeys)
+          : this.#extractPkRows(result, pkCol, chunk);
+        pkRows.forEach((row, k) => {
           results[chunkIndexes[k]] = row;
         });
       }
@@ -302,7 +341,7 @@ export class QueryClient {
     chunkSize = DEFAULT_CHUNK_SIZE
   ): Promise<Record<string, unknown>[]> {
     if (!records.length) return [];
-    return this.#bulkWrite(table, records, pkCol, chunkSize, () => '');
+    return this.#bulkWrite(table, records, pkCol, chunkSize);
   }
 
   /**
@@ -321,9 +360,7 @@ export class QueryClient {
     if (!records.length) return [];
 
     const keepAsIs = immutableCols.length ? [...conflictKeys, ...immutableCols] : conflictKeys;
-    return this.#bulkWrite(table, records, pkCol, chunkSize, (fields) =>
-      this.dialect.upsertSql(this.#q(conflictKeys), this.dialect.upsertUpdateSet(fields, keepAsIs))
-    );
+    return this.#bulkWrite(table, records, pkCol, chunkSize, { conflictKeys, keepAsIs });
   }
 
   async update(
@@ -333,22 +370,14 @@ export class QueryClient {
     extraCondition?: ConditionBuilder
   ): Promise<number> {
     const values: unknown[] = [];
-    const { fields: setF, placeholders: setP } = this.#params(record, values);
-    const { fields: whereF, placeholders: whereP } = this.#params(
-      where,
-      values
-    );
+    const setClause = this.#equalities(record, values, ', ');
+    const whereClause = this.#equalities(where, values, ' AND ');
 
     let extraWhere = '';
     if (extraCondition) {
       extraWhere = ` AND ${extraCondition.build(values.length + 1, this.dialect.ph)}`;
       values.push(...extraCondition.getValues());
     }
-
-    const setClause = setF.map((f, i) => `${this.dialect.qi(f)} = ${setP[i]}`).join(', ');
-    const whereClause = whereF
-      .map((f, i) => `${this.dialect.qi(f)} = ${whereP[i]}`)
-      .join(' AND ');
 
     const result = await this.query(
       `UPDATE ${this.dialect.qi(table)}
@@ -365,17 +394,13 @@ export class QueryClient {
     extraCondition?: ConditionBuilder
   ): Promise<number> {
     const values: unknown[] = [];
-    const { fields, placeholders } = this.#params(where, values);
+    const whereClause = this.#equalities(where, values, ' AND ');
 
     let extraWhere = '';
     if (extraCondition) {
       extraWhere = ` AND ${extraCondition.build(values.length + 1, this.dialect.ph)}`;
       values.push(...extraCondition.getValues());
     }
-
-    const whereClause = fields
-      .map((f, i) => `${this.dialect.qi(f)} = ${placeholders[i]}`)
-      .join(' AND ');
 
     const result = await this.query(
       `DELETE FROM ${this.dialect.qi(table)}

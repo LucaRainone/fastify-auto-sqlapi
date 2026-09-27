@@ -161,3 +161,90 @@ describe('QueryClient.bulkInsertOrUpdate - records with different fields', () =>
     }
   });
 });
+
+// An upsert record holding only its conflict keys has nothing to update: the statement leaves
+// an existing row untouched (postgres `DO NOTHING`), and RETURNING yields no row for it. Its
+// PK must still come back, in position — from the record when it holds the PK, otherwise
+// looked up by the conflict keys.
+describe('QueryClient upsert - records holding only the conflict keys', () => {
+  /** Postgres mock: `DO NOTHING` returns no row (the existing row is left alone). */
+  function doNothingSkipsExisting(lookup = () => ({ rows: [], affectedRows: 0 })) {
+    return createMockPg((call) => {
+      if (call.text.startsWith('SELECT')) return lookup(call);
+      if (call.text.includes('DO NOTHING')) return { rows: [], affectedRows: 0 };
+      const rows = insertedRows(call).map((r) => ({ id: r.id }));
+      return { rows, affectedRows: rows.length };
+    });
+  }
+
+  it('returns the PK of an untouched row from the record that holds it', async () => {
+    const mock = doNothingSkipsExisting();
+    const records = [{ id: 1, name: 'a' }, { id: 2 }, { id: 3, name: 'c' }];
+
+    const result = await new QueryClient(mock).bulkInsertOrUpdate('product', records, ['id'], 'id');
+
+    assert.deepEqual(result, [{ id: 1 }, { id: 2 }, { id: 3 }]);
+  });
+
+  it('looks up the PK of an untouched row when the conflict key is not the PK', async () => {
+    const mock = doNothingSkipsExisting((call) => ({
+      rows: [{ id: { 'x-code': 42, 'y-code': 43 }[call.values[0]] }],
+      affectedRows: 1,
+    }));
+    const records = [{ code: 'x-code' }, { code: 'y-code' }];
+
+    const result = await new QueryClient(mock).bulkInsertOrUpdate('tag', records, ['code'], 'id');
+
+    assert.deepEqual(result, [{ id: 42 }, { id: 43 }]);
+    const lookups = mock.calls.filter((c) => c.text.startsWith('SELECT'));
+    assert.deepEqual(
+      lookups.map((c) => [c.text, c.values]),
+      [
+        ['SELECT "id" FROM "tag" WHERE "code" = $1', ['x-code']],
+        ['SELECT "id" FROM "tag" WHERE "code" = $1', ['y-code']],
+      ],
+    );
+  });
+
+  it('looks up every column of a composite PK by every conflict key', async () => {
+    const mock = doNothingSkipsExisting(() => ({ rows: [{ a_id: 1, b_id: 2 }], affectedRows: 1 }));
+
+    const result = await new QueryClient(mock).bulkInsertOrUpdate(
+      'link', [{ code: 'k', lang: 'it' }], ['code', 'lang'], ['a_id', 'b_id']
+    );
+
+    assert.deepEqual(result, [{ a_id: 1, b_id: 2 }]);
+    const lookup = mock.calls.find((c) => c.text.startsWith('SELECT'));
+    assert.equal(lookup.text, 'SELECT "a_id", "b_id" FROM "link" WHERE "code" = $1 AND "lang" = $2');
+    assert.deepEqual(lookup.values, ['k', 'it']);
+  });
+
+  it('treats a record holding only conflict keys and immutable columns as untouched', async () => {
+    const mock = doNothingSkipsExisting();
+
+    const result = await new QueryClient(mock).bulkInsertOrUpdate(
+      'customer', [{ id: 7, organization_id: 3 }], ['id'], 'id', undefined, ['organization_id']
+    );
+
+    assert.deepEqual(result, [{ id: 7 }]);
+  });
+
+  it('single insertOrUpdate returns the PK of an untouched row', async () => {
+    const mock = doNothingSkipsExisting();
+
+    const result = await new QueryClient(mock).insertOrUpdate('product', { id: 5 }, ['id'], 'id');
+
+    assert.deepEqual(result, { id: 5 });
+  });
+
+  it('looks up the PK on mysql too, where insertId says nothing about an untouched row', async () => {
+    const mock = createMockPg((call) => (call.text.startsWith('SELECT')
+      ? { rows: [{ id: 42 }], affectedRows: 1 }
+      : { rows: [], affectedRows: 0, insertId: 0 }));
+
+    const result = await createQueryClient(mock, 'mysql')
+      .bulkInsertOrUpdate('tag', [{ code: 'x-code' }], ['code'], 'id');
+
+    assert.deepEqual(result, [{ id: 42 }]);
+  });
+});
