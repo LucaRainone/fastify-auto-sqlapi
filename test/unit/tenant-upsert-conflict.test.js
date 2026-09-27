@@ -124,6 +124,31 @@ for (const dialect of DIALECTS) {
     });
   });
 
+  /**
+   * The tenant probe finds no foreign owner, then the upsert writes. On postgres that is one
+   * `ON CONFLICT` statement answering `returned`; mysql upserts by key (ADR 0021) — a key probe
+   * that finds no row, then a plain INSERT.
+   */
+  function upsertAfterTenantProbe(returned) {
+    const responses = dialect === 'postgres'
+      ? [{ rows: [] }, { rows: returned }]
+      : [{ rows: [] }, { rows: [] }, { rows: [], affectedRows: returned.length, insertId: returned[0].id }];
+    return responses;
+  }
+
+  function assertTenantProbeThenUpsert(mockPg) {
+    const texts = mockPg.calls.map((c) => c.text);
+    assert.ok(!/^(INSERT|UPDATE)/.test(texts[0]), 'the tenant probe runs before any write');
+    if (dialect === 'postgres') {
+      assert.equal(texts.length, 2);
+      assert.ok(texts[1].includes('ON CONFLICT'), texts[1]);
+    } else {
+      assert.equal(texts.length, 3);
+      assert.ok(texts[2].startsWith('INSERT'), texts[2]);
+      assert.ok(texts.every((t) => !t.includes('ON DUPLICATE KEY')));
+    }
+  }
+
   describe(`insertEngine upsert with tenant [${dialect}]`, () => {
     it('rejects (403) when the upsert conflict target is owned by another tenant', async () => {
       const { tableConf } = makeTable(['id']);
@@ -138,11 +163,10 @@ for (const dialect of DIALECTS) {
 
     it('proceeds to upsert when no foreign-owned conflict exists', async () => {
       const { tableConf } = makeTable(['id']);
-      const mockPg = createMockPg([{ rows: [] }, { rows: [{ id: 99 }] }]);
+      const mockPg = createMockPg(upsertAfterTenantProbe([{ id: 99 }]));
       const res = await insertEngine({ db: client(mockPg), tableConf, dbTables: {}, request: {}, record: { id: 99, name: 'Mine' }, tenant: directTenant });
       assert.equal(res.main.id, 99);
-      assert.equal(mockPg.calls.length, 2);
-      assert.ok(/ON CONFLICT|ON DUPLICATE KEY/.test(mockPg.calls[1].text));
+      assertTenantProbeThenUpsert(mockPg);
     });
 
     it('does not probe when there is no upsertMap (plain insert)', async () => {
@@ -169,11 +193,10 @@ for (const dialect of DIALECTS) {
 
     it('proceeds when all conflict targets are owned or new', async () => {
       const { tableConf } = makeTable(['id']);
-      const mockPg = createMockPg([{ rows: [] }, { rows: [{ id: 1 }, { id: 2 }] }]);
+      const mockPg = createMockPg(upsertAfterTenantProbe([{ id: 1 }, { id: 2 }]));
       const res = await bulkUpsertEngine({ db: client(mockPg), tableConf, dbTables: {}, request: {}, items: [{ main: { id: 1, name: 'A' } }, { main: { id: 2, name: 'B' } }], tenant: directTenant });
       assert.equal(res.length, 2);
-      assert.equal(mockPg.calls.length, 2);
-      assert.ok(/ON CONFLICT|ON DUPLICATE KEY/.test(mockPg.calls[1].text));
+      assertTenantProbeThenUpsert(mockPg);
     });
   });
 }
