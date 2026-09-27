@@ -22,7 +22,9 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   - an upserted row without its key, or two rows of one request with the same key, is a `400`
     (a row naming no PK field at all is still a plain insert when the key is the PK);
   - MySQL and MariaDB upsert by key — probe, insert, update: two to three statements per chunk
-    instead of one. PostgreSQL keeps `ON CONFLICT (key)`, unchanged.
+    instead of one. PostgreSQL keeps `ON CONFLICT (key)`, unchanged;
+  - the exported `SqlDialect` type loses `upsertSql()` and `upsertUpdateSet()`, replaced by
+    `onConflict?: { sql(), updateSet() }`, present on PostgreSQL only.
   Regenerate the schemas; see
   [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--an-upsert-targets-a-unique-key-verified-at-startup).
 

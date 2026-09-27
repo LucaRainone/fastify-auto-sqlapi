@@ -791,6 +791,10 @@ use the key it called instead — that is now what `table` returns.
 - **A driver configured without `CLIENT_FOUND_ROWS`** (MySQL/MariaDB): the upsert checks the
   rows its UPDATE matched, and without that flag the driver reports changed rows instead —
   a row re-sent unchanged would be reported as missing. `mysql2` sets the flag by default.
+- **Code using the exported `SqlDialect` type or `getDialect()` for upserts**: `upsertSql()`
+  and `upsertUpdateSet()` are gone. They are replaced by `onConflict?: { sql(), updateSet() }`,
+  present on PostgreSQL only — its absence is what tells MySQL/MariaDB to upsert by key.
+  A custom `SqlDialect` implementation no longer compiles until it drops the two methods.
 
 ## Migration
 
@@ -802,3 +806,20 @@ use the key it called instead — that is now what `table` returns.
    Either add the unique index the rule assumed, or point the rule at an existing key.
 3. Make sure every upsert row carries its key. For a write-join child keyed on
    `(parentId, lang)`, the FK is filled from the parent — the client sends `lang`.
+4. If you use `SqlDialect` directly: build an upsert through `QueryClient.insertOrUpdate` /
+   `bulkInsertOrUpdate`, which pick the right strategy per dialect, rather than from the
+   dialect's clause. The PostgreSQL clause, if you need it, is now
+   `getDialect('postgres').onConflict!.sql(keys, getDialect('postgres').onConflict!.updateSet(fields, keepAsIs))`
+   — `updateSet` returns `''` when nothing is left to update, as before. A custom dialect
+   implements `onConflict` only when its upsert syntax names its conflict target; otherwise it
+   leaves it out and gets the upsert by key.
+
+```typescript
+// before
+const dialect = getDialect('postgres');
+dialect.upsertSql(quotedKeys, dialect.upsertUpdateSet(fields, conflictKeys));
+
+// after
+const { onConflict } = getDialect('postgres');
+onConflict!.sql(quotedKeys, onConflict!.updateSet(fields, conflictKeys));
+```
