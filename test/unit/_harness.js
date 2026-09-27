@@ -103,7 +103,34 @@ export function resolvePlaceholders(call) {
 }
 
 /**
+ * Decode an INSERT into the rows the database would store: one object per VALUES tuple,
+ * keyed by the statement's column list. Lets a test assert which value lands in which column
+ * of which row, instead of pattern-matching the SQL. Returns [] for any other statement.
+ * Bound values only: a tuple carrying a raw Expression is not supported.
+ */
+export function insertedRows(call) {
+  const m = /^INSERT INTO [`"][^`"]+[`"] \(([^)]*)\) VALUES /.exec(call.text);
+  if (!m || !m[1]) return [];
+  const cols = m[1].split(', ').map((c) => c.slice(1, -1));
+  const values = call.values ?? [];
+  const rows = [];
+  for (let i = 0; i < values.length; i += cols.length) {
+    rows.push(Object.fromEntries(cols.map((c, j) => [c, values[i + j]])));
+  }
+  return rows;
+}
+
+/** Columns an upsert overwrites when it lands on an existing row (postgres or mysql syntax). */
+export function upsertUpdatedColumns(call) {
+  const m = /(?:DO UPDATE SET|ON DUPLICATE KEY UPDATE) (.*?)(?: RETURNING .*)?$/.exec(call.text);
+  if (!m) return [];
+  return [...m[1].matchAll(/[`"]([^`"]+)[`"] = /g)].map((x) => x[1]);
+}
+
+/**
  * Fake pg driver. `responses` are returned in order; exhausted calls yield an empty result.
+ * `responses` may instead be a function `(call) => response`, for tests whose number or
+ * order of statements depends on the input rather than being fixed.
  *
  * Every query is checked for placeholder integrity and column qualification, and the call
  * rejects on violation, so the failure points at the offending query. Violations are also
@@ -145,7 +172,9 @@ export function createMockPg(responses = [], opts = {}) {
         }
       }
 
-      const response = responses[callIndex] || { rows: [], affectedRows: 0 };
+      const response = typeof responses === 'function'
+        ? responses(calls[calls.length - 1])
+        : responses[callIndex] || { rows: [], affectedRows: 0 };
       callIndex++;
       return Promise.resolve(response);
     },

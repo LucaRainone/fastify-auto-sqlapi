@@ -93,7 +93,9 @@ Condition methods (params arity): `isEqual|isNotEqual|isGreater|isGreaterOrEqual
   "deletions":   { "orders": [{ "id": 10 }] } }        // deletes children by PK (scoped to this main)
 // → 200 { "main": { "id": 1 }, "secondaries": { "orders": [{ "id": 20 }] }, "deletions": { "orders": [{ "id": 10 }] } }
 
-// PUT {p}/bulk/customer  (bulk upsert; one SQL for mains; per-item secondaries/deletions)
+// PUT {p}/bulk/customer  (bulk upsert; one SQL per distinct set of main fields; per-item secondaries/deletions)
+// Each item writes only its own fields: a field an item omits keeps the stored value on update and
+// takes the column default on insert — items need not share the same keys.
 [ { "main": { "name": "Mario" }, "secondaries": { "orders": [{ "total": 50 }] } },
   { "main": { "name": "Luigi" } } ]
 // → 200 [ { "main": { "id": 1 }, "secondaries": {...} }, { "main": { "id": 2 } } ]

@@ -240,6 +240,61 @@ export class QueryClient {
     return this.#extractPkRows(result, pkCol, [record])[0];
   }
 
+  /**
+   * Group records by their exact field set, keeping each record's input position. A bulk write
+   * is N single writes issued efficiently (ADR 0003), so every record writes only its own
+   * fields: records with different fields cannot share a statement, or a field missing from
+   * the statement is dropped and a field missing from the record is bound as NULL — which
+   * skips the column default on insert and overwrites the stored value on upsert.
+   */
+  #groupByFields(records: DbRecord[]): { fields: string[]; indexes: number[] }[] {
+    const groups = new Map<string, { fields: string[]; indexes: number[] }>();
+    records.forEach((record, i) => {
+      const fields = Object.keys(record);
+      const key = JSON.stringify([...fields].sort());
+      const group = groups.get(key);
+      if (group) group.indexes.push(i);
+      else groups.set(key, { fields, indexes: [i] });
+    });
+    return [...groups.values()];
+  }
+
+  /**
+   * Multi-row INSERT, one statement per chunk of each same-fields group (a single statement
+   * when every record has the same fields). `clause` builds what follows the VALUES for a
+   * group's fields (e.g. the upsert clause). PK rows are returned in input order.
+   */
+  async #bulkWrite(
+    table: string,
+    records: DbRecord[],
+    pkCol: string | string[],
+    chunkSize: number,
+    clause: (fields: string[]) => string
+  ): Promise<Record<string, unknown>[]> {
+    const returning = this.dialect.returningPk(this.#quotedPkCols(pkCol));
+    const results: Record<string, unknown>[] = new Array(records.length);
+
+    for (const { fields, indexes } of this.#groupByFields(records)) {
+      const tail = clause(fields);
+      for (let i = 0; i < indexes.length; i += chunkSize) {
+        const chunkIndexes = indexes.slice(i, i + chunkSize);
+        const chunk = chunkIndexes.map((j) => records[j]);
+        const { values, rows } = this.#bulkValues(fields, chunk);
+        const result = await this.query(
+          `${this.#insertHead(table, fields)}
+           VALUES ${rows}
+           ${tail}${returning}`,
+          values
+        );
+        this.#extractPkRows(result, pkCol, chunk).forEach((row, k) => {
+          results[chunkIndexes[k]] = row;
+        });
+      }
+    }
+
+    return results;
+  }
+
   async bulkInsert(
     table: string,
     records: DbRecord[],
@@ -247,22 +302,7 @@ export class QueryClient {
     chunkSize = DEFAULT_CHUNK_SIZE
   ): Promise<Record<string, unknown>[]> {
     if (!records.length) return [];
-
-    const fields = Object.keys(records[0]);
-    const returning = this.dialect.returningPk(this.#quotedPkCols(pkCol));
-    const results: Record<string, unknown>[] = [];
-
-    for (let i = 0; i < records.length; i += chunkSize) {
-      const chunk = records.slice(i, i + chunkSize);
-      const { values, rows } = this.#bulkValues(fields, chunk);
-      const result = await this.query(
-        `${this.#insertHead(table, fields)} VALUES ${rows}${returning}`,
-        values
-      );
-      results.push(...this.#extractPkRows(result, pkCol, chunk));
-    }
-
-    return results;
+    return this.#bulkWrite(table, records, pkCol, chunkSize, () => '');
   }
 
   /**
@@ -280,25 +320,10 @@ export class QueryClient {
   ): Promise<Record<string, unknown>[]> {
     if (!records.length) return [];
 
-    const fields = Object.keys(records[0]);
     const keepAsIs = immutableCols.length ? [...conflictKeys, ...immutableCols] : conflictKeys;
-    const upsertClause = this.dialect.upsertSql(this.#q(conflictKeys), this.dialect.upsertUpdateSet(fields, keepAsIs));
-    const returning = this.dialect.returningPk(this.#quotedPkCols(pkCol));
-    const results: Record<string, unknown>[] = [];
-
-    for (let i = 0; i < records.length; i += chunkSize) {
-      const chunk = records.slice(i, i + chunkSize);
-      const { values, rows } = this.#bulkValues(fields, chunk);
-      const result = await this.query(
-        `${this.#insertHead(table, fields)}
-         VALUES ${rows}
-         ${upsertClause}${returning}`,
-        values
-      );
-      results.push(...this.#extractPkRows(result, pkCol, chunk));
-    }
-
-    return results;
+    return this.#bulkWrite(table, records, pkCol, chunkSize, (fields) =>
+      this.dialect.upsertSql(this.#q(conflictKeys), this.dialect.upsertUpdateSet(fields, keepAsIs))
+    );
   }
 
   async update(

@@ -764,7 +764,8 @@ sqlApi.update(tableName, { record, secondaries?, deletions? }, request?): Promis
 // Delete by PK
 sqlApi.delete(tableName, id, request?): Promise<DeleteResult>
 
-// Bulk upsert
+// Bulk upsert — each item writes only its own fields (an omitted field keeps the stored value
+// on update, takes the column default on insert); items need not share the same keys
 sqlApi.bulkUpsert(tableName, items, request?): Promise<BulkUpsertResult[]>
 
 // Bulk delete
@@ -791,8 +792,9 @@ Available in hooks via the `db` parameter:
 ```typescript
 db.insert(tableName, record, pkCol);                                    // INSERT, returns PK row
 db.insertOrUpdate(tableName, record, conflictKeys, pkCol);              // INSERT ON CONFLICT, returns PK row
-db.bulkInsert(tableName, records, pkCol, chunkSize?);                   // Multi-row INSERT, returns PK rows
-db.bulkInsertOrUpdate(tableName, records, conflictKeys, pkCol, chunkSize?); // Multi-row UPSERT, returns PK rows
+db.bulkInsert(tableName, records, pkCol, chunkSize?);                   // Multi-row INSERT, returns PK rows in input order
+db.bulkInsertOrUpdate(tableName, records, conflictKeys, pkCol, chunkSize?); // Multi-row UPSERT, returns PK rows in input order
+// Bulk: each record writes only its own columns — one statement per distinct column set
 db.update(tableName, record, where, extraCondition?);                   // UPDATE, returns affectedRows (number)
 db.delete(tableName, where);                                            // DELETE, returns affectedRows (number)
 db.select({ tableName, columns?, where, values, limit?, orderBy?, joins?, distinct? }); // SELECT, returns rows

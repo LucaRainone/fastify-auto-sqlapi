@@ -1,0 +1,209 @@
+// A bulk upsert is N single writes issued efficiently (ADR 0003): each item — and each
+// secondary row — writes exactly its own fields. Pinned against a real database, reading back
+// what was stored: a field only on a later item must be stored, a field an item omits must
+// fall back to the column default on INSERT and stay untouched on UPDATE.
+
+import { describe, it, before, after, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  DIALECT,
+  createTestApp,
+  cleanTables,
+  seedRows,
+  exportTableInfo,
+  buildRelation,
+  toUnderscore,
+  Type,
+} from './_helpers.js';
+
+function createSchema(tableName, fields) {
+  return {
+    col: (f) => toUnderscore(f),
+    fields,
+    validation: Type.Object(fields),
+    tableName,
+    partialValidation: Type.Object(fields),
+  };
+}
+
+const customerSchema = createSchema('customer', {
+  id: Type.Optional(Type.Integer()),
+  name: Type.Optional(Type.String()),
+  email: Type.Optional(Type.String()),
+  phoneNumber: Type.Optional(Type.String()),
+  isActive: Type.Optional(Type.Boolean()),
+});
+
+const orderSchema = createSchema('customer_order', {
+  id: Type.Optional(Type.Integer()),
+  customerId: Type.Optional(Type.Integer()),
+  total: Type.Optional(Type.Number()),
+  notes: Type.Optional(Type.String()),
+  status: Type.Optional(Type.String()),
+});
+
+const DbTables = {
+  customer: {
+    primary: 'id',
+    ...exportTableInfo(customerSchema),
+    defaultOrder: 'id',
+    upsertMap: new Map([[customerSchema, ['id']]]),
+    allowedWriteJoins: [
+      buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
+    ],
+  },
+  customer_order: {
+    primary: 'id',
+    ...exportTableInfo(orderSchema),
+    defaultOrder: 'id',
+  },
+};
+
+describe(`[${DIALECT}] bulk upsert — each item writes its own fields`, () => {
+  let app;
+  let db;
+
+  before(async () => {
+    ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
+  });
+
+  beforeEach(async () => {
+    await cleanTables(db, ['customer_order', 'customer']);
+  });
+
+  after(async () => {
+    await app.close();
+  });
+
+  async function customer(id) {
+    const res = await db.query(
+      `SELECT ${db.qi('name')} AS name, ${db.qi('email')} AS email, ` +
+      `${db.qi('phone_number')} AS phone, ${db.qi('is_active')} AS active ` +
+      `FROM ${db.qi('customer')} WHERE ${db.qi('id')} = ${db.ph(1)}`,
+      [id]
+    );
+    const row = res.rows[0];
+    return row && { ...row, active: Boolean(row.active) };
+  }
+
+  async function ordersOf(customerId) {
+    const res = await db.query(
+      `SELECT ${db.qi('total')} AS total, ${db.qi('notes')} AS notes, ${db.qi('status')} AS status ` +
+      `FROM ${db.qi('customer_order')} WHERE ${db.qi('customer_id')} = ${db.ph(1)} ORDER BY ${db.qi('id')}`,
+      [customerId]
+    );
+    return res.rows.map((r) => ({ ...r, total: Number(r.total) }));
+  }
+
+  function bulkPut(table, payload) {
+    return app.inject({ method: 'PUT', url: `/auto/bulk/${table}`, payload });
+  }
+
+  it('stores a field present only on a later item (route)', async () => {
+    const res = await bulkPut('customer', [
+      { main: { id: 1, name: 'First' } },
+      { main: { id: 2, name: 'Second', email: 'second@test.it' } },
+    ]);
+
+    assert.equal(res.statusCode, 200, res.payload);
+    assert.equal((await customer(1)).email, null);
+    assert.equal((await customer(2)).email, 'second@test.it');
+  });
+
+  it('stores a field present only on a later item (sqlApi.bulkUpsert)', async () => {
+    await app.sqlApi.bulkUpsert('customer', [
+      { main: { id: 1, name: 'First' } },
+      { main: { id: 2, name: 'Second', email: 'second@test.it', phoneNumber: '555' } },
+    ]);
+
+    assert.deepEqual(await customer(1), { name: 'First', email: null, phone: null, active: true });
+    assert.deepEqual(
+      await customer(2),
+      { name: 'Second', email: 'second@test.it', phone: '555', active: true },
+    );
+  });
+
+  it('gives an omitted field its column default on insert, not NULL', async () => {
+    const res = await bulkPut('customer', [
+      { main: { id: 1, name: 'First', isActive: false } },
+      { main: { id: 2, name: 'Second' } },
+    ]);
+
+    assert.equal(res.statusCode, 200, res.payload);
+    assert.equal((await customer(1)).active, false);
+    assert.equal((await customer(2)).active, true, 'is_active must take its DEFAULT true');
+  });
+
+  it('leaves untouched on an existing row a field the item omits', async () => {
+    await seedRows(db, 'customer', [
+      { id: 1, name: 'Old one', email: 'one@test.it', phone_number: '111' },
+      { id: 2, name: 'Old two', email: 'two@test.it', phone_number: '222' },
+    ]);
+
+    const res = await bulkPut('customer', [
+      { main: { id: 1, name: 'New one', phoneNumber: '999' } },
+      { main: { id: 2, name: 'New two' } },
+    ]);
+
+    assert.equal(res.statusCode, 200, res.payload);
+    assert.deepEqual(
+      await customer(1),
+      { name: 'New one', email: 'one@test.it', phone: '999', active: true },
+    );
+    assert.deepEqual(
+      await customer(2),
+      { name: 'New two', email: 'two@test.it', phone: '222', active: true },
+    );
+  });
+
+  it('returns the PKs in input order when items have different fields', async () => {
+    const res = await bulkPut('customer', [
+      { main: { id: 3, name: 'c' } },
+      { main: { id: 1, name: 'a', email: 'a@test.it' } },
+      { main: { id: 2, name: 'b' } },
+    ]);
+
+    assert.equal(res.statusCode, 200, res.payload);
+    assert.deepEqual(JSON.parse(res.payload).map((r) => r.main.id), [3, 1, 2]);
+  });
+
+  it('writes each secondary of a bulk item with its own fields', async () => {
+    const res = await bulkPut('customer', [{
+      main: { id: 1, name: 'With orders' },
+      secondaries: {
+        customer_order: [
+          { total: 10, status: 'shipped' },
+          { total: 20, notes: 'fragile' },
+        ],
+      },
+    }]);
+
+    assert.equal(res.statusCode, 200, res.payload);
+    assert.deepEqual(await ordersOf(1), [
+      { total: 10, notes: null, status: 'shipped' },
+      { total: 20, notes: 'fragile', status: 'pending' },
+    ]);
+  });
+
+  it('writes each secondary of a single insert with its own fields', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auto/rest/customer',
+      payload: {
+        main: { id: 1, name: 'With orders' },
+        secondaries: {
+          customer_order: [
+            { total: 10, status: 'shipped' },
+            { total: 20, notes: 'fragile' },
+          ],
+        },
+      },
+    });
+
+    assert.equal(res.statusCode, 201, res.payload);
+    assert.deepEqual(await ordersOf(1), [
+      { total: 10, notes: null, status: 'shipped' },
+      { total: 20, notes: 'fragile', status: 'pending' },
+    ]);
+  });
+});

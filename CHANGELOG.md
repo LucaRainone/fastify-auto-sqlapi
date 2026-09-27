@@ -9,6 +9,18 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ## [Unreleased]
 
+### Fixed
+
+- **Bulk writes no longer lose or overwrite fields when items do not share the same keys.**
+  `bulkUpsert` (route and `sqlApi`), secondaries of every write, and
+  `QueryClient.bulkInsert` / `bulkInsertOrUpdate` took the column list of the whole batch from
+  the first record. A field present only on a later item was silently dropped; a field present
+  only on an earlier item was bound as NULL for the others — skipping the column default on
+  insert (or failing on a `NOT NULL DEFAULT` column) and wiping the stored value on upsert.
+  Each record now writes exactly its own fields: records are grouped by column set, one
+  statement per group, PKs still returned in input order. Batches whose items share the same
+  keys still run as a single statement.
+
 ## [0.3.0]
 
 ### Changed
