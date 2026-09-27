@@ -84,6 +84,7 @@ export function defineTable<F extends Record<string, TSchema>>(
   validateWriteExclude(config as unknown as ITable);
   validateTenantScope(config as unknown as ITable);
   validateTenantColumnNames(config as unknown as ITable);
+  validateUpsertMap(config as unknown as ITable);
   return config;
 }
 
@@ -331,6 +332,56 @@ function validateWriteExclude(config: ITable): void {
       );
     }
   }
+}
+
+const formatKey = (fields: string[]): string => `(${fields.join(', ')})`;
+
+const sameFieldSet = (a: string[], b: string[]): boolean =>
+  a.length === b.length && a.every((f) => b.includes(f));
+
+/**
+ * An `upsertMap` rule must name a unique key the database enforces — the Schema's
+ * `primaryKey` or one of its `uniqueKeys`, as a set: same fields, any order, nothing extra
+ * (ADR 0021). Anything else fails every write on PostgreSQL, and on MySQL duplicates rows or
+ * updates a row matched through another key, in silence.
+ *
+ * Fail-closed: a rule the Schema cannot vouch for is refused. The Schema is what is read, not
+ * a table config, so a child written only through a write join needs no `defineTable`.
+ */
+function validateUpsertMap(config: ITable): void {
+  for (const [schema, keys] of config.upsertMap ?? []) {
+    const problem = upsertKeyProblem(schema, keys);
+    if (problem) {
+      throw new Error(
+        `defineTable: upsertMap rule on '${schema.tableName}' ${formatKey(keys)} ${problem} (ADR 0021).`
+      );
+    }
+  }
+}
+
+/** Why `keys` is not a verified unique key of `schema`, or null when it is one. */
+function upsertKeyProblem(schema: SchemaDefinition, keys: string[]): string | null {
+  if (schema.isView) return 'targets a view — a view has no unique key to upsert on';
+
+  const primaryKey = schema.primaryKey ?? [];
+  if (primaryKey.length && sameFieldSet(keys, primaryKey)) return null;
+  if (schema.uniqueKeys === undefined) {
+    return (
+      `cannot be verified: the Schema of '${schema.tableName}' carries no uniqueKeys` +
+      `${primaryKey.length ? '' : ' and no primaryKey'} — regenerate the schemas with ` +
+      `sqlapi-generate-schema, an upsert must target a unique key the database enforces`
+    );
+  }
+  if (schema.uniqueKeys.some((unique) => sameFieldSet(keys, unique))) return null;
+
+  const available = [
+    ...(primaryKey.length ? [`${formatKey(primaryKey)} primary key`] : []),
+    ...schema.uniqueKeys.map(formatKey),
+  ];
+  return (
+    `is not a unique key of the table. An upsert must target exactly one: ` +
+    `${available.length ? available.join(', ') : 'the table has none'}`
+  );
 }
 
 function validateComputedFields(config: ITable): void {

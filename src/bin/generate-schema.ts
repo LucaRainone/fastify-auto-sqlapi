@@ -58,12 +58,12 @@ function writeSchemaFiles(tableMap: TableMap, schemasDir: string): WriteReport {
   const report: WriteReport = { created: false, touched: false, untouched: 0, files: new Set() };
 
   for (const schemaName of Object.keys(tableMap)) {
-    const { name: tableName, fields, colMap, primary, generated, isView } = tableMap[schemaName];
+    const { name: tableName, fields, colMap, primary, generated, isView, uniqueKeys } = tableMap[schemaName];
     const filename = path.join(schemasDir, `${schemaName}.ts`);
     report.files.add(`${schemaName}.ts`);
 
     const content = generateSchemaFile(
-      schemaName, tableName, fields, colMap, primary, generated, isView
+      schemaName, tableName, fields, colMap, primary, generated, isView, uniqueKeys
     );
     const status = fileStatus(filename, content);
 

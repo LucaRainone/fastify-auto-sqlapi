@@ -96,6 +96,8 @@ Condition methods (params arity): `isEqual|isNotEqual|isGreater|isGreaterOrEqual
 // PUT {p}/bulk/customer  (bulk upsert; one SQL per distinct set of main fields; per-item secondaries/deletions)
 // Each item writes only its own fields: a field an item omits keeps the stored value on update and
 // takes the column default on insert — items need not share the same keys.
+// On an upsert table every row (main or child) carries its conflict key — 400 if missing/null, or if two
+// rows of the request share it. Rows without any id are inserted when the key is the id.
 [ { "main": { "name": "Mario" }, "secondaries": { "orders": [{ "total": 50 }] } },
   { "main": { "name": "Luigi" } } ]
 // → 200 [ { "main": { "id": 1 }, "secondaries": {...} }, { "main": { "id": 2 } } ]

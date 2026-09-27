@@ -52,7 +52,7 @@ Writes read the same way — *"sync these clients and their tags: update the one
 //        { "main": { "id": 2 } }]
 ```
 
-Conflict keys are declared server-side (`upsertMap`: here customer on `email`, tag on `(customerId, tag)`), so re-sending the same payload updates rows instead of duplicating them — client-side sync without hand-written diffing.
+Conflict keys are declared server-side (`upsertMap`: here customer on `email`, tag on `(customerId, tag)`) and checked at startup against the unique keys the database enforces, so re-sending the same payload updates rows instead of duplicating them and never touches a row through any other key — client-side sync without hand-written diffing.
 
 And multi-tenancy is one plugin option (`getTenantId: (req) => req.user?.organizationId ?? null`), enforced on reads *and* writes with zero code in handlers. Rows of other tenants are simply invisible (`404`); here a caller in org B tries to re-point one of their own orders to a customer belonging to org A:
 

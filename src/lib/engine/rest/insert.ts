@@ -1,5 +1,5 @@
 import { camelcaseObject } from '../../naming.js';
-import { processSecondaries, prepareInsertRecord } from '../write-helpers.js';
+import { processSecondaries, prepareInsertRecord, assertUpsertKeys } from '../write-helpers.js';
 import { enforceTenantOnWrites, assertTenantOwnsConflicts } from '../../tenant.js';
 import { primaryAsCols } from '../../../types.js';
 import type {
@@ -34,6 +34,7 @@ export async function insertEngine(params: InsertParams): Promise<InsertResult> 
     const upsertKeys = tableConf.upsertMap?.get(schema);
     if (upsertKeys) {
       const conflictCols = upsertKeys.map((k) => schema.col(k));
+      assertUpsertKeys(schema, conflictCols, [pkCol].flat(), [mainRecord]);
       // Tenant isolation: a conflicting upsert must not overwrite a row owned by another tenant.
       await assertTenantOwnsConflicts(tx, tenant, schema.tableName, conflictCols, [mainRecord]);
       pkResult = await tx.insertOrUpdate(

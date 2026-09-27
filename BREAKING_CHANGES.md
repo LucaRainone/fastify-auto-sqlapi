@@ -744,3 +744,61 @@ export const dbTables: DbTables = { customer_order: TableCustomerOrder };
 
 A client that read `table` from a search response to recover the physical table name should
 use the key it called instead — that is now what `table` returns.
+
+---
+
+# Breaking Change — an upsert targets a unique key verified at startup
+
+*Unreleased.* Decision and rationale: [ADR 0021](./docs/adr/0021-upsert-targets-a-verified-unique-key.md).
+
+## Why this changed
+
+`upsertMap` accepted any column list, and the dialects disagreed on what it meant:
+
+- **No unique index on the declared columns**: PostgreSQL failed every write; MySQL never
+  conflicted and inserted duplicates, silently.
+- **MySQL `ON DUPLICATE KEY UPDATE` fires on any unique index**, not on the declared key: a row
+  carrying another row's unique value (an `email`, an `id`) updated *that* row, silently, where
+  PostgreSQL refused the write.
+- **A natural-key upsert on MySQL returned wrong PKs** for the rows it updated, and secondaries
+  were attached to them.
+
+## What changed
+
+- **The generated Schema carries `uniqueKeys`**, the table's unique keys other than the
+  primary key — emitted even when empty. Partial, expression and (MySQL) prefix indexes are not
+  keys an upsert can target and are left out.
+- **`defineTable` refuses an `upsertMap` rule that is not exactly the Schema's `primaryKey` or
+  one of its `uniqueKeys`** (same fields, any order). This includes rules on write-join child
+  schemas — the child still needs no `defineTable` of its own. A rule on a view is refused.
+- **Every upserted row must carry its key — `400` otherwise**: a natural key must be present
+  and not null; the primary key may be absent altogether (a plain insert with a generated key)
+  but not partial or null. Two rows of one request with the same key are a `400` too.
+- **MySQL and MariaDB upsert by key** — probe, insert, update — instead of
+  `ON DUPLICATE KEY UPDATE`. A row whose other unique column belongs to another row is now a
+  database error (sanitized 500) on every dialect, never a write to that other row.
+
+## Who is affected
+
+- **Schemas generated before this release** used with a natural-key rule (`['email']`,
+  `['customerId', 'tag']` that is not the PK…): `defineTable` throws until they are
+  regenerated. Rules on the primary key keep working — `primaryKey` was already generated.
+- **A rule on columns without a unique index**: it never worked on PostgreSQL, and on MySQL it
+  was inserting duplicates. `defineTable` now throws.
+- **Clients sending upsert rows without their key**, or twice the same key in one request:
+  `400`.
+- **MySQL/MariaDB**: an upsert costs two to three statements per chunk instead of one.
+- **A driver configured without `CLIENT_FOUND_ROWS`** (MySQL/MariaDB): the upsert checks the
+  rows its UPDATE matched, and without that flag the driver reports changed rows instead —
+  a row re-sent unchanged would be reported as missing. `mysql2` sets the flag by default.
+
+## Migration
+
+1. Regenerate the schemas: `npx sqlapi-generate-schema`. Each Schema now ends with
+   `uniqueKeys: [...]`.
+2. Start the application: a rule that is not a unique key fails with a message listing the
+   keys the table has, e.g.
+   `upsertMap rule on 'customer' (email) is not a unique key of the table. An upsert must target exactly one: (id) primary key (ADR 0021).`
+   Either add the unique index the rule assumed, or point the rule at an existing key.
+3. Make sure every upsert row carries its key. For a write-join child keyed on
+   `(parentId, lang)`, the FK is filled from the parent — the client sends `lang`.

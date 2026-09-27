@@ -35,6 +35,7 @@ not by editing history.
 | [0018](./0018-one-seam-to-the-http-framework.md) | The HTTP framework is reachable through one seam — `ApiRequest` |
 | [0019](./0019-column-exclusion-is-generation-time-config.md) | Removing a column from the API is generation-time config — `excludeColumns`, never a Schema edit |
 | [0020](./0020-no-conditional-or-mass-update-route.md) | No conditional or mass update route — a predicate write is a custom route |
+| [0021](./0021-upsert-targets-a-verified-unique-key.md) | An upsert targets a unique key verified at startup — MySQL and MariaDB upsert by key, not by `ON DUPLICATE KEY` |
 
 ## When to write one
 

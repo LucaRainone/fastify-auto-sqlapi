@@ -37,11 +37,13 @@ export function buildConnectionString(): string {
  * the string enums the standard defines ('YES'/'NO', 'ALWAYS'/'NEVER'); they are folded into
  * the booleans `ColumnInfo` carries before leaving this module.
  */
-interface PgColumnRow extends Omit<ColumnInfo, 'is_generated'> {
+interface PgColumnRow extends Omit<ColumnInfo, 'is_generated' | 'unique_keys'> {
   is_identity?: string;
   is_generated?: string;
   /** Only used to order the union; not part of `ColumnInfo`. */
   ordinal_position?: number;
+  /** Unique index names the column belongs to; NULL when none. */
+  unique_keys?: string[] | null;
 }
 
 export async function introspectTables(
@@ -66,7 +68,8 @@ export async function introspectTables(
                 c.is_identity::text, c.is_generated::text,
                 (pk.column_name IS NOT NULL) AS is_primary,
                 (t.table_type = 'VIEW') AS is_view,
-                c.ordinal_position::int AS ordinal_position
+                c.ordinal_position::int AS ordinal_position,
+                uk.unique_keys
          FROM information_schema.columns c
          JOIN information_schema.tables t
            ON t.table_schema = c.table_schema AND t.table_name = c.table_name
@@ -78,12 +81,28 @@ export async function introspectTables(
             AND tc.table_schema = kcu.table_schema
            WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = $1
          ) pk ON pk.table_name = c.table_name AND pk.column_name = c.column_name
+         -- Unique indexes (constraints are backed by one) other than the primary key, over
+         -- plain columns only: a partial index (indpred) or one on an expression (indexprs)
+         -- cannot be named by a column list, so it is no upsert key (ADR 0021).
+         LEFT JOIN (
+           SELECT tbl.relname::text AS table_name, att.attname::text AS column_name,
+                  array_agg(idx.relname::text ORDER BY idx.relname) AS unique_keys
+           FROM pg_index i
+           JOIN pg_class idx ON idx.oid = i.indexrelid
+           JOIN pg_class tbl ON tbl.oid = i.indrelid
+           JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+           JOIN pg_attribute att ON att.attrelid = tbl.oid AND att.attnum = ANY(i.indkey)
+           WHERE i.indisunique AND NOT i.indisprimary
+             AND i.indpred IS NULL AND i.indexprs IS NULL
+             AND ns.nspname = $1
+           GROUP BY tbl.relname, att.attname
+         ) uk ON uk.table_name = c.table_name AND uk.column_name = c.column_name
          WHERE c.table_schema = $1
          UNION ALL
          SELECT mc.relname::text, ma.attname::text, mt.typname::text,
                 NULL::text, CASE WHEN ma.attnotnull THEN 'NO' ELSE 'YES' END,
                 'NO'::text, 'NEVER'::text,
-                false, true, ma.attnum::int
+                false, true, ma.attnum::int, NULL::text[]
          FROM pg_class mc
          JOIN pg_namespace mn ON mn.oid = mc.relnamespace
          JOIN pg_attribute ma
@@ -98,6 +117,7 @@ export async function introspectTables(
     // The query's own columns are spelled out rather than spread: `is_identity` and
     // `is_generated` arrive as the standard's string enums and `ordinal_position` only exists
     // to order the union, so none of the three belongs in the `ColumnInfo` handed back.
+    // `unique_keys` is NULL for a column in no unique index.
     return result.rows.map((row) => ({
       table_name: row.table_name,
       column_name: row.column_name,
@@ -110,6 +130,7 @@ export async function introspectTables(
       // mandatory field and the table cannot be inserted into at all.
       ...(row.is_identity === 'YES' ? { is_auto_increment: true } : {}),
       ...(row.is_generated === 'ALWAYS' ? { is_generated: true } : {}),
+      ...(row.unique_keys?.length ? { unique_keys: row.unique_keys } : {}),
     }));
   } finally {
     await client.end();

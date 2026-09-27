@@ -107,6 +107,21 @@ CREATE TABLE tag (
   label VARCHAR(255)
 );
 
+-- Every shape of unique index the introspection meets. Only `code` and `(tenant_id, slug)` are
+-- unique keys an upsert can target (ADR 0021): a partial or an expression index cannot be named
+-- by a column list, so it must not be reported as one.
+CREATE TABLE unique_key_sample (
+  id SERIAL PRIMARY KEY,
+  code VARCHAR(50) NOT NULL UNIQUE,
+  tenant_id INTEGER NOT NULL,
+  slug VARCHAR(50) NOT NULL,
+  email VARCHAR(255),
+  note VARCHAR(255),
+  UNIQUE (tenant_id, slug)
+);
+CREATE UNIQUE INDEX unique_key_sample_email_lower ON unique_key_sample (lower(email));
+CREATE UNIQUE INDEX unique_key_sample_note_live ON unique_key_sample (note) WHERE note IS NOT NULL;
+
 -- A view: an aggregation over two base tables. It has an `id` column that is unique here
 -- (one row per customer), which is the case the table generator may infer a key from.
 CREATE VIEW customer_summary AS

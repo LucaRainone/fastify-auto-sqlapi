@@ -17,6 +17,13 @@ export interface SchemaDefinition<T = Record<string, TSchema>> {
    */
   generatedFields?: string[];
   /**
+   * The table's unique keys other than the primary key, each as its fields (camelCase), as
+   * introspected from the DB. Set by generated schemas — always, even when empty, so an absent
+   * property means "not known" rather than "none". `defineTable` verifies every `upsertMap`
+   * rule against `primaryKey` and these (ADR 0021).
+   */
+  uniqueKeys?: string[][];
+  /**
    * True when the underlying relation is a view. Set by generated schemas.
    *
    * A view is a table config like any other — this only records that the database had no

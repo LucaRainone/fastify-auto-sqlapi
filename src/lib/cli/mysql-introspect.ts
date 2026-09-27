@@ -17,8 +17,15 @@ export interface MysqlConnectionConfig {
  * published `.d.ts` and fail to resolve for consumers who never installed it.
  */
 interface MysqlConnection {
-  query(sql: string, values: unknown[]): Promise<[MysqlColumnRow[], unknown]>;
+  query<T = MysqlColumnRow>(sql: string, values: unknown[]): Promise<[T[], unknown]>;
   end(): Promise<void>;
+}
+
+/** One column of a unique index, as selected (aliased, so lowercase on every server). */
+interface MysqlUniqueIndexRow {
+  table_name: string;
+  column_name: string;
+  index_name: string;
 }
 
 interface Mysql2Module {
@@ -180,7 +187,34 @@ export async function introspectMysqlTables(
       [schema]
     );
 
-    return rows.map(mapMysqlColumnRow);
+    // Unique indexes (constraints included) other than the primary key. An index is left out
+    // whole when any part is an expression (no COLUMN_NAME) or a prefix (SUB_PART): the first
+    // cannot be named by a column list, the second makes only the leading characters unique —
+    // neither is a key an upsert can target (ADR 0021).
+    const [uniqueRows] = await connection.query<MysqlUniqueIndexRow>(
+      `SELECT s.table_name AS table_name, s.column_name AS column_name, s.index_name AS index_name
+       FROM information_schema.statistics s
+       WHERE s.table_schema = ? AND s.non_unique = 0 AND s.index_name <> 'PRIMARY'
+         AND NOT EXISTS (
+           SELECT 1 FROM information_schema.statistics x
+           WHERE x.table_schema = s.table_schema AND x.table_name = s.table_name
+             AND x.index_name = s.index_name
+             AND (x.column_name IS NULL OR x.sub_part IS NOT NULL)
+         )
+       ORDER BY s.table_name, s.index_name, s.seq_in_index`,
+      [schema]
+    );
+    const uniqueKeys = new Map<string, string[]>();
+    for (const u of uniqueRows) {
+      const key = `${u.table_name}.${u.column_name}`;
+      uniqueKeys.set(key, [...(uniqueKeys.get(key) ?? []), u.index_name]);
+    }
+
+    return rows.map((row) => {
+      const column = mapMysqlColumnRow(row);
+      const indexes = uniqueKeys.get(`${column.table_name}.${column.column_name}`);
+      return indexes ? { ...column, unique_keys: indexes } : column;
+    });
   } finally {
     await connection.end();
   }

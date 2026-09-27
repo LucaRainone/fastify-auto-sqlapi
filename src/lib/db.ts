@@ -8,8 +8,14 @@ import { getDialect } from './dialect.js';
 // PostgreSQL's hard limit of 65535 bind parameters per statement (≈ 130 columns × 500 rows).
 // Override per-call via the `chunkSize` argument when working with extremely wide tables.
 const DEFAULT_CHUNK_SIZE = 500;
-// Column tagging each row of an upsert PK lookup with its record's position in the chunk
+// Column tagging each row of an upsert key lookup with its record's position in the chunk
 const LOOKUP_POSITION = 'sqlapi_lookup_position';
+
+/** What an upsert matches on, and the columns it never overwrites on an existing row. */
+interface UpsertTarget {
+  conflictKeys: string[];
+  keepAsIs: string[];
+}
 
 /** @deprecated Use db.qi() instead */
 export const escapeIdent = (f: string) => f.replace(/"/g, '""');
@@ -113,6 +119,13 @@ export class QueryClient {
     return fields.map((f) => this.dialect.qi(f)).join(', ');
   }
 
+  // The SQL for one value: a raw Expression inline, anything else bound as the next placeholder
+  #bind(val: unknown, values: unknown[]): string {
+    if (val instanceof Expression) return val.value;
+    values.push(val);
+    return this.dialect.ph(values.length);
+  }
+
   // Appends record fields/values to a shared values array, auto-indexing placeholders
   #params(
     record: DbRecord,
@@ -123,12 +136,7 @@ export class QueryClient {
 
     for (const [field, val] of Object.entries(record)) {
       fields.push(field);
-      if (val instanceof Expression) {
-        placeholders.push(val.value);
-      } else {
-        values.push(val);
-        placeholders.push(this.dialect.ph(values.length));
-      }
+      placeholders.push(this.#bind(val, values));
     }
 
     return { fields, placeholders };
@@ -149,17 +157,7 @@ export class QueryClient {
     const rowPlaceholders: string[] = [];
 
     for (const record of records) {
-      const cols: string[] = [];
-      for (const field of fields) {
-        const val = record[field];
-        if (val instanceof Expression) {
-          cols.push(val.value);
-        } else {
-          values.push(val);
-          cols.push(this.dialect.ph(values.length));
-        }
-      }
-      rowPlaceholders.push(`(${cols.join(', ')})`);
+      rowPlaceholders.push(`(${fields.map((field) => this.#bind(record[field], values)).join(', ')})`);
     }
 
     return { values, rows: rowPlaceholders.join(', ') };
@@ -256,92 +254,207 @@ export class QueryClient {
   }
 
   /**
-   * PK rows for upsert records whose statement result cannot name them:
-   * - a record that updates nothing on conflict leaves an existing row untouched, and postgres
-   *   `DO NOTHING` returns no row for it;
-   * - without RETURNING (mysql) PKs are synthesized from `insertId`, which counts only the rows
-   *   the statement inserted — never a row it updated through the conflict key.
-   * The record gives its PK when it holds every PK column; otherwise the row — inserted,
-   * updated or untouched — is looked up by its conflict keys, which identify it uniquely.
+   * Rows found by each record's key, keyed by the record's position. One statement for the
+   * whole chunk: a `UNION ALL` part per record, each row tagged with its position, so the order
+   * the database returns them in does not matter and value comparison stays the database's
+   * (types, collations). Records whose key holds a null are not looked up: NULL never matches.
    */
-  async #upsertPkRows(
+  async #findByKey(
+    table: string,
+    records: DbRecord[],
+    pkCol: string | string[],
+    keys: string[]
+  ): Promise<Map<number, Record<string, unknown>[]>> {
+    const found = new Map<number, Record<string, unknown>[]>();
+    const values: unknown[] = [];
+    const position = this.dialect.qi(LOOKUP_POSITION);
+    const from = `${this.#quotedPkCols(pkCol)} FROM ${this.dialect.qi(table)}`;
+
+    const lookups = records.flatMap((record, i) => {
+      if (keys.some((k) => record[k] == null)) return [];
+      const where = this.#equalities(Object.fromEntries(keys.map((k) => [k, record[k]])), values, ' AND ');
+      return [`SELECT ${i} AS ${position}, ${from} WHERE ${where}`];
+    });
+    if (!lookups.length) return found;
+
+    const result = await this.query(lookups.join(' UNION ALL '), values);
+    for (const { [LOOKUP_POSITION]: i, ...pk } of result.rows) {
+      found.set(Number(i), [...(found.get(Number(i)) ?? []), pk]);
+    }
+    for (const rows of found.values()) {
+      if (rows.length > 1) {
+        throw new Error(
+          `An upsert key (${keys.join(', ')}) of "${table}" matches several rows: it is not unique ` +
+          `in the database — nothing was written (ADR 0021)`
+        );
+      }
+    }
+    return found;
+  }
+
+  /**
+   * PK rows for postgres upsert records that update nothing on conflict: `DO NOTHING` returns no
+   * row for an existing one. The record gives its PK when it holds every PK column; otherwise
+   * the row — inserted or untouched — is looked up by its conflict keys.
+   */
+  async #untouchedPkRows(
     table: string,
     records: DbRecord[],
     pkCol: string | string[],
     conflictKeys: string[]
   ): Promise<Record<string, unknown>[]> {
     const pkCols = Array.isArray(pkCol) ? pkCol : [pkCol];
-    const pkRows: (Record<string, unknown> | undefined)[] = new Array(records.length);
-    const values: unknown[] = [];
-    const lookups: string[] = [];
-    const position = this.dialect.qi(LOOKUP_POSITION);
-    const from = `${this.#quotedPkCols(pkCol)} FROM ${this.dialect.qi(table)}`;
+    const holdsPk = (record: DbRecord): boolean =>
+      pkCols.every((c) => record[c] != null && !(record[c] instanceof Expression));
 
-    records.forEach((record, i) => {
-      if (pkCols.every((c) => record[c] != null && !(record[c] instanceof Expression))) {
-        pkRows[i] = Object.fromEntries(pkCols.map((c) => [c, record[c]]));
-        return;
+    const found = await this.#findByKey(
+      table, records.map((r) => (holdsPk(r) ? {} : r)), pkCol, conflictKeys
+    );
+    return records.map((record, i) => {
+      if (holdsPk(record)) return Object.fromEntries(pkCols.map((c) => [c, record[c]]));
+      const [row] = found.get(i) ?? [];
+      if (!row) {
+        throw new Error(
+          `Cannot resolve the primary key of an upserted "${table}" row: no row matches its conflict keys (${conflictKeys.join(', ')})`
+        );
       }
-      const where = this.#equalities(
-        Object.fromEntries(conflictKeys.map((k) => [k, record[k]])), values, ' AND '
-      );
-      lookups.push(`SELECT ${i} AS ${position}, ${from} WHERE ${where}`);
+      return row;
     });
-
-    // One statement for the whole chunk; each row is tagged with its record's position, so
-    // the order the database returns them in does not matter.
-    if (lookups.length) {
-      const result = await this.query(lookups.join(' UNION ALL '), values);
-      for (const { [LOOKUP_POSITION]: i, ...pk } of result.rows) pkRows[Number(i)] = pk;
-    }
-
-    // Spread turns never-filled slots into undefined, which `some` would otherwise skip
-    if ([...pkRows].some((row) => !row)) {
-      throw new Error(
-        `Cannot resolve the primary key of an upserted "${table}" row: no row matches its conflict keys (${conflictKeys.join(', ')})`
-      );
-    }
-
-    return pkRows as Record<string, unknown>[];
   }
 
   /**
-   * Multi-row INSERT, one statement per chunk of each same-fields group (a single statement
-   * when every record has the same fields). With `upsert`, a conflicting row gets the
-   * record's non-key fields; `keepAsIs` are the columns never overwritten on conflict. PK rows
-   * are returned in input order.
+   * One multi-row INSERT for records sharing `fields`; `tail` is the upsert clause, if any.
+   * Returns the PK rows in the records' order.
+   */
+  async #insertRows(
+    table: string,
+    fields: string[],
+    records: DbRecord[],
+    pkCol: string | string[],
+    tail = ''
+  ): Promise<Record<string, unknown>[]> {
+    const { values, rows } = this.#bulkValues(fields, records);
+    const result = await this.query(
+      `${this.#insertHead(table, fields)}
+       VALUES ${rows}
+       ${tail}${this.dialect.returningPk(this.#quotedPkCols(pkCol))}`,
+      values
+    );
+    return this.#extractPkRows(result, pkCol, records);
+  }
+
+  /**
+   * Update existing rows by their key in one statement: each column takes a `CASE` over the
+   * keys, and the WHERE names the same keys, so a row can only be reached through its own key.
+   * Every row must be matched: one deleted since it was read is an error, never a skipped write.
+   */
+  async #updateByKey(table: string, columns: string[], records: DbRecord[], keys: string[]): Promise<void> {
+    const values: unknown[] = [];
+    const match = (record: DbRecord): string =>
+      `(${this.#equalities(Object.fromEntries(keys.map((k) => [k, record[k]])), values, ' AND ')})`;
+
+    const set = columns.map((col) => {
+      const cases = records.map((r) => `WHEN ${match(r)} THEN ${this.#bind(r[col], values)}`);
+      return `${this.dialect.qi(col)} = CASE ${cases.join(' ')} END`;
+    });
+    const where = records.map(match).join(' OR ');
+
+    const result = await this.query(
+      `UPDATE ${this.dialect.qi(table)} SET ${set.join(', ')} WHERE ${where}`,
+      values
+    );
+    if (result.affectedRows !== records.length) {
+      throw new Error(
+        `Upsert on "${table}": ${records.length - result.affectedRows} of ${records.length} rows ` +
+        `to update were not found — deleted after the upsert read them`
+      );
+    }
+  }
+
+  /**
+   * Upsert by key for dialects whose upsert syntax names no conflict target (mysql/mariadb,
+   * ADR 0021): probe which keys exist, insert the rest, update the found rows by their key.
+   * Only the row the key names can be written — a collision on another unique index is an
+   * error, as it is on postgres. PKs come from the probe and from the insert.
+   */
+  async #upsertByKey(
+    table: string,
+    fields: string[],
+    records: DbRecord[],
+    pkCol: string | string[],
+    upsert: UpsertTarget
+  ): Promise<Record<string, unknown>[]> {
+    // A group missing a key field can only insert: nothing to probe
+    const found = upsert.conflictKeys.every((k) => fields.includes(k))
+      ? await this.#findByKey(table, records, pkCol, upsert.conflictKeys)
+      : new Map<number, Record<string, unknown>[]>();
+    const pkRows: Record<string, unknown>[] = new Array(records.length);
+
+    const inserts = records.flatMap((_, i) => (found.has(i) ? [] : [i]));
+    if (inserts.length) {
+      const inserted = await this.#insertRows(table, fields, inserts.map((i) => records[i]), pkCol);
+      inserts.forEach((i, k) => { pkRows[i] = inserted[k]; });
+    }
+
+    const updates = [...found.keys()];
+    const columns = fields.filter((f) => !upsert.keepAsIs.includes(f));
+    if (updates.length && columns.length) {
+      await this.#updateByKey(table, columns, updates.map((i) => records[i]), upsert.conflictKeys);
+    }
+    for (const i of updates) pkRows[i] = found.get(i)![0];
+
+    return pkRows;
+  }
+
+  /**
+   * One chunk of records sharing `fields`: a plain insert, or an upsert — `ON CONFLICT (key)`
+   * where the dialect has it, by key otherwise. PK rows in the records' order.
+   */
+  async #writeChunk(
+    table: string,
+    fields: string[],
+    records: DbRecord[],
+    pkCol: string | string[],
+    upsert?: UpsertTarget
+  ): Promise<Record<string, unknown>[]> {
+    if (!upsert) return this.#insertRows(table, fields, records, pkCol);
+
+    const onConflict = this.dialect.onConflict;
+    if (!onConflict) return this.#upsertByKey(table, fields, records, pkCol, upsert);
+
+    const updateSet = onConflict.updateSet(fields, upsert.keepAsIs);
+    const pkRows = await this.#insertRows(
+      table, fields, records, pkCol, onConflict.sql(this.#q(upsert.conflictKeys), updateSet)
+    );
+    // Nothing to update: `DO NOTHING` returns no row for an existing one. A group missing a key
+    // field can only insert, and RETURNING names every row it inserted.
+    if (!updateSet && upsert.conflictKeys.every((k) => fields.includes(k))) {
+      return this.#untouchedPkRows(table, records, pkCol, upsert.conflictKeys);
+    }
+    return pkRows;
+  }
+
+  /**
+   * Write `records`, one chunk at a time within each same-fields group (a single chunk when
+   * every record has the same fields). With `upsert`, an existing row gets the record's fields
+   * except `keepAsIs` — the conflict keys and the columns never overwritten. PK rows are
+   * returned in input order.
    */
   async #bulkWrite(
     table: string,
     records: DbRecord[],
     pkCol: string | string[],
     chunkSize: number,
-    upsert?: { conflictKeys: string[]; keepAsIs: string[] }
+    upsert?: UpsertTarget
   ): Promise<Record<string, unknown>[]> {
-    const returning = this.dialect.returningPk(this.#quotedPkCols(pkCol));
     const results: Record<string, unknown>[] = new Array(records.length);
 
     for (const { fields, indexes } of this.#groupByFields(records)) {
-      const updateSet = upsert ? this.dialect.upsertUpdateSet(fields, upsert.keepAsIs) : '';
-      const tail = upsert ? this.dialect.upsertSql(this.#q(upsert.conflictKeys), updateSet) : '';
-      // Only a group holding every conflict key can land on an existing row; one missing a key
-      // is a plain insert, whose PKs the statement result names on every dialect.
-      const lookUpPks = !!upsert
-        && upsert.conflictKeys.every((k) => fields.includes(k))
-        && (!updateSet || !this.dialect.supportsReturning);
       for (let i = 0; i < indexes.length; i += chunkSize) {
         const chunkIndexes = indexes.slice(i, i + chunkSize);
-        const chunk = chunkIndexes.map((j) => records[j]);
-        const { values, rows } = this.#bulkValues(fields, chunk);
-        const result = await this.query(
-          `${this.#insertHead(table, fields)}
-           VALUES ${rows}
-           ${tail}${returning}`,
-          values
+        const pkRows = await this.#writeChunk(
+          table, fields, chunkIndexes.map((j) => records[j]), pkCol, upsert
         );
-        const pkRows = lookUpPks
-          ? await this.#upsertPkRows(table, chunk, pkCol, upsert.conflictKeys)
-          : this.#extractPkRows(result, pkCol, chunk);
         pkRows.forEach((row, k) => {
           results[chunkIndexes[k]] = row;
         });

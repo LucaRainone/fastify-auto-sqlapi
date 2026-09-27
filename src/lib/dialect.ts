@@ -11,18 +11,23 @@ export interface SqlDialect {
   /** ConditionBuilder dialect name */
   cbDialect: 'postgres' | 'mysql';
   supportsReturning: boolean;
-  /** ON CONFLICT / ON DUPLICATE KEY syntax */
-  upsertSql(quotedConflictKeys: string, quotedUpdateSet: string): string;
+  /**
+   * The upsert clause of a dialect whose syntax names its conflict target — postgres
+   * `ON CONFLICT (key)`, which matches exactly the declared key. Absent on mysql/mariadb:
+   * `ON DUPLICATE KEY UPDATE` fires on ANY unique index, so there the QueryClient upserts by
+   * key explicitly — probe, insert, update (ADR 0021).
+   */
+  onConflict?: {
+    /** `ON CONFLICT (keys) DO UPDATE SET …`, or `DO NOTHING` when the update set is empty. */
+    sql(quotedConflictKeys: string, quotedUpdateSet: string): string;
+    /**
+     * The SET body copying the incoming row into the conflicting one (`"col" = EXCLUDED."col"`)
+     * for every field not in `keepAsIs`; '' when nothing is left to update.
+     */
+    updateSet(fields: string[], keepAsIs: string[]): string;
+  };
   /** RETURNING pk_col suffix or empty string */
   returningPk(quotedPkCol: string): string;
-  /**
-   * Build the SET body for an upsert: the column list (separated by ', ') that the dialect
-   * uses to copy "incoming row" values into a conflicting row.
-   * - postgres: `"col" = EXCLUDED."col"`
-   * - mysql/mariadb: `` `col` = VALUES(`col`) ``
-   * Returns '' when there is nothing to update (i.e. all `fields` are conflict keys).
-   */
-  upsertUpdateSet(fields: string[], conflictKeys: string[]): string;
   /**
    * Truncate a timestamp/date column to the start of the given unit and
    * return it as an ISO-style string. The output is always a STRING:
@@ -33,20 +38,23 @@ export interface SqlDialect {
   dateTrunc(unit: TruncateUnit, qualifiedCol: string): string;
 }
 
+const pgQi = (id: string): string => `"${id.replace(/"/g, '""')}"`;
+
 const PostgresDialect: SqlDialect = {
   name: 'postgres',
-  qi: (id) => `"${id.replace(/"/g, '""')}"`,
+  qi: pgQi,
   ph: (i) => `$${i}`,
   cbDialect: 'postgres',
   supportsReturning: true,
-  upsertSql(quotedConflictKeys, quotedUpdateSet) {
-    if (!quotedUpdateSet) return `ON CONFLICT (${quotedConflictKeys}) DO NOTHING`;
-    return `ON CONFLICT (${quotedConflictKeys}) DO UPDATE SET ${quotedUpdateSet}`;
-  },
-  upsertUpdateSet(fields, conflictKeys) {
-    const updateCols = fields.filter((f) => !conflictKeys.includes(f));
-    if (!updateCols.length) return '';
-    return updateCols.map((f) => `${this.qi(f)} = EXCLUDED.${this.qi(f)}`).join(', ');
+  onConflict: {
+    sql(quotedConflictKeys, quotedUpdateSet) {
+      if (!quotedUpdateSet) return `ON CONFLICT (${quotedConflictKeys}) DO NOTHING`;
+      return `ON CONFLICT (${quotedConflictKeys}) DO UPDATE SET ${quotedUpdateSet}`;
+    },
+    updateSet(fields, keepAsIs) {
+      const updateCols = fields.filter((f) => !keepAsIs.includes(f));
+      return updateCols.map((f) => `${pgQi(f)} = EXCLUDED.${pgQi(f)}`).join(', ');
+    },
   },
   returningPk(quotedPkCol) {
     return ` RETURNING ${quotedPkCol}`;
@@ -68,25 +76,12 @@ function mysqlDateTrunc(unit: TruncateUnit, col: string): string {
   }
 }
 
-function mysqlUpsertUpdateSet(this: SqlDialect, fields: string[], conflictKeys: string[]): string {
-  const updateCols = fields.filter((f) => !conflictKeys.includes(f));
-  if (!updateCols.length) return '';
-  return updateCols.map((f) => `${this.qi(f)} = VALUES(${this.qi(f)})`).join(', ');
-}
-
 const MysqlDialect: SqlDialect = {
   name: 'mysql',
   qi: (id) => `\`${id.replace(/`/g, '``')}\``,
   ph: () => '?',
   cbDialect: 'mysql',
   supportsReturning: false,
-  upsertSql(_quotedConflictKeys, quotedUpdateSet) {
-    // MySQL requires at least one assignment in ON DUPLICATE KEY UPDATE; when there's nothing
-    // user-meaningful to update, assign the first conflict key to itself (no-op).
-    if (!quotedUpdateSet) return `ON DUPLICATE KEY UPDATE ${_quotedConflictKeys.split(', ')[0]} = ${_quotedConflictKeys.split(', ')[0]}`;
-    return `ON DUPLICATE KEY UPDATE ${quotedUpdateSet}`;
-  },
-  upsertUpdateSet: mysqlUpsertUpdateSet,
   returningPk() {
     return '';
   },
@@ -99,11 +94,6 @@ const MariadbDialect: SqlDialect = {
   ph: () => '?',
   cbDialect: 'mysql',
   supportsReturning: true,
-  upsertSql(_quotedConflictKeys, quotedUpdateSet) {
-    if (!quotedUpdateSet) return `ON DUPLICATE KEY UPDATE ${_quotedConflictKeys.split(', ')[0]} = ${_quotedConflictKeys.split(', ')[0]}`;
-    return `ON DUPLICATE KEY UPDATE ${quotedUpdateSet}`;
-  },
-  upsertUpdateSet: mysqlUpsertUpdateSet,
   returningPk(quotedPkCol) {
     return ` RETURNING ${quotedPkCol}`;
   },

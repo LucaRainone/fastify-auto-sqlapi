@@ -55,6 +55,12 @@ export interface ColumnInfo {
    * simple enough for the engine to make updatable accepts a write.
    */
   is_view?: boolean;
+  /**
+   * Names of the unique indexes (constraints included) this column belongs to, the primary key
+   * excluded. Only indexes over plain columns with no predicate: a partial or expression index
+   * cannot be named by a column list, so it cannot be an upsert key (ADR 0021).
+   */
+  unique_keys?: string[];
 }
 
 export interface TableMap {
@@ -68,5 +74,10 @@ export interface TableMap {
     generated: string[];
     /** True when this relation is a view (or a materialized view), not a base table. */
     isView: boolean;
+    /**
+     * Unique keys other than the primary key, each as its fields (camelCase). Always set by
+     * `buildTableMap`; absent only on a map built by hand.
+     */
+    uniqueKeys?: string[][];
   };
 }

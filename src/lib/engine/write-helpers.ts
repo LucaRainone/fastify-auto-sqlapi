@@ -3,6 +3,7 @@ import { camelcaseObject, snakecaseRecord } from '../naming.js';
 import type { QueryClient } from '../db.js';
 import { runValidation } from './validate.js';
 import { removeWriteExcluded } from '../write-access.js';
+import { httpError } from '../errors.js';
 import {
   tenantForTable,
   buildTenantRowGuard,
@@ -16,7 +17,52 @@ import type {
   JoinDefinition,
   DbRecord,
   TenantContext,
+  SchemaDefinition,
 } from '../../types.js';
+
+/**
+ * Every upserted record must carry its key (ADR 0021), checked on the record as it reaches the
+ * database — after hooks, tenant injection and the FK auto-fill of secondaries:
+ * - a natural key needs every field present and not null: a NULL never conflicts, so the row
+ *   could only be inserted and never found again by its key;
+ * - on the primary key, a record naming no PK field at all is a plain insert with a generated
+ *   key; one naming it only in part, or as null, is refused like a natural key;
+ * - two records of one request with the same key are refused: PostgreSQL cannot affect a row
+ *   twice in one statement, MySQL would let the last one win.
+ * Throws 400 before any SQL runs. Column names and record keys are DB column names.
+ */
+export function assertUpsertKeys(
+  schema: SchemaDefinition,
+  conflictCols: string[],
+  pkCols: string[],
+  records: Record<string, unknown>[]
+): void {
+  const isPrimaryKey = conflictCols.length === pkCols.length
+    && conflictCols.every((c) => pkCols.includes(c));
+  const fieldOf = (col: string): string =>
+    Object.keys(schema.fields).find((f) => schema.col(f) === col) ?? col;
+  const rule = `Upsert on "${schema.tableName}" by (${conflictCols.map(fieldOf).join(', ')})`;
+  const seen = new Map<string, number>();
+
+  records.forEach((record, i) => {
+    if (isPrimaryKey && conflictCols.every((c) => record[c] === undefined)) return;
+
+    const missing = conflictCols.filter((c) => record[c] == null);
+    if (missing.length) {
+      throw httpError(
+        400,
+        `${rule}: the row at index ${i} has no value for ${missing.map(fieldOf).join(', ')} — ` +
+        `an upserted row must carry its whole key`
+      );
+    }
+    const key = JSON.stringify(conflictCols.map((c) => record[c]));
+    const first = seen.get(key);
+    if (first !== undefined) {
+      throw httpError(400, `${rule}: the rows at index ${first} and ${i} have the same key`);
+    }
+    seen.set(key, i);
+  });
+}
 
 /**
  * Resolve the write join an alias names, or undefined when the table does not declare it.
@@ -239,6 +285,10 @@ export function processSecondaries(
 
     if (upsertKeys) {
       const conflictCols = upsertKeys.map((k) => joinSchema.col(k));
+      assertUpsertKeys(
+        joinSchema, conflictCols, (joinSchema.primaryKey ?? [childPk].flat()).map((f) => joinSchema.col(f)),
+        preparedRecords
+      );
       // A conflicting upsert must not overwrite — or re-parent — a child row owned by
       // another tenant, which the ON CONFLICT key alone would happily match.
       await assertTenantOwnsConflicts(

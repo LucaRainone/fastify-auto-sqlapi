@@ -75,8 +75,23 @@ export function convertColType(
   }
 }
 
+/**
+ * Turn the per-column index names into the table's unique keys: one field list per distinct
+ * column set, fields in table order, keys sorted so regenerating yields a stable file.
+ */
+function collectUniqueKeys(indexes: Map<string, string[]>): string[][] {
+  const bySet = new Map<string, string[]>();
+  for (const fields of indexes.values()) {
+    bySet.set(JSON.stringify([...fields].sort()), fields);
+  }
+  return [...bySet.values()].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+}
+
 export function buildTableMap(rows: ColumnInfo[]): TableMap {
-  return rows.reduce<TableMap>((acc, row) => {
+  // schema name → unique index name → fields (camelCase), in table column order
+  const uniqueIndexes = new Map<string, Map<string, string[]>>();
+
+  const tableMap = rows.reduce<TableMap>((acc, row) => {
     const schemaName = toSchemaName(row.table_name);
 
     if (!acc[schemaName]) {
@@ -87,7 +102,9 @@ export function buildTableMap(rows: ColumnInfo[]): TableMap {
         primary: [],
         generated: [],
         isView: row.is_view === true,
+        uniqueKeys: [],
       };
+      uniqueIndexes.set(schemaName, new Map());
     }
 
     const fieldName = toCamelCase(row.column_name);
@@ -114,9 +131,18 @@ export function buildTableMap(rows: ColumnInfo[]): TableMap {
     if (row.is_generated) {
       acc[schemaName].generated.push(fieldName);
     }
+    const indexes = uniqueIndexes.get(schemaName)!;
+    for (const indexName of row.unique_keys ?? []) {
+      indexes.set(indexName, [...(indexes.get(indexName) ?? []), fieldName]);
+    }
 
     return acc;
   }, {});
+
+  for (const [schemaName, indexes] of uniqueIndexes) {
+    tableMap[schemaName].uniqueKeys = collectUniqueKeys(indexes);
+  }
+  return tableMap;
 }
 
 /** Compile a config glob — `*` is the only wildcard, everything else is literal. */
@@ -205,6 +231,8 @@ export function applyExcludeColumns(tableMap: TableMap, excludeColumns?: string[
       delete table.fields[field];
       delete table.colMap[field];
       table.generated = table.generated.filter((f) => f !== field);
+      // A key naming a column the API cannot write can never be an upsert key
+      table.uniqueKeys = table.uniqueKeys?.filter((key) => !key.includes(field));
       excluded.push(`${table.name}.${columnName}`);
     }
 
@@ -225,7 +253,8 @@ export function generateSchemaFile(
   colMap: Record<string, string>,
   primary?: string[],
   generated?: string[],
-  isView?: boolean
+  isView?: boolean,
+  uniqueKeys?: string[][]
 ): string {
   const fieldsStr = JSON.stringify(fields, null, 2).replace(
     /"(.*?)"\s*:\s*"Type(.*?)"/g,
@@ -240,6 +269,9 @@ export function generateSchemaFile(
   // A view has no PRIMARY KEY constraint to introspect, so the table generator has to be told
   // it may not read the absence of one as "no key exists on this data".
   const isViewLine = isView ? `\n  isView: true,` : '';
+  // Emitted even when empty: `defineTable` refuses an upsert rule it cannot verify, and an
+  // absent property is what says "generated before unique keys were known" (ADR 0021).
+  const uniqueKeysLine = uniqueKeys ? `\n  uniqueKeys: ${JSON.stringify(uniqueKeys)},` : '';
   const usesNullable = Object.values(fields).some((t) => t.includes('Nullable('));
   const valueImports = usesNullable ? 'Type, Nullable' : 'Type';
 
@@ -268,7 +300,7 @@ export const Schema = {
   fields: _Schema,
   validation,
   tableName: "${tableName}",
-  partialValidation,${primaryKeyLine}${generatedLine}${isViewLine}
+  partialValidation,${primaryKeyLine}${generatedLine}${isViewLine}${uniqueKeysLine}
 };
 export const ${schemaName} = Schema;
 export type TypeSchema = Static<typeof Schema.validation>;

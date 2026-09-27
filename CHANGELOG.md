@@ -9,6 +9,23 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: an upsert targets a unique key verified at startup** ([ADR 0021](./docs/adr/0021-upsert-targets-a-verified-unique-key.md)).
+  `upsertMap` accepted any column list, and on MySQL `ON DUPLICATE KEY UPDATE` fired on *any*
+  unique index: a declared key without a unique index inserted duplicates, and a row carrying
+  another row's unique value updated that other row — both silently, where PostgreSQL failed.
+  Now:
+  - the generated Schema carries `uniqueKeys` (partial, expression and prefix indexes left out);
+  - `defineTable` refuses a rule that is not exactly the `primaryKey` or a `uniqueKeys` entry —
+    write-join children included, still without a `defineTable` of their own;
+  - an upserted row without its key, or two rows of one request with the same key, is a `400`
+    (a row naming no PK field at all is still a plain insert when the key is the PK);
+  - MySQL and MariaDB upsert by key — probe, insert, update: two to three statements per chunk
+    instead of one. PostgreSQL keeps `ON CONFLICT (key)`, unchanged.
+  Regenerate the schemas; see
+  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--an-upsert-targets-a-unique-key-verified-at-startup).
+
 ### Fixed
 
 - **Bulk writes no longer lose or overwrite fields when items do not share the same keys.**
@@ -24,13 +41,12 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   to update, so an existing row is left untouched — but postgres `DO NOTHING` returns no row
   for it and mysql's `insertId` says nothing about it: the single upsert returned `undefined`
   and a bulk upsert failed with a 500 after writing. The PK now comes from the item when it
-  holds it, otherwise it is looked up by the conflict keys.
+  holds it, otherwise it is looked up by the conflict keys (one `SELECT` per chunk).
 - **MySQL: an upsert by a natural key returns the PK of the row it updated.** With a conflict
   key that is not the PK (the README's `email` sync), the PKs were synthesized as
   `insertId + n`, which counts only inserted rows: re-sending a payload returned ids of other
-  rows, or of rows that do not exist, and secondaries were attached to them. Such rows are
-  now looked up by their conflict keys (one `SELECT` per chunk); records carrying their PK,
-  and records missing a conflict key (plain inserts), still need no lookup.
+  rows, or of rows that do not exist, and secondaries were attached to them. The upsert by key
+  above takes them from its probe.
 
 ## [0.3.0]
 

@@ -1,5 +1,10 @@
 import { camelcaseObject } from '../../naming.js';
-import { processSecondaries, processDeletions, prepareInsertRecord } from '../write-helpers.js';
+import {
+  processSecondaries,
+  processDeletions,
+  prepareInsertRecord,
+  assertUpsertKeys,
+} from '../write-helpers.js';
 import {
   enforceTenantOnWrites,
   assertTenantOwnsConflicts,
@@ -29,6 +34,7 @@ function upsertMains(
   }
 
   const conflictCols = upsertKeys.map((k) => schema.col(k));
+  assertUpsertKeys(schema, conflictCols, [pkCol].flat(), preparedMains);
   // Tenant isolation: a conflicting upsert must not overwrite rows owned by another tenant, nor
   // re-assign the owner of a row it legitimately updates.
   return assertTenantOwnsConflicts(db, tenant, schema.tableName, conflictCols, preparedMains)
