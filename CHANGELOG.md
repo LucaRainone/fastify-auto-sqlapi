@@ -9,6 +9,8 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ## [Unreleased]
 
+## [0.4.0]
+
 ### Changed
 
 - **BREAKING: an upsert targets a unique key verified at startup** ([ADR 0021](./docs/adr/0021-upsert-targets-a-verified-unique-key.md)).
@@ -49,6 +51,24 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   `insertId + n`, which counts only inserted rows: re-sending a payload returned ids of other
   rows, or of rows that do not exist, and secondaries were attached to them. The upsert by key
   above takes them from its probe.
+
+### Documentation
+
+- **Agent files rewritten for LLM readers** — `AGENTS.md`, `AGENTS_BACKEND.md` and
+  `AGENTS_FRONTEND.md` went from 107 KB to 39 KB. Duplicated sections were merged, the
+  `defineTable` reference is now one annotated example, and markdown links and emoji were
+  removed. No API changed; several statements were wrong and are corrected:
+  - write bodies are closed, but under Fastify's default `removeAdditional: true` an unknown
+    property is stripped silently; it is a `400` only with `removeAdditional: false`. Unknown
+    `filters` keys, by contrast, are always a `400`;
+  - `ConditionBuilder.raw()` takes `?` markers, not `$1`;
+  - a computed field's `values` is required (the translated-jsonb example omitted it);
+  - a `joinGroup` without `by` returns one total over the children of all returned main rows,
+    not one per row; `by` set to the FK gives per-row values;
+  - search pagination is querystring-only (`page`, `itemsPerPage`), and `distinctResults`
+    rejects only aggregation `orderBy`, not aggregation conditions;
+  - the plugin options now list `agentManifest`, `sqlApi.search` lists `selectComputed` and
+    `maxRows`, and the exports list is complete.
 
 ## [0.3.0]
 
@@ -726,7 +746,8 @@ the join API redesign (documented in [BREAKING_CHANGES.md](./BREAKING_CHANGES.md
 primary key support in updates, transactional insert/update with secondaries, the hook matrix,
 and bulk operations.
 
-[Unreleased]: https://github.com/LucaRainone/fastify-auto-sqlapi/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/LucaRainone/fastify-auto-sqlapi/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/LucaRainone/fastify-auto-sqlapi/releases/tag/v0.4.0
 [0.3.0]: https://github.com/LucaRainone/fastify-auto-sqlapi/releases/tag/v0.3.0
 [0.2.4]: https://github.com/LucaRainone/fastify-auto-sqlapi/releases/tag/v0.2.4
 [0.2.3]: https://github.com/LucaRainone/fastify-auto-sqlapi/releases/tag/v0.2.3

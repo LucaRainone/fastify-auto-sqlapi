@@ -749,7 +749,7 @@ use the key it called instead — that is now what `table` returns.
 
 # Breaking Change — an upsert targets a unique key verified at startup
 
-*Unreleased.* Decision and rationale: [ADR 0021](./docs/adr/0021-upsert-targets-a-verified-unique-key.md).
+*Landed in **0.4.0**.* Decision and rationale: [ADR 0021](./docs/adr/0021-upsert-targets-a-verified-unique-key.md).
 
 ## Why this changed
 
