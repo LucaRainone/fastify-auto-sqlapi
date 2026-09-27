@@ -128,6 +128,31 @@ export function upsertUpdatedColumns(call) {
 }
 
 /**
+ * Answer the PK lookup an upsert issues for rows its statement result cannot name. The lookup
+ * is one statement of `UNION ALL` parts, one per record, each tagging its row with the record's
+ * position. `resolve(conflictKeys)` receives one record's conflict-key values
+ * (`{ column: value }`) and returns its PK row, or undefined when no row matches. Returns the
+ * driver response, so a test states which row each key identifies and nothing about the SQL.
+ */
+export function answerPkLookup(call, resolve) {
+  let nextMarker = 0;
+  const rows = call.text.split(' UNION ALL ').flatMap((part) => {
+    const m = /^SELECT (\d+) AS ([`"])([^`"]+)\2, .+? WHERE (.+)$/.exec(part);
+    if (!m) throw new Error(`Not a PK lookup part: ${part}`);
+    const [, position, , alias, where] = m;
+    const keys = Object.fromEntries(
+      [...where.matchAll(/[`"]([^`"]+)[`"] = (?:\$(\d+)|\?)/g)].map(([, col, n]) => [
+        col,
+        call.values[n ? Number(n) - 1 : nextMarker++],
+      ])
+    );
+    const pk = resolve(keys);
+    return pk ? [{ [alias]: Number(position), ...pk }] : [];
+  });
+  return { rows, affectedRows: rows.length };
+}
+
+/**
  * Fake pg driver. `responses` are returned in order; exhausted calls yield an empty result.
  * `responses` may instead be a function `(call) => response`, for tests whose number or
  * order of statements depends on the input rather than being fixed.

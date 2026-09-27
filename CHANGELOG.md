@@ -25,6 +25,12 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   for it and mysql's `insertId` says nothing about it: the single upsert returned `undefined`
   and a bulk upsert failed with a 500 after writing. The PK now comes from the item when it
   holds it, otherwise it is looked up by the conflict keys.
+- **MySQL: an upsert by a natural key returns the PK of the row it updated.** With a conflict
+  key that is not the PK (the README's `email` sync), the PKs were synthesized as
+  `insertId + n`, which counts only inserted rows: re-sending a payload returned ids of other
+  rows, or of rows that do not exist, and secondaries were attached to them. Such rows are
+  now looked up by their conflict keys (one `SELECT` per chunk); records carrying their PK,
+  and records missing a conflict key (plain inserts), still need no lookup.
 
 ## [0.3.0]
 

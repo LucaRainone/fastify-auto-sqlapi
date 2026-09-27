@@ -8,6 +8,8 @@ import { getDialect } from './dialect.js';
 // PostgreSQL's hard limit of 65535 bind parameters per statement (≈ 130 columns × 500 rows).
 // Override per-call via the `chunkSize` argument when working with extremely wide tables.
 const DEFAULT_CHUNK_SIZE = 500;
+// Column tagging each row of an upsert PK lookup with its record's position in the chunk
+const LOOKUP_POSITION = 'sqlapi_lookup_position';
 
 /** @deprecated Use db.qi() instead */
 export const escapeIdent = (f: string) => f.replace(/"/g, '""');
@@ -254,43 +256,53 @@ export class QueryClient {
   }
 
   /**
-   * PK rows for upsert records that update nothing on conflict: the statement leaves an
-   * existing row untouched, and neither RETURNING (postgres `DO NOTHING`) nor `insertId`
-   * (mysql) tells anything about it. The record gives its PK when it holds every PK column;
-   * otherwise the row — inserted or untouched — is looked up by its conflict keys, which
-   * identify it uniquely.
+   * PK rows for upsert records whose statement result cannot name them:
+   * - a record that updates nothing on conflict leaves an existing row untouched, and postgres
+   *   `DO NOTHING` returns no row for it;
+   * - without RETURNING (mysql) PKs are synthesized from `insertId`, which counts only the rows
+   *   the statement inserted — never a row it updated through the conflict key.
+   * The record gives its PK when it holds every PK column; otherwise the row — inserted,
+   * updated or untouched — is looked up by its conflict keys, which identify it uniquely.
    */
-  async #untouchedPkRows(
+  async #upsertPkRows(
     table: string,
     records: DbRecord[],
     pkCol: string | string[],
     conflictKeys: string[]
   ): Promise<Record<string, unknown>[]> {
     const pkCols = Array.isArray(pkCol) ? pkCol : [pkCol];
-    const pkRows: Record<string, unknown>[] = [];
+    const pkRows: (Record<string, unknown> | undefined)[] = new Array(records.length);
+    const values: unknown[] = [];
+    const lookups: string[] = [];
+    const position = this.dialect.qi(LOOKUP_POSITION);
+    const from = `${this.#quotedPkCols(pkCol)} FROM ${this.dialect.qi(table)}`;
 
-    for (const record of records) {
+    records.forEach((record, i) => {
       if (pkCols.every((c) => record[c] != null && !(record[c] instanceof Expression))) {
-        pkRows.push(Object.fromEntries(pkCols.map((c) => [c, record[c]])));
-        continue;
+        pkRows[i] = Object.fromEntries(pkCols.map((c) => [c, record[c]]));
+        return;
       }
-      const values: unknown[] = [];
       const where = this.#equalities(
         Object.fromEntries(conflictKeys.map((k) => [k, record[k]])), values, ' AND '
       );
-      const result = await this.query(
-        `SELECT ${this.#quotedPkCols(pkCol)} FROM ${this.dialect.qi(table)} WHERE ${where}`,
-        values
-      );
-      if (!result.rows.length) {
-        throw new Error(
-          `Cannot resolve the primary key of an upserted "${table}" row: no row matches its conflict keys (${conflictKeys.join(', ')})`
-        );
-      }
-      pkRows.push(result.rows[0]);
+      lookups.push(`SELECT ${i} AS ${position}, ${from} WHERE ${where}`);
+    });
+
+    // One statement for the whole chunk; each row is tagged with its record's position, so
+    // the order the database returns them in does not matter.
+    if (lookups.length) {
+      const result = await this.query(lookups.join(' UNION ALL '), values);
+      for (const { [LOOKUP_POSITION]: i, ...pk } of result.rows) pkRows[Number(i)] = pk;
     }
 
-    return pkRows;
+    // Spread turns never-filled slots into undefined, which `some` would otherwise skip
+    if ([...pkRows].some((row) => !row)) {
+      throw new Error(
+        `Cannot resolve the primary key of an upserted "${table}" row: no row matches its conflict keys (${conflictKeys.join(', ')})`
+      );
+    }
+
+    return pkRows as Record<string, unknown>[];
   }
 
   /**
@@ -312,6 +324,11 @@ export class QueryClient {
     for (const { fields, indexes } of this.#groupByFields(records)) {
       const updateSet = upsert ? this.dialect.upsertUpdateSet(fields, upsert.keepAsIs) : '';
       const tail = upsert ? this.dialect.upsertSql(this.#q(upsert.conflictKeys), updateSet) : '';
+      // Only a group holding every conflict key can land on an existing row; one missing a key
+      // is a plain insert, whose PKs the statement result names on every dialect.
+      const lookUpPks = !!upsert
+        && upsert.conflictKeys.every((k) => fields.includes(k))
+        && (!updateSet || !this.dialect.supportsReturning);
       for (let i = 0; i < indexes.length; i += chunkSize) {
         const chunkIndexes = indexes.slice(i, i + chunkSize);
         const chunk = chunkIndexes.map((j) => records[j]);
@@ -322,8 +339,8 @@ export class QueryClient {
            ${tail}${returning}`,
           values
         );
-        const pkRows = upsert && !updateSet
-          ? await this.#untouchedPkRows(table, chunk, pkCol, upsert.conflictKeys)
+        const pkRows = lookUpPks
+          ? await this.#upsertPkRows(table, chunk, pkCol, upsert.conflictKeys)
           : this.#extractPkRows(result, pkCol, chunk);
         pkRows.forEach((row, k) => {
           results[chunkIndexes[k]] = row;

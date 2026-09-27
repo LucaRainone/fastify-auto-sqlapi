@@ -6,7 +6,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { ROOT, createMockPg, insertedRows, upsertUpdatedColumns } from './_harness.js';
+import { ROOT, createMockPg, insertedRows, upsertUpdatedColumns, answerPkLookup } from './_harness.js';
 
 const { QueryClient, createQueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 
@@ -187,27 +187,22 @@ describe('QueryClient upsert - records holding only the conflict keys', () => {
   });
 
   it('looks up the PK of an untouched row when the conflict key is not the PK', async () => {
-    const mock = doNothingSkipsExisting((call) => ({
-      rows: [{ id: { 'x-code': 42, 'y-code': 43 }[call.values[0]] }],
-      affectedRows: 1,
-    }));
+    const ids = { 'x-code': 42, 'y-code': 43 };
+    const mock = doNothingSkipsExisting((call) => answerPkLookup(call, (k) => ({ id: ids[k.code] })));
     const records = [{ code: 'x-code' }, { code: 'y-code' }];
 
     const result = await new QueryClient(mock).bulkInsertOrUpdate('tag', records, ['code'], 'id');
 
     assert.deepEqual(result, [{ id: 42 }, { id: 43 }]);
     const lookups = mock.calls.filter((c) => c.text.startsWith('SELECT'));
-    assert.deepEqual(
-      lookups.map((c) => [c.text, c.values]),
-      [
-        ['SELECT "id" FROM "tag" WHERE "code" = $1', ['x-code']],
-        ['SELECT "id" FROM "tag" WHERE "code" = $1', ['y-code']],
-      ],
-    );
+    assert.equal(lookups.length, 1);
+    assert.ok(lookups[0].text.includes('"id" FROM "tag" WHERE "code" = $1'), lookups[0].text);
+    assert.deepEqual(lookups[0].values, ['x-code', 'y-code']);
   });
 
   it('looks up every column of a composite PK by every conflict key', async () => {
-    const mock = doNothingSkipsExisting(() => ({ rows: [{ a_id: 1, b_id: 2 }], affectedRows: 1 }));
+    const mock = doNothingSkipsExisting((call) => answerPkLookup(call, (k) =>
+      (k.code === 'k' && k.lang === 'it' ? { a_id: 1, b_id: 2 } : undefined)));
 
     const result = await new QueryClient(mock).bulkInsertOrUpdate(
       'link', [{ code: 'k', lang: 'it' }], ['code', 'lang'], ['a_id', 'b_id']
@@ -215,7 +210,7 @@ describe('QueryClient upsert - records holding only the conflict keys', () => {
 
     assert.deepEqual(result, [{ a_id: 1, b_id: 2 }]);
     const lookup = mock.calls.find((c) => c.text.startsWith('SELECT'));
-    assert.equal(lookup.text, 'SELECT "a_id", "b_id" FROM "link" WHERE "code" = $1 AND "lang" = $2');
+    assert.ok(lookup.text.includes('"a_id", "b_id" FROM "link" WHERE "code" = $1 AND "lang" = $2'), lookup.text);
     assert.deepEqual(lookup.values, ['k', 'it']);
   });
 
@@ -239,12 +234,142 @@ describe('QueryClient upsert - records holding only the conflict keys', () => {
 
   it('looks up the PK on mysql too, where insertId says nothing about an untouched row', async () => {
     const mock = createMockPg((call) => (call.text.startsWith('SELECT')
-      ? { rows: [{ id: 42 }], affectedRows: 1 }
+      ? answerPkLookup(call, () => ({ id: 42 }))
       : { rows: [], affectedRows: 0, insertId: 0 }));
 
     const result = await createQueryClient(mock, 'mysql')
       .bulkInsertOrUpdate('tag', [{ code: 'x-code' }], ['code'], 'id');
 
     assert.deepEqual(result, [{ id: 42 }]);
+  });
+});
+
+// MySQL has no RETURNING: an upsert's PKs are synthesized from `insertId`, which counts only
+// the rows the statement inserted. A row it updated through a conflict key that is not the PK
+// has no PK in the record either, so it must be looked up — `insertId + n` names a row that
+// may not even exist.
+describe('QueryClient upsert on mysql - conflict key that is not the PK', () => {
+  it('looks up the PK of a row updated through the conflict key', async () => {
+    const ids = { new: 14, old: 13 };
+    const mock = createMockPg((call) => (call.text.startsWith('SELECT')
+      ? answerPkLookup(call, (k) => ({ id: ids[k.code] }))
+      : { rows: [], affectedRows: 3, insertId: 14 }));
+    const records = [{ code: 'new', label: 'New' }, { code: 'old', label: 'Renamed' }];
+
+    const result = await createQueryClient(mock, 'mysql')
+      .bulkInsertOrUpdate('tag', records, ['code'], 'id');
+
+    assert.deepEqual(result, [{ id: 14 }, { id: 13 }]);
+  });
+
+  it('single insertOrUpdate looks up the PK of a row updated through the conflict key', async () => {
+    const mock = createMockPg((call) => (call.text.startsWith('SELECT')
+      ? answerPkLookup(call, () => ({ id: 13 }))
+      : { rows: [], affectedRows: 2, insertId: 99 }));
+
+    const result = await createQueryClient(mock, 'mysql')
+      .insertOrUpdate('tag', { code: 'old', label: 'Renamed' }, ['code'], 'id');
+
+    assert.deepEqual(result, { id: 13 });
+  });
+
+  it('takes the PK from the record when it holds it, without a lookup', async () => {
+    const mock = createMockPg(() => ({ rows: [], affectedRows: 1, insertId: 0 }));
+
+    const result = await createQueryClient(mock, 'mysql')
+      .bulkInsertOrUpdate('tag', [{ id: 5, code: 'x', label: 'X' }], ['code'], 'id');
+
+    assert.deepEqual(result, [{ id: 5 }]);
+    assert.equal(mock.calls.filter((c) => c.text.startsWith('SELECT')).length, 0);
+  });
+
+  it('postgres needs no lookup: RETURNING yields updated rows too', async () => {
+    const mock = createMockPg(() => ({ rows: [{ id: 14 }, { id: 13 }], affectedRows: 2 }));
+    const records = [{ code: 'new', label: 'New' }, { code: 'old', label: 'Renamed' }];
+
+    const result = await new QueryClient(mock).bulkInsertOrUpdate('tag', records, ['code'], 'id');
+
+    assert.deepEqual(result, [{ id: 14 }, { id: 13 }]);
+    assert.equal(mock.calls.length, 1);
+  });
+});
+
+// A record missing a conflict key cannot conflict: it is a plain insert, and the statement
+// result names its PK — `insertId` on mysql, RETURNING on postgres. There is nothing to look up.
+describe('QueryClient upsert - records without the conflict keys', () => {
+  it('mysql: takes the PKs of plain inserts from insertId', async () => {
+    const mock = createMockPg(() => ({ rows: [], affectedRows: 2, insertId: 30 }));
+
+    const result = await createQueryClient(mock, 'mysql')
+      .bulkInsertOrUpdate('tag', [{ label: 'a' }, { label: 'b' }], ['id'], 'id');
+
+    assert.deepEqual(result, [{ id: 30 }, { id: 31 }]);
+    assert.equal(mock.calls.length, 1);
+  });
+
+  it('postgres: takes the PKs from RETURNING even when nothing would be updated', async () => {
+    const mock = createMockPg(() => ({ rows: [{ id: 30 }], affectedRows: 1 }));
+
+    const result = await new QueryClient(mock).bulkInsertOrUpdate(
+      'customer', [{ organization_id: 3 }], ['id'], 'id', undefined, ['organization_id']
+    );
+
+    assert.deepEqual(result, [{ id: 30 }]);
+    assert.equal(mock.calls.length, 1);
+  });
+});
+
+describe('QueryClient upsert - PK lookup', () => {
+  /** mysql mock: `insertId` names no updated row, so every natural-key record is looked up. */
+  function mysqlWithLookup(resolve, { reverse = false } = {}) {
+    return createMockPg((call) => {
+      if (!call.text.startsWith('SELECT')) return { rows: [], affectedRows: 1, insertId: 0 };
+      const response = answerPkLookup(call, resolve);
+      if (reverse) response.rows.reverse();
+      return response;
+    });
+  }
+  const ids = { a: 1, b: 2, c: 3 };
+  const records = [{ code: 'a', label: 'A' }, { code: 'b', label: 'B' }, { code: 'c', label: 'C' }];
+
+  it('looks up every record of a chunk in one statement', async () => {
+    const mock = mysqlWithLookup((k) => ({ id: ids[k.code] }));
+
+    const result = await createQueryClient(mock, 'mysql')
+      .bulkInsertOrUpdate('tag', records, ['code'], 'id', 2);
+
+    assert.deepEqual(result, [{ id: 1 }, { id: 2 }, { id: 3 }]);
+    // 2 chunks → 2 upserts, each followed by one lookup
+    assert.equal(mock.calls.filter((c) => c.text.startsWith('SELECT')).length, 2);
+  });
+
+  it('maps looked-up rows back by position, whatever order the database returns them in', async () => {
+    const mock = mysqlWithLookup((k) => ({ id: ids[k.code] }), { reverse: true });
+
+    const result = await createQueryClient(mock, 'mysql')
+      .bulkInsertOrUpdate('tag', records, ['code'], 'id');
+
+    assert.deepEqual(result, [{ id: 1 }, { id: 2 }, { id: 3 }]);
+  });
+
+  it('looks up only the records that do not carry their PK', async () => {
+    const mock = mysqlWithLookup((k) => ({ id: ids[k.code] }));
+
+    const result = await createQueryClient(mock, 'mysql').bulkInsertOrUpdate(
+      'tag', [{ id: 9, code: 'z', label: 'Z' }, { code: 'b', label: 'B' }], ['code'], 'id'
+    );
+
+    assert.deepEqual(result, [{ id: 9 }, { id: 2 }]);
+    const lookup = mock.calls.find((c) => c.text.startsWith('SELECT'));
+    assert.deepEqual(lookup.values, ['b']);
+  });
+
+  it('fails naming the table when a looked-up row cannot be found', async () => {
+    const mock = mysqlWithLookup(() => undefined);
+
+    await assert.rejects(
+      createQueryClient(mock, 'mysql').bulkInsertOrUpdate('tag', records, ['code'], 'id'),
+      /Cannot resolve the primary key of an upserted "tag" row/,
+    );
   });
 });

@@ -802,7 +802,7 @@ db.query(sql, values);                                                  // Raw q
 db.expression(value);                                                   // Raw SQL expression (not parameterized)
 ```
 
-`pkCol` can be a string (`'id'`) or an array (`['agent_id', 'team_id']`) for composite PKs. PostgreSQL/MariaDB use `RETURNING`, MySQL uses `insertId`.
+`pkCol` can be a string (`'id'`) or an array (`['agent_id', 'team_id']`) for composite PKs. PostgreSQL/MariaDB use `RETURNING`, MySQL uses `insertId`. An upsert whose record holds its conflict keys but not its PK (a natural key such as `email`) gets the PK back by a lookup on the conflict keys when the statement cannot name the row — always on MySQL, whose `insertId` knows nothing of updated rows, and on PostgreSQL when the record has nothing to update (`DO NOTHING` returns no row) — one extra `SELECT` per chunk of such records.
 
 Record keys are real column names (`Schema.col('field')`). Values are parameterized.
 

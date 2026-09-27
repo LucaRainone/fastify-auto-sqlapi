@@ -297,3 +297,69 @@ describe(`[${DIALECT}] upsert — an item holding only the conflict keys`, () =>
     assert.equal(byCode.fresh.label, null);
   });
 });
+
+// The README's sync scenario: the client knows no ids and upserts by natural key; re-sending
+// the payload updates the existing rows, and the response must name THOSE rows.
+describe(`[${DIALECT}] upsert by a natural key — re-sending the payload`, () => {
+  let app;
+  let db;
+
+  before(async () => {
+    ({ app, db } = await createTestApp({
+      tag: {
+        primary: 'id',
+        ...exportTableInfo(tagSchema),
+        defaultOrder: 'id',
+        upsertMap: new Map([[tagSchema, ['code']]]),
+      },
+    }, { prefix: '/auto' }));
+  });
+
+  beforeEach(async () => {
+    await cleanTables(db, ['tag']);
+  });
+
+  after(async () => {
+    await app.close();
+  });
+
+  async function idsByCode() {
+    const res = await db.query(
+      `SELECT ${db.qi('id')} AS id, ${db.qi('code')} AS code, ${db.qi('label')} AS label FROM ${db.qi('tag')}`
+    );
+    return Object.fromEntries(res.rows.map((r) => [r.code, r]));
+  }
+
+  it('bulk: returns the PKs of the rows it updated and of the rows it inserted', async () => {
+    await bulkSync([{ main: { code: 'a', label: 'A' } }, { main: { code: 'b', label: 'B' } }]);
+
+    const body = await bulkSync([
+      { main: { code: 'b', label: 'B2' } },
+      { main: { code: 'c', label: 'C' } },
+      { main: { code: 'a', label: 'A2' } },
+    ]);
+
+    const rows = await idsByCode();
+    assert.deepEqual(body.map((r) => r.main.id), [rows.b.id, rows.c.id, rows.a.id]);
+    assert.deepEqual([rows.a.label, rows.b.label, rows.c.label], ['A2', 'B2', 'C']);
+  });
+
+  it('single insert: returns the PK of the row it updated', async () => {
+    await bulkSync([{ main: { code: 'x', label: 'X' } }, { main: { code: 'a', label: 'A' } }]);
+
+    const res = await app.inject({
+      method: 'POST', url: '/auto/rest/tag', payload: { main: { code: 'a', label: 'A2' } },
+    });
+
+    assert.equal(res.statusCode, 201, res.payload);
+    const rows = await idsByCode();
+    assert.equal(JSON.parse(res.payload).main.id, rows.a.id);
+    assert.equal(rows.a.label, 'A2');
+  });
+
+  async function bulkSync(payload) {
+    const res = await app.inject({ method: 'PUT', url: '/auto/bulk/tag', payload });
+    assert.equal(res.statusCode, 200, res.payload);
+    return JSON.parse(res.payload);
+  }
+});
