@@ -81,9 +81,11 @@ Pagination:
 `orderBy` is a comma-separated list, each part one of:
 - `field [ASC|DESC]`, including computed fields.
 - `alias.parentField`: joinLeft alias; adds the LEFT JOIN.
-- `alias.fn.field`, with fn one of `sum|min|max|avg|count|distinctCount`. The joinGroup with that fn and field must be in the body; mains without children sort as 0.
+- `alias.fn.field`, with fn one of `sum|min|max|avg|count|distinctCount`. The joinGroup with that fn and field must be in the body.
 
 For `alias.fn.field`, in both `orderBy` and conditions, the joinGroup `by` must be absent or equal to the FK (else 400). In `orderBy` it is also a 400 on tables with distinct results.
+
+A main without children (or none left after the joinGroup filters) has `count`, `distinctCount` and `sum` = 0, but `min`, `max` and `avg` = null. Null sorts where the database puts it (PostgreSQL: last in ASC, first in DESC; MySQL/MariaDB: first in ASC, last in DESC) and fails every comparison: `max < 5` excludes such mains; `isNull` selects them.
 
 Condition methods and `params` arity:
 - `[v]`: `isEqual|isNotEqual|isGreater|isGreaterOrEqual|isLess|isLessOrEqual|isNotGreater|isNotGreaterOrEqual|isNotLess|isNotLessOrEqual`

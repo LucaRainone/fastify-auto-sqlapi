@@ -23,15 +23,21 @@ import type {
   TenantContext,
 } from '../../../types.js';
 
-export interface AggFn { sql: string; distinct: boolean }
+/**
+ * One aggregation function, as SQL. `zeroWhenEmpty`: over no rows it means 0 (nothing counted,
+ * nothing summed), so the correlated subquery coalesces its NULL to 0. min/max/avg over no rows
+ * have no value and stay NULL — a 0 would be invented data on numeric columns and a type error
+ * on text/date ones.
+ */
+export interface AggFn { sql: string; distinct: boolean; zeroWhenEmpty: boolean }
 
 export const AGG_FN: Record<string, AggFn> = {
-  sum:           { sql: 'SUM',   distinct: false },
-  min:           { sql: 'MIN',   distinct: false },
-  max:           { sql: 'MAX',   distinct: false },
-  avg:           { sql: 'AVG',   distinct: false },
-  count:         { sql: 'COUNT', distinct: false },
-  distinctCount: { sql: 'COUNT', distinct: true  },
+  sum:           { sql: 'SUM',   distinct: false, zeroWhenEmpty: true  },
+  min:           { sql: 'MIN',   distinct: false, zeroWhenEmpty: false },
+  max:           { sql: 'MAX',   distinct: false, zeroWhenEmpty: false },
+  avg:           { sql: 'AVG',   distinct: false, zeroWhenEmpty: false },
+  count:         { sql: 'COUNT', distinct: false, zeroWhenEmpty: true  },
+  distinctCount: { sql: 'COUNT', distinct: true,  zeroWhenEmpty: true  },
 };
 
 export function aggExpr(fn: AggFn, qualifiedCol: string): string {
@@ -118,7 +124,8 @@ export function buildAggOrderExpr(
   }
 
   const qualifiedCol = `${subRef}.${db.qi(fieldCol)}`;
-  const expr = `COALESCE((SELECT ${aggExpr(aggFn, qualifiedCol)} FROM ${refs.joinTable} AS ${subRef} WHERE ${subRef}.${refs.fkCol} = ${refs.mainTable}.${refs.mainCol}${tenantWhere}${filterWhere}), 0)`;
+  const subquery = `(SELECT ${aggExpr(aggFn, qualifiedCol)} FROM ${refs.joinTable} AS ${subRef} WHERE ${subRef}.${refs.fkCol} = ${refs.mainTable}.${refs.mainCol}${tenantWhere}${filterWhere})`;
+  const expr = aggFn.zeroWhenEmpty ? `COALESCE(${subquery}, 0)` : subquery;
 
   return new Expression(expr, [...tenantVals, ...filterVals]);
 }

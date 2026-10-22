@@ -56,6 +56,16 @@ const DbTables = {
   },
 };
 
+// Where the database puts NULL by default: PostgreSQL treats it as larger than any value
+// (last in ASC, first in DESC), MySQL as smaller (first in ASC, last in DESC).
+const nullsLargest = DIALECT === 'postgres';
+
+/** `names` in their order with the childless Anna placed where the dialect puts NULL. */
+function withChildless(names, direction) {
+  const nullFirst = (direction === 'ASC') !== nullsLargest;
+  return nullFirst ? ['Anna Bianchi', ...names] : [...names, 'Anna Bianchi'];
+}
+
 describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
   let app;
   let db;
@@ -142,9 +152,8 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
 
     assert.equal(res.statusCode, 200);
     const body = JSON.parse(res.payload);
-    // Mario avg=150, Luigi avg=50, Anna NULL→0
-    assert.equal(body.main[0].name, 'Mario Rossi');
-    assert.equal(body.main[1].name, 'Luigi Verdi');
+    // Mario avg=150, Luigi avg=50, Anna NULL (no orders: AVG has no value, not 0)
+    assert.deepEqual(body.main.map((r) => r.name), withChildless(['Mario Rossi', 'Luigi Verdi'], 'DESC'));
   });
 
   it('supports COUNT aggregation in orderBy', async () => {
@@ -657,5 +666,106 @@ describe(`[${DIALECT}] joinGroup with computed-by (date bucketing)`, () => {
       },
     });
     assert.equal(res.statusCode, 400);
+  });
+});
+
+// ─── min / max / avg with no child rows ───────────────────────
+
+describe(`[${DIALECT}] joinGroup min/max/avg over a main row without children`, () => {
+  let app;
+  let db;
+
+  async function search(url, payload) {
+    const res = await app.inject({ method: 'POST', url, payload });
+    assert.equal(res.statusCode, 200, res.payload);
+    return JSON.parse(res.payload).main.map((r) => r.name);
+  }
+
+  before(async () => {
+    ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
+    await cleanTables(db, ['customer_order', 'customer']);
+
+    const [mario, luigi] = await seedRows(db, 'customer', [
+      { name: 'Mario Rossi', email: 'mario@test.it', is_active: true },
+      { name: 'Luigi Verdi', email: 'luigi@test.it', is_active: true },
+      { name: 'Anna Bianchi', email: 'anna@test.it', is_active: true },
+    ]);
+
+    // Mario: max status 'shipped', max date 2026-03-10, min total 100
+    // Luigi: max status 'pending', max date 2026-02-05, min total 50
+    // Anna:  no orders
+    await seedRows(db, 'customer_order', [
+      { customer_id: mario.id, total: 100, status: 'completed', order_date: '2026-01-15' },
+      { customer_id: mario.id, total: 200, status: 'shipped',   order_date: '2026-03-10' },
+      { customer_id: luigi.id, total: 50,  status: 'pending',   order_date: '2026-02-05' },
+    ]);
+  });
+
+  after(async () => {
+    await app.close();
+  });
+
+  for (const direction of ['ASC', 'DESC']) {
+    it(`orders by max of a text column ${direction}, the childless row placed as the database places NULL`, async () => {
+      const names = await search(`/auto/search/customer?orderBy=customer_order.max.status%20${direction}`, {
+        joinGroup: { customer_order: { aggregations: { by: 'customerId', max: ['status'] } } },
+      });
+      const withChildren = ['Luigi Verdi', 'Mario Rossi'];
+      assert.deepEqual(names, withChildless(direction === 'ASC' ? withChildren : withChildren.reverse(), direction));
+    });
+
+    it(`orders by max of a date column ${direction}, the childless row placed as the database places NULL`, async () => {
+      const names = await search(`/auto/search/customer?orderBy=customer_order.max.orderDate%20${direction}`, {
+        joinGroup: { customer_order: { aggregations: { max: ['orderDate'] } } },
+      });
+      const withChildren = ['Luigi Verdi', 'Mario Rossi'];
+      assert.deepEqual(names, withChildless(direction === 'ASC' ? withChildren : withChildren.reverse(), direction));
+    });
+  }
+
+  it('orders by min of a numeric column without inventing a 0 for the childless row', async () => {
+    const names = await search('/auto/search/customer?orderBy=customer_order.min.total%20ASC', {
+      joinGroup: { customer_order: { aggregations: { min: ['total'] } } },
+    });
+    assert.deepEqual(names, withChildless(['Luigi Verdi', 'Mario Rossi'], 'ASC'));
+  });
+
+  it('a HAVING-style condition on min of a numeric column does not match the childless row as 0', async () => {
+    const names = await search('/auto/search/customer', {
+      conditions: [{ field: 'customer_order.min.total', method: 'isLess', params: [10] }],
+      joinGroup: { customer_order: { aggregations: { min: ['total'] } } },
+    });
+    assert.deepEqual(names, []);
+  });
+
+  it('a HAVING-style isNull on avg matches exactly the childless row', async () => {
+    const names = await search('/auto/search/customer', {
+      conditions: [{ field: 'customer_order.avg.total', method: 'isNull', params: [] }],
+      joinGroup: { customer_order: { aggregations: { avg: ['total'] } } },
+    });
+    assert.deepEqual(names, ['Anna Bianchi']);
+  });
+
+  it('a HAVING-style condition on max of a date column compares dates, not a 0', async () => {
+    const names = await search('/auto/search/customer', {
+      conditions: [{ field: 'customer_order.max.orderDate', method: 'isLess', params: ['2026-03-01'] }],
+      joinGroup: { customer_order: { aggregations: { max: ['orderDate'] } } },
+    });
+    assert.deepEqual(names, ['Luigi Verdi']);
+  });
+
+  it('count, distinctCount and sum are still 0 for the childless row', async () => {
+    for (const [fn, field] of [['count', 'id'], ['distinctCount', 'status'], ['sum', 'total']]) {
+      const names = await search('/auto/search/customer', {
+        conditions: [{ field: `customer_order.${fn}.${field}`, method: 'isEqual', params: [0] }],
+        joinGroup: { customer_order: { aggregations: { [fn]: [field] } } },
+      });
+      assert.deepEqual(names, ['Anna Bianchi'], `${fn} without rows`);
+    }
+
+    const names = await search('/auto/search/customer?orderBy=customer_order.count.id%20ASC', {
+      joinGroup: { customer_order: { aggregations: { count: ['id'] } } },
+    });
+    assert.deepEqual(names, ['Anna Bianchi', 'Luigi Verdi', 'Mario Rossi']);
   });
 });

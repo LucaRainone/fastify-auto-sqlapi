@@ -89,7 +89,7 @@ Search before writing: `npm run find-similar -- "<what you need>"`.
 ### src/lib/engine/search/aggregations.ts
 - `AGG_FN` *const*
 - `aggExpr(fn: AggFn, qualifiedCol: string): string` *function*
-- `AggFn` *interface*
+- `AggFn` *interface* — One aggregation function, as SQL.
 - `appendAggConditions(params: QueryParams, conditions: SearchCondition[], db: QueryClient, …` *function* — HAVING-style conditions: the dotted `<alias>.<fn>.<field>` entries of `conditions`.
 - `buildAggOrderExpr(db: QueryClient, dbTables: DbTables, tableConf: ITable, alias: string, …` *function* — Correlated aggregate subquery for `<alias>.<fn>.<field>`, as an Expression carrying the values of i…
 ### src/lib/engine/search/conditions.ts

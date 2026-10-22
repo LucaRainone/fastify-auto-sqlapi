@@ -9,6 +9,26 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: `min`, `max` and `avg` of a main row without children are NULL, not 0, in
+  `orderBy` and HAVING-style conditions.** The correlated subquery behind `alias.fn.field`
+  wrapped every aggregate in `COALESCE(…, 0)`. That 0 is right for `count`, `distinctCount` and
+  `sum`, which keep it; for `min`/`max`/`avg` it invented a value the children do not have. On
+  numeric columns, such mains now sort where the database puts NULL (PostgreSQL: last in ASC,
+  first in DESC; MySQL/MariaDB: first in ASC, last in DESC) instead of as 0, and a condition
+  like `max < 5` no longer matches them (`isNull` does). See
+  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--min-max-and-avg-of-a-main-row-without-children-are-null).
+
+### Fixed
+
+- **PostgreSQL: `orderBy` or a condition on `min`/`max`/`avg` of a non-numeric column no longer
+  fails.** `orderBy=charge.max.monthYear` over a `character(7)` column (or any text, date or
+  timestamp one) was a 500, `COALESCE types character and integer cannot be matched`, whenever
+  the request reached the database. MySQL/MariaDB did not fail but compared those mains as `0`:
+  `max(orderDate) < '2026-03-01'` matched every main without children. Both now compare the
+  aggregate as NULL, as above.
+
 ## [0.4.0]
 
 ### Changed

@@ -823,3 +823,53 @@ dialect.upsertSql(quotedKeys, dialect.upsertUpdateSet(fields, conflictKeys));
 const { onConflict } = getDialect('postgres');
 onConflict!.sql(quotedKeys, onConflict!.updateSet(fields, conflictKeys));
 ```
+
+---
+
+# Breaking Change — `min`, `max` and `avg` of a main row without children are NULL
+
+*Lands in the release after **0.4.0**.*
+
+## Why this changed
+
+`orderBy` and HAVING-style conditions on `<alias>.<fn>.<field>` run a correlated subquery per
+main row, and every aggregate was wrapped in `COALESCE(…, 0)`. Over no child rows, that 0 is
+the right answer for `count`, `distinctCount` and `sum`, but `min`, `max` and `avg` have no
+value at all:
+
+- **PostgreSQL**: on a text, char, date or timestamp column the request failed with a 500,
+  `COALESCE types … and integer cannot be matched`.
+- **MySQL/MariaDB**: no error, but those mains were compared as `0` — `max(orderDate) <
+  '2026-03-01'` matched every main without children.
+- **Both, numeric columns**: a 0 that no child row holds decided the ordering and conditions.
+
+## What changed
+
+- `count`, `distinctCount` and `sum` over no rows are still 0.
+- `min`, `max` and `avg` over no rows are NULL. In `orderBy` they sort where the database puts
+  NULL (PostgreSQL: last in ASC, first in DESC; MySQL/MariaDB: first in ASC, last in DESC). In
+  conditions they fail every comparison; `isNull` / `isNotNull` select them.
+- "Without children" includes children all excluded by the joinGroup's own `filters` /
+  `conditions`.
+- `result.joinGroup` is unchanged: it was never coalesced.
+
+## Who is affected
+
+Clients that order or filter by `min`, `max` or `avg` of a **numeric** column on tables where
+some main rows have no children:
+
+- `orderBy=orders.min.total ASC` on PostgreSQL: those mains move from first to last.
+  `… DESC`: from last to first. On MySQL/MariaDB the order is unchanged (NULL sorts as the
+  smallest value, where the 0 was for non-negative columns).
+- `conditions: [{ field: 'orders.max.total', method: 'isLess', params: [5] }]`: those mains
+  no longer match. `isGreater` with a negative value, `isEqual` with 0 and similar change the
+  same way.
+
+## Migration
+
+- To drop mains without children from a result, add `{ field: 'orders.count.id', method:
+  'isGreater', params: [0] }` (or `isNotNull` on the aggregate).
+- To list only them, use `isNull` on the aggregate, or `isEqual 0` on `count`.
+- Conditions are ANDed, so "below 5 **or** no children" is no longer one request: run the
+  `isNull` search separately, or compare against a `count` instead where that expresses the
+  same thing.
