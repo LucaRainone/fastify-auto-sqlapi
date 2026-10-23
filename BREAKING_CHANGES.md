@@ -828,7 +828,7 @@ onConflict!.sql(quotedKeys, onConflict!.updateSet(fields, conflictKeys));
 
 # Breaking Change — `min`, `max` and `avg` of a main row without children are NULL
 
-*Lands in the release after **0.4.0**.*
+*Landed in **0.4.1**.*
 
 ## Why this changed
 
