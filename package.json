@@ -96,7 +96,7 @@
     "dependency-cruiser": "^18.1.0",
     "eslint": "^10.8.0",
     "eslint-plugin-sonarjs": "^4.2.0",
-    "fastify": "5.12.4",
+    "fastify": "5.12.8",
     "fuse.js": "^7.5.0",
     "jscpd": "^5.0.14",
     "knip": "^6.31.0",
@@ -135,5 +135,8 @@
     "@fastify/swagger-ui": {
       "optional": true
     }
+  },
+  "overrides": {
+    "minimatch": "^11.0.5"
   }
 }
