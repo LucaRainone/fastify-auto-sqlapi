@@ -3,6 +3,7 @@ import { camelcaseObject, snakecaseRecord } from '../naming.js';
 import type { QueryClient } from '../db.js';
 import { runValidation } from './validate.js';
 import { removeWriteExcluded, insertExcludedFields } from '../write-access.js';
+import { resolveJoinTableConf } from '../table-helpers.js';
 import { httpError } from '../errors.js';
 import {
   tenantForTable,
@@ -97,16 +98,6 @@ function removeInsertExcluded(
   }
 }
 
-export function findSecondaryTableConf(
-  dbTables: DbTables,
-  joinTableName: string
-): TableConfig | undefined {
-  for (const [, conf] of Object.entries(dbTables)) {
-    if (conf.Schema.tableName === joinTableName) return conf;
-  }
-  return undefined;
-}
-
 /**
  * The context a per-alias write pass runs in. Shared by `processSecondaries` and
  * `processDeletions`, which differ only in the payload they are handed.
@@ -145,7 +136,7 @@ function resolveWriteJoinTarget(
   tenant: TenantContext | undefined
 ): WriteJoinTarget {
   const { joinSchema, joinField, mainField } = joinDef;
-  const childConf = findSecondaryTableConf(dbTables, joinSchema.tableName);
+  const childConf = resolveJoinTableConf(dbTables, joinDef);
   return {
     joinSchema,
     joinCol: joinSchema.col(joinField),

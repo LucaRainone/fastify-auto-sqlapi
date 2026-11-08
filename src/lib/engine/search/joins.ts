@@ -9,6 +9,7 @@ import { ConditionBuilder } from 'node-condition-builder';
 import type { QueryClient } from '../../db.js';
 import { buildTenantCondition, buildTenantJoin } from '../../tenant.js';
 import { assertFiltersReadable, assertKnownFilterKeys } from '../../read-access.js';
+import { resolveJoinTableConf } from '../../table-helpers.js';
 import { err400 } from './fields.js';
 import type {
   DbTables,
@@ -76,7 +77,7 @@ export function assertJoinFilterKeys(
   for (const [alias, ref] of Object.entries(refs)) {
     const joinDef = findJoinByAlias(tableConf, alias);
     if (!joinDef) continue;
-    const joinTableConf = dbTables[joinDef.joinSchema.tableName];
+    const joinTableConf = resolveJoinTableConf(dbTables, joinDef);
     const filters = ref?.filters as Record<string, unknown> | undefined;
     assertFiltersReadable(filters, joinTableConf);
     assertKnownFilterKeys(filters, joinDef.joinSchema, joinTableConf, allowExtraFilters);

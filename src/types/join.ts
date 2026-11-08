@@ -17,6 +17,13 @@ export interface JoinDefinition {
   selection: string;
   unique: boolean;
   /**
+   * The `DbTables` key whose config governs the joined table: its `readExclude`, `tenantScope`,
+   * `afterRead`, computed fields and write-side rules apply to the rows this relation reaches.
+   * Required only when `DbTables` exposes the joined table under several keys; with one key,
+   * that config is used whatever the key is called. Resolved by `resolveJoinTableConf`.
+   */
+  target?: string;
+  /**
    * Allowlist of the target table's fields reachable through this relation, when
    * `buildRelation` was given one. `joinSchema` is already narrowed to it — this is kept
    * so the engine can tell a restricted relation from a full one, which is what stops the

@@ -2,6 +2,7 @@ import type { ApiRequest } from '../types/request.js';
 import type { QueryClient } from './db.js';
 import { ConditionBuilder, type ConditionValue, type ConditionValueOrUndefined } from 'node-condition-builder';
 import { httpError } from './errors.js';
+import { resolveJoinTableConf } from './table-helpers.js';
 import type {
   DbTables,
   TableConfig,
@@ -59,7 +60,7 @@ function scopeInReach(tableConf: TableConfig, dbTables: DbTables | undefined): b
   if (!dbTables) return false;
 
   const relations = [...(tableConf.allowedReadJoins ?? []), ...(tableConf.allowedWriteJoins ?? [])];
-  return relations.some((join) => dbTables[join.joinSchema.tableName]?.tenantScope !== undefined);
+  return relations.some((join) => resolveJoinTableConf(dbTables, join)?.tenantScope !== undefined);
 }
 
 export async function resolveTenant(

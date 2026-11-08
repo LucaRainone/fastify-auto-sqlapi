@@ -9,6 +9,7 @@ existing concept makes search fail and the concept get built twice.
 | Schema | TypeBox definition of a table's columns, generated from the DB. (not: model) |
 | Relation | `buildRelation()` link between two schemas, identified by an alias. (not: association) |
 | Alias | Request/response key naming one relation; defaults to the joined table name. |
+| Target | The `dbTables` key whose table config governs a relation's joined table; required when that table sits under several keys. (not: joinConf, childConf in config) |
 | `joinMustExist` | Child→main 1:N filter via EXISTS; never returns child rows. |
 | `joinMultiple` | Child→main 1:N side query; child rows land in `result.joinMultiple.<alias>`. |
 | `joinGroup` | Child→main 1:N aggregations in `result.joinGroup.<alias>`. |

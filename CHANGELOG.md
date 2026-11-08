@@ -10,7 +10,26 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ## [Unreleased]
 
+### Added
+
+- **`target` on `buildRelation`**: the `dbTables` key whose config governs the joined table.
+  Needed only when the same physical table is exposed under several keys.
+
+### Changed
+
+- **BREAKING: a relation over a table that `dbTables` exposes under several keys must name
+  its `target`.** Startup fails otherwise, naming the host table, the relation and the
+  candidate keys. The first matching key used to be picked, which made `readExclude`,
+  `tenantScope` and hooks on a join depend on object key order. See BREAKING_CHANGES.md.
+
 ### Fixed
+
+- **A join target's config applies whatever its `dbTables` key is called.** The generated
+  search schemas and most read paths looked the config up as `dbTables[Schema.tableName]`,
+  so a table exposed under a key other than its name ran its joins with no config at all:
+  its `readExclude` fields were selected, advertised and returned through `joinMultiple` and
+  `joinLeft`, and a filter on them was accepted instead of being a 400. Every join path now
+  resolves the target through one rule (`resolveJoinTableConf`).
 
 - **`GET|DELETE /rest/:table/:id` validate `:id` against the primary key field's type.** The
   parameter was declared as free text, so on an integer PK `/rest/item/abc` reached the

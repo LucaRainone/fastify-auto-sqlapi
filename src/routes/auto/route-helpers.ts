@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { ensureSqlApiDecorator } from '../sql-api-decorator.js';
 import { sanitizeRouteError } from '../../lib/errors.js';
+import { validateJoinTargets } from '../../lib/table-helpers.js';
 import { isCompositePrimary } from '../../types.js';
 import type { TableConfig, SqlApiPluginOptions, DbTables, TableOperation } from '../../types.js';
 
@@ -132,6 +133,9 @@ export async function registerForAllTables(
   ensureSqlApiDecorator(fastify, options);
 
   const { DbTables } = options;
+  // The decorator is lazy, so this is the first place the configuration is seen as a whole:
+  // a relation whose target is ambiguous must fail registration, not the first request.
+  validateJoinTargets(DbTables);
 
   for (const [tableName, tableConf] of Object.entries(DbTables)) {
     if (!isTableRoutable(tableName, tableConf, spec)) continue;

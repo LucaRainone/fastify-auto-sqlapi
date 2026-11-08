@@ -5,6 +5,7 @@ import type {
   JoinDefinition,
   TableFilterFn,
   TableConfig,
+  DbTables,
   TenantScopeIndirect,
 } from '../types.js';
 import { getDialect } from './dialect.js';
@@ -444,6 +445,13 @@ export interface BuildRelationOptions {
   selection?: string;
   unique?: boolean;
   /**
+   * The `DbTables` key whose config governs the joined table. Needed only when the joined
+   * table sits under several keys, each with its own `readExclude`, `tenantScope` or hooks:
+   * then the relation must say which one applies, and startup fails until it does. With a
+   * single key over the table, that config is used whatever the key is called.
+   */
+  target?: string;
+  /**
    * Allowlist of the target table's fields reachable through this relation.
    *
    * The relation is declared against a schema narrowed to these fields, so every read
@@ -464,9 +472,9 @@ export interface BuildRelationOptions {
  * Copy of `schema` exposing only `fields`, in schema declaration order.
  *
  * `tableName`, `col` and `colMap` are carried over untouched: the engine resolves the
- * target's configuration through `dbTables[joinSchema.tableName]`, so a narrowed relation
- * must still answer to its real table name, and column mapping must keep working for the
- * fields that survive.
+ * target's configuration through `resolveJoinTableConf`, which matches on the real table
+ * name, so a narrowed relation must still answer to it, and column mapping must keep working
+ * for the fields that survive.
  */
 function narrowSchemaToFields<J extends Record<string, TSchema>>(
   schema: SchemaDefinition<J>,
@@ -524,8 +532,72 @@ export function buildRelation<
     alias: options?.alias ?? joinSchema.tableName,
     selection: options?.selection ?? '*',
     unique: options?.unique ?? false,
+    ...(options?.target !== undefined ? { target: options.target } : {}),
     ...(fields ? { fields: [...fields] } : {}),
   };
+}
+
+/**
+ * The `TableConfig` that governs the target of a relation.
+ *
+ * A relation is declared against a Schema, while `DbTables` is keyed by route name and may
+ * expose one physical table under several keys, each with its own `readExclude`, `tenantScope`,
+ * `afterRead` and write-side rules (ADR 0010 makes those follow a join). Which key governs a
+ * join must therefore be one rule, shared by the generated body schemas and the engines — a
+ * body schema built from one config and an engine running another would advertise fields the
+ * engine hides, or the reverse.
+ *
+ * - `target` set: that key, which must exist and must be a config over the joined table.
+ * - Otherwise exactly one key over the joined table: that config, whatever the key is called.
+ * - Several keys and no `target`: a configuration error. Picking the first would make the
+ *   outcome depend on object key order, and the keys differ precisely in what they hide.
+ * - No key at all: `undefined` — the joined table has no config, and no rule applies to it.
+ *
+ * Throws on a configuration error; `validateJoinTargets` runs it over every relation at
+ * startup so the error names the table and surfaces before the first request.
+ */
+export function resolveJoinTableConf(dbTables: DbTables, joinDef: JoinDefinition): TableConfig | undefined {
+  const joinedTable = joinDef.joinSchema.tableName;
+
+  if (joinDef.target !== undefined) {
+    const conf = Object.hasOwn(dbTables, joinDef.target) ? dbTables[joinDef.target] : undefined;
+    if (!conf) {
+      throw new Error(`relation "${joinDef.alias}" names target "${joinDef.target}", which is not a key of DbTables`);
+    }
+    if (conf.Schema.tableName !== joinedTable) {
+      throw new Error(
+        `relation "${joinDef.alias}" names target "${joinDef.target}", a config over "${conf.Schema.tableName}", ` +
+        `but the relation joins "${joinedTable}"`
+      );
+    }
+    return conf;
+  }
+
+  const keys = Object.keys(dbTables).filter((key) => dbTables[key].Schema.tableName === joinedTable);
+  if (keys.length > 1) {
+    throw new Error(
+      `relation "${joinDef.alias}" joins "${joinedTable}", which DbTables exposes under several keys ` +
+      `(${keys.join(', ')}): name the one that governs the join with buildRelation(…, { target: '<key>' })`
+    );
+  }
+  return keys.length === 1 ? dbTables[keys[0]] : undefined;
+}
+
+/**
+ * Resolve the target of every read and write relation in `dbTables`, so a relation that
+ * cannot be resolved fails at startup with the host table's name rather than on the first
+ * request that uses it.
+ */
+export function validateJoinTargets(dbTables: DbTables): void {
+  for (const [key, conf] of Object.entries(dbTables)) {
+    for (const join of [...(conf.allowedReadJoins ?? []), ...(conf.allowedWriteJoins ?? [])]) {
+      try {
+        resolveJoinTableConf(dbTables, join);
+      } catch (err) {
+        throw new Error(`Table "${key}": ${(err as Error).message}`, { cause: err });
+      }
+    }
+  }
 }
 
 export function buildUpsertRule<F extends Record<string, TSchema>>(

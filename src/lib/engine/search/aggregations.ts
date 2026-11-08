@@ -12,6 +12,7 @@ import type { QueryClient } from '../../db.js';
 import type { QueryParams } from '../query-params.js';
 import { ALLOWED_SET } from '../../condition-methods.js';
 import { tenantForTable, buildTenantRowGuard } from '../../tenant.js';
+import { resolveJoinTableConf } from '../../table-helpers.js';
 import { err400, validateSchemaField } from './fields.js';
 import { requireJoin, extractJoinRefs, subqueryAlias } from './joins.js';
 import { buildJoinRefCondition, dispatchConditionMethod } from './conditions.js';
@@ -85,7 +86,7 @@ export function buildAggOrderExpr(
   // Pass the join table's conf: without it validateSchemaField skips the readExclude
   // check, and a HAVING-style condition on a hidden field becomes a 400-vs-200 oracle
   // (executeJoinGroup's own validation is skipped when the main result set is empty).
-  const fieldCol = validateSchemaField(field, joinSchema, dbTables[joinSchema.tableName]);
+  const fieldCol = validateSchemaField(field, joinSchema, resolveJoinTableConf(dbTables, joinDef));
   const refs = extractJoinRefs(db, tableConf, joinDef);
 
   // The subquery FROM is aliased so the correlation to the outer table survives a
@@ -95,7 +96,7 @@ export function buildAggOrderExpr(
 
   let filterWhere = '';
   let filterVals: unknown[] = [];
-  const joinTableConf = dbTables[joinSchema.tableName];
+  const joinTableConf = resolveJoinTableConf(dbTables, joinDef);
 
   // Tenant scope first: it is emitted before the request's own filter, so its values must be
   // bound in that order too.

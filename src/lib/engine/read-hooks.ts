@@ -11,7 +11,7 @@ import type { AfterReadContext, TableConfig, ReadSource } from '../../types.js';
  * gets one call per result set instead of one per row.
  *
  * `tableConf` is resolved by the caller, which on a join is the JOINED table's config
- * (`dbTables[joinSchema.tableName]`). That is what makes the hook follow a relation without
+ * (`resolveJoinTableConf`). That is what makes the hook follow a relation without
  * being declared on the host, the way `readExclude` and `tenantScope` do (ADR 0010).
  *
  * An empty result set is skipped: there is nothing to transform, and the hook may be costly.

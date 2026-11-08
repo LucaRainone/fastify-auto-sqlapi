@@ -1,6 +1,7 @@
 import { Type, type TObject, type TSchema } from 'typebox';
 import { ALLOWED_METHODS, MAX_CONDITIONS, MAX_ORDER_BY_LENGTH } from '../condition-methods.js';
 import { readableFields } from './helpers.js';
+import { resolveJoinTableConf } from '../table-helpers.js';
 import { DEFAULT_MAX_ITEMS_PER_PAGE } from '../../types.js';
 import type { DbTables, TableConfig } from '../../types.js';
 
@@ -63,7 +64,7 @@ function buildJoinBodyProps(
 
   for (const joinDef of tableConf.allowedReadJoins ?? []) {
     const { joinSchema, alias, unique } = joinDef;
-    const joinTableConf = dbTables[joinSchema.tableName];
+    const joinTableConf = resolveJoinTableConf(dbTables, joinDef);
 
     const joinSchemaFields = joinTableConf
       ? { ...readableFields(joinSchema, joinTableConf), ...computedFieldTypes(joinTableConf) }
@@ -125,7 +126,7 @@ function buildJoinResponseProps(dbTables: DbTables, tableConf: TableConfig): {
   for (const joinDef of tableConf.allowedReadJoins ?? []) {
     const { joinSchema, alias, unique } = joinDef;
     const itemArray = Type.Array(
-      Type.Partial(Type.Object(readableFields(joinSchema, dbTables[joinSchema.tableName])))
+      Type.Partial(Type.Object(readableFields(joinSchema, resolveJoinTableConf(dbTables, joinDef))))
     );
     if (unique) {
       joinLeftProps[alias] = itemArray;

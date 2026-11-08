@@ -4,7 +4,7 @@ import type { TableConfig, SchemaDefinition, DbTables, JoinDefinition } from '..
 import { readableFieldNames } from '../read-access.js';
 import { writableFields, insertExcludedFields } from '../write-access.js';
 import { tenantOwnColumns } from '../tenant.js';
-import { findSecondaryTableConf } from '../engine/write-helpers.js';
+import { resolveJoinTableConf } from '../table-helpers.js';
 
 /**
  * Build a PK-only schema for response shapes (single or composite PK).
@@ -145,7 +145,7 @@ function buildJoinAliasMap(
   if (!tableConf.allowedWriteJoins?.length) return out;
   const objOpts = options.strictItems ? { additionalProperties: false } : {};
   for (const j of tableConf.allowedWriteJoins) {
-    const sc = findSecondaryTableConf(dbTables, j.joinSchema.tableName);
+    const sc = resolveJoinTableConf(dbTables, j);
     const item = Type.Object(build(j, sc), objOpts);
     // Partial rebuilds the object and drops the source's options: hand them over again.
     out[j.alias] = Type.Array(options.itemsPartial ? Type.Partial(item, objOpts) : item);

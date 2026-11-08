@@ -3,6 +3,7 @@ import { ConditionBuilder } from 'node-condition-builder';
 import { createQueryClient, QueryClient } from './db.js';
 import { getDialect, type DialectName } from './dialect.js';
 import { resolveTenant } from './tenant.js';
+import { validateJoinTargets } from './table-helpers.js';
 import { httpError } from './errors.js';
 import { searchEngine } from './engine/search/search.js';
 import { getEngine } from './engine/rest/get.js';
@@ -86,6 +87,10 @@ export class SqlApi {
     } else {
       this.db = createQueryClient(dbOrPool, options.dialect);
     }
+
+    // A relation whose target cannot be resolved is a configuration error: fail here, with
+    // the table's name, rather than on the first request that uses the join.
+    validateJoinTargets(dbTables);
 
     // Set ConditionBuilder dialect (used by filters built via exportTableInfo)
     if (options.dialect) {

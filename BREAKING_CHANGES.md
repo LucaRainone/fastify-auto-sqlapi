@@ -989,3 +989,59 @@ made outright rather than through a deprecation cycle: one migration instead of 
 - `ITable` → `TableConfig` in type annotations.
 - `SearchTableQueryString` → `SearchTableQuery(maxItemsPerPage)` with the cap the plugin is
   configured with.
+
+---
+
+# Breaking Change — a relation over a table exposed under several keys names its `target`
+
+*Landed in **0.7.0** (unreleased).*
+
+## Why this changed
+
+A relation is declared against a Schema, while `dbTables` is keyed by route name, and one
+physical table may sit under several keys, each with its own `readExclude`, `tenantScope`,
+hooks and computed fields. Those rules follow a join (ADR 0010), so the engine has to pick the
+config that governs the joined table. It picked the first key whose Schema matched, and the
+generated search schemas used a different lookup, `dbTables[Schema.tableName]`, which found
+nothing when the key was not the table name. Two lookups for the same decision, one of them
+order-dependent and the other wrong for a documented configuration.
+
+There is now one rule, `resolveJoinTableConf`, shared by the schemas and every engine path:
+
+- one key over the joined table → that config, whatever the key is called;
+- several keys → the relation must name one with `target`;
+- no key → no config, as before.
+
+## What changed
+
+- `buildRelation(..., { target: '<dbTables key>' })` is new. The key must exist and must be a
+  config over the joined table.
+- A relation over a table that `dbTables` exposes under several keys, without `target`, is a
+  startup error. The message names the host table, the relation alias and the candidate keys.
+- A relation over a table whose only key differs from the table name now applies that key's
+  config. Before, its `readExclude` fields were selected and returned through `joinMultiple`
+  and `joinLeft`, and a filter on them was accepted.
+
+## Who is affected
+
+- Deployments with several `dbTables` entries over one physical table **and** a relation
+  pointing at that table. Startup fails with the list of candidate keys.
+- Deployments with a single key over a joined table, named differently from the table: no
+  change to make, but join responses may lose fields that key's `readExclude` hides. That is
+  the configured behaviour finally applying.
+
+## Migration
+
+For each failing relation, add the key whose rules the join should run under:
+
+```ts
+allowedReadJoins: [
+  buildRelation(SchemaChat, 'id', SchemaMessage, 'conversationId', {
+    alias: 'messages',
+    target: 'msgPublic', // the dbTables key, not the table name
+  }),
+],
+```
+
+Pick the key the way you would pick a route for the same caller: the one whose `readExclude`
+and `tenantScope` the host's readers are meant to see.

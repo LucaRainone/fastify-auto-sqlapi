@@ -27,6 +27,7 @@ import {
   extractJoinRefs,
 } from './joins.js';
 import { tenantForTable, buildTenantRowGuard } from '../../tenant.js';
+import { resolveJoinTableConf } from '../../table-helpers.js';
 import { dispatchConditionMethod, buildJoinRefCondition } from './conditions.js';
 import { AGG_FN, aggExpr } from './aggregations.js';
 import type {
@@ -62,6 +63,8 @@ interface JoinLeftFieldScope {
   alias: string;
   aliasIdent: string;
   joinSchema: SchemaDefinition;
+  /** The config governing the joined table (`resolveJoinTableConf`), when it has one. */
+  joinTableConf: TableConfig | undefined;
   computed: Record<string, ComputedFieldFn> | undefined;
 }
 
@@ -107,15 +110,14 @@ function applyJoinLeftFilters(
 function applyJoinLeftConditions(
   cb: ConditionBuilder,
   conditions: SearchCondition[],
-  scope: JoinLeftFieldScope,
-  dbTables: DbTables
+  scope: JoinLeftFieldScope
 ): void {
   for (const c of conditions) {
     if (!ALLOWED_SET.has(c.method)) {
       err400(`Invalid condition method: ${c.method}`);
     }
     if (hasOwnField(scope.joinSchema.fields, c.field)) {
-      assertReadable(dbTables[scope.joinSchema.tableName], c.field);
+      assertReadable(scope.joinTableConf, c.field);
     } else if (!ownField(scope.computed, c.field)) {
       err400(`Unknown field: ${c.field}`);
     }
@@ -158,7 +160,7 @@ export function buildLeftJoinOnClauses(
     // aliases, and each predicate must bind to the row this clause produced.
     const guard = buildTenantRowGuard(
       db,
-      tenantForTable(tenant, dbTables[joinDef.joinSchema.tableName]),
+      tenantForTable(tenant, resolveJoinTableConf(dbTables, joinDef)),
       alias
     );
 
@@ -204,19 +206,20 @@ export function buildLeftJoinFilters(
     // `assertJoinFilterKeys` rejects them up front rather than letting them through as a
     // silent no-op, and the generated body schema does not advertise them for unique:true
     // relations.
-    const joinTableConf = dbTables[joinSchema.tableName];
+    const joinTableConf = resolveJoinTableConf(dbTables, joinDef);
     const scope: JoinLeftFieldScope = {
       db,
       alias,
       aliasIdent,
       joinSchema,
+      joinTableConf,
       computed: joinTableConf?.computedFields,
     };
     const cb = new ConditionBuilder('AND', db.cbDialect);
 
     assertFiltersReadable(ref.filters, joinTableConf);
     if (ref.filters) applyJoinLeftFilters(cb, ref.filters, scope);
-    if (ref.conditions?.length) applyJoinLeftConditions(cb, ref.conditions, scope, dbTables);
+    if (ref.conditions?.length) applyJoinLeftConditions(cb, ref.conditions, scope);
 
     const sql = cb.build(currentIdx, db.ph);
     const vals = cb.getValues();
@@ -292,7 +295,7 @@ async function fetchJoinRows(
   for (const [alias, ref] of Object.entries(requests)) {
     const joinDef = requireJoin(tableConf, alias, mode.requireUnique);
     const { joinSchema, joinField, mainField, selection: defaultSelection } = joinDef;
-    const joinTableConf = dbTables[joinSchema.tableName];
+    const joinTableConf = resolveJoinTableConf(dbTables, joinDef);
 
     // The selection is resolved before the empty-result bail-out: it is validated against
     // the join schema, and that rejection must not depend on whether the main query
@@ -480,7 +483,7 @@ export async function executeJoinGroup(
   for (const [alias, groupReq] of Object.entries(joinGroup)) {
     const joinDef = requireJoin(tableConf, alias, false);
     const { joinSchema, joinField, mainField } = joinDef;
-    const joinTableConf = dbTables[joinSchema.tableName];
+    const joinTableConf = resolveJoinTableConf(dbTables, joinDef);
 
     const ids = collectIds(mainResults, mainField);
 
@@ -549,7 +552,7 @@ export function buildJoinMustExistClauses(
   for (const [alias, ref] of Object.entries(joinMustExist)) {
     const joinDef = requireJoin(tableConf, alias, false);
     const { joinSchema } = joinDef;
-    const joinTableConf = dbTables[joinSchema.tableName];
+    const joinTableConf = resolveJoinTableConf(dbTables, joinDef);
     const refs = extractJoinRefs(db, tableConf, joinDef);
 
     // The EXISTS FROM is aliased so the correlation to the outer table survives a

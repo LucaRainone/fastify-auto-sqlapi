@@ -17,6 +17,7 @@ import {
   evaluateComputedField,
 } from './fields.js';
 import { requireJoin } from './joins.js';
+import { resolveJoinTableConf } from '../../table-helpers.js';
 import { hasOwnField, ownField } from '../../read-access.js';
 import { buildAggOrderExpr } from './aggregations.js';
 import type { DbTables, TableConfig, JoinGroupRequest, TenantContext } from '../../../types.js';
@@ -89,7 +90,7 @@ export function validateOrderBy(
       const [, alias, field, dir] = dotted2;
       const joinDef = requireJoin(tableConf, alias, true);
       const col = validateSchemaField(
-        field, joinDef.joinSchema, dbTables[joinDef.joinSchema.tableName]
+        field, joinDef.joinSchema, resolveJoinTableConf(dbTables, joinDef)
       );
       // Reference the LEFT JOIN'd table via its alias (SQL identifier).
       outParts.push(`${db.qi(alias)}.${db.qi(col)} ${(dir || 'ASC').toUpperCase()}`);

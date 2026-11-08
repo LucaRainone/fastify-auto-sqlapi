@@ -199,6 +199,7 @@ buildRelation(mainSchema, mainField, joinSchema, joinField, {
   selection, // default '*'. 'id, name, total'
   unique, // false: 1:N child→main (joinField = child FK) → joinMustExist / joinMultiple / joinGroup. true: N:1 parent→main (joinField = parent PK) → joinLeft. joinField is the target's PK → use true.
   fields, // read-only allowlist of the target's fields. Must include joinField. Not on write joins.
+  target, // dbTables key whose config governs the joined table (readExclude, tenantScope, afterRead, computed, write rules). Required when several keys expose that table: startup fails until it is set. With one key, that config applies whatever the key is called.
 });
 
 allowedReadJoins: [
