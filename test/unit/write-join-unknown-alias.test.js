@@ -7,7 +7,7 @@ const { InsertTableBody } = await import(path.join(ROOT, 'dist/lib/schema/insert
 const { UpdateTableBody } = await import(path.join(ROOT, 'dist/lib/schema/update.js'));
 const { BulkUpsertTableBody } = await import(path.join(ROOT, 'dist/lib/schema/bulk-upsert.js'));
 const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
-const { Type } = await import('@sinclair/typebox');
+const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 const customerFields = { id: Type.Number(), name: Type.String() };
 const orderFields = { id: Type.Number(), customerId: Type.Number(), total: Type.Number() };

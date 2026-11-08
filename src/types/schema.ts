@@ -1,4 +1,4 @@
-import type { TSchema, TObject } from '@sinclair/typebox';
+import type { TSchema, TObject } from 'typebox';
 
 export interface SchemaDefinition<T = Record<string, TSchema>> {
   col(field: string): string;

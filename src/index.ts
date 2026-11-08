@@ -79,7 +79,7 @@ export { BulkDeleteTableBody, BulkDeleteTableResponse } from './lib/schema/bulk-
 export { default as bulkDeleteRoutes } from './routes/auto/bulk-delete.routes.js';
 
 // Re-export deps
-export { Type, type Static } from '@sinclair/typebox';
+export { Type, type Static } from 'typebox';
 export { ConditionBuilder, Expression } from 'node-condition-builder';
 
 // Types

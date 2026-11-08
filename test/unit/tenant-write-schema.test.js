@@ -8,17 +8,16 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import Fastify from 'fastify';
-import { OptionalKind } from '@sinclair/typebox';
 import { createMockPg, createMockSchema, ROOT } from './_harness.js';
 
 const { InsertTableBody } = await import(path.join(ROOT, 'dist/lib/schema/insert.js'));
 const { UpdateTableBody } = await import(path.join(ROOT, 'dist/lib/schema/update.js'));
 const { BulkUpsertTableBody } = await import(path.join(ROOT, 'dist/lib/schema/bulk-upsert.js'));
 const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
-const { fastifyAutoSqlApi } = await import(path.join(ROOT, 'dist/index.js'));
-const { Type } = await import('@sinclair/typebox');
+const { fastifyAutoSqlApi, Type } = await import(path.join(ROOT, 'dist/index.js'));
 
-const isOptional = (schema) => OptionalKind in schema;
+// TypeBox marks an Optional property with a non-enumerable `~optional` key.
+const isOptional = (schema) => schema['~optional'] === true;
 
 const customerFields = { id: Type.Number(), name: Type.String(), organizationId: Type.Number() };
 const orderFields = { id: Type.Number(), customerId: Type.Number(), total: Type.Number(), organizationId: Type.Number() };

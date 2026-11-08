@@ -19,7 +19,7 @@ const { bulkDeleteEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk/
 const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/insert.js'));
 const { updateEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/update.js'));
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
-const { Type } = await import('@sinclair/typebox');
+const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 const swapFields = {
   id: Type.Number(),

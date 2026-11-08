@@ -19,7 +19,7 @@ const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/inse
 const { updateEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/update.js'));
 const { bulkUpsertEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk/bulk-upsert.js'));
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
-const { Type } = await import('@sinclair/typebox');
+const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 function createMockSchema(tableName, fields) {
   return {

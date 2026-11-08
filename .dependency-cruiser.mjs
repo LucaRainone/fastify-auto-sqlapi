@@ -102,7 +102,7 @@ export default {
         dependencyTypes: ['npm-peer', 'npm-no-pkg', 'npm-unknown'],
         dependencyTypesNot: ['type-only'],
         dynamic: false,
-        pathNot: ['node_modules/(@sinclair/typebox|node-condition-builder)/'],
+        pathNot: ['node_modules/(typebox|node-condition-builder)/'],
       },
     },
   ],

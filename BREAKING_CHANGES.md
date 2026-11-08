@@ -895,3 +895,42 @@ or the table configuration changes.
 Upgrade the runtime to Node 22 or newer. npm only warns on an `engines` mismatch (it fails
 with `engine-strict=true`), so a deployment on an older Node may keep installing, but it is
 no longer supported or tested.
+
+# Breaking Change — TypeBox 1.x replaces `@sinclair/typebox`
+
+*Unreleased.*
+
+## Why this changed
+
+TypeBox 1.0 moved to a new package, [`typebox`](https://www.npmjs.com/package/typebox), and
+the Fastify ecosystem followed: `@fastify/type-provider-typebox` 6 requires it. Schemas from
+the two packages do not understand each other. TypeBox keeps a schema's kind and its
+`Optional` modifier in hidden markers, and the two versions spell them differently (0.x uses
+symbols, 1.x uses `~kind` / `~optional` keys). A schema from one version placed inside an
+object built by the other loses its `Optional`: the field silently becomes required. Before
+this change, a consumer on the type provider was the one hitting it.
+
+## What changed
+
+- `Type` and `Static`, re-exported by `fastify-auto-sqlapi`, come from `typebox` 1.x.
+- `@sinclair/typebox` is no longer a dependency.
+- The JSON Schema sent to Fastify, Ajv and Swagger is unchanged: validation, serialization,
+  error shapes and the OpenAPI document are the same.
+
+## Who is affected
+
+- **Code that imports `Type` from `fastify-auto-sqlapi`** (the generated schema files,
+  `defineTable()` configs written as documented): nothing to do at runtime. TypeScript code
+  that names TypeBox types (`TSchema`, `TObject`, …) from `@sinclair/typebox` must import them
+  from `typebox` instead.
+- **Code that builds schemas with `@sinclair/typebox` directly** and passes them to this
+  package (`schemaOverrides`, computed fields, extra filters, hand-written schema files from
+  generator versions before February 2026): `Type.Optional` fields become required, which
+  turns into `400 required` on requests that omit them.
+
+## Migration
+
+- Import `Type` from `fastify-auto-sqlapi`, or install `typebox` (1.x) and replace
+  `'@sinclair/typebox'` with `'typebox'` in your imports. Any `typebox` 1.x copy works.
+- Re-running `npx sqlapi-generate-schema` regenerates schema files with the right import.
+- Search for leftovers: `grep -rn "@sinclair/typebox" src/`.

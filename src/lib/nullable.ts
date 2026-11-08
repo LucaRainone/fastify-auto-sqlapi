@@ -1,4 +1,4 @@
-import { Type, type Static, type TSchema, type TUnsafe } from '@sinclair/typebox';
+import { Type, IsOptional, type Static, type TSchema, type TUnsafe } from 'typebox';
 
 /**
  * Mark a schema as nullable using the JSON-Schema type-array form
@@ -12,12 +12,22 @@ import { Type, type Static, type TSchema, type TUnsafe } from '@sinclair/typebox
  * type array, while a bare `Type.Optional(T)` coerces NULL to the type's zero value.
  *
  * Schemas without a `type` keyword (e.g. `Type.Any()`) already admit null and are
- * returned unchanged.
+ * returned unchanged. An Optional input stays Optional: TypeBox keeps that modifier in a
+ * non-enumerable key, which the spread below does not copy.
  */
 export function Nullable<T extends TSchema>(schema: T): TUnsafe<Static<T> | null> {
   const type = (schema as { type?: string | string[] }).type;
-  if (!type) return schema;
+  if (!type) return alreadyNullable(schema);
   const types = Array.isArray(type) ? type : [type];
-  if (types.includes('null')) return schema;
-  return Type.Unsafe<Static<T> | null>({ ...schema, type: [...types, 'null'] });
+  if (types.includes('null')) return alreadyNullable(schema);
+  const nullable = Type.Unsafe<Static<T> | null>({ ...schema, type: [...types, 'null'] });
+  return IsOptional(schema) ? Type.Optional(nullable) : nullable;
+}
+
+/**
+ * A schema that already admits null, returned as-is: its static type already includes
+ * `null` (or is `any`), so only the TypeBox wrapper type differs from `TUnsafe`.
+ */
+function alreadyNullable<T extends TSchema>(schema: T): TUnsafe<Static<T> | null> {
+  return schema as unknown as TUnsafe<Static<T> | null>;
 }

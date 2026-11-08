@@ -1,5 +1,5 @@
 import { ConditionBuilder, type ConditionValueOrUndefined, type DialectName as CbDialect } from 'node-condition-builder';
-import { Type, type TSchema, type TObject } from '@sinclair/typebox';
+import { Type, type TSchema, type TObject } from 'typebox';
 import type {
   SchemaDefinition,
   JoinDefinition,

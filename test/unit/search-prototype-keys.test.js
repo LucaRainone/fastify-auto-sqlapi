@@ -6,7 +6,7 @@ import { createMockPg, createMockSchema, ROOT } from './_harness.js';
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
 const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
-const { Type } = await import('@sinclair/typebox');
+const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 const customerFields = { id: Type.Number(), name: Type.String() };
 const orderFields = { id: Type.Number(), customerId: Type.Number(), total: Type.Number() };

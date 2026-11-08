@@ -1,4 +1,4 @@
-import type { TSchema } from '@sinclair/typebox';
+import type { TSchema } from 'typebox';
 import { isCompositePrimary } from '../../types.js';
 import type { DbTables, ITable, JoinDefinition, TableOperation } from '../../types.js';
 import { writeExcludedFields } from '../write-access.js';
@@ -60,7 +60,8 @@ function shortType(schema: TSchema | undefined): string {
 }
 
 function isNullable(schema: TSchema | undefined): boolean {
-  const t = (schema as { type?: string | string[] } | undefined)?.type;
+  if (!schema) return false;
+  const t = (schema as { type?: string | string[] }).type;
   return Array.isArray(t) && t.includes('null');
 }
 

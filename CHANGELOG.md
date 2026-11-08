@@ -9,6 +9,17 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: TypeBox 1.x** ([`typebox`](https://www.npmjs.com/package/typebox)) replaces
+  `@sinclair/typebox` 0.34. `Type` and `Static` re-exported by this package now come from it.
+  Code that imports `Type` from `fastify-auto-sqlapi`, as the generated schema files do, needs
+  no change. Schemas built with `@sinclair/typebox` directly must move to `typebox` 1.x, or
+  their `Type.Optional` fields silently become required. Schemas from any `typebox` 1.x
+  copy, such as the one `@fastify/type-provider-typebox` 6 brings in, now mix freely with this
+  package's. See
+  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--typebox-1x-replaces-sinclairtypebox).
+
 ## [0.5.0]
 
 ### Changed

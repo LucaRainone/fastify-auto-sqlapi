@@ -1,4 +1,4 @@
-import { Type, type TObject, type TSchema } from '@sinclair/typebox';
+import { Type, type TObject, type TSchema } from 'typebox';
 import { primaryAsString } from '../../types.js';
 import type { DbTables } from '../../types.js';
 import { writableFields } from '../write-access.js';

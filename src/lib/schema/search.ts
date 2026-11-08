@@ -1,4 +1,4 @@
-import { Type, type TObject, type TSchema } from '@sinclair/typebox';
+import { Type, type TObject, type TSchema } from 'typebox';
 import { ALLOWED_METHODS, MAX_CONDITIONS, MAX_ORDER_BY_LENGTH } from '../condition-methods.js';
 import { readableFields } from './helpers.js';
 import { DEFAULT_MAX_ITEMS_PER_PAGE } from '../../types.js';

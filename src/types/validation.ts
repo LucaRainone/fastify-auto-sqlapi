@@ -1,4 +1,4 @@
-import type { TSchema, Static } from '@sinclair/typebox';
+import type { TSchema, Static } from 'typebox';
 import type { ApiRequest } from './request.js';
 import type { QueryClient } from '../lib/db.js';
 

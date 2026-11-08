@@ -12,7 +12,7 @@ const { bulkUpsertEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk/
 const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
-const { Type } = await import('@sinclair/typebox');
+const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 const norm = (text) => text.replace(/\s+/g, ' ').trim();
 

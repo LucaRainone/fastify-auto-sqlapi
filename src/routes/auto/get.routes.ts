@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 import { GetTableResponse } from '../../lib/schema/get.js';
 import { registerForAllTables } from './route-helpers.js';
 import type { SqlApiPluginOptions } from '../../types.js';

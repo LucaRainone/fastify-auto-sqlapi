@@ -36,6 +36,15 @@ describe('Nullable() helper', () => {
   it('is idempotent', () => {
     assert.deepEqual(Nullable(Nullable(Type.Integer())).type, ['integer', 'null']);
   });
+
+  it('keeps an Optional field optional whichever way the two are nested', () => {
+    const body = Type.Object({
+      outer: Type.Optional(Nullable(Type.Integer())),
+      inner: Nullable(Type.Optional(Type.Integer())),
+    });
+    assert.deepEqual(body.required ?? [], []);
+    assert.deepEqual(body.properties.inner.type, ['integer', 'null']);
+  });
 });
 
 // Schema as the (fixed) generator emits it: nullable FK and nullable string.

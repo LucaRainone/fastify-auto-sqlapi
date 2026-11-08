@@ -1,4 +1,4 @@
-import { Type, OptionalKind, type TSchema } from '@sinclair/typebox';
+import { Type, IsOptional, type TSchema } from 'typebox';
 import type { ITable, SchemaDefinition, DbTables, JoinDefinition } from '../../types.js';
 import { readableFieldNames } from '../read-access.js';
 import { writableFields } from '../write-access.js';
@@ -73,7 +73,7 @@ function buildSecondaryFields(
 
 /** The same schema without the Optional modifier, i.e. as a required property. */
 export function asRequired(schema: TSchema): TSchema {
-  if (!(OptionalKind in schema)) return schema;
+  if (!IsOptional(schema)) return schema;
   return Type.Required(Type.Object({ value: schema })).properties.value;
 }
 
@@ -131,7 +131,8 @@ function buildJoinAliasMap(
   for (const j of tableConf.allowedWriteJoins) {
     const sc = findSecondaryTableConf(dbTables, j.joinSchema.tableName);
     const item = Type.Object(build(j, sc), objOpts);
-    out[j.alias] = Type.Array(options.itemsPartial ? Type.Partial(item) : item);
+    // Partial rebuilds the object and drops the source's options: hand them over again.
+    out[j.alias] = Type.Array(options.itemsPartial ? Type.Partial(item, objOpts) : item);
   }
   return out;
 }
@@ -155,14 +156,15 @@ export function attachWriteJoinSections(
 
   // additionalProperties:false closes the alias container itself, not just the items: an alias
   // the table does not declare must be a validation error, never a key that reaches the engine.
+  // It goes on Partial itself: Partial rebuilds the object and drops the source's options.
   const aliasMap = { additionalProperties: false };
 
   target.secondaries = Type.Optional(
     Type.Partial(
       Type.Object(
-        buildJoinAliasMap(tableConf, dbTables, options.secondaryFields, { strictItems: options.strictItems }),
-        aliasMap
-      )
+        buildJoinAliasMap(tableConf, dbTables, options.secondaryFields, { strictItems: options.strictItems })
+      ),
+      aliasMap
     )
   );
   if (options.withDeletions) {
@@ -174,9 +176,9 @@ export function attachWriteJoinSections(
             dbTables,
             ({ joinSchema }) => joinSchema.fields,
             { itemsPartial: true },
-          ),
-          aliasMap
-        )
+          )
+        ),
+        aliasMap
       )
     );
   }

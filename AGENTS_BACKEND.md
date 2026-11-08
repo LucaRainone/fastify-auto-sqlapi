@@ -33,7 +33,7 @@ npx sqlapi-generate-tables --all # existing files are skipped, never overwritten
 
 - The generated table files detect PKs, `*Id` foreign keys as relations, and put every other key in as commented code.
 - The schema CLI prints what it could not decide for you: read that output. It covers database-generated columns (`GENERATED ALWAYS AS`, put in the Schema's `generatedFields` and never writable) and identity/auto-increment PKs (made optional and listed in `excludeFromCreation`). It also prints each view's inferred PK (see Views).
-- Schema files import `Type` from `fastify-auto-sqlapi` to avoid duplicate-TypeBox `[Kind]` errors. Their default export (`addSchema`) is optional, only for Swagger `$ref`.
+- Schema files import `Type` from `fastify-auto-sqlapi`; do the same for `schemaOverrides`, computed fields and extra filters. Any `typebox` 1.x schema works too, but one built with the legacy `@sinclair/typebox` 0.x loses its markers here: its `Type.Optional` fields silently become required. Their default export (`addSchema`) is optional, only for Swagger `$ref`.
 
 ## Server setup
 

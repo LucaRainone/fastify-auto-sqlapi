@@ -11,7 +11,7 @@ const { UpdateTableBody } = await import(path.join(ROOT, 'dist/lib/schema/update
 const { BulkUpsertTableBody } = await import(path.join(ROOT, 'dist/lib/schema/bulk-upsert.js'));
 const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
-const { Type } = await import('@sinclair/typebox');
+const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 function createMockSchema(tableName, fields) {
   return {

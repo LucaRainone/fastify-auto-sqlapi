@@ -13,7 +13,7 @@ const { exportTableInfo, buildRelation, defineTable } =
 const { SearchTableBodyPost, SearchTableResponse } =
   await import(path.join(ROOT, 'dist/lib/schema/search.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
-const { Type } = await import('@sinclair/typebox');
+const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 // `fields` narrows a relation to an allowlist: the join exposes those columns and nothing
 // else, on every read surface. Without it the only way to expose a table broadly while

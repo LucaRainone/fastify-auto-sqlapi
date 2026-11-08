@@ -74,6 +74,17 @@ export default tseslint.config(
     rules: {
       // Not enabled by sonarjs/recommended, but core to catching duplication as it is typed.
       'sonarjs/no-duplicate-string': 'error',
+      'no-restricted-syntax': [
+        'error',
+        {
+          // TypeBox's Partial rebuilds the object and keeps none of the source's options, so
+          // `additionalProperties: false` passed to the inner Object would silently vanish.
+          selector:
+            "CallExpression[callee.property.name='Partial'][arguments.0.callee.property.name='Object'][arguments.0.arguments.length>1]",
+          message:
+            'Type.Partial drops the options of the Object it wraps: pass them to Type.Partial(Type.Object(fields), options).',
+        },
+      ],
       ...DEBT,
     },
   },

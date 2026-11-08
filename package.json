@@ -82,9 +82,9 @@
   },
   "homepage": "https://github.com/LucaRainone/fastify-auto-sqlapi#readme",
   "dependencies": {
-    "@sinclair/typebox": "^0.34.14",
     "fastify-plugin": "^6.0.0",
-    "node-condition-builder": "^1.2.0"
+    "node-condition-builder": "^1.2.0",
+    "typebox": "^1.4.6"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

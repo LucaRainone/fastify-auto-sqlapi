@@ -1,5 +1,5 @@
 import type { Expression, ConditionBuilder, ConditionValueOrUndefined, DialectName as CbDialect } from 'node-condition-builder';
-import type { TSchema, Static } from '@sinclair/typebox';
+import type { TSchema, Static } from 'typebox';
 import type { ApiRequest, ApiReply } from './request.js';
 import type { QueryClient } from '../lib/db.js';
 import type { SchemaDefinition } from './schema.js';

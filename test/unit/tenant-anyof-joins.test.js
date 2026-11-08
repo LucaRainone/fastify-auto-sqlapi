@@ -13,7 +13,7 @@ import { createMockPg, createMockSchema, ROOT } from './_harness.js';
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
 const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
-const { Type } = await import('@sinclair/typebox');
+const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 const shiftFields = { id: Type.Number(), agentId: Type.Number(), day: Type.String() };
 const swapFields = {

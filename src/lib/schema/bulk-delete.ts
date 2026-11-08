@@ -1,4 +1,4 @@
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 import { primaryAsString } from '../../types.js';
 import type { DbTables } from '../../types.js';
 

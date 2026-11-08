@@ -10,7 +10,7 @@ import { ROOT, createMockSchema } from './_harness.js';
 
 const { defineTable, exportTableInfo, buildRelation, buildUpsertRules, buildUpsertRule } =
   await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
-const { Type } = await import('@sinclair/typebox');
+const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 /** A Schema as the CLI generates it: primaryKey and uniqueKeys introspected from the DB. */
 function generatedSchema(tableName, fields, meta) {

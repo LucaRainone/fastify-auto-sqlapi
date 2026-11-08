@@ -1,4 +1,4 @@
-import { Type, type TObject } from '@sinclair/typebox';
+import { Type, type TObject } from 'typebox';
 import { readableFields } from './helpers.js';
 import type { DbTables } from '../../types.js';
 

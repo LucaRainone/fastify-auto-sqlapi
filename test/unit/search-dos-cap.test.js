@@ -12,7 +12,7 @@ const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { getDialect } = await import(path.join(ROOT, 'dist/lib/dialect.js'));
-const { Type } = await import('@sinclair/typebox');
+const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 const DIALECTS = ['postgres', 'mysql'];
 

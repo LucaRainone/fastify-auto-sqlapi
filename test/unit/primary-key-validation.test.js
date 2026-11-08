@@ -17,7 +17,7 @@ const ROOT = path.resolve(__dirname, '../..');
 
 const { defineTable, exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
-const { Type } = await import('@sinclair/typebox');
+const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 const fields = {
   id: Type.Optional(Type.Integer()),

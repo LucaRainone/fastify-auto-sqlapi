@@ -14,7 +14,7 @@ const { SearchTableBodyPost, SearchTableResponse } = await import(path.join(ROOT
 const { InsertTableBody } = await import(path.join(ROOT, 'dist/lib/schema/insert.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
-const { Type } = await import('@sinclair/typebox');
+const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 function createMockSchema(tableName, fields) {
   return {

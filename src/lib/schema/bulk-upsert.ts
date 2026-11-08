@@ -1,4 +1,4 @@
-import { Type, type TSchema } from '@sinclair/typebox';
+import { Type, type TSchema } from 'typebox';
 import { primaryAsString } from '../../types.js';
 import type { DbTables } from '../../types.js';
 import { writableFields } from '../write-access.js';
@@ -15,11 +15,10 @@ export function BulkUpsertTableBody(dbTables: DbTables, tableName: string, maxIt
   const schema = tableConf.Schema;
 
   // additionalProperties:false makes the schema the real write whitelist (no mass assignment).
+  // It goes on Partial itself: Partial rebuilds the object and drops the source's options.
   const mainSchema = Type.Partial(
-    Type.Object(
-      writableFields(applySchemaOverrides({ ...schema.fields }, tableConf), tableConf, schema),
-      { additionalProperties: false }
-    )
+    Type.Object(writableFields(applySchemaOverrides({ ...schema.fields }, tableConf), tableConf, schema)),
+    { additionalProperties: false }
   );
 
   const itemProperties: Record<string, TSchema> = {

@@ -15,7 +15,7 @@ const { bulkUpsertEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk/
 const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/insert.js'));
 const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
-const { Type } = await import('@sinclair/typebox');
+const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 const tagSchema = createMockSchema('tag', {
   id: Type.Optional(Type.Integer()),

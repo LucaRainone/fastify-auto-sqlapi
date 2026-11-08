@@ -11,7 +11,6 @@
 // on the wrong parameter, which is exactly how the computed-field misbinding survived a
 // fully green suite.
 
-import { Type } from '@sinclair/typebox';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -19,6 +18,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(__dirname, '../..');
 
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
+const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 /** Count `?` markers, ignoring the `\?` escape. */
 function countMarkers(sql) {

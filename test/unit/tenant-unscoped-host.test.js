@@ -15,7 +15,7 @@ import { createMockPg, createMockSchema, ROOT } from './_harness.js';
 
 const { createSqlApi } = await import(path.join(ROOT, 'dist/lib/sql-api.js'));
 const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
-const { Type } = await import('@sinclair/typebox');
+const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 const shiftSchema = createMockSchema('shift', {
   id: Type.Number(),

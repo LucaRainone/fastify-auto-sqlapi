@@ -9,10 +9,9 @@ import path from 'node:path';
 import Fastify from 'fastify';
 import { createMockPg, createMockSchema, ROOT } from './_harness.js';
 
-const { fastifyAutoSqlApi } = await import(path.join(ROOT, 'dist/index.js'));
+const { fastifyAutoSqlApi, Type } = await import(path.join(ROOT, 'dist/index.js'));
 const { createSqlApi } = await import(path.join(ROOT, 'dist/lib/sql-api.js'));
 const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
-const { Type } = await import('@sinclair/typebox');
 
 // `id` is optional so the same schema validates an insert body (no id yet) and an update body.
 const customerSchema = createMockSchema('customer', {

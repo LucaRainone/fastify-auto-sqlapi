@@ -26,7 +26,7 @@ const { BulkUpsertTableBody } = await import(path.join(ROOT, 'dist/lib/schema/bu
 const { buildAgentManifest } = await import(path.join(ROOT, 'dist/lib/agent/manifest.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
-const { Type } = await import('@sinclair/typebox');
+const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 const mockRequest = {};
 

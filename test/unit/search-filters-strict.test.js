@@ -10,10 +10,9 @@ const ROOT = path.resolve(__dirname, '../..');
 const { SearchTableBodyPost } = await import(path.join(ROOT, 'dist/lib/schema/search.js'));
 const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
-const { searchRoutes } = await import(path.join(ROOT, 'dist/index.js'));
+const { searchRoutes, Type } = await import(path.join(ROOT, 'dist/index.js'));
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
-const { Type } = await import('@sinclair/typebox');
 
 // A filter key the engine does not recognise used to be dropped in silence: the request
 // came back with MORE rows than the caller asked for, and nothing said so. Write paths have

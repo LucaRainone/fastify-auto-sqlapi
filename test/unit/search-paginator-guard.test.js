@@ -8,7 +8,7 @@ const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { SearchTableBodyPost, SearchTableQuery } = await import(path.join(ROOT, 'dist/lib/schema/search.js'));
 const { MAX_CONDITIONS, MAX_ORDER_BY_LENGTH } = await import(path.join(ROOT, 'dist/lib/condition-methods.js'));
-const { Type } = await import('@sinclair/typebox');
+const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 const schema = createMockSchema('customer', { id: Type.Number(), name: Type.String() });
 const tableConf = { primary: 'id', ...exportTableInfo(schema), defaultOrder: 'id' };
