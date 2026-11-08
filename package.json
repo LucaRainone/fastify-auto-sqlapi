@@ -69,7 +69,7 @@
     "typebox"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "author": "Luca Rainone",
   "license": "MIT",

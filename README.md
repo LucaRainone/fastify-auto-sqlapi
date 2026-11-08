@@ -325,7 +325,7 @@ request says exactly what to fix.
 
 ## Requirements
 
-- Node.js >= 18, Fastify >= 5 (peer dependency)
+- Node.js >= 22, Fastify >= 5 (peer dependency)
 - **PostgreSQL** + `pg` + `@fastify/postgres`, or **MySQL** / **MariaDB** + `mysql2`
 - Optional: `@fastify/swagger` + `@fastify/swagger-ui` for Swagger UI
 

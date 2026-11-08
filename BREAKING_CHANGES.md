@@ -873,3 +873,25 @@ some main rows have no children:
 - Conditions are ANDed, so "below 5 **or** no children" is no longer one request: run the
   `isNull` search separately, or compare against a `count` instead where that expresses the
   same thing.
+
+# Breaking Change — Node.js 22 or newer is required
+
+*Unreleased.*
+
+## Why this changed
+
+`engines.node` said `>=18`, but no Node version other than 24 was tested, and the promise
+was already wrong: Fastify 5, a required peer dependency, supports Node 20 and later only.
+Node 18 and Node 20 are both end-of-life, so the floor now starts at the oldest maintained
+LTS line, and CI runs the full gate on Node 22, 24 and 26 to keep that promise checked.
+
+## Who is affected
+
+Deployments still running Node 18 or 20. Nothing in the API, the request/response shapes
+or the table configuration changes.
+
+## Migration
+
+Upgrade the runtime to Node 22 or newer. npm only warns on an `engines` mismatch (it fails
+with `engine-strict=true`), so a deployment on an older Node may keep installing, but it is
+no longer supported or tested.

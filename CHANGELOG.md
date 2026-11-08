@@ -9,6 +9,20 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: Node.js 22 or newer is required** (`engines.node` is now `>=22`, was `>=18`).
+  Node 18 and 20 are end-of-life, and Fastify 5 never supported Node 18. CI now runs the
+  full gate on Node 22, 24 and 26. See
+  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--nodejs-22-or-newer-is-required).
+
+### Security
+
+- Development dependencies only, nothing shipped in the package: `fastify` 5.12.8
+  (GHSA-4mh8-r7rc-xpvc, GHSA-389g-gv7q-r4x8) and `minimatch` forced to `^11.0.5` through
+  `overrides` (GHSA-g3hv-75wg-m249) until eslint, typescript-eslint, eslint-plugin-sonarjs
+  and ts-morph move off minimatch 10.
+
 ## [0.4.1]
 
 ### Changed

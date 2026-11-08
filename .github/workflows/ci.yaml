@@ -8,11 +8,18 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    strategy:
+      # Report every Node version, not only the first one to fail.
+      fail-fast: false
+      matrix:
+        # Every maintained LTS line from the `engines` floor up.
+        node-version: ['22', '24', '26']
+    name: verify (Node ${{ matrix.node-version }})
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: ${{ matrix.node-version }}
           cache: 'npm'
       - run: npm ci
       # Same gate the agent runs locally: check, build, dup, depcruise, knip, unit tests.
