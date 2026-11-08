@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { SearchTableBodyPost, SearchTableQuery, SearchTableResponse } from '../../lib/schema/search.js';
 import { registerForAllTables } from './route-helpers.js';
-import { httpError } from '../../lib/errors.js';
 import { DEFAULT_MAX_ITEMS_PER_PAGE } from '../../types.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
@@ -37,11 +36,9 @@ export default async function searchRoutes(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const query = request.query as Record<string, any>;
 
-      // DoS guard: bound the page size and the no-paginator LIMIT.
+      // DoS guard: the page size cap is the querystring schema's `maximum` (a structured
+      // 400); here it is the LIMIT applied when the client does not paginate.
       const maxRows = options.maxItemsPerPage ?? DEFAULT_MAX_ITEMS_PER_PAGE;
-      if (query.itemsPerPage != null && query.itemsPerPage > maxRows) {
-        throw httpError(400, `itemsPerPage exceeds the maximum of ${maxRows}`);
-      }
 
       const result = await fastify.sqlApi.search(tableName, {
         filters: body.filters,

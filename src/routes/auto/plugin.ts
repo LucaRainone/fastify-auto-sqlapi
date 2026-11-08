@@ -1,3 +1,4 @@
+import { STATUS_CODES } from 'node:http';
 import type { FastifyInstance, FastifyError } from 'fastify';
 import fp from 'fastify-plugin';
 import { ConditionBuilder } from 'node-condition-builder';
@@ -12,14 +13,16 @@ import deleteRoutes from './delete.routes.js';
 import bulkUpsertRoutes from './bulk-upsert.routes.js';
 import bulkDeleteRoutes from './bulk-delete.routes.js';
 import agentManifestRoutes from './agent-manifest.routes.js';
-import type { SqlApiPluginOptions } from '../../types.js';
+import type { SqlApiPluginOptions, ValidationField } from '../../types.js';
 
 type AjvValidationErrors = NonNullable<FastifyError['validation']>;
 
-interface ValidationResponseField {
-  path: string;
-  message: string;
-  code: string;
+/** What an error thrown inside a route may carry for the response, besides `statusCode`. */
+interface CarriedErrorInfo {
+  /** The `fields` of a 400: set by `httpError` (engine) and by `validate`/`validateBulk`. */
+  validationErrors?: ValidationField[];
+  /** Set under `exposeDebugInfo` on a sanitized 500 (ADR 0013). */
+  debugInfo?: Record<string, unknown>;
 }
 
 // Schema combinators for which Ajv reports one error per failed branch plus a
@@ -36,7 +39,7 @@ const COMBINATOR_KEYWORDS = new Set(['anyOf', 'oneOf']);
  * errors, then deduplicate any remaining identical entries. `required` errors are
  * re-pointed from the parent object to the actually missing property.
  */
-function normalizeAjvErrors(errors: AjvValidationErrors): ValidationResponseField[] {
+function normalizeAjvErrors(errors: AjvValidationErrors): ValidationField[] {
   const toPath = (v: AjvValidationErrors[number]): string => {
     const path = (v.instancePath || '').replace(/\//g, '.').replace(/^\./, '');
     const missing = (v.params as { missingProperty?: string })?.missingProperty;
@@ -46,10 +49,10 @@ function normalizeAjvErrors(errors: AjvValidationErrors): ValidationResponseFiel
     return path;
   };
 
-  const mapped = errors.map((v) => ({
+  const mapped: ValidationField[] = errors.map((v) => ({
     path: toPath(v),
-    message: v.message || 'invalid',
     code: v.keyword || 'unknown',
+    message: v.message || 'invalid',
   }));
 
   const combinatorPaths = new Set(
@@ -80,44 +83,26 @@ export default fp(async function fastifyAutoSqlApi(
   // Routes in a child scope — prefix applies here, not at fp level
   const { prefix, ...routeOptions } = options;
   await fastify.register(async (instance) => {
-    // Structured validation errors with field-level detail
+    // One envelope for every error, whoever raised it:
+    //   { statusCode, error, message, requestId, fields? }
+    // `error` is the status' reason phrase, never a JS error's class name. `requestId` is the
+    // same value Fastify logs as `reqId`, so any error can be traced to its log line. Every
+    // 400 carries `fields` — from the request schema (Ajv), from `validate`/`validateBulk`,
+    // or from the engine through `httpError` — so a client has one place to look, and an
+    // empty array when the rejection is not attributable to one input. `debugInfo` is
+    // additive, under `exposeDebugInfo` only (ADR 0013).
     instance.setErrorHandler((error: FastifyError, request, reply) => {
-      // Schema validation errors (Ajv)
-      if (error.validation) {
-        const fields = normalizeAjvErrors(error.validation);
-        return reply.status(400).send({
-          statusCode: 400,
-          error: 'Bad Request',
-          message: 'Validation failed',
-          fields,
-        });
-      }
+      const carried = error as FastifyError & CarriedErrorInfo;
+      const statusCode = error.validation ? 400 : (error.statusCode || 500);
+      const fields = error.validation ? normalizeAjvErrors(error.validation) : carried.validationErrors;
 
-      // Custom validation errors (validate / validateBulk)
-      const validationErrors = (error as any).validationErrors;
-      if (validationErrors) {
-        return reply.status(400).send({
-          statusCode: 400,
-          error: 'Bad Request',
-          message: 'Validation failed',
-          fields: validationErrors,
-        });
-      }
-
-      const statusCode = error.statusCode || 500;
-      // A sanitized error carries the request id so the client can point at the log line
-      // holding the real cause, and — under `exposeDebugInfo` — the description of that
-      // cause (ADR 0013). Both are additive: the fields above never change shape.
-      const sanitized = error as Error & {
-        requestId?: string;
-        debugInfo?: Record<string, unknown>;
-      };
       reply.status(statusCode).send({
         statusCode,
-        error: error.name || 'Error',
-        message: error.message,
-        ...(sanitized.requestId ? { requestId: sanitized.requestId } : {}),
-        ...(sanitized.debugInfo ? { debugInfo: sanitized.debugInfo } : {}),
+        error: STATUS_CODES[statusCode] ?? 'Error',
+        message: error.validation ? 'Validation failed' : error.message,
+        requestId: request.id,
+        ...(statusCode === 400 ? { fields: fields ?? [] } : {}),
+        ...(carried.debugInfo ? { debugInfo: carried.debugInfo } : {}),
       });
     });
 

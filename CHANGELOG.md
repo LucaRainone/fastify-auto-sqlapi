@@ -14,8 +14,25 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 - **`target` on `buildRelation`**: the `dbTables` key whose config governs the joined table.
   Needed only when the same physical table is exposed under several keys.
+- **One error envelope**, `{statusCode, error, message, requestId, fields?}`, for every error
+  the routes return. `requestId` is now on every error, not only on 500s. Every 400 carries
+  `fields` (`{path, code, message}[]`): the engine's rejections — unknown field or alias,
+  bad condition params, malformed `orderBy`, request limits, upsert keys, ambiguous tenant —
+  now name a stable `code` and the request path of the offending value, where one exists.
+  Codes and the path grammar are listed in AGENTS_FRONTEND.md.
+- **`ValidationField`** (exported type): one entry of `fields`. **`httpError`** is exported,
+  so a hook can throw a 400 in the same shape: `httpError(400, msg, { code, path })`.
 
 ### Changed
+
+- **`error` in error responses is the HTTP reason phrase** (`Bad Request`, `Not Found`,
+  `Forbidden`) for every status. The 4xx the engine raised reported `Error`, the JS class
+  name, while schema errors and 500s already used the phrase.
+- The `validate`/`validateBulk` examples use the request path grammar (`main.name`,
+  `secondaries.orders.0.total`). Tuples are still rendered verbatim: nothing changes for
+  existing hooks, but paths in that grammar are what a client can map to its form.
+- The search route no longer re-checks `itemsPerPage` against `maxItemsPerPage`: the
+  querystring schema's `maximum` already rejects it, as a structured 400.
 
 - **BREAKING: a relation over a table that `dbTables` exposes under several keys must name
   its `target`.** Startup fails otherwise, naming the host table, the relation and the

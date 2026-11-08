@@ -123,14 +123,16 @@ Upsert tables (see manifest):
 
 ## Errors
 
-400 (schema or business validation): map `fields[].path` to form fields.
+Every error has one shape. `error` is the HTTP reason phrase; `requestId` is the server log's `reqId`, quote it when reporting a problem.
 
 ```json
-{ "statusCode": 400, "error": "Bad Request", "message": "Validation failed",
-  "fields": [ { "path": "body.main.name", "code": "required", "message": "must have required property 'name'" } ] }
+{ "statusCode": 400, "error": "Bad Request", "message": "Validation failed", "requestId": "req-1",
+  "fields": [ { "path": "main.name", "code": "required", "message": "must have required property 'name'" } ] }
 ```
 
-- 403: tenant violation.
-- 404: record not found, or outside your tenant.
-- 500: DB errors (e.g. constraint violations), unmapped, with a `requestId` to report.
-- Per search, max 100 `conditions` per section (top level and each join) and max 20 `orderBy` parts (≤ 1024 chars); over either → 400. Collapse many equality conditions into one `isIn`.
+- 400 always carries `fields`, whether the request failed the schema, the backend's business validation or the engine. Map `fields[].path` to form fields; when `fields` is empty, show `message`.
+  - `path` is the dot path of the offending value in the request: body keys from the root (`main.name`, `secondaries.orders.0.total`, `filters.status`, `conditions.2.params`, `joinGroup.orders.aggregations.by`, `joinMultiple.orders.selection`), querystring and path parameters by name (`orderBy`, `itemsPerPage`, `id`). `""` when the error is not attributable to one input.
+  - `code` is stable: an Ajv keyword (`required`, `type`, `maximum`, `additionalProperties`, `enum`…), a code the backend chose in its own validation, or an engine code: `unknown_field`, `not_readable`, `unknown_alias`, `wrong_join_family`, `invalid_method`, `invalid_params`, `invalid_order_by`, `invalid_paginator`, `invalid_aggregation`, `undeclared_aggregation`, `bound_values_not_allowed`, `extra_filter_not_allowed`, `limit_exceeded`, `missing_key`, `duplicate_key`, `ambiguous_tenant`. The engine's `message` repeats the field's.
+- 403: tenant violation. 404: record not found, or outside your tenant. No `fields`.
+- 500: DB errors (e.g. constraint violations), unmapped: `message` is fixed, the detail is in the server log under `requestId`.
+- Per search, max 100 `conditions` per section (top level and each join) and max 20 `orderBy` parts (≤ 1024 chars); over either → 400 `limit_exceeded`. Collapse many equality conditions into one `isIn`.

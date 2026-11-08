@@ -60,7 +60,12 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
   const pkValues = pkFields.map((f) => record[f]);
 
   const missingIdx = pkValues.findIndex((v) => v == null);
-  if (missingIdx !== -1) throw httpError(400, `Primary key "${pkFields[missingIdx]}" is required`);
+  if (missingIdx !== -1) {
+    throw httpError(400, `Primary key "${pkFields[missingIdx]}" is required`, {
+      code: 'required',
+      path: `main.${pkFields[missingIdx]}`,
+    });
+  }
 
   // 1. Tenant ownership check (indirect) — do it early so user mutations don't run on records they can't access
   await assertTenantOwnership(db, tenant, schema.tableName, pkCols, pkValues as ConditionValue[]);

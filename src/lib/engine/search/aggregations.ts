@@ -63,30 +63,31 @@ export function buildAggOrderExpr(
   fn: string,
   field: string,
   joinGroup: Record<string, JoinGroupRequest> | undefined,
-  tenant?: TenantContext
+  tenant?: TenantContext,
+  at = ''
 ): Expression {
   const aggFn = AGG_FN[fn];
-  if (!aggFn) err400(`Invalid aggregation function: ${fn}`);
+  if (!aggFn) err400('invalid_aggregation', at, `Invalid aggregation function: ${fn}`);
 
   const groupReq = joinGroup?.[alias];
-  if (!groupReq) err400(`orderBy/conditions reference undeclared joinGroup: ${alias}`);
+  if (!groupReq) err400('undeclared_aggregation', at, `orderBy/conditions reference undeclared joinGroup: ${alias}`);
 
   const declaredFields = (groupReq.aggregations as Record<string, unknown>)[fn];
   if (!Array.isArray(declaredFields) || !declaredFields.includes(field)) {
-    err400(`orderBy/conditions reference undeclared aggregation: ${alias}.${fn}.${field}`);
+    err400('undeclared_aggregation', at, `orderBy/conditions reference undeclared aggregation: ${alias}.${fn}.${field}`);
   }
 
-  const joinDef = requireJoin(tableConf, alias, false);
+  const joinDef = requireJoin(tableConf, alias, false, at);
   const { joinSchema, joinField } = joinDef;
 
   if (groupReq.aggregations.by && groupReq.aggregations.by !== joinField) {
-    err400(`Cannot order by aggregation on joinGroup with 'by' clause on non-FK column: ${alias} (grouped by '${groupReq.aggregations.by}', correlation FK is '${joinField}')`);
+    err400('invalid_aggregation', at, `Cannot order by aggregation on joinGroup with 'by' clause on non-FK column: ${alias} (grouped by '${groupReq.aggregations.by}', correlation FK is '${joinField}')`);
   }
 
   // Pass the join table's conf: without it validateSchemaField skips the readExclude
   // check, and a HAVING-style condition on a hidden field becomes a 400-vs-200 oracle
   // (executeJoinGroup's own validation is skipped when the main result set is empty).
-  const fieldCol = validateSchemaField(field, joinSchema, resolveJoinTableConf(dbTables, joinDef));
+  const fieldCol = validateSchemaField(field, joinSchema, resolveJoinTableConf(dbTables, joinDef), at);
   const refs = extractJoinRefs(db, tableConf, joinDef);
 
   // The subquery FROM is aliased so the correlation to the outer table survives a
@@ -116,6 +117,7 @@ export function buildAggOrderExpr(
       { filters: groupReq.filters, conditions: groupReq.conditions },
       db,
       subAlias,
+      `joinGroup.${alias}`,
     );
     const fragment = cb.toExpression();
     if (fragment.value) {
@@ -143,24 +145,25 @@ export function appendAggConditions(
 ): string {
   let where = '';
 
-  for (const c of conditions) {
+  for (const [i, c] of conditions.entries()) {
     if (!c.field.includes('.')) continue;
 
+    const here = `conditions.${i}`;
     if (!ALLOWED_SET.has(c.method)) {
-      err400(`Invalid condition method: ${c.method}`);
+      err400('invalid_method', `${here}.method`, `Invalid condition method: ${c.method}`);
     }
 
     const parts = c.field.split('.');
     if (parts.length !== 3) {
-      err400(`Invalid dotted field in condition: ${c.field} (expected <alias>.<fn>.<field>)`);
+      err400('unknown_field', `${here}.field`, `Invalid dotted field in condition: ${c.field} (expected <alias>.<fn>.<field>)`);
     }
     const [alias, fn, field] = parts;
 
     // The aggregate carries the values of its own filter; passing it as the left-hand side
     // lets the ConditionBuilder place those and the compared value in one step.
-    const expr = buildAggOrderExpr(db, dbTables, tableConf, alias, fn, field, joinGroup, tenant);
+    const expr = buildAggOrderExpr(db, dbTables, tableConf, alias, fn, field, joinGroup, tenant, `${here}.field`);
     const tmpCb = new ConditionBuilder('AND', db.cbDialect);
-    dispatchConditionMethod(tmpCb, c.method, expr, c.params);
+    dispatchConditionMethod(tmpCb, c.method, expr, c.params, here);
     where += ` AND ${params.emitCondition(tmpCb, db)}`;
   }
 

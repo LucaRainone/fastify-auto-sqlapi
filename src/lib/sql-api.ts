@@ -101,7 +101,7 @@ export class SqlApi {
 
   private getTableConf(tableName: string) {
     const conf = this.dbTables[tableName];
-    if (!conf) throw httpError(400, `Table "${tableName}" not found in DbTables`);
+    if (!conf) throw httpError(400, `Table "${tableName}" not found in DbTables`, { code: 'unknown_table' });
     return conf;
   }
 

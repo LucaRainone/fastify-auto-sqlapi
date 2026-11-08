@@ -1,14 +1,14 @@
 import type { ApiRequest } from '../../types/request.js';
 import type { QueryClient } from '../db.js';
-import type { TableConfig, ValidationError, BulkValidatorItem, RowsByAlias } from '../../types.js';
+import type {
+  TableConfig,
+  ValidationError,
+  ValidationField,
+  BulkValidatorItem,
+  RowsByAlias,
+} from '../../types.js';
 
-interface ValidationResponseField {
-  path: string;
-  code: string;
-  message: string;
-}
-
-function toResponseFields(errors: ValidationError[]): ValidationResponseField[] {
+function toResponseFields(errors: ValidationError[]): ValidationField[] {
   return errors.map(([path, code, message]) => ({
     path,
     code,
@@ -45,10 +45,10 @@ export async function runBulkValidation(
   }
 }
 
-function throwValidationError(fields: ValidationResponseField[]): never {
+function throwValidationError(fields: ValidationField[]): never {
   const error = new Error('Validation failed') as Error & {
     statusCode: number;
-    validationErrors: ValidationResponseField[];
+    validationErrors: ValidationField[];
   };
   error.statusCode = 400;
   error.validationErrors = fields;

@@ -153,15 +153,16 @@ export const TableCustomer = defineTable({
 
   // --- validation: after schema validation, before hooks and SQL. Any error → 400, nothing written ---
   validate: async (db, req, main, secondaries) => { // camelCase, secondaries keyed by alias
-    const errors: ValidationError[] = []; // [field, code] or [field, code, message]
-    if (!main.name) errors.push(['name', 'required']);
-    const orders = secondaries?.orders ?? [];
-    if (orders.some((o) => o.total < 0)) errors.push(['orders[0].total', 'min', 'must be >= 0']);
+    const errors: ValidationError[] = []; // [path, code] or [path, code, message]; path = dot path in the request body: main.<field>, secondaries.<alias>.<i>.<field>, '' when not attributable
+    if (!main.name) errors.push(['main.name', 'required']);
+    (secondaries?.orders ?? []).forEach((o, i) => {
+      if (o.total < 0) errors.push([`secondaries.orders.${i}.total`, 'min', 'must be >= 0']);
+    });
     return errors;
   },
-  validateBulk: async (db, req, items) => { // bulk upsert: called once with [{ main, secondaries? }]; when defined, per-item validate is skipped in bulk
+  validateBulk: async (db, req, items) => { // bulk upsert: called once with [{ main, secondaries? }]; when defined, per-item validate is skipped in bulk. Paths start with items.<i>
     const codes = items.map((i) => i.main.code);
-    return new Set(codes).size === codes.length ? [] : [['code', 'batch_unique']];
+    return new Set(codes).size === codes.length ? [] : [['', 'batch_unique', 'codes must be unique within the batch']];
   },
 
   // --- hooks: camelCase records, mutations reach the SQL ---
@@ -189,7 +190,7 @@ Nullable columns are generated as `Type.Optional(Nullable(T))`, i.e. `{ type: ['
 
 Write bodies are closed (`additionalProperties: false`), so a column that is not in the Schema can never be written (no mass assignment). With Fastify's default `removeAdditional: true`, unknown properties are stripped silently. `Fastify({ ajv: { customOptions: { removeAdditional: false } } })` makes them a 400.
 
-Errors the plugin raises itself are 4xx with client-safe messages. Anything else (a constraint violation, a hook throwing without `statusCode`) returns a fixed `{statusCode:500, error, message:"Internal Server Error", requestId}`: the driver error is logged and set as `err.cause`, and no status is remapped. To map it, add a `setErrorHandler` that checks `err.cause.code === '23505'` and returns 409. Errors thrown by `onRequests` are unaffected.
+Every error the routes return has one envelope, `{statusCode, error, message, requestId, fields?}` (AGENTS_FRONTEND.md, "Errors"): `error` is the reason phrase, `requestId` the log's `reqId`, and every 400 carries `fields` as `ValidationField[]`. Errors the plugin raises itself are 4xx with client-safe messages. To answer in the same shape from a hook, throw `httpError(400, 'Order is closed', { code: 'closed', path: 'main.status' })` (exported); a thrown error with another `statusCode` is rendered as is, without `fields`. Anything else (a constraint violation, a hook throwing without `statusCode`) returns a fixed `{statusCode:500, error, message:"Internal Server Error", requestId}`: the driver error is logged and set as `err.cause`, and no status is remapped. To map it, add a `setErrorHandler` that checks `err.cause.code === '23505'` and returns 409. Errors thrown by `onRequests` are unaffected.
 
 ## Relations
 

@@ -56,17 +56,17 @@ function assertRequestWithinLimits(params: SearchParams): void {
     for (const key of ['page', 'itemsPerPage'] as const) {
       const value: unknown = paginator[key];
       if (!Number.isInteger(value) || (value as number) < 1) {
-        err400(`Invalid paginator: '${key}' must be an integer >= 1`);
+        err400('invalid_paginator', key, `Invalid paginator: '${key}' must be an integer >= 1`);
       }
     }
   }
 
   if (conditions && conditions.length > MAX_CONDITIONS) {
-    err400(`Too many conditions: ${conditions.length} (max ${MAX_CONDITIONS})`);
+    err400('limit_exceeded', 'conditions', `Too many conditions: ${conditions.length} (max ${MAX_CONDITIONS})`);
   }
 
   if (orderBy && orderBy.split(',').length > MAX_ORDER_BY_PARTS) {
-    err400(`Too many orderBy parts: max ${MAX_ORDER_BY_PARTS}`);
+    err400('limit_exceeded', 'orderBy', `Too many orderBy parts: max ${MAX_ORDER_BY_PARTS}`);
   }
 }
 
@@ -104,12 +104,13 @@ async function executeMainQuery(
   let columns: string | undefined = readableColumns;
   if (selectComputed?.length) {
     const projections = [readableColumns ?? '*'];
-    for (const name of selectComputed) {
+    for (const [i, name] of selectComputed.entries()) {
       const fn = ownField(tableConf.computedFields, name);
-      if (!fn) err400(`Unknown computed field in selectComputed: '${name}'`);
+      if (!fn) err400('unknown_field', `selectComputed.${i}`, `Unknown computed field in selectComputed: '${name}'`);
       const out = evaluateComputedField(
         name, fn, tableConf.Schema, db, undefined,
         `Computed field '${name}' with bound values cannot be used in selectComputed`,
+        false, `selectComputed.${i}`,
       );
       projections.push(`${out.value} AS ${db.qi(name)}`);
     }
@@ -161,11 +162,12 @@ async function buildPagination(
 
   for (const { key, field, fn } of computations) {
     if (field) {
-      const ref = resolveFieldRef(field, tableConf.Schema, tableConf, db);
+      const param = `compute${key.charAt(0).toUpperCase() + key.slice(1)}`;
+      const ref = resolveFieldRef(field, tableConf.Schema, tableConf, db, undefined, param);
       // The aggregate sits in the SELECT list, before the WHERE values: a computed that
       // binds parameters cannot be placed here.
       if (refValues(ref.expr).length > 0) {
-        err400(`Computed field '${field}' with bound values cannot be used in compute${key.charAt(0).toUpperCase() + key.slice(1)}`);
+        err400('bound_values_not_allowed', param, `Computed field '${field}' with bound values cannot be used in ${param}`);
       }
       const result = await db.query<{ value: unknown }>(
         `SELECT ${fn}(${renderRef(ref.expr, 1, db)}) as value FROM ${db.qi(tableName)}${joinClause} WHERE ${where}`,
@@ -196,15 +198,15 @@ async function buildPagination(
 function assertJoinRequestsAllowed(dbTables: DbTables, params: SearchParams): void {
   const { tableConf, joinMustExist, joinMultiple, joinGroup, joinLeft } = params;
 
-  if (joinMustExist) for (const a of Object.keys(joinMustExist)) requireJoin(tableConf, a, false);
-  if (joinMultiple) for (const a of Object.keys(joinMultiple)) requireJoin(tableConf, a, false);
-  if (joinGroup) for (const a of Object.keys(joinGroup)) requireJoin(tableConf, a, false);
-  if (joinLeft) for (const a of Object.keys(joinLeft)) requireJoin(tableConf, a, true);
+  if (joinMustExist) for (const a of Object.keys(joinMustExist)) requireJoin(tableConf, a, false, `joinMustExist.${a}`);
+  if (joinMultiple) for (const a of Object.keys(joinMultiple)) requireJoin(tableConf, a, false, `joinMultiple.${a}`);
+  if (joinGroup) for (const a of Object.keys(joinGroup)) requireJoin(tableConf, a, false, `joinGroup.${a}`);
+  if (joinLeft) for (const a of Object.keys(joinLeft)) requireJoin(tableConf, a, true, `joinLeft.${a}`);
 
-  assertJoinFilterKeys(dbTables, tableConf, joinMustExist, true);
-  assertJoinFilterKeys(dbTables, tableConf, joinMultiple, true);
-  assertJoinFilterKeys(dbTables, tableConf, joinGroup, true);
-  assertJoinFilterKeys(dbTables, tableConf, joinLeft, false);
+  assertJoinFilterKeys(dbTables, tableConf, joinMustExist, true, 'joinMustExist');
+  assertJoinFilterKeys(dbTables, tableConf, joinMultiple, true, 'joinMultiple');
+  assertJoinFilterKeys(dbTables, tableConf, joinGroup, true, 'joinGroup');
+  assertJoinFilterKeys(dbTables, tableConf, joinLeft, false, 'joinLeft');
 }
 
 /**

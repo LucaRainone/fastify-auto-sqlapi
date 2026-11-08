@@ -44,7 +44,7 @@ export function collectOrderByLeftAliases(orderBy: string, tableConf: TableConfi
     const m = /^(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i.exec(trimmed);
     if (m) {
       const alias = m[1];
-      requireJoin(tableConf, alias, true);
+      requireJoin(tableConf, alias, true, 'orderBy');
       aliases.add(alias);
     }
   }
@@ -73,10 +73,10 @@ export function validateOrderBy(
     const dotted3 = /^(\w+)\.(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i.exec(trimmed);
     if (dotted3) {
       if (tableConf.distinctResults) {
-        err400('Cannot combine distinctResults with aggregation orderBy');
+        err400('invalid_order_by', 'orderBy', 'Cannot combine distinctResults with aggregation orderBy');
       }
       const [, alias, fn, field, dir] = dotted3;
-      const expr = buildAggOrderExpr(db, dbTables, tableConf, alias, fn, field, joinGroup, tenant);
+      const expr = buildAggOrderExpr(db, dbTables, tableConf, alias, fn, field, joinGroup, tenant, 'orderBy');
       const aggVals = [...expr.values];
       outParts.push(`${renderRef(expr, currentIdx, db)} ${(dir || 'ASC').toUpperCase()}`);
       outValues.push(...aggVals);
@@ -88,9 +88,9 @@ export function validateOrderBy(
     const dotted2 = /^(\w+)\.(\w+)(?:\s+(ASC|DESC))?$/i.exec(trimmed);
     if (dotted2) {
       const [, alias, field, dir] = dotted2;
-      const joinDef = requireJoin(tableConf, alias, true);
+      const joinDef = requireJoin(tableConf, alias, true, 'orderBy');
       const col = validateSchemaField(
-        field, joinDef.joinSchema, resolveJoinTableConf(dbTables, joinDef)
+        field, joinDef.joinSchema, resolveJoinTableConf(dbTables, joinDef), 'orderBy'
       );
       // Reference the LEFT JOIN'd table via its alias (SQL identifier).
       outParts.push(`${db.qi(alias)}.${db.qi(col)} ${(dir || 'ASC').toUpperCase()}`);
@@ -101,10 +101,10 @@ export function validateOrderBy(
     // 1-part: <field> [ASC|DESC] — schema field or computed
     const plain = /^(\w+)(?:\s+(ASC|DESC))?$/i.exec(trimmed);
     if (!plain) {
-      err400(`Invalid orderBy: ${trimmed}`);
+      err400('invalid_order_by', 'orderBy', `Invalid orderBy: ${trimmed}`);
     }
     const [, field, dir] = plain;
-    const ref = resolveFieldRef(field, tableConf.Schema, tableConf, db);
+    const ref = resolveFieldRef(field, tableConf.Schema, tableConf, db, undefined, 'orderBy');
     // A computed field binds its own values here: ORDER BY is emitted after the WHERE, so
     // its placeholders continue from `currentIdx`.
     const refVals = refValues(ref.expr);

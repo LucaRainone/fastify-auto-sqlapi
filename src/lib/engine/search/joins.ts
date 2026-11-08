@@ -66,12 +66,16 @@ function findJoinByAlias(tableConf: TableConfig, alias: string): JoinDefinition 
  * same request answer 400 or 200 depending on the data it happens to match.
  *
  * Unknown aliases are left to `requireJoin`, which reports them with its own message.
+ *
+ * `family` is the request key the map came from (`joinMultiple`, …): a rejected filter is
+ * reported at `<family>.<alias>.filters.<key>`.
  */
 export function assertJoinFilterKeys(
   dbTables: DbTables,
   tableConf: TableConfig,
   refs: Record<string, { filters?: FilterRecord }> | undefined,
-  allowExtraFilters: boolean
+  allowExtraFilters: boolean,
+  family: string
 ): void {
   if (!refs) return;
   for (const [alias, ref] of Object.entries(refs)) {
@@ -79,25 +83,32 @@ export function assertJoinFilterKeys(
     if (!joinDef) continue;
     const joinTableConf = resolveJoinTableConf(dbTables, joinDef);
     const filters = ref?.filters as Record<string, unknown> | undefined;
-    assertFiltersReadable(filters, joinTableConf);
-    assertKnownFilterKeys(filters, joinDef.joinSchema, joinTableConf, allowExtraFilters);
+    const at = `${family}.${alias}.filters`;
+    assertFiltersReadable(filters, joinTableConf, at);
+    assertKnownFilterKeys(filters, joinDef.joinSchema, joinTableConf, allowExtraFilters, at);
   }
 }
 
+/**
+ * The relation a request names by alias, or a 400 when the host declares no such alias or
+ * declares it for the other join direction. `at` is the request path naming the alias
+ * (`joinLeft.<alias>`, `orderBy`), '' when unknown.
+ */
 export function requireJoin(
   tableConf: TableConfig,
   alias: string,
-  requireUnique: boolean
+  requireUnique: boolean,
+  at = ''
 ): JoinDefinition {
   const joinDef = findJoinByAlias(tableConf, alias);
   if (!joinDef) {
-    err400(`Unknown join alias: ${alias}`);
+    err400('unknown_alias', at, `Unknown join alias: ${alias}`);
   }
   if (requireUnique && !joinDef.unique) {
-    err400(`Join alias '${alias}' is not declared with unique:true; use joinMultiple/joinMustExist/joinGroup instead`);
+    err400('wrong_join_family', at, `Join alias '${alias}' is not declared with unique:true; use joinMultiple/joinMustExist/joinGroup instead`);
   }
   if (!requireUnique && joinDef.unique) {
-    err400(`Join alias '${alias}' is declared with unique:true; use joinLeft instead`);
+    err400('wrong_join_family', at, `Join alias '${alias}' is declared with unique:true; use joinLeft instead`);
   }
   return joinDef;
 }

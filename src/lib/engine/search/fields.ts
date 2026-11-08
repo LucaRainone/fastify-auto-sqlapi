@@ -8,6 +8,7 @@
 import { Expression } from 'node-condition-builder';
 import type { QueryClient } from '../../db.js';
 import { camelcaseObject } from '../../naming.js';
+import { httpError } from '../../errors.js';
 import {
   assertReadable,
   readableSelectColumns,
@@ -25,24 +26,35 @@ import type {
 
 // ─── Schema field validation ────────────────────────────────
 
+/**
+ * Throw a 400 the client can place: `code` is the stable machine code and `path` the dot path
+ * of the offending value in the request ('' when the rejection is not attributable to one
+ * input). Both land in the response's `fields`, see `ValidationField`.
+ */
+export function err400(code: string, path: string, message: string): never {
+  throw httpError(400, message, { code, path });
+}
+
+/** `at.key`, or '' when `at` is unknown: a child path is only as precise as its parent. */
+export function subPath(at: string, key: string | number): string {
+  return at ? `${at}.${key}` : '';
+}
+
+/**
+ * The column of a schema field named by the request, or a 400 when the schema has no such
+ * field or `tableConf` hides it. `at` is the request path of the reference, for the 400.
+ */
 export function validateSchemaField(
   field: string,
   schema: SchemaDefinition,
-  tableConf?: TableConfig
+  tableConf?: TableConfig,
+  at = ''
 ): string {
   if (!hasOwnField(schema.fields, field)) {
-    const err = new Error(`Unknown field: ${field}`) as Error & { statusCode: number };
-    err.statusCode = 400;
-    throw err;
+    err400('unknown_field', at, `Unknown field: ${field}`);
   }
-  assertReadable(tableConf, field);
+  assertReadable(tableConf, field, at);
   return schema.col(field);
-}
-
-export function err400(msg: string): never {
-  const e = new Error(msg) as Error & { statusCode: number };
-  e.statusCode = 400;
-  throw e;
 }
 
 // ─── Computed fields resolution ─────────────────────────────
@@ -61,7 +73,8 @@ function buildComputedContext(
     db,
     qiCol(field: string, opts?: { qualifier?: string }): string {
       if (!hasOwnField(schema.fields, field)) {
-        err400(`Unknown field referenced by computed expression: ${field}`);
+        // A table-configuration mistake surfacing at request time: not attributable to an input.
+        err400('unknown_field', '', `Unknown field referenced by computed expression: ${field}`);
       }
       const col = db.qi(schema.col(field));
       // Default to the owning table: the statement may carry joins, and a bare
@@ -87,10 +100,11 @@ export function resolveFieldRef(
   schema: SchemaDefinition,
   tableConf: TableConfig | undefined,
   db: QueryClient,
-  alias?: string
+  alias?: string,
+  at = ''
 ): ResolvedFieldRef {
   if (hasOwnField(schema.fields, field)) {
-    assertReadable(tableConf, field);
+    assertReadable(tableConf, field, at);
     const col = db.qi(schema.col(field));
     // Qualified with the alias or the owning table — never bare, so the reference
     // stays unambiguous when the statement carries joins.
@@ -104,7 +118,7 @@ export function resolveFieldRef(
     return { expr: computedExpression(field, fn(ctx)), computed: true };
   }
 
-  err400(`Unknown field: ${field}`);
+  err400('unknown_field', at, `Unknown field: ${field}`);
 }
 
 /**
@@ -113,7 +127,7 @@ export function resolveFieldRef(
  * Inside a WHERE clause the ConditionBuilder assigns the placeholder indexes, so bound
  * values are always safe there. `allowBoundValues=false` is for the positions that sit
  * *before* the WHERE values in the parameter order (SELECT projections, aggregations),
- * where they cannot be placed correctly; those still reject with 400.
+ * where they cannot be placed correctly; those still reject with 400, at request path `at`.
  */
 export function evaluateComputedField(
   name: string,
@@ -123,10 +137,11 @@ export function evaluateComputedField(
   alias: string | undefined,
   message: string,
   allowBoundValues = false,
+  at = '',
 ): Expression {
   const ev: ComputedFieldExpr = fn(buildComputedContext(db, schema, alias));
   if (!allowBoundValues && (ev.values?.length ?? 0) > 0) {
-    err400(message);
+    err400('bound_values_not_allowed', at, message);
   }
   return computedExpression(name, ev);
 }
@@ -202,7 +217,8 @@ export function buildSelectionColumns(
   joinSchema: SchemaDefinition,
   db: QueryClient,
   joinTableConf?: TableConfig,
-  restricted = false
+  restricted = false,
+  at = ''
 ): string {
   if (selection === '*') {
     if (restricted) return explicitSelectColumns(joinTableConf, joinSchema, db);
@@ -211,6 +227,6 @@ export function buildSelectionColumns(
   const table = db.qi(joinSchema.tableName);
   return selection
     .split(',')
-    .map((c) => `${table}.${db.qi(validateSchemaField(c.trim(), joinSchema, joinTableConf))}`)
+    .map((c) => `${table}.${db.qi(validateSchemaField(c.trim(), joinSchema, joinTableConf, at))}`)
     .join(', ');
 }

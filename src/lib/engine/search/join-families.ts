@@ -112,17 +112,18 @@ function applyJoinLeftConditions(
   conditions: SearchCondition[],
   scope: JoinLeftFieldScope
 ): void {
-  for (const c of conditions) {
+  for (const [i, c] of conditions.entries()) {
+    const here = `joinLeft.${scope.alias}.conditions.${i}`;
     if (!ALLOWED_SET.has(c.method)) {
-      err400(`Invalid condition method: ${c.method}`);
+      err400('invalid_method', `${here}.method`, `Invalid condition method: ${c.method}`);
     }
     if (hasOwnField(scope.joinSchema.fields, c.field)) {
-      assertReadable(scope.joinTableConf, c.field);
+      assertReadable(scope.joinTableConf, c.field, `${here}.field`);
     } else if (!ownField(scope.computed, c.field)) {
-      err400(`Unknown field: ${c.field}`);
+      err400('unknown_field', `${here}.field`, `Unknown field: ${c.field}`);
     }
     const ref = resolveJoinLeftField(c.field, scope);
-    if (ref !== null) dispatchConditionMethod(cb, c.method, ref, c.params ?? []);
+    if (ref !== null) dispatchConditionMethod(cb, c.method, ref, c.params ?? [], here);
   }
 }
 
@@ -152,7 +153,7 @@ export function buildLeftJoinOnClauses(
   let currentIdx = startIdx;
 
   for (const alias of aliasesNeedingJoin) {
-    const joinDef = requireJoin(tableConf, alias, true);
+    const joinDef = requireJoin(tableConf, alias, true, `joinLeft.${alias}`);
     const refs = extractJoinRefs(db, tableConf, joinDef);
     const aliasIdent = db.qi(alias);
 
@@ -194,7 +195,7 @@ export function buildLeftJoinFilters(
   let currentIdx = startIdx;
 
   for (const alias of aliasesNeedingJoin) {
-    const joinDef = requireJoin(tableConf, alias, true);
+    const joinDef = requireJoin(tableConf, alias, true, `joinLeft.${alias}`);
     const { joinSchema } = joinDef;
     const aliasIdent = db.qi(alias);
 
@@ -217,7 +218,7 @@ export function buildLeftJoinFilters(
     };
     const cb = new ConditionBuilder('AND', db.cbDialect);
 
-    assertFiltersReadable(ref.filters, joinTableConf);
+    assertFiltersReadable(ref.filters, joinTableConf, `joinLeft.${alias}.filters`);
     if (ref.filters) applyJoinLeftFilters(cb, ref.filters, scope);
     if (ref.conditions?.length) applyJoinLeftConditions(cb, ref.conditions, scope);
 
@@ -293,7 +294,8 @@ async function fetchJoinRows(
   const result: RowsByAlias = {};
 
   for (const [alias, ref] of Object.entries(requests)) {
-    const joinDef = requireJoin(tableConf, alias, mode.requireUnique);
+    const at = `${mode.source}.${alias}`;
+    const joinDef = requireJoin(tableConf, alias, mode.requireUnique, at);
     const { joinSchema, joinField, mainField, selection: defaultSelection } = joinDef;
     const joinTableConf = resolveJoinTableConf(dbTables, joinDef);
 
@@ -301,7 +303,9 @@ async function fetchJoinRows(
     // the join schema, and that rejection must not depend on whether the main query
     // matched rows.
     const selection = ref?.selection ?? defaultSelection;
-    const columns = buildSelectionColumns(selection, joinSchema, db, joinTableConf, joinDef.fields !== undefined);
+    const columns = buildSelectionColumns(
+      selection, joinSchema, db, joinTableConf, joinDef.fields !== undefined, `${at}.selection`
+    );
 
     // For joinLeft, mainField on the main table is the FK pointing at joinField (the
     // parent's PK), so the same collect-then-look-up works for both directions.
@@ -312,7 +316,7 @@ async function fetchJoinRows(
     }
 
     const cb = mode.applyRefCondition
-      ? buildJoinRefCondition(joinTableConf, joinSchema, ref || {}, db)
+      ? buildJoinRefCondition(joinTableConf, joinSchema, ref || {}, db, undefined, at)
       : new ConditionBuilder('AND', db.cbDialect);
 
     const { where, values, tenantJoins } = scopeJoinSideQuery(
@@ -381,15 +385,16 @@ function buildByExpression(
   by: string,
   joinSchema: SchemaDefinition,
   joinTableConf: TableConfig | undefined,
-  db: QueryClient
+  db: QueryClient,
+  at: string
 ): string {
   if (typeof by !== 'string') {
-    err400(`Invalid 'by' specification: expected a field or computed name`);
+    err400('invalid_aggregation', at, `Invalid 'by' specification: expected a field or computed name`);
   }
   if (hasOwnField(joinSchema.fields, by)) {
     // validateSchemaField also enforces readExclude: GROUP BY on a hidden field
     // would return its distinct values verbatim in `rows[].by`.
-    const col = validateSchemaField(by, joinSchema, joinTableConf);
+    const col = validateSchemaField(by, joinSchema, joinTableConf, at);
     return `${db.qi(joinSchema.tableName)}.${db.qi(col)}`;
   }
   const fn = ownField(joinTableConf?.computedFields, by);
@@ -397,9 +402,10 @@ function buildByExpression(
     return evaluateComputedField(
       by, fn, joinSchema, db, undefined,
       `Computed field '${by}' with bound values cannot be used in aggregations.by`,
+      false, at,
     ).value;
   }
-  err400(`Unknown field: ${by}`);
+  err400('unknown_field', at, `Unknown field: ${by}`);
 }
 
 // ─── joinGroup (aggregations) ───────────────────────────────
@@ -414,13 +420,14 @@ function buildJoinGroupSelect(
   aggregations: AggregationRequest,
   joinSchema: SchemaDefinition,
   joinTableConf: TableConfig | undefined,
-  db: QueryClient
+  db: QueryClient,
+  at: string
 ): { selectParts: string[]; groupByParts: string[] } {
   const selectParts: string[] = [];
   const groupByParts: string[] = [];
 
   if (aggregations.by) {
-    const byExpr = buildByExpression(aggregations.by, joinSchema, joinTableConf, db);
+    const byExpr = buildByExpression(aggregations.by, joinSchema, joinTableConf, db, `${at}.by`);
     selectParts.push(`${byExpr} as "by"`);
     groupByParts.push(byExpr);
   }
@@ -428,8 +435,8 @@ function buildJoinGroupSelect(
   const addAgg = (kind: string, fields: string[] | undefined): void => {
     if (!fields) return;
     const fn = AGG_FN[kind];
-    for (const f of fields) {
-      const col = validateSchemaField(f, joinSchema, joinTableConf);
+    for (const [i, f] of fields.entries()) {
+      const col = validateSchemaField(f, joinSchema, joinTableConf, `${at}.${kind}.${i}`);
       const colRef = `${db.qi(joinSchema.tableName)}.${db.qi(col)}`;
       selectParts.push(`${aggExpr(fn, colRef)} as "${kind}_${f}"`);
     }
@@ -481,7 +488,8 @@ export async function executeJoinGroup(
   const result: Record<string, Record<string, unknown>> = {};
 
   for (const [alias, groupReq] of Object.entries(joinGroup)) {
-    const joinDef = requireJoin(tableConf, alias, false);
+    const at = `joinGroup.${alias}`;
+    const joinDef = requireJoin(tableConf, alias, false, at);
     const { joinSchema, joinField, mainField } = joinDef;
     const joinTableConf = resolveJoinTableConf(dbTables, joinDef);
 
@@ -489,7 +497,7 @@ export async function executeJoinGroup(
 
     const { aggregations, filters: groupFilters, conditions: groupConditions } = groupReq;
     const { selectParts, groupByParts } = buildJoinGroupSelect(
-      aggregations, joinSchema, joinTableConf, db
+      aggregations, joinSchema, joinTableConf, db, `${at}.aggregations`
     );
 
     // Bail out only here: `by` and every aggregation field have now been validated.
@@ -499,7 +507,7 @@ export async function executeJoinGroup(
     }
 
     const groupRef = { filters: groupFilters, conditions: groupConditions };
-    const cb = buildJoinRefCondition(joinTableConf, joinSchema, groupRef, db);
+    const cb = buildJoinRefCondition(joinTableConf, joinSchema, groupRef, db, undefined, at);
     const { where, values, tenantJoins } = scopeJoinSideQuery(
       cb, db, joinSchema, joinField, ids, joinTableConf, tenant
     );
@@ -550,7 +558,8 @@ export function buildJoinMustExistClauses(
   let where = '';
 
   for (const [alias, ref] of Object.entries(joinMustExist)) {
-    const joinDef = requireJoin(tableConf, alias, false);
+    const at = `joinMustExist.${alias}`;
+    const joinDef = requireJoin(tableConf, alias, false, at);
     const { joinSchema } = joinDef;
     const joinTableConf = resolveJoinTableConf(dbTables, joinDef);
     const refs = extractJoinRefs(db, tableConf, joinDef);
@@ -560,7 +569,7 @@ export function buildJoinMustExistClauses(
     const subAlias = subqueryAlias(alias, tableConf);
     const subRef = db.qi(subAlias);
 
-    const filterCondition = buildJoinRefCondition(joinTableConf, joinSchema, ref, db, subAlias);
+    const filterCondition = buildJoinRefCondition(joinTableConf, joinSchema, ref, db, subAlias, at);
     const tenantJoins: string[] = [];
     appendJoinTenantScope(db, joinTableConf, tenant, subAlias, filterCondition, tenantJoins);
     const filterWhere = params.emitCondition(filterCondition, db);

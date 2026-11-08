@@ -234,7 +234,7 @@ export function injectTenantValue(
     return;
   }
 
-  throw httpError(400, 'Ambiguous tenant: specify the tenant value');
+  throw httpError(400, 'Ambiguous tenant: specify the tenant value', { code: 'ambiguous_tenant' });
 }
 
 /** Checks that an indirect-scope FK really belongs to the tenant.

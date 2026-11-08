@@ -50,17 +50,20 @@ export function assertUpsertKeys(
     if (isPrimaryKey && conflictCols.every((c) => record[c] === undefined)) return;
 
     const missing = conflictCols.filter((c) => record[c] == null);
+    // Not attributable to one request path here: the rows may be a bulk's mains or one
+    // write's secondaries, and the message carries the index either way.
     if (missing.length) {
       throw httpError(
         400,
         `${rule}: the row at index ${i} has no value for ${missing.map(fieldOf).join(', ')} — ` +
-        `an upserted row must carry its whole key`
+        `an upserted row must carry its whole key`,
+        { code: 'missing_key' }
       );
     }
     const key = JSON.stringify(conflictCols.map((c) => record[c]));
     const first = seen.get(key);
     if (first !== undefined) {
-      throw httpError(400, `${rule}: the rows at index ${first} and ${i} have the same key`);
+      throw httpError(400, `${rule}: the rows at index ${first} and ${i} have the same key`, { code: 'duplicate_key' });
     }
     seen.set(key, i);
   });

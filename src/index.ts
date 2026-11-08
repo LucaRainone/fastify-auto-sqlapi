@@ -7,6 +7,9 @@ export {
   snakecaseRecord,
 } from './lib/naming.js';
 
+// Errors: throw from a hook to answer in the plugin's envelope (a 400 with `fields`)
+export { httpError, type HttpErrorField } from './lib/errors.js';
+
 // DB
 export { QueryClient, createQueryClient } from './lib/db.js';
 
@@ -136,6 +139,7 @@ export type {
   TenantScopeAnyOf,
   TenantContext,
   ValidationError,
+  ValidationField,
   ValidatorFn,
   BulkValidatorItem,
   BulkValidatorFn,

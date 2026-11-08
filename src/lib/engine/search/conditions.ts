@@ -13,6 +13,7 @@ import {
 } from '../../condition-methods.js';
 import {
   err400,
+  subPath,
   validateSchemaField,
   evaluateComputedField,
   resolveFieldRef,
@@ -39,15 +40,17 @@ export function dispatchConditionMethod(
   cb: ConditionBuilder,
   method: string,
   colOrExpr: string | Expression,
-  params: unknown[] | undefined
+  params: unknown[] | undefined,
+  at = ''
 ): void {
+  const paramsPath = subPath(at, 'params');
   if (params !== undefined && !Array.isArray(params)) {
-    err400(`Condition method '${method}': 'params' must be an array`);
+    err400('invalid_params', paramsPath, `Condition method '${method}': 'params' must be an array`);
   }
   const args = params ?? [];
   const require = (n: number): void => {
     if (args.length < n) {
-      err400(`Condition method '${method}' requires ${n} param(s), got ${args.length}`);
+      err400('invalid_params', paramsPath, `Condition method '${method}' requires ${n} param(s), got ${args.length}`);
     }
   };
 
@@ -62,7 +65,7 @@ export function dispatchConditionMethod(
     // An explicit `undefined` stays a documented no-op; any other non-array would make the
     // builder iterate a non-iterable.
     if (args[0] !== undefined && !Array.isArray(args[0])) {
-      err400(`Condition method '${method}' requires an array as its first param`);
+      err400('invalid_params', paramsPath, `Condition method '${method}' requires an array as its first param`);
     }
     (cb[method as keyof ConditionBuilder] as Function)(colOrExpr, args[0]);
   } else if (NULL_SET.has(method)) {
@@ -98,39 +101,49 @@ function applyComputedEqualityFilters(
   }
 }
 
-/** Operator conditions on a join reference, against a schema or a computed field. */
+/**
+ * Operator conditions on a join reference, against a schema or a computed field. `at` is the
+ * request path of the join reference (`joinMultiple.<alias>`), '' when unknown.
+ */
 function applyJoinRefConditions(
   cb: ConditionBuilder,
   conditions: SearchCondition[],
   joinTableConf: TableConfig | undefined,
   joinSchema: SchemaDefinition,
   db: QueryClient,
-  colQualifier: string
+  colQualifier: string,
+  at: string
 ): void {
   const computed = joinTableConf?.computedFields;
 
-  for (const c of conditions) {
+  for (const [i, c] of conditions.entries()) {
+    const here = subPath(subPath(at, 'conditions'), i);
     if (!ALLOWED_SET.has(c.method)) {
-      err400(`Invalid condition method: ${c.method}`);
+      err400('invalid_method', subPath(here, 'method'), `Invalid condition method: ${c.method}`);
     }
     // Computed fields resolve to an Expression carrying their own bound values, which the
     // ConditionBuilder places together with the compared value.
     const fn = ownField(computed, c.field);
     const operand = fn
       ? evaluateComputedField(c.field, fn, joinSchema, db, colQualifier, '', true)
-      : `${db.qi(colQualifier)}.${db.qi(validateSchemaField(c.field, joinSchema, joinTableConf))}`;
-    dispatchConditionMethod(cb, c.method, operand, c.params ?? []);
+      : `${db.qi(colQualifier)}.${db.qi(validateSchemaField(c.field, joinSchema, joinTableConf, subPath(here, 'field')))}`;
+    dispatchConditionMethod(cb, c.method, operand, c.params ?? [], here);
   }
 }
 
+/**
+ * The WHERE of a join reference: its equality `filters` (plain, computed) and its operator
+ * `conditions`. `at` is the reference's request path (`joinGroup.<alias>`), for the 400s.
+ */
 export function buildJoinRefCondition(
   joinTableConf: TableConfig | undefined,
   joinSchema: SchemaDefinition,
   ref: JoinRefFilter,
   db: QueryClient,
-  qualifier?: string
+  qualifier?: string,
+  at = ''
 ): ConditionBuilder {
-  assertFiltersReadable(ref.filters, joinTableConf);
+  assertFiltersReadable(ref.filters, joinTableConf, subPath(at, 'filters'));
   // Filter keys are checked by assertJoinFilterKeys, up front in searchEngine — this side
   // query may never run, so it is not a place a request can be rejected from.
 
@@ -148,7 +161,7 @@ export function buildJoinRefCondition(
     );
   }
   if (ref.conditions?.length) {
-    applyJoinRefConditions(cb, ref.conditions, joinTableConf, joinSchema, db, colQualifier);
+    applyJoinRefConditions(cb, ref.conditions, joinTableConf, joinSchema, db, colQualifier, at);
   }
 
   return cb;
@@ -167,18 +180,19 @@ export function applyConditions(
   tableConf: TableConfig,
   db: QueryClient
 ): void {
-  for (const c of conditions) {
+  for (const [i, c] of conditions.entries()) {
     // Skip dot-notation fields — those become aggregation conditions processed later
     if (c.field.includes('.')) continue;
 
+    const here = `conditions.${i}`;
     if (!ALLOWED_SET.has(c.method)) {
-      err400(`Invalid condition method: ${c.method}`);
+      err400('invalid_method', `${here}.method`, `Invalid condition method: ${c.method}`);
     }
 
     // A computed field resolves to an Expression carrying its own bound values; the
     // ConditionBuilder places them, so no placeholder offset is computed here.
-    const ref = resolveFieldRef(c.field, schema, tableConf, db);
-    dispatchConditionMethod(condition, c.method, ref.expr, c.params);
+    const ref = resolveFieldRef(c.field, schema, tableConf, db, undefined, `${here}.field`);
+    dispatchConditionMethod(condition, c.method, ref.expr, c.params, here);
   }
 }
 

@@ -40,10 +40,13 @@ function isReadExcluded(tableConf: TableConfig | undefined, field: string): bool
   return tableConf?.readExclude?.includes(field) ?? false;
 }
 
-/** Throws 400 when `field` is read-excluded on `tableConf`. */
-export function assertReadable(tableConf: TableConfig | undefined, field: string): void {
+/**
+ * Throws 400 when `field` is read-excluded on `tableConf`. `at` is the request path of the
+ * reference being checked, for the response's `fields`; '' when the caller does not know it.
+ */
+export function assertReadable(tableConf: TableConfig | undefined, field: string, at = ''): void {
   if (isReadExcluded(tableConf, field)) {
-    throw httpError(400, `Field is not readable: ${field}`);
+    throw httpError(400, `Field is not readable: ${field}`, { code: 'not_readable', path: at });
   }
 }
 
@@ -53,11 +56,12 @@ export function assertReadable(tableConf: TableConfig | undefined, field: string
  */
 export function assertFiltersReadable(
   filters: Record<string, unknown> | undefined,
-  tableConf: TableConfig | undefined
+  tableConf: TableConfig | undefined,
+  at = 'filters'
 ): void {
   if (!filters || !tableConf?.readExclude?.length) return;
   for (const key of Object.keys(filters)) {
-    assertReadable(tableConf, key);
+    assertReadable(tableConf, key, `${at}.${key}`);
   }
 }
 
@@ -84,7 +88,8 @@ export function assertKnownFilterKeys(
   filters: Record<string, unknown> | undefined,
   schema: SchemaDefinition,
   tableConf: TableConfig | undefined,
-  allowExtraFilters = true
+  allowExtraFilters = true,
+  at = 'filters'
 ): void {
   if (!filters) return;
   for (const [key, value] of Object.entries(filters)) {
@@ -98,10 +103,11 @@ export function assertKnownFilterKeys(
       throw httpError(
         400,
         `Filter '${key}' is an extraFilter: extraFilters are not applied on joinLeft ` +
-        `(only schema fields and computed fields are). Use joinMustExist on the same relation.`
+        `(only schema fields and computed fields are). Use joinMustExist on the same relation.`,
+        { code: 'extra_filter_not_allowed', path: `${at}.${key}` }
       );
     }
-    throw httpError(400, `Unknown filter field: ${key}`);
+    throw httpError(400, `Unknown filter field: ${key}`, { code: 'unknown_field', path: `${at}.${key}` });
   }
 }
 

@@ -1,13 +1,32 @@
+import type { ValidationField } from '../types.js';
+
+/** What a 400 the engine raises says about the input it rejects, see `ValidationField`. */
+export interface HttpErrorField {
+  /** Stable machine-readable code (`unknown_field`, `invalid_params`, …). */
+  code: string;
+  /** Dot path of the offending value in the request; omitted or '' when not attributable. */
+  path?: string;
+}
+
 /**
- * Build a plain Error decorated with `statusCode` (and optionally `validationErrors`),
- * which Fastify reads to emit the corresponding HTTP response.
+ * Build a plain Error decorated with `statusCode`, which the plugin's error handler reads to
+ * emit the corresponding HTTP response.
+ *
+ * A 400 should also say what was wrong with the input: `field` is rendered as the single
+ * entry of the response's `fields` array, so an engine rejection reaches the client in the
+ * same shape as a schema or `validate` error. Errors with another status carry no fields.
  *
  * Using a function instead of a custom class keeps the throw sites lightweight
  * and matches the existing convention across the codebase.
  */
-export function httpError(statusCode: number, message: string): Error & { statusCode: number } {
-  const err = new Error(message) as Error & { statusCode: number };
+export function httpError(
+  statusCode: number,
+  message: string,
+  field?: HttpErrorField,
+): Error & { statusCode: number } {
+  const err = new Error(message) as Error & { statusCode: number; validationErrors?: ValidationField[] };
   err.statusCode = statusCode;
+  if (field) err.validationErrors = [{ path: field.path ?? '', code: field.code, message }];
   return err;
 }
 
@@ -47,7 +66,6 @@ export function sanitizeRouteError(
     requestId?: string;
     debugInfo?: Record<string, unknown>;
   };
-  safe.name = 'Internal Server Error';
   safe.cause = err;
   if (requestId) safe.requestId = requestId;
   if (exposeDebugInfo) safe.debugInfo = describeError(err);
