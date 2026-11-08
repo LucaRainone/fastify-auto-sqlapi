@@ -10,6 +10,7 @@ const ROOT = path.resolve(__dirname, '../..');
 const { resolveTenant, buildTenantCondition, buildTenantJoin, injectTenantValue, validateTenantFK, stripTenantColumn } =
   await import(path.join(ROOT, 'dist/lib/tenant.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
+const { TENANT_ADMIN } = await import(path.join(ROOT, 'dist/index.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { getEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/get.js'));
@@ -51,19 +52,20 @@ describe('resolveTenant', () => {
     assert.equal(result, undefined);
   });
 
-  it('returns undefined when getTenantId returns null (admin)', async () => {
-    const options = { DbTables: {}, getTenantId: () => null };
+  it('returns undefined (no filter) when getTenantId returns TENANT_ADMIN', async () => {
+    const options = { DbTables: {}, getTenantId: () => TENANT_ADMIN };
     const tableConf = { Schema: customerSchema, tenantScope: { column: 'organization_id' } };
     const result = await resolveTenant(options, tableConf, {});
     assert.equal(result, undefined);
   });
 
-  it('returns undefined when getTenantId returns undefined (admin)', async () => {
-    const options = { DbTables: {}, getTenantId: () => undefined };
-    const tableConf = { Schema: customerSchema, tenantScope: { column: 'organization_id' } };
-    const result = await resolveTenant(options, tableConf, {});
-    assert.equal(result, undefined);
-  });
+  for (const [label, value] of [['null', null], ['undefined', undefined]]) {
+    it(`throws 401 when getTenantId returns ${label}: an absent tenant is not an admin`, async () => {
+      const options = { DbTables: {}, getTenantId: () => value };
+      const tableConf = { Schema: customerSchema, tenantScope: { column: 'organization_id' } };
+      await assert.rejects(resolveTenant(options, tableConf, {}), (err) => err.statusCode === 401);
+    });
+  }
 
   it('normalizes single value to array', async () => {
     const options = { DbTables: {}, getTenantId: () => 42 };

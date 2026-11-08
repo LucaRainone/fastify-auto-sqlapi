@@ -15,6 +15,7 @@ import {
   exportTableInfo,
   toUnderscore,
   Type,
+  TENANT_ADMIN,
 } from './_helpers.js';
 
 function createSchema(tableName, fields) {
@@ -54,7 +55,7 @@ const pluginOpts = {
   prefix: '/auto',
   getTenantId: (request) => {
     const header = request.headers['x-org'];
-    if (!header || header === 'admin') return null;
+    if (!header || header === 'admin') return TENANT_ADMIN;
     return Number(header);
   },
 };

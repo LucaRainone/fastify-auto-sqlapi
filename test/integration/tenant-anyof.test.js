@@ -12,6 +12,7 @@ import {
   exportTableInfo,
   toUnderscore,
   Type,
+  TENANT_ADMIN,
 } from './_helpers.js';
 
 function createSchema(tableName, fields) {
@@ -47,7 +48,7 @@ const pluginOpts = {
   prefix: '/auto',
   getTenantId: (request) => {
     const header = request.headers['x-agent'];
-    if (!header || header === 'admin') return null;
+    if (!header || header === 'admin') return TENANT_ADMIN;
     const ids = String(header).split(',').map(Number);
     return ids.length === 1 ? ids[0] : ids;
   },
@@ -119,7 +120,7 @@ describe(`[${DIALECT}] tenantScope anyOf integration`, () => {
     assert.ok(!shifts.includes(7), `an unowned row is nobody's to read: ${shifts}`);
   });
 
-  it('applies no predicate when getTenantId yields null (admin)', async () => {
+  it('applies no predicate when getTenantId yields TENANT_ADMIN', async () => {
     const shifts = (await search('admin')).map((r) => r.shiftId);
     assert.equal(shifts.length, 7, `admin sees every row, got ${shifts}`);
   });

@@ -51,7 +51,7 @@ await app.register(fastifyAutoSqlApi, {
   prefix: '/auto', // standard Fastify prefix, applied once. None → /search/customer
   swagger: true, // or { title, description, version, routePrefix }. Needs @fastify/swagger + @fastify/swagger-ui, else warns and continues
   onRequests: [auth], // global hooks on every route
-  getTenantId: (req) => req.user?.organizationId ?? null, // see Tenant scope
+  getTenantId: (req) => req.user?.organizationId, // see Tenant scope: undefined → 401 on scoped tables, TENANT_ADMIN → no filter
   maxItemsPerPage: 1000, // search page cap AND the LIMIT when no paginator is sent → 400 above it
   maxBulkItems: 1000, // bulk array cap → 400 above it
   agentManifest: true, // GET {prefix}/agent/manifest(.md), behind the same onRequests
@@ -260,10 +260,15 @@ The read-side counterpart of `beforeInsert`/`beforeUpdate`: decrypt, unpack, res
 
 - an id → `IN (id)`
 - an array → `IN (...)`
-- `null` / `undefined` → admin, no filter
+- `TENANT_ADMIN` (exported) → admin, no filter. Admin is declared, never inferred.
+- `null` / `undefined` → 401 on any scoped table, before SQL runs: an absent tenant is a missing or failed auth hook, not an admin
 - `[]` → no tenant at all: 403 on any scoped table, before SQL runs
 
-`0` and `''` are ordinary ids. The tenant belongs to the request, not to the table: a scoped table is also filtered when it is a join target or a secondary of an unscoped host. So `getTenantId` must tolerate an unauthenticated request (`req.user?.x ?? null`). Tables without `tenantScope` are never filtered.
+`0` and `''` are ordinary ids. The tenant belongs to the request, not to the table: a scoped table is also filtered when it is a join target or a secondary of an unscoped host. `getTenantId` is called only when a scoped table is in reach, so an unauthenticated request still reads unscoped tables; on scoped ones `req.user?.organizationId` is enough, the missing user becomes the 401. Tables without `tenantScope` are never filtered.
+
+```ts
+getTenantId: (req) => (req.user?.isSuperadmin ? TENANT_ADMIN : req.user?.organizationId),
+```
 
 ```ts
 tenantScope: { column: 'organization_id' } // direct

@@ -1,7 +1,7 @@
 import type { ApiRequest, ApiReply } from './request.js';
 import type { DialectName } from '../lib/dialect.js';
 import type { DbTables } from './table.js';
-import type { TenantId } from './tenant.js';
+import type { GetTenantId } from './tenant.js';
 
 export interface SwaggerOptions {
   title?: string;
@@ -19,26 +19,20 @@ export interface SqlApiPluginOptions {
   /**
    * Resolve the caller's tenant id(s) for this request. Returning one id (or an array, for a
    * caller who belongs to several tenants) scopes every read and write to rows that tenant owns.
+   * Called only when a scoped table is in reach of the request.
    *
-   * ⚠️ **Returning `null`/`undefined` means ADMIN — no tenant filtering at all, i.e. full
-   * cross-tenant access.** "Unauthenticated" and "admin" therefore collapse to the same value.
-   * The tenant identity is read from the request (typically `request.user`, populated by your own
-   * auth hook in {@link onRequests}), which this plugin does not set. If that hook is missing,
-   * mis-ordered, or fails, `request.user` is `undefined` and the common `?? null` pattern yields
-   * `null` → the request is served as admin. Nothing here fails closed.
-   *
-   * To fail closed, make this callback (or the auth hook) **reject when there is no authenticated
-   * principal** instead of returning `null`, and reserve `null` for a real, authorized superadmin:
+   * Unrestricted, cross-tenant access is declared by returning {@link TENANT_ADMIN}. Returning
+   * `null`/`undefined` is refused with 401: the tenant identity comes from the request
+   * (typically `request.user`, populated by your own auth hook in {@link onRequests}), and an
+   * absent one is the signature of a hook that is missing, mis-ordered or failed — never of an
+   * admin. `[]` is a caller who belongs to no tenant: 403.
    *
    * ```ts
-   * getTenantId: (req) => {
-   *   if (!req.user) throw app.httpErrors.unauthorized(); // no principal → deny, never admin
-   *   return req.user.isSuperadmin ? null : req.user.organizationId;
-   * }
+   * getTenantId: (req) => (req.user?.isSuperadmin ? TENANT_ADMIN : req.user?.organizationId),
+   * // no user → undefined → 401 on scoped tables; unscoped tables never ask
    * ```
    */
-  getTenantId?: (request: ApiRequest) => TenantId | TenantId[] | null | undefined
-    | Promise<TenantId | TenantId[] | null | undefined>;
+  getTenantId?: GetTenantId;
   debug?: boolean;
   /**
    * Hard cap on the search page size (the `itemsPerPage` query param), and the row LIMIT applied

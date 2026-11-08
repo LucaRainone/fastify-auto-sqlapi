@@ -15,7 +15,7 @@ import { createMockPg, createMockSchema, ROOT } from './_harness.js';
 
 const { createSqlApi } = await import(path.join(ROOT, 'dist/lib/sql-api.js'));
 const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
-const { Type } = await import(path.join(ROOT, 'dist/index.js'));
+const { Type, TENANT_ADMIN } = await import(path.join(ROOT, 'dist/index.js'));
 
 const shiftSchema = createMockSchema('shift', {
   id: Type.Number(),
@@ -143,7 +143,7 @@ describe('tenant scoping when the addressed table declares no scope of its own',
       { rows: [{ id: 1 }], affectedRows: 1 },
       { rows: [], affectedRows: 0 },
     ]);
-    const api = createSqlApi(mockPg, createDbTables(), { getTenantId: () => null });
+    const api = createSqlApi(mockPg, createDbTables(), { getTenantId: () => TENANT_ADMIN });
 
     await api.search('shift', { joinMultiple: { swap: {} } }, {});
 

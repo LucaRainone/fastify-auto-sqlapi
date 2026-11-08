@@ -36,6 +36,7 @@ export { default as agentManifestRoutes } from './routes/auto/agent-manifest.rou
 
 // Tenant
 export { resolveTenant } from './lib/tenant.js';
+export { TENANT_ADMIN } from './types.js';
 
 // SqlApi — programmatic high-level API
 export { SqlApi, createSqlApi } from './lib/sql-api.js';
@@ -137,6 +138,9 @@ export type {
   UpdateParams,
   UpdateResult,
   TenantId,
+  TenantAdmin,
+  TenantResolution,
+  GetTenantId,
   TenantScope,
   TenantScopeDirect,
   TenantScopeIndirect,

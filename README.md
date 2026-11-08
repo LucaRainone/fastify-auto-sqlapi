@@ -54,7 +54,7 @@ Writes read the same way — *"sync these clients and their tags: update the one
 
 Conflict keys are declared server-side (`upsertMap`: here customer on `email`, tag on `(customerId, tag)`) and checked at startup against the unique keys the database enforces, so re-sending the same payload updates rows instead of duplicating them and never touches a row through any other key — client-side sync without hand-written diffing.
 
-And multi-tenancy is one plugin option (`getTenantId: (req) => req.user?.organizationId ?? null`), enforced on reads *and* writes with zero code in handlers. Rows of other tenants are simply invisible (`404`); here a caller in org B tries to re-point one of their own orders to a customer belonging to org A:
+And multi-tenancy is one plugin option (`getTenantId: (req) => req.user?.organizationId`), enforced on reads *and* writes with zero code in handlers. Rows of other tenants are simply invisible (`404`); here a caller in org B tries to re-point one of their own orders to a customer belonging to org A:
 
 ```jsonc
 // PUT /api/rest/order — order 7 is mine, customer 41 belongs to another tenant
@@ -62,7 +62,7 @@ And multi-tenancy is one plugin option (`getTenantId: (req) => req.user?.organiz
 // → 403 Forbidden — cross-tenant references are rejected server-side
 ```
 
-> ⚠️ **`getTenantId` returning `null`/`undefined` means _admin_ — no filtering, full cross-tenant access.** So "unauthenticated" and "admin" collapse to the same value: if your auth hook is missing or fails, `req.user` is `undefined` and the `?? null` above serves the request as admin. Nothing fails closed. In production, make `getTenantId` (or the auth hook) **reject when there is no authenticated principal**, and reserve `null` for a real superadmin — see the `getTenantId` option docs.
+> Admin is declared, never inferred: `getTenantId` returns the exported `TENANT_ADMIN` for unrestricted, cross-tenant access. Returning `null`/`undefined` — an auth hook that is missing or failed, `req.user` undefined — is a 401 on every scoped table, before any SQL runs. Tables without a tenant scope never ask.
 
 No endpoint written by hand, no resolvers, no query language on the server — and these requests are schema-validated, Swagger-documented, size-capped and tenant-isolated like every other one.
 

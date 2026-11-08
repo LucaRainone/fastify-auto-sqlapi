@@ -45,6 +45,13 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **BREAKING: admin is declared, never inferred.** `getTenantId` returning `null` or
+  `undefined` was "no tenant filter": an auth hook that did not run, a missing claim, a typo in
+  `req.user.<x>` each served the request as a superadmin. It is now a 401 on every table with a
+  tenant scope in reach, before any SQL. Unrestricted access is declared by returning the
+  exported `TENANT_ADMIN` sentinel. `[]` stays 403; tables with no scope in reach never call
+  `getTenantId`, so anonymous reads of them are unchanged. New exported types `TenantAdmin`,
+  `TenantResolution`, `GetTenantId`. See BREAKING_CHANGES.md.
 - **`error` in error responses is the HTTP reason phrase** (`Bad Request`, `Not Found`,
   `Forbidden`) for every status. The 4xx the engine raised reported `Error`, the JS class
   name, while schema errors and 500s already used the phrase.

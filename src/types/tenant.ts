@@ -1,6 +1,24 @@
 import type { SchemaDefinition } from './schema.js';
+import type { ApiRequest } from './request.js';
 
 export type TenantId = string | number;
+
+/**
+ * The value `getTenantId` returns for a caller allowed to see every tenant's rows. Admin is
+ * declared, never inferred: an absent tenant (`null`/`undefined`) is a 401 on any scoped
+ * table, so an auth hook that failed to run cannot open the data. A registry symbol, so two
+ * copies of the package agree on it and no real tenant id can collide with it.
+ */
+export const TENANT_ADMIN: unique symbol = Symbol.for('fastify-auto-sqlapi.tenant.admin');
+export type TenantAdmin = typeof TENANT_ADMIN;
+
+/**
+ * What `getTenantId` resolves a request to: one tenant id, several (a caller who belongs to
+ * more than one tenant), `TENANT_ADMIN` for no filtering, or nothing — which is refused with
+ * 401 as soon as a scoped table is in reach. `[]` is a caller with no tenant at all: 403.
+ */
+export type TenantResolution = TenantId | TenantId[] | TenantAdmin | null | undefined;
+export type GetTenantId = (request: ApiRequest) => TenantResolution | Promise<TenantResolution>;
 
 export interface TenantScopeDirect {
   column: string;

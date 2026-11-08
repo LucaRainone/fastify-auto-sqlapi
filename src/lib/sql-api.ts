@@ -30,7 +30,7 @@ import type {
   BulkUpsertItem,
   BulkUpsertResult,
   BulkDeleteResult,
-  TenantId,
+  GetTenantId,
   TenantContext,
   RowsByAlias,
 } from '../types.js';
@@ -75,8 +75,8 @@ export interface SqlApiUpdateParams {
 
 export interface SqlApiOptions {
   dialect?: DialectName;
-  getTenantId?: (request: ApiRequest) => TenantId | TenantId[] | null | undefined
-    | Promise<TenantId | TenantId[] | null | undefined>;
+  /** As on the plugin: a tenant id or several, `TENANT_ADMIN` for no filter, `null`/`undefined` → 401. */
+  getTenantId?: GetTenantId;
 }
 
 export class SqlApi {

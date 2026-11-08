@@ -3,6 +3,7 @@ import type { QueryClient } from './db.js';
 import { ConditionBuilder, type ConditionValue, type ConditionValueOrUndefined } from 'node-condition-builder';
 import { httpError } from './errors.js';
 import { resolveJoinTableConf } from './table-helpers.js';
+import { TENANT_ADMIN } from '../types.js';
 import type {
   DbTables,
   TableConfig,
@@ -72,7 +73,13 @@ export async function resolveTenant(
   if (!scopeInReach(tableConf, options.DbTables)) return undefined;
 
   const raw = await options.getTenantId(request);
-  if (raw == null) return undefined; // admin
+  // Admin is declared with the sentinel. An absent tenant is NOT an admin: it is the signature
+  // of an auth hook that did not run, a missing claim, a typo in `req.user.<x>` — every one of
+  // them used to be served as a superadmin. Refused before any SQL exists.
+  if (raw === TENANT_ADMIN) return undefined;
+  if (raw == null) {
+    throw httpError(401, 'Unauthorized: no tenant for this request (return TENANT_ADMIN from getTenantId for unrestricted access)');
+  }
 
   const ids: TenantId[] = Array.isArray(raw) ? raw : [raw];
   // An empty list is a caller with no tenant at all — not an admin. Every consumer of `ids`

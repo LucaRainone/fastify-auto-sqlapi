@@ -40,6 +40,7 @@ export const {
   createQueryClient,
   pgQueryable,
   mysqlQueryable,
+  TENANT_ADMIN,
 } = dist;
 
 /**

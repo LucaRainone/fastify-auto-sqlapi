@@ -1045,3 +1045,52 @@ allowedReadJoins: [
 
 Pick the key the way you would pick a route for the same caller: the one whose `readExclude`
 and `tenantScope` the host's readers are meant to see.
+
+---
+
+# Breaking Change — admin is declared with `TENANT_ADMIN`, an absent tenant is 401
+
+*Landed in **0.7.0** (unreleased).*
+
+## Why this changed
+
+`getTenantId` returning `null` or `undefined` meant "admin, no filter". The tenant identity
+comes from the request — `req.user`, set by the consumer's own auth hook — so every way that
+hook can fail produced the same value: hook not registered, registered after the plugin,
+throwing before it set the user, a JWT without the claim, a typo in the property name. Each of
+them was served as a superadmin, silently, with full cross-tenant access. The option's own
+documentation told consumers to throw on a missing principal; a default that needs a warning
+is the wrong default. Nothing in the plugin failed closed.
+
+## What changed
+
+- `getTenantId` declares unrestricted access by returning the exported `TENANT_ADMIN`
+  sentinel (a registry symbol: no tenant id can collide with it, two copies of the package
+  agree on it).
+- `null`/`undefined` is refused with `401 Unauthorized`, before any SQL, on every request that
+  reaches a table with a `tenantScope` — directly, through a join or through a secondary.
+- Unchanged: `[]` is 403 (a caller with no tenant); tables with no scope in reach never call
+  `getTenantId`, so an anonymous request still reads them (ADR 0002); `sqlApi.*` called without
+  a request runs with no tenant, as documented.
+
+## Who is affected
+
+- Every deployment with `tenantScope` on at least one table. Code returning `null` for the
+  admin, including the `req.user?.x ?? null` pattern from older docs, now answers 401 to the
+  admin and to anonymous callers alike until it returns `TENANT_ADMIN` for the former.
+- TypeScript: the return type of `getTenantId` is `TenantResolution` (`TenantId | TenantId[] |
+  TenantAdmin | null | undefined`); returning `null` still compiles, it is a runtime 401.
+
+## Migration
+
+```ts
+import { TENANT_ADMIN } from 'fastify-auto-sqlapi';
+
+// before
+getTenantId: (req) => (req.user?.isSuperadmin ? null : req.user?.organizationId ?? null),
+// after
+getTenantId: (req) => (req.user?.isSuperadmin ? TENANT_ADMIN : req.user?.organizationId),
+```
+
+Find the sites with `grep -rn "getTenantId" src/`. A test or script that used `null` as the
+admin bypass needs the same change.

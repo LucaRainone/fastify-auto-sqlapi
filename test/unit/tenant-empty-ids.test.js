@@ -14,7 +14,7 @@ import { createMockPg, createMockSchema, ROOT } from './_harness.js';
 
 const { createSqlApi } = await import(path.join(ROOT, 'dist/lib/sql-api.js'));
 const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
-const { Type } = await import(path.join(ROOT, 'dist/index.js'));
+const { Type, TENANT_ADMIN } = await import(path.join(ROOT, 'dist/index.js'));
 
 const customerSchema = createMockSchema('customer', {
   id: Type.Number(),
@@ -90,9 +90,9 @@ describe('a caller with an empty tenant list', () => {
     assert.equal(mockPg.calls.length, 0);
   });
 
-  it('is not an admin: null still bypasses, [] never does', async () => {
+  it('is not an admin: TENANT_ADMIN bypasses, [] never does', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const api = createSqlApi(mockPg, createDbTables(), { getTenantId: () => null });
+    const api = createSqlApi(mockPg, createDbTables(), { getTenantId: () => TENANT_ADMIN });
 
     await api.search('customer', {}, {});
 
