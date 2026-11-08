@@ -898,7 +898,7 @@ no longer supported or tested.
 
 # Breaking Change — TypeBox 1.x replaces `@sinclair/typebox`
 
-*Unreleased.*
+*Landed in **0.6.0**.*
 
 ## Why this changed
 

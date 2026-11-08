@@ -2,12 +2,15 @@
 
 All notable changes to this project are documented here. This project follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and adheres to
-[Semantic Versioning](https://semver.org/) — with the caveat that while the version is
-`0.x`, breaking changes may land in a minor release.
+[Semantic Versioning](https://semver.org/) as it applies to `0.x`: a release with a breaking
+change bumps the minor, a release without one bumps the patch, so a `^0.N.0` range never
+installs a breaking change ([ADR 0022](./docs/adr/0022-stay-on-0x-while-every-consumer-is-first-party.md)).
 
 Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)**.
 
 ## [Unreleased]
+
+## [0.6.0]
 
 ### Changed
 
@@ -795,7 +798,8 @@ the join API redesign (documented in [BREAKING_CHANGES.md](./BREAKING_CHANGES.md
 primary key support in updates, transactional insert/update with secondaries, the hook matrix,
 and bulk operations.
 
-[Unreleased]: https://github.com/LucaRainone/fastify-auto-sqlapi/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/LucaRainone/fastify-auto-sqlapi/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/LucaRainone/fastify-auto-sqlapi/releases/tag/v0.6.0
 [0.5.0]: https://github.com/LucaRainone/fastify-auto-sqlapi/releases/tag/v0.5.0
 [0.4.1]: https://github.com/LucaRainone/fastify-auto-sqlapi/releases/tag/v0.4.1
 [0.4.0]: https://github.com/LucaRainone/fastify-auto-sqlapi/releases/tag/v0.4.0

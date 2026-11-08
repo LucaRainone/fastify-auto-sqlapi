@@ -36,6 +36,7 @@ not by editing history.
 | [0019](./0019-column-exclusion-is-generation-time-config.md) | Removing a column from the API is generation-time config — `excludeColumns`, never a Schema edit |
 | [0020](./0020-no-conditional-or-mass-update-route.md) | No conditional or mass update route — a predicate write is a custom route |
 | [0021](./0021-upsert-targets-a-verified-unique-key.md) | An upsert targets a unique key verified at startup — MySQL and MariaDB upsert by key, not by `ON DUPLICATE KEY` |
+| [0022](./0022-stay-on-0x-while-every-consumer-is-first-party.md) | Stay on 0.x while every consumer is first-party — a breaking change bumps the minor, never the patch |
 
 ## When to write one
 
