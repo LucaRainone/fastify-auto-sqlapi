@@ -18,6 +18,7 @@ import type {
   FilterRecord,
   SearchCondition,
   Paginator,
+  ComputeRequest,
   JoinGroupRequest,
   JoinRefFilter,
   JoinFetchRequest,
@@ -45,6 +46,9 @@ export interface SqlApiSearchParams {
   joinLeft?: Record<string, JoinFetchRequest>;
   orderBy?: string;
   paginator?: Paginator;
+  /** Aggregates over all matching rows, by function (see SearchParams.compute). */
+  compute?: ComputeRequest;
+  /** One-field forms of `compute`; merged into it. */
   computeMin?: string;
   computeMax?: string;
   computeSum?: string;
@@ -131,6 +135,7 @@ export class SqlApi {
       joinLeft: params.joinLeft,
       orderBy: params.orderBy,
       paginator: params.paginator,
+      compute: params.compute,
       computeMin: params.computeMin,
       computeMax: params.computeMax,
       computeSum: params.computeSum,

@@ -10,7 +10,7 @@ import {
   ownField,
 } from '../../read-access.js';
 import { MAX_CONDITIONS, MAX_ORDER_BY_PARTS } from '../../condition-methods.js';
-import { primaryAsString } from '../../../types.js';
+import { primaryAsString, COMPUTE_FNS, type ComputeFn, type ComputeRequest } from '../../../types.js';
 import {
   err400,
   resolveFieldRef,
@@ -58,7 +58,7 @@ function assertRequestWithinLimits(params: SearchParams): void {
     for (const key of ['page', 'itemsPerPage'] as const) {
       const value: unknown = paginator[key];
       if (!Number.isInteger(value) || (value as number) < 1) {
-        err400('invalid_paginator', key, `Invalid paginator: '${key}' must be an integer >= 1`);
+        err400('invalid_paginator', `paginator.${key}`, `Invalid paginator: '${key}' must be an integer >= 1`);
       }
     }
   }
@@ -185,10 +185,7 @@ async function buildPagination(
   values: unknown[],
   paginator: { page: number; itemsPerPage: number },
   extraJoins: string[] = [],
-  computeMin?: string,
-  computeMax?: string,
-  computeSum?: string,
-  computeAvg?: string
+  compute: ComputeRequest = {}
 ): Promise<PaginationResult> {
   const tableName = tableConf.Schema.tableName;
   const joinClause = extraJoins.length > 0 ? ' ' + extraJoins.join(' ') : '';
@@ -199,28 +196,24 @@ async function buildPagination(
   );
   const total = parseInt(countResult.rows[0].total, 10);
 
+  // One statement per (function, field), in a fixed order; errors are reported at the body
+  // path `compute.<fn>.<i>`, also when the field arrived through the querystring form.
   const computed: Record<string, Record<string, unknown>> = {};
-  const computations = [
-    { key: 'min', field: computeMin, fn: 'MIN' },
-    { key: 'max', field: computeMax, fn: 'MAX' },
-    { key: 'sum', field: computeSum, fn: 'SUM' },
-    { key: 'avg', field: computeAvg, fn: 'AVG' },
-  ];
-
-  for (const { key, field, fn } of computations) {
-    if (field) {
-      const param = `compute${key.charAt(0).toUpperCase() + key.slice(1)}`;
-      const ref = resolveFieldRef(field, tableConf.Schema, tableConf, db, undefined, param);
+  for (const fn of COMPUTE_FNS) {
+    for (const [i, field] of (compute[fn] ?? []).entries()) {
+      const at = `compute.${fn}.${i}`;
+      const ref = resolveFieldRef(field, tableConf.Schema, tableConf, db, undefined, at);
       // The aggregate sits in the SELECT list, before the WHERE values: a computed that
       // binds parameters cannot be placed here.
       if (refValues(ref.expr).length > 0) {
-        err400('bound_values_not_allowed', param, `Computed field '${field}' with bound values cannot be used in ${param}`);
+        err400('bound_values_not_allowed', at, `Computed field '${field}' with bound values cannot be used in compute.${fn}`);
       }
       const result = await db.query<{ value: unknown }>(
-        `SELECT ${fn}(${renderRef(ref.expr, 1, db)}) as value FROM ${db.qi(tableName)}${joinClause} WHERE ${where}`,
+        `SELECT ${fn.toUpperCase()}(${renderRef(ref.expr, 1, db)}) as value FROM ${db.qi(tableName)}${joinClause} WHERE ${where}`,
         values
       );
-      computed[key] = { [field]: result.rows[0].value };
+      computed[fn] ??= {};
+      computed[fn][field] = result.rows[0].value;
     }
   }
 
@@ -230,6 +223,23 @@ async function buildPagination(
     ...(Object.keys(computed).length > 0 ? { computed } : {}),
     paginator,
   };
+}
+
+/**
+ * The compute request as one map: `compute` plus the one-field `computeMin`/`Max`/`Sum`/`Avg`
+ * keys the querystring form produces, each appended to its function's list once.
+ */
+function mergeCompute(params: SearchParams): ComputeRequest {
+  const legacy: Record<ComputeFn, string | undefined> = {
+    min: params.computeMin, max: params.computeMax, sum: params.computeSum, avg: params.computeAvg,
+  };
+  const merged: ComputeRequest = {};
+  for (const fn of COMPUTE_FNS) {
+    const fields = [...(params.compute?.[fn] ?? [])];
+    if (legacy[fn] && !fields.includes(legacy[fn])) fields.push(legacy[fn]);
+    if (fields.length > 0) merged[fn] = fields;
+  }
+  return merged;
 }
 
 // ─── searchEngine entrypoint ────────────────────────────────
@@ -342,8 +352,7 @@ export async function searchEngine(
   const {
     db, tableConf, conditions,
     joinMustExist, joinGroup, joinLeft,
-    orderBy, paginator,
-    computeMin, computeMax, computeSum, computeAvg, tenant,
+    orderBy, paginator, tenant,
   } = params;
 
   assertRequestWithinLimits(params);
@@ -414,8 +423,7 @@ export async function searchEngine(
   let pagination: PaginationResult | undefined;
   if (paginator) {
     pagination = await buildPagination(
-      db, tableConf, where, whereAndJoinValues, paginator, extraJoinClauses,
-      computeMin, computeMax, computeSum, computeAvg
+      db, tableConf, where, whereAndJoinValues, paginator, extraJoinClauses, mergeCompute(params)
     );
   }
 

@@ -28,6 +28,14 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   `select.<i>`.
 - **`selection` accepts an array** as well as the comma-separated string, in a join
   reference and in `buildRelation`.
+- **`orderBy`, `paginator` and `compute` in the search body.** The body is now the canonical
+  form of the whole request; the querystring (`orderBy`, `page`, `itemsPerPage`,
+  `computeMin|Max|Sum|Avg`) stays as an alias. A key sent in both places is a 400
+  `conflicting_input` at the body key. `compute` is `{ min?, max?, sum?, avg?: string[] }`,
+  several fields per function, also in `sqlApi.search()`; the one-field `compute*` keys are
+  merged into it. Engine errors on these are reported at the body path (`paginator.page`,
+  `compute.sum.0`) whichever form carried the value. New exported types `ComputeFn`,
+  `ComputeRequest`; `SearchTableBodyPost` takes the `maxItemsPerPage` cap as third argument.
 
 ### Changed
 

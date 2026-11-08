@@ -108,6 +108,8 @@ export type {
   SearchParams,
   SearchResult,
   Paginator,
+  ComputeFn,
+  ComputeRequest,
   PaginationResult,
   TableFilterFn,
   ExtendedConditionFn,

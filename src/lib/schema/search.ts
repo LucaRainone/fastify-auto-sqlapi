@@ -2,8 +2,26 @@ import { Type, type TObject, type TSchema } from 'typebox';
 import { ALLOWED_METHODS, MAX_CONDITIONS, MAX_ORDER_BY_LENGTH } from '../condition-methods.js';
 import { readableFields } from './helpers.js';
 import { resolveJoinTableConf } from '../table-helpers.js';
-import { DEFAULT_MAX_ITEMS_PER_PAGE } from '../../types.js';
+import { DEFAULT_MAX_ITEMS_PER_PAGE, COMPUTE_FNS } from '../../types.js';
 import type { DbTables, TableConfig } from '../../types.js';
+
+// ─── orderBy / paginator / compute: the same fields in the body and in the querystring ──
+
+const orderByField = (): TSchema => Type.Optional(Type.String({ maxLength: MAX_ORDER_BY_LENGTH }));
+const pageField = (): TSchema => Type.Optional(Type.Integer({ minimum: 1 }));
+
+/**
+ * No schema default on purpose: Ajv injects defaults before the handler runs, and a request
+ * without a paginator must stay observable as such (LIMIT `maxItemsPerPage`, no COUNT, no
+ * `pagination` block). The 500-row default for `page` alone is applied by the route. The cap
+ * doubles as the schema `maximum`, so exceeding it is a structured 400.
+ */
+const itemsPerPageField = (maxItemsPerPage: number): TSchema =>
+  Type.Optional(Type.Integer({ minimum: 1, maximum: maxItemsPerPage }));
+
+/** `{ min?: string[], max?: string[], sum?: string[], avg?: string[] }`. */
+const computeObject = (): TObject =>
+  Type.Object(Object.fromEntries(COMPUTE_FNS.map((fn) => [fn, Type.Optional(Type.Array(Type.String()))])));
 
 /**
  * A `filters` map.
@@ -152,7 +170,11 @@ const JoinGroupResultItem = Type.Object({
   rows: Type.Optional(Type.Array(Type.Any())),
 });
 
-export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObject {
+export function SearchTableBodyPost(
+  dbTables: DbTables,
+  tableName: string,
+  maxItemsPerPage: number = DEFAULT_MAX_ITEMS_PER_PAGE
+): TObject {
   const tableConf = dbTables[tableName];
   const schema = tableConf.Schema;
 
@@ -180,6 +202,15 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
     // Main projection. Names are validated by the engine (readExclude included), not here: a
     // closed enum would be stripped by `removeAdditional` the same way a closed filters map is.
     select: Type.Optional(Type.Array(Type.String())),
+    // Ordering, paging and aggregates belong with the rest of the request. The querystring
+    // (SearchTableQuery) carries the same three for compatibility; the route merges them and
+    // rejects a key sent in both places.
+    orderBy: orderByField(),
+    paginator: Type.Optional(Type.Object({
+      page: pageField(),
+      itemsPerPage: itemsPerPageField(maxItemsPerPage),
+    })),
+    compute: Type.Optional(computeObject()),
   };
 
   if (Object.keys(computedTypes).length > 0) {
@@ -199,26 +230,19 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
 }
 
 /**
- * Querystring schema, parameterized on the plugin's `maxItemsPerPage`.
- *
- * `itemsPerPage` declares NO schema default. Ajv injects defaults before the handler runs, so
- * a default here would hand every request a paginator: page 1 of N rows, a COUNT on every
- * search, and a `pagination` block the client never asked for — while the documented
- * no-paginator path (LIMIT `maxItemsPerPage`, no COUNT, no block) became unreachable over
- * HTTP. The 500-row default for a request that sends `page` alone is applied by the route
- * handler, where the absence of both parameters is still observable. The cap doubles as the
- * schema `maximum`, so exceeding it is a structured 400.
+ * Querystring schema, parameterized on the plugin's `maxItemsPerPage`: the flat form of the
+ * body's `orderBy`, `paginator` and `compute` (one field per `compute*` key), kept so existing
+ * clients need not move. The body is canonical; see `itemsPerPageField` for the missing default.
  */
 export function SearchTableQuery(maxItemsPerPage: number = DEFAULT_MAX_ITEMS_PER_PAGE): TObject {
   return Type.Object({
-    orderBy: Type.Optional(Type.String({ maxLength: MAX_ORDER_BY_LENGTH })),
-    page: Type.Optional(Type.Integer({ minimum: 1 })),
-    itemsPerPage: Type.Optional(Type.Integer({ minimum: 1, maximum: maxItemsPerPage })),
+    orderBy: orderByField(),
+    page: pageField(),
+    itemsPerPage: itemsPerPageField(maxItemsPerPage),
     computeMin: Type.Optional(Type.String()),
     computeMax: Type.Optional(Type.String()),
     computeSum: Type.Optional(Type.String()),
     computeAvg: Type.Optional(Type.String()),
-    // selectComputed list goes in the body (POST), not querystring — see SearchTableBodyPost.
   });
 }
 

@@ -41,9 +41,10 @@ export function agentToolSchemas(
   const out: AgentToolSchemas = {};
 
   if (ops.has('search')) {
+    const maxItemsPerPage = opts?.maxItemsPerPage ?? DEFAULT_MAX_ITEMS_PER_PAGE;
     out.search = {
-      body: SearchTableBodyPost(dbTables, tableName),
-      querystring: SearchTableQuery(opts?.maxItemsPerPage ?? DEFAULT_MAX_ITEMS_PER_PAGE),
+      body: SearchTableBodyPost(dbTables, tableName, maxItemsPerPage),
+      querystring: SearchTableQuery(maxItemsPerPage),
     };
   }
   if (ops.has('insert')) out.insert = { body: InsertTableBody(dbTables, tableName) };

@@ -242,7 +242,7 @@ computedFields: {
 
 - Computed fields are per table: a join's side query uses the target table's computed fields. On joinLeft, `qiCol` adds the alias automatically.
 - A name that collides with a schema field or an extra filter throws in `defineTable`.
-- Bound `values` work in WHERE and ORDER BY positions. They are rejected (400) in `selectComputed`, `compute*`, `aggregations.by` and `defaultOrder`.
+- Bound `values` work in WHERE and ORDER BY positions. They are rejected (400) in `selectComputed`, `compute`, `aggregations.by` and `defaultOrder`.
 - Limits: read-only (not writable), no computed field referencing another, not usable as a joinGroup aggregation field (`sum: [...]` takes schema fields). The expression is evaluated once per use.
 
 ## afterRead
@@ -296,8 +296,9 @@ app.get('/billing/:customerId', async (request) =>
     paginator: { page: 1, itemsPerPage: 50 },
   }, request)); // pass `request` for tenant + hooks; without it: no tenant filter, hooks get undefined
 
-sqlApi.search(table, { filters, conditions, joinMustExist, joinMultiple, joinGroup, joinLeft, select, selectComputed, orderBy, paginator, computeMin, computeMax, computeSum, computeAvg, maxRows }, req?)
+sqlApi.search(table, { filters, conditions, joinMustExist, joinMultiple, joinGroup, joinLeft, select, selectComputed, orderBy, paginator, compute, maxRows }, req?)
 // select: main fields to project; the PK, the requested joins' keys and (with distinctResults) the ORDER BY fields are always added
+// compute: { sum: ['total'], max: ['total'] } → result.pagination.computed; needs paginator. computeMin/Max/Sum/Avg (one field each) are still accepted and merged into it
 sqlApi.get(table, id, req?)
 sqlApi.insert(table, { record, secondaries? }, req?)
 sqlApi.update(table, { record, secondaries?, deletions? }, req?)

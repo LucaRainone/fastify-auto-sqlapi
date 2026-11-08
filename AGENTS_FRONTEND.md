@@ -22,11 +22,14 @@ POST {p}/bulk/{table}/delete body=[{id:1}, {id:2}] → [{main:{id:1}}, ...] // k
 
 ## Search
 
-Querystring, all optional: `orderBy`, `page`, `itemsPerPage`, `computeMin|Max|Sum|Avg=<field>`. Body, all optional and combinable; `{}` returns the first N rows.
+Everything travels in the body; all keys are optional and combinable, `{}` returns the first N rows. Querystring alternative for three of them, for older clients: `?orderBy=…&page=1&itemsPerPage=20&computeSum=total` (one field per `computeMin|Max|Sum|Avg`); a key sent both in the body and in the querystring → 400 `conflicting_input`, and errors are reported at the body path either way (`paginator.page`, `compute.sum.0`).
 
 ```jsonc
-// POST {p}/search/customer?orderBy=orders.sum.total DESC, creator.name ASC, id&page=1&itemsPerPage=20&computeSum=total
+// POST {p}/search/customer
 {
+  "orderBy": "orders.sum.total DESC, creator.name ASC, id", // see orderBy below
+  "paginator": { "page": 1, "itemsPerPage": 20 }, // see Pagination
+  "compute": { "sum": ["total"], "max": ["total"] }, // MIN/MAX/SUM/AVG over ALL matching rows → pagination.computed; requires paginator
   "filters": { "status": "active", "deletedById": null }, // equality, AND; null → IS NULL; also computed fields and backend extra filters (see manifest). Unknown key → 400
   "conditions": [ // AND; the same field may repeat
     { "field": "total", "method": "isBetween", "params": [100, 500] },
@@ -68,15 +71,15 @@ Response; each section is present only if requested:
   "joinLeft": { "creator": [{ "id": 7, "name": "Alice" }] }, // deduplicated: match main.creatorId === creator.id
   "pagination": { // only when page or itemsPerPage is sent
     "total": 25, "pages": 3,
-    "computed": { "sum": { "total": 999 } }, // computeMin/Max/Sum/Avg over all matching rows; require pagination
+    "computed": { "sum": { "total": 999 }, "max": { "total": 120 } }, // one entry per compute function and field
     "paginator": { "page": 1, "itemsPerPage": 20 }
   }
 }
 ```
 
 Pagination:
-- Without `page`/`itemsPerPage`, the server caps rows at its maximum (default 1000) and returns no `pagination` block.
-- With `page` only, `itemsPerPage` defaults to 500 (or the server maximum if lower).
+- Without `paginator`, the server caps rows at its maximum (default 1000) and returns no `pagination` block.
+- With `page` only, `itemsPerPage` defaults to 500 (or the server maximum if lower); with `itemsPerPage` only, `page` defaults to 1.
 - Both are integers ≥ 1. `itemsPerPage` above the server maximum → 400.
 
 `orderBy` is a comma-separated list, each part one of:
@@ -133,7 +136,7 @@ Every error has one shape. `error` is the HTTP reason phrase; `requestId` is the
 
 - 400 always carries `fields`, whether the request failed the schema, the backend's business validation or the engine. Map `fields[].path` to form fields; when `fields` is empty, show `message`.
   - `path` is the dot path of the offending value in the request: body keys from the root (`main.name`, `secondaries.orders.0.total`, `filters.status`, `conditions.2.params`, `joinGroup.orders.aggregations.by`, `joinMultiple.orders.selection`), querystring and path parameters by name (`orderBy`, `itemsPerPage`, `id`). `""` when the error is not attributable to one input.
-  - `code` is stable: an Ajv keyword (`required`, `type`, `maximum`, `additionalProperties`, `enum`…), a code the backend chose in its own validation, or an engine code: `unknown_field`, `not_readable`, `unknown_alias`, `wrong_join_family`, `invalid_method`, `invalid_params`, `invalid_order_by`, `invalid_paginator`, `invalid_aggregation`, `undeclared_aggregation`, `bound_values_not_allowed`, `extra_filter_not_allowed`, `limit_exceeded`, `missing_key`, `duplicate_key`, `ambiguous_tenant`. The engine's `message` repeats the field's.
+  - `code` is stable: an Ajv keyword (`required`, `type`, `maximum`, `additionalProperties`, `enum`…), a code the backend chose in its own validation, or an engine code: `unknown_field`, `not_readable`, `unknown_alias`, `wrong_join_family`, `invalid_method`, `invalid_params`, `invalid_order_by`, `invalid_paginator`, `invalid_aggregation`, `undeclared_aggregation`, `bound_values_not_allowed`, `extra_filter_not_allowed`, `limit_exceeded`, `conflicting_input`, `missing_key`, `duplicate_key`, `ambiguous_tenant`. The engine's `message` repeats the field's.
 - 403: tenant violation. 404: record not found, or outside your tenant. No `fields`.
 - 500: DB errors (e.g. constraint violations), unmapped: `message` is fixed, the detail is in the server log under `requestId`.
 - Per search, max 100 `conditions` per section (top level and each join) and max 20 `orderBy` parts (≤ 1024 chars); over either → 400 `limit_exceeded`. Collapse many equality conditions into one `isIn`.
