@@ -28,6 +28,12 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   `select.<i>`.
 - **`selection` accepts an array** as well as the comma-separated string, in a join
   reference and in `buildRelation`.
+- **`action: 'inserted' | 'updated'`** on every item of the bulk upsert response and on the
+  single insert response: what the statement did to the main row. PostgreSQL reads it off the
+  upsert statement (`(xmax = 0)` in RETURNING); MySQL/MariaDB off the probe their upsert-by-key
+  starts with. No extra statement. Tables without an upsert rule report `inserted`. New `QueryClient` methods
+  `insertOrUpdateWithAction` and `bulkInsertOrUpdateWithAction`; the existing ones keep
+  returning PK rows. Exported types `WriteAction`, `WrittenRow`.
 - **`orderBy`, `paginator` and `compute` in the search body.** The body is now the canonical
   form of the whole request; the querystring (`orderBy`, `page`, `itemsPerPage`,
   `computeMin|Max|Sum|Avg`) stays as an alias. A key sent in both places is a 400

@@ -3,6 +3,7 @@ import type { QueryClient } from '../lib/db.js';
 import type { TableConfig, DbTables } from './table.js';
 import type { TenantContext } from './tenant.js';
 import type { RowsByAlias } from './join.js';
+import type { WriteAction } from './db.js';
 
 interface DmlBaseParams {
   db: QueryClient;
@@ -24,6 +25,8 @@ export interface InsertParams extends DmlWriteBaseParams {
 
 export interface InsertResult {
   main: Record<string, unknown>;
+  /** `'updated'` when an upsert rule landed the write on an existing row, else `'inserted'`. */
+  action: WriteAction;
   secondaries?: RowsByAlias;
 }
 
@@ -78,6 +81,8 @@ export interface BulkUpsertParams extends DmlWriteBaseParams {
 
 export interface BulkUpsertResult {
   main: Record<string, unknown>;
+  /** What the statement did to this item's main row; `'inserted'` for every item without an upsert rule. */
+  action: WriteAction;
   secondaries?: RowsByAlias;
   deletions?: RowsByAlias;
 }

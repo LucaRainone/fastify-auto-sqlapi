@@ -9,6 +9,7 @@ import {
   relaxTenantColumns,
   writeJoinBodyFields,
   writeJoinResponseFields,
+  WriteActionSchema,
 } from './helpers.js';
 
 export function InsertTableBody(dbTables: DbTables, tableName: string): TObject {
@@ -49,6 +50,7 @@ export function InsertTableResponse(dbTables: DbTables, tableName: string): TObj
 
   const responseProperties: Record<string, TSchema> = {
     main: Type.Object(pkSchema(tableConf, tableConf.Schema, primaryAsString(tableConf.primary))),
+    action: WriteActionSchema,
   };
 
   attachWriteJoinSections(responseProperties, tableConf, dbTables, {

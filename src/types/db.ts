@@ -34,6 +34,15 @@ export type DbRecordValue =
 
 export type DbRecord = Record<string, DbRecordValue>;
 
+/** What a write that may be an upsert did to a row. */
+export type WriteAction = 'inserted' | 'updated';
+
+/** A written row: its primary key columns, and whether the statement inserted or updated it. */
+export interface WrittenRow {
+  pk: Record<string, unknown>;
+  action: WriteAction;
+}
+
 export interface SelectOptions {
   tableName: string;
   columns?: string;

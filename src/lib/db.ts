@@ -1,6 +1,6 @@
 import { Expression } from 'node-condition-builder';
 import type { ConditionBuilder } from 'node-condition-builder';
-import type { Queryable, SqlResult, DbRecord, SelectOptions } from '../types.js';
+import type { Queryable, SqlResult, DbRecord, SelectOptions, WrittenRow } from '../types.js';
 import type { SqlDialect } from './dialect.js';
 import { getDialect } from './dialect.js';
 
@@ -10,6 +10,11 @@ import { getDialect } from './dialect.js';
 const DEFAULT_CHUNK_SIZE = 500;
 // Column tagging each row of an upsert key lookup with its record's position in the chunk
 const LOOKUP_POSITION = 'sqlapi_lookup_position';
+// Column carrying the dialect's inserted/updated flag in an upsert's RETURNING list
+const INSERTED_FLAG = '__inserted';
+
+const asInserted = (pkRows: Record<string, unknown>[]): WrittenRow[] =>
+  pkRows.map((pk) => ({ pk, action: 'inserted' }));
 
 /** What an upsert matches on, and the columns it never overwrites on an existing row. */
 interface UpsertTarget {
@@ -226,9 +231,19 @@ export class QueryClient {
     conflictKeys: string[],
     pkCol: string | string[]
   ): Promise<Record<string, unknown>> {
+    return (await this.insertOrUpdateWithAction(table, record, conflictKeys, pkCol)).pk;
+  }
+
+  /** `insertOrUpdate`, also telling whether the row was inserted or updated. */
+  async insertOrUpdateWithAction(
+    table: string,
+    record: DbRecord,
+    conflictKeys: string[],
+    pkCol: string | string[]
+  ): Promise<WrittenRow> {
     if (!Object.keys(record).length) throw new Error('Cannot execute empty insert');
-    const [pkRow] = await this.#bulkWrite(table, [record], pkCol, 1, { conflictKeys, keepAsIs: conflictKeys });
-    return pkRow;
+    const [written] = await this.#bulkWrite(table, [record], pkCol, 1, { conflictKeys, keepAsIs: conflictKeys });
+    return written;
   }
 
   /**
@@ -320,21 +335,25 @@ export class QueryClient {
   }
 
   /**
-   * One multi-row INSERT for records sharing `fields`; `tail` is the upsert clause, if any.
-   * Returns the PK rows in the records' order.
+   * One multi-row INSERT for records sharing `fields`; `tail` is the upsert clause, if any, and
+   * `extraReturning` an expression added to the RETURNING list where the dialect has one.
+   * Returns the PK rows (plus that expression's column) in the records' order.
    */
   async #insertRows(
     table: string,
     fields: string[],
     records: DbRecord[],
     pkCol: string | string[],
-    tail = ''
+    tail = '',
+    extraReturning = ''
   ): Promise<Record<string, unknown>[]> {
     const { values, rows } = this.#bulkValues(fields, records);
+    const returningPk = this.dialect.returningPk(this.#quotedPkCols(pkCol));
+    const returning = returningPk && extraReturning ? `${returningPk}, ${extraReturning}` : returningPk;
     const result = await this.query(
       `${this.#insertHead(table, fields)}
        VALUES ${rows}
-       ${tail}${this.dialect.returningPk(this.#quotedPkCols(pkCol))}`,
+       ${tail}${returning}`,
       values
     );
     return this.#extractPkRows(result, pkCol, records);
@@ -380,17 +399,17 @@ export class QueryClient {
     records: DbRecord[],
     pkCol: string | string[],
     upsert: UpsertTarget
-  ): Promise<Record<string, unknown>[]> {
+  ): Promise<WrittenRow[]> {
     // A group missing a key field can only insert: nothing to probe
     const found = upsert.conflictKeys.every((k) => fields.includes(k))
       ? await this.#findByKey(table, records, pkCol, upsert.conflictKeys)
       : new Map<number, Record<string, unknown>[]>();
-    const pkRows: Record<string, unknown>[] = new Array(records.length);
+    const written: WrittenRow[] = new Array(records.length);
 
     const inserts = records.flatMap((_, i) => (found.has(i) ? [] : [i]));
     if (inserts.length) {
-      const inserted = await this.#insertRows(table, fields, inserts.map((i) => records[i]), pkCol);
-      inserts.forEach((i, k) => { pkRows[i] = inserted[k]; });
+      const insertedRows = await this.#insertRows(table, fields, inserts.map((i) => records[i]), pkCol);
+      inserts.forEach((i, k) => { written[i] = { pk: insertedRows[k], action: 'inserted' }; });
     }
 
     const updates = [...found.keys()];
@@ -398,14 +417,15 @@ export class QueryClient {
     if (updates.length && columns.length) {
       await this.#updateByKey(table, columns, updates.map((i) => records[i]), upsert.conflictKeys);
     }
-    for (const i of updates) pkRows[i] = found.get(i)![0];
+    for (const i of updates) written[i] = { pk: found.get(i)![0], action: 'updated' };
 
-    return pkRows;
+    return written;
   }
 
   /**
    * One chunk of records sharing `fields`: a plain insert, or an upsert — `ON CONFLICT (key)`
-   * where the dialect has it, by key otherwise. PK rows in the records' order.
+   * where the dialect has it, by key otherwise. Written rows in the records' order, each with
+   * the action the statement took on it.
    */
   async #writeChunk(
     table: string,
@@ -413,28 +433,44 @@ export class QueryClient {
     records: DbRecord[],
     pkCol: string | string[],
     upsert?: UpsertTarget
-  ): Promise<Record<string, unknown>[]> {
-    if (!upsert) return this.#insertRows(table, fields, records, pkCol);
+  ): Promise<WrittenRow[]> {
+    if (!upsert) return asInserted(await this.#insertRows(table, fields, records, pkCol));
 
     const onConflict = this.dialect.onConflict;
     if (!onConflict) return this.#upsertByKey(table, fields, records, pkCol, upsert);
 
     const updateSet = onConflict.updateSet(fields, upsert.keepAsIs);
-    const pkRows = await this.#insertRows(
-      table, fields, records, pkCol, onConflict.sql(this.#q(upsert.conflictKeys), updateSet)
-    );
-    // Nothing to update: `DO NOTHING` returns no row for an existing one. A group missing a key
-    // field can only insert, and RETURNING names every row it inserted.
-    if (!updateSet && upsert.conflictKeys.every((k) => fields.includes(k))) {
-      return this.#untouchedPkRows(table, records, pkCol, upsert.conflictKeys);
+    const clause = onConflict.sql(this.#q(upsert.conflictKeys), updateSet);
+
+    if (!updateSet) {
+      // Nothing to update: `DO NOTHING` returns a row for each one it inserted and none for an
+      // existing one. A group missing a key field can only insert, so RETURNING names every row;
+      // otherwise every row's PK is looked up, and the ones RETURNING named are the inserted.
+      const insertedRows = await this.#insertRows(table, fields, records, pkCol, clause);
+      if (!upsert.conflictKeys.every((k) => fields.includes(k))) return asInserted(insertedRows);
+
+      const pkCols = Array.isArray(pkCol) ? pkCol : [pkCol];
+      const pkKey = (row: Record<string, unknown>): string => pkCols.map((c) => String(row[c])).join('|');
+      const inserted = new Set(insertedRows.map(pkKey));
+      const pkRows = await this.#untouchedPkRows(table, records, pkCol, upsert.conflictKeys);
+      return pkRows.map((pk) => ({ pk, action: inserted.has(pkKey(pk)) ? 'inserted' : 'updated' }));
     }
-    return pkRows;
+
+    // The statement itself says which rows it inserted and which it rewrote.
+    const rows = await this.#insertRows(
+      table, fields, records, pkCol, clause,
+      `${onConflict.insertedFlag} AS ${this.dialect.qi(INSERTED_FLAG)}`
+    );
+    return rows.map(({ [INSERTED_FLAG]: flag, ...pk }) => ({
+      pk,
+      action: flag === false ? 'updated' : 'inserted',
+    }));
   }
 
   /**
    * Write `records`, one chunk at a time within each same-fields group (a single chunk when
    * every record has the same fields). With `upsert`, an existing row gets the record's fields
-   * except `keepAsIs` — the conflict keys and the columns never overwritten. PK rows are
+   * except `keepAsIs` — the conflict keys and the columns never overwritten. Written rows are
    * returned in input order.
    */
   async #bulkWrite(
@@ -443,16 +479,16 @@ export class QueryClient {
     pkCol: string | string[],
     chunkSize: number,
     upsert?: UpsertTarget
-  ): Promise<Record<string, unknown>[]> {
-    const results: Record<string, unknown>[] = new Array(records.length);
+  ): Promise<WrittenRow[]> {
+    const results: WrittenRow[] = new Array(records.length);
 
     for (const { fields, indexes } of this.#groupByFields(records)) {
       for (let i = 0; i < indexes.length; i += chunkSize) {
         const chunkIndexes = indexes.slice(i, i + chunkSize);
-        const pkRows = await this.#writeChunk(
+        const written = await this.#writeChunk(
           table, fields, chunkIndexes.map((j) => records[j]), pkCol, upsert
         );
-        pkRows.forEach((row, k) => {
+        written.forEach((row, k) => {
           results[chunkIndexes[k]] = row;
         });
       }
@@ -468,7 +504,7 @@ export class QueryClient {
     chunkSize = DEFAULT_CHUNK_SIZE
   ): Promise<Record<string, unknown>[]> {
     if (!records.length) return [];
-    return this.#bulkWrite(table, records, pkCol, chunkSize);
+    return (await this.#bulkWrite(table, records, pkCol, chunkSize)).map((r) => r.pk);
   }
 
   /**
@@ -484,6 +520,21 @@ export class QueryClient {
     chunkSize = DEFAULT_CHUNK_SIZE,
     immutableCols: string[] = []
   ): Promise<Record<string, unknown>[]> {
+    const written = await this.bulkInsertOrUpdateWithAction(
+      table, records, conflictKeys, pkCol, chunkSize, immutableCols
+    );
+    return written.map((r) => r.pk);
+  }
+
+  /** `bulkInsertOrUpdate`, also telling for each row whether it was inserted or updated. */
+  async bulkInsertOrUpdateWithAction(
+    table: string,
+    records: DbRecord[],
+    conflictKeys: string[],
+    pkCol: string | string[],
+    chunkSize = DEFAULT_CHUNK_SIZE,
+    immutableCols: string[] = []
+  ): Promise<WrittenRow[]> {
     if (!records.length) return [];
 
     const keepAsIs = immutableCols.length ? [...conflictKeys, ...immutableCols] : conflictKeys;

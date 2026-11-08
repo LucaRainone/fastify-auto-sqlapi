@@ -17,30 +17,32 @@ import type {
   BulkUpsertParams,
   BulkUpsertResult,
   DbRecord,
+  WrittenRow,
 } from '../../../types.js';
 
-/** One bulk statement for every main row, returning the PKs only. */
-function upsertMains(
+/** One bulk statement for every main row: its PK and what the statement did to it. */
+async function upsertMains(
   params: BulkUpsertParams,
   preparedMains: DbRecord[],
   pkCol: string | string[]
-): Promise<Record<string, unknown>[]> {
+): Promise<WrittenRow[]> {
   const { db, tableConf, tenant } = params;
   const schema = tableConf.Schema;
   const upsertKeys = tableConf.upsertMap?.get(schema);
 
   if (!upsertKeys) {
-    return db.bulkInsert(schema.tableName, preparedMains, pkCol);
+    const pkRows = await db.bulkInsert(schema.tableName, preparedMains, pkCol);
+    return pkRows.map((pk) => ({ pk, action: 'inserted' }));
   }
 
   const conflictCols = upsertKeys.map((k) => schema.col(k));
   assertUpsertKeys(schema, conflictCols, [pkCol].flat(), preparedMains);
   // Tenant isolation: a conflicting upsert must not overwrite rows owned by another tenant, nor
   // re-assign the owner of a row it legitimately updates.
-  return assertTenantOwnsConflicts(db, tenant, schema.tableName, conflictCols, preparedMains)
-    .then(() => db.bulkInsertOrUpdate(
-      schema.tableName, preparedMains, conflictCols, pkCol, undefined, tenantImmutableColumns(tenant)
-    ));
+  await assertTenantOwnsConflicts(db, tenant, schema.tableName, conflictCols, preparedMains);
+  return db.bulkInsertOrUpdateWithAction(
+    schema.tableName, preparedMains, conflictCols, pkCol, undefined, tenantImmutableColumns(tenant)
+  );
 }
 
 /** Secondaries, deletions and the afterInsert hook for one upserted item. */
@@ -48,14 +50,14 @@ async function finalizeUpsertedItem(
   params: BulkUpsertParams,
   item: BulkUpsertItem,
   inputMain: Record<string, unknown>,
-  pkRow: Record<string, unknown>
+  written: WrittenRow
 ): Promise<BulkUpsertResult> {
   const { db, tableConf, dbTables, request, tenant } = params;
 
-  // pkRow comes from SQL RETURNING or mysql insertId synthesis — keys are DB column names;
+  // The PK row comes from SQL RETURNING or mysql insertId synthesis — keys are DB column names;
   // camelcaseObject maps them back to schema fields (full composite PK).
-  const mainPkCamel = camelcaseObject(pkRow, tableConf.Schema);
-  const result: BulkUpsertResult = { main: mainPkCamel };
+  const mainPkCamel = camelcaseObject(written.pk, tableConf.Schema);
+  const result: BulkUpsertResult = { main: mainPkCamel, action: written.action };
 
   // FK auto-fill: input camelCase + generated PK
   const mainForFK = { ...inputMain, ...mainPkCamel };
@@ -112,14 +114,14 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
   // 3. Tenant: inject (direct) or batch-validate FK (indirect) — enforced after user mutations
   await enforceTenantOnWrites(db, tenant, preparedMains);
 
-  // 4. Bulk upsert all mains in one query → returns PK-only
-  const pkRows = await upsertMains(params, preparedMains, pkCol);
+  // 4. Bulk upsert all mains in one query → PK and action per row
+  const written = await upsertMains(params, preparedMains, pkCol);
 
   // 5-6. Secondaries, deletions and afterInsert per item — sequential on purpose, so hooks
   //      observe the same order the caller sent, and errors surface on the first bad item.
   const results: BulkUpsertResult[] = [];
   for (let i = 0; i < items.length; i++) {
-    results.push(await finalizeUpsertedItem(params, items[i], inputMains[i], pkRows[i]));
+    results.push(await finalizeUpsertedItem(params, items[i], inputMains[i], written[i]));
   }
 
   return results;

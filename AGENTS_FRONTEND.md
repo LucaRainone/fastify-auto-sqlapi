@@ -13,10 +13,10 @@ This is the request GRAMMAR. The vocabulary (this deployment's tables, fields, j
 ```
 POST {p}/search/{table} body=search request → {table, main:[...], ...}
 GET {p}/rest/{table}/:id → {main:{...}} | 404
-POST {p}/rest/{table} body={main, secondaries?} → 201 {main:{id}, secondaries?}
+POST {p}/rest/{table} body={main, secondaries?} → 201 {main:{id}, action, secondaries?} // action: "inserted" | "updated" (upsert tables)
 PUT {p}/rest/{table} body={main(+PK), secondaries?, deletions?} → {main:{id}, secondaries?, deletions?}
 DELETE {p}/rest/{table}/:id → {main:{id}} | 404
-PUT {p}/bulk/{table} body=[{main, secondaries?, deletions?}, ...] → [{main:{id}}, ...]
+PUT {p}/bulk/{table} body=[{main, secondaries?, deletions?}, ...] → [{main:{id}, action}, ...]
 POST {p}/bulk/{table}/delete body=[{id:1}, {id:2}] → [{main:{id:1}}, ...] // key = the table's PK field
 ```
 
@@ -106,7 +106,7 @@ An unknown field or method, or `params` that is not an array or is too short →
 // POST {p}/rest/customer — insert; omit auto-generated PKs
 { "main": { "name": "Mario", "email": "m@t.it" },
   "secondaries": { "orders": [{ "total": 50, "status": "pending" }] } } // child FK auto-filled from the new main PK
-// → 201 { "main": { "id": 1 }, "secondaries": { "orders": [{ "id": 10 }] } }
+// → 201 { "main": { "id": 1 }, "action": "inserted", "secondaries": { "orders": [{ "id": 10 }] } }
 
 // PUT {p}/rest/customer — update; main MUST include the PK; send only the fields to change; null sets NULL
 { "main": { "id": 1, "email": "new@t.it" },
@@ -117,7 +117,8 @@ An unknown field or method, or `params` that is not an array or is too short →
 // PUT {p}/bulk/customer — bulk upsert; items need not share keys: an omitted field keeps the stored value (update) or takes the column default (insert)
 [ { "main": { "name": "Mario" }, "secondaries": { "orders": [{ "total": 50 }] } },
   { "main": { "name": "Luigi" } } ]
-// → 200 [ { "main": { "id": 1 }, "secondaries": {...} }, { "main": { "id": 2 } } ]
+// → 200 [ { "main": { "id": 1 }, "action": "updated", "secondaries": {...} }, { "main": { "id": 2 }, "action": "inserted" } ]
+// action: what the statement did to the main row. "updated" when an upsert rule matched an existing row (also with nothing left to change), "inserted" otherwise; tables without a rule always say "inserted". Secondaries report PKs only.
 ```
 
 Upsert tables (see manifest):

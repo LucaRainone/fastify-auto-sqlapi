@@ -20,6 +20,9 @@ export function pkSchema(tableConf: TableConfig | undefined, schema: SchemaDefin
   return result;
 }
 
+/** `action` of a write response: what the statement did to the main row (`WriteAction`). */
+export const WriteActionSchema = Type.Union([Type.Literal('inserted'), Type.Literal('updated')]);
+
 /**
  * Path params of the single-record routes, `GET|DELETE /rest/:table/:id`.
  *

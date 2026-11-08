@@ -8,6 +8,7 @@ import {
   attachWriteJoinSections,
   writeJoinBodyFields,
   writeJoinResponseFields,
+  WriteActionSchema,
 } from './helpers.js';
 
 export function BulkUpsertTableBody(dbTables: DbTables, tableName: string, maxItems?: number) {
@@ -39,6 +40,7 @@ export function BulkUpsertTableResponse(dbTables: DbTables, tableName: string) {
 
   const responseProperties: Record<string, TSchema> = {
     main: Type.Object(pkSchema(tableConf, tableConf.Schema, primaryAsString(tableConf.primary))),
+    action: WriteActionSchema,
   };
 
   attachWriteJoinSections(responseProperties, tableConf, dbTables, {

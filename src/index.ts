@@ -96,6 +96,8 @@ export type {
   SqlResult,
   DbRecord,
   DbRecordValue,
+  WriteAction,
+  WrittenRow,
   SelectOptions,
   SchemaDefinition,
   JoinDefinition,

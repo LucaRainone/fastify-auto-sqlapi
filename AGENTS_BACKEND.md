@@ -320,8 +320,10 @@ Limits: the engine enforces at most 100 `conditions` per section, 20 `orderBy` p
 ```ts
 db.insert(table, record, pkCol) // → PK row
 db.insertOrUpdate(table, record, conflictKeys, pkCol) // → PK row
+db.insertOrUpdateWithAction(table, record, conflictKeys, pkCol) // → { pk, action: 'inserted' | 'updated' }
 db.bulkInsert(table, records, pkCol, chunkSize?) // → PK rows in input order
-db.bulkInsertOrUpdate(table, records, conflictKeys, pkCol, chunkSize?)
+db.bulkInsertOrUpdate(table, records, conflictKeys, pkCol, chunkSize?) // → PK rows in input order
+db.bulkInsertOrUpdateWithAction(table, records, conflictKeys, pkCol, chunkSize?) // → [{ pk, action }] in input order
 db.update(table, record, where, extraCondition?) // → affected rows (number)
 db.delete(table, where) // → affected rows
 db.select({ tableName, columns?, where, values, limit?, orderBy?, joins?, distinct? })
@@ -332,6 +334,7 @@ db.qi(name); db.dialectName; db.cbDialect // quoting, dialect, ConditionBuilder 
 
 - `pkCol` is a string or an array. Bulk methods issue one statement per distinct column set.
 - `conflictKeys` must be a unique key enforced by the DB. PG uses `ON CONFLICT (keys)`. MySQL/MariaDB upsert by key (a probe SELECT per chunk, then INSERT new and UPDATE existing), because `ON DUPLICATE KEY` fires on any unique index. A key matching several rows is refused.
+- `action` comes from the statement on PG (`(xmax = 0)` in RETURNING; on `DO NOTHING`, the rows RETURNING names are the inserted ones) and from the probe on MySQL/MariaDB. No extra statement either way.
 - Called directly, none of the `defineTable` checks apply.
 
 ```ts

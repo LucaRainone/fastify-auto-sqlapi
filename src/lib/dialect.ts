@@ -25,6 +25,11 @@ export interface SqlDialect {
      * for every field not in `keepAsIs`; '' when nothing is left to update.
      */
     updateSet(fields: string[], keepAsIs: string[]): string;
+    /**
+     * A boolean SQL expression for the RETURNING list that is true on a row the statement
+     * inserted and false on one it updated, so an upsert can report what it did.
+     */
+    insertedFlag: string;
   };
   /** RETURNING pk_col suffix or empty string */
   returningPk(quotedPkCol: string): string;
@@ -55,6 +60,9 @@ const PostgresDialect: SqlDialect = {
       const updateCols = fields.filter((f) => !keepAsIs.includes(f));
       return updateCols.map((f) => `${pgQi(f)} = EXCLUDED.${pgQi(f)}`).join(', ');
     },
+    // A freshly inserted row has no deleting/updating transaction recorded: xmax is 0. A row
+    // `ON CONFLICT DO UPDATE` rewrote carries the current transaction's id there.
+    insertedFlag: '(xmax = 0)',
   },
   returningPk(quotedPkCol) {
     return ` RETURNING ${quotedPkCol}`;
