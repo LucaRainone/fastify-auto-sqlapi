@@ -1,7 +1,9 @@
 // maxItemsPerPage below 500 must not break requests without an explicit itemsPerPage.
-// The querystring schema declared a fixed `default: 500`: Ajv injected it BEFORE the
-// runtime cap check, so any cap below 500 made every default request fail with 400.
-// The schema is now parameterized: default = min(500, cap), maximum = cap.
+// The querystring schema once declared a fixed `default: 500`: Ajv injected it BEFORE the
+// runtime cap check, so any cap below 500 made every default request fail with 400 — and
+// any request without `itemsPerPage` was silently paginated. The schema now declares no
+// default at all (the route handler applies min(500, cap) when `page` alone is sent, see
+// search-route-no-paginator.test.js) and the cap is the schema `maximum`.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,21 +18,18 @@ const { fastifyAutoSqlApi, SearchTableQuery, Type, exportTableInfo } =
   await import(path.join(ROOT, 'dist/index.js'));
 
 describe('SearchTableQuery schema builder', () => {
-  it('caps the default when maxItemsPerPage is below 500', () => {
+  it('uses maxItemsPerPage as the schema maximum', () => {
     const q = SearchTableQuery(100).properties.itemsPerPage;
-    assert.equal(q.default, 100);
     assert.equal(q.maximum, 100);
   });
 
-  it('keeps default 500 when the cap is higher', () => {
-    const q = SearchTableQuery(2000).properties.itemsPerPage;
-    assert.equal(q.default, 500);
-    assert.equal(q.maximum, 2000);
+  it('declares no schema default for itemsPerPage (Ajv would inject it on every request)', () => {
+    assert.equal(SearchTableQuery(100).properties.itemsPerPage.default, undefined);
+    assert.equal(SearchTableQuery(2000).properties.itemsPerPage.default, undefined);
   });
 
   it('uses the default cap (1000) when called without one', () => {
     const q = SearchTableQuery().properties.itemsPerPage;
-    assert.equal(q.default, 500);
     assert.equal(q.maximum, 1000);
   });
 });

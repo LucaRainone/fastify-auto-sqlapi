@@ -194,20 +194,19 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
 /**
  * Querystring schema, parameterized on the plugin's `maxItemsPerPage`.
  *
- * The `itemsPerPage` default MUST NOT exceed the cap: Ajv injects the default before any
- * runtime check runs, so a fixed default of 500 combined with `maxItemsPerPage: 100` would
- * make every request without an explicit `itemsPerPage` fail with 400. The default is
- * therefore `min(500, cap)` and the cap doubles as the schema `maximum` (structured 400).
+ * `itemsPerPage` declares NO schema default. Ajv injects defaults before the handler runs, so
+ * a default here would hand every request a paginator: page 1 of N rows, a COUNT on every
+ * search, and a `pagination` block the client never asked for — while the documented
+ * no-paginator path (LIMIT `maxItemsPerPage`, no COUNT, no block) became unreachable over
+ * HTTP. The 500-row default for a request that sends `page` alone is applied by the route
+ * handler, where the absence of both parameters is still observable. The cap doubles as the
+ * schema `maximum`, so exceeding it is a structured 400.
  */
 export function SearchTableQuery(maxItemsPerPage: number = DEFAULT_MAX_ITEMS_PER_PAGE): TObject {
   return Type.Object({
     orderBy: Type.Optional(Type.String({ maxLength: MAX_ORDER_BY_LENGTH })),
     page: Type.Optional(Type.Integer({ minimum: 1 })),
-    itemsPerPage: Type.Optional(Type.Integer({
-      minimum: 1,
-      maximum: maxItemsPerPage,
-      default: Math.min(500, maxItemsPerPage),
-    })),
+    itemsPerPage: Type.Optional(Type.Integer({ minimum: 1, maximum: maxItemsPerPage })),
     computeMin: Type.Optional(Type.String()),
     computeMax: Type.Optional(Type.String()),
     computeSum: Type.Optional(Type.String()),

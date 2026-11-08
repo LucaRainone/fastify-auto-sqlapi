@@ -10,6 +10,15 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ## [Unreleased]
 
+### Fixed
+
+- **A search without `page` or `itemsPerPage` is no longer paginated.** The querystring
+  schema declared `default: 500` on `itemsPerPage`, and Ajv injects schema defaults before
+  the handler runs, so every search became page 1 of 500 rows: a `COUNT(*)` on each request
+  and a `pagination` block the client never asked for, while the documented behaviour (LIMIT
+  `maxItemsPerPage`, no COUNT, no block) was unreachable over HTTP. The schema declares no
+  default; the route applies the 500-row default only when `page` alone is sent.
+
 ## [0.6.0]
 
 ### Added

@@ -48,8 +48,7 @@ async function buildApp(pool, register) {
 describe('granular route plugins registered standalone', () => {
   it('searchRoutes works without the main plugin', async () => {
     const pool = createMockPool([
-      { rows: [{ id: 1, name: 'Mario' }], rowCount: 1 }, // main
-      { rows: [{ total: '1' }], rowCount: 1 },           // pagination COUNT
+      { rows: [{ id: 1, name: 'Mario' }], rowCount: 1 }, // main (no paginator: no COUNT)
     ]);
     const app = await buildApp(pool, (app) =>
       app.register(searchRoutes, { DbTables })
@@ -72,8 +71,7 @@ describe('granular route plugins registered standalone', () => {
 
   it('searchRoutes + getRoutes work as siblings in the same scope', async () => {
     const pool = createMockPool([
-      { rows: [], rowCount: 0 },                         // search main
-      { rows: [{ total: '0' }], rowCount: 1 },           // search COUNT
+      { rows: [], rowCount: 0 },                         // search main (no paginator: no COUNT)
       { rows: [{ id: 7, name: 'Luigi' }], rowCount: 1 }, // get
     ]);
     const app = await buildApp(pool, async (app) => {
@@ -98,7 +96,6 @@ describe('granular route plugins registered standalone', () => {
   it('granular routes respect a prefix on the enclosing scope', async () => {
     const pool = createMockPool([
       { rows: [], rowCount: 0 },
-      { rows: [{ total: '0' }], rowCount: 1 },
     ]);
     const app = await buildApp(pool, (app) =>
       app.register(async (instance) => {
