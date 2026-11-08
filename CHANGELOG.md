@@ -12,6 +12,11 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Fixed
 
+- **`GET|DELETE /rest/:table/:id` validate `:id` against the primary key field's type.** The
+  parameter was declared as free text, so on an integer PK `/rest/item/abc` reached the
+  database and surfaced as a 500, and `/rest/item/7` was bound as the string `"7"`. It is now
+  a structured 400 on `id`, and the value reaches SQL with the PK's type.
+
 - **A search without `page` or `itemsPerPage` is no longer paginated.** The querystring
   schema declared `default: 500` on `itemsPerPage`, and Ajv injects schema defaults before
   the handler runs, so every search became page 1 of 500 rows: a `COUNT(*)` on each request

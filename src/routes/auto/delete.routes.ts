@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { Type } from 'typebox';
 import { primaryAsString } from '../../types.js';
+import { pkParams, pkSchema } from '../../lib/schema/helpers.js';
 import { registerForAllTables } from './route-helpers.js';
 import type { SqlApiPluginOptions } from '../../types.js';
 
@@ -14,13 +15,10 @@ export default async function deleteRoutes(
     method: 'DELETE',
     url: (tableName) => `/rest/${tableName}/:id`,
     successStatus: 200,
-    schemas: (_db, _table, tc) => {
-      const pkField = primaryAsString(tc.primary);
-      return {
-        params: Type.Object({ id: Type.String() }),
-        response: Type.Object({ main: Type.Object({ [pkField]: tc.Schema.fields[pkField] }) }),
-      };
-    },
+    schemas: (_db, _table, tc) => ({
+      params: pkParams(tc),
+      response: Type.Object({ main: Type.Object(pkSchema(tc, tc.Schema, primaryAsString(tc.primary))) }),
+    }),
     summary: 'Delete',
     description: (name) => `Delete a record from ${name} by primary key`,
     handle: (fastify, tableName, _tc, request) => {

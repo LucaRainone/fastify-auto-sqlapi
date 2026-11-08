@@ -1,4 +1,5 @@
-import { Type, IsOptional, type TSchema } from 'typebox';
+import { Type, IsOptional, type TObject, type TSchema } from 'typebox';
+import { primaryAsString } from '../../types.js';
 import type { TableConfig, SchemaDefinition, DbTables, JoinDefinition } from '../../types.js';
 import { readableFieldNames } from '../read-access.js';
 import { writableFields, insertExcludedFields } from '../write-access.js';
@@ -17,6 +18,23 @@ export function pkSchema(tableConf: TableConfig | undefined, schema: SchemaDefin
     result[f] = schema.fields[f] || Type.Any();
   }
   return result;
+}
+
+/**
+ * Path params of the single-record routes, `GET|DELETE /rest/:table/:id`.
+ *
+ * `:id` is validated against the primary key field's own type rather than as free text: a
+ * path parameter is a string on the wire, and Ajv's coercion turns `"7"` into the number an
+ * integer PK expects while `"abc"` becomes a structured 400 on `id` instead of a driver
+ * error the route can only report as a 500. The PK is Optional in a generated Schema when the
+ * database fills it, so the modifier is stripped here: the path always carries the value.
+ *
+ * The parameter is named `id` whatever the PK field is called; the response names the real
+ * field (see `pkSchema`).
+ */
+export function pkParams(tableConf: TableConfig): TObject {
+  const pkField = primaryAsString(tableConf.primary);
+  return Type.Object({ id: asRequired(tableConf.Schema.fields[pkField] ?? Type.String()) });
 }
 
 /**
