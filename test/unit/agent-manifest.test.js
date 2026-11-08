@@ -45,7 +45,7 @@ function makeDbTables() {
     customer: {
       primary: 'id',
       ...exportTableInfo(customerSchema, { q: Type.String() }),
-      excludeFromCreation: ['id'],
+      insertExclude: ['id'],
       readExclude: ['secret'],
       writeExclude: ['createdAt'],
       defaultOrder: 'name',

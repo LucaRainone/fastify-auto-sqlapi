@@ -74,14 +74,10 @@ export function removeWriteExcluded(
 }
 
 /**
- * The fields a client may not send on insert: `insertExclude`, or `excludeFromCreation`, its
- * deprecated name. `defineTable` refuses a table naming both, so at most one is set.
- *
- * The only place that reads either key: every insert path — the body schema, the engines, the
- * secondaries of another table, the agent manifest — goes through here, so the two names can
- * never drift apart.
+ * The fields a client may not send on insert (`insertExclude`). Every insert path — the body
+ * schema, the engines, the secondaries of another table, the agent manifest — reads them
+ * through here.
  */
 export function insertExcludedFields(tableConf: TableConfig | undefined): readonly string[] {
-  // eslint-disable-next-line sonarjs/deprecation -- the one reader of the deprecated alias
-  return tableConf?.insertExclude ?? tableConf?.excludeFromCreation ?? [];
+  return tableConf?.insertExclude ?? [];
 }

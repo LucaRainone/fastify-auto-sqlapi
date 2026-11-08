@@ -37,7 +37,7 @@ function createDbTables(overrides) {
       primary: 'id',
       ...info,
       defaultOrder: 'id',
-      excludeFromCreation: ['id'],
+      insertExclude: ['id'],
       ...(overrides ? { schemaOverrides: overrides } : {}),
     },
   };
@@ -182,7 +182,7 @@ function createNullableDbTables(overrides) {
       primary: 'id',
       ...exportTableInfo(schema),
       defaultOrder: 'id',
-      excludeFromCreation: ['id'],
+      insertExclude: ['id'],
       ...(overrides ? { schemaOverrides: overrides } : {}),
     },
   };

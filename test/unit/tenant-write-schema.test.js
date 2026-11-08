@@ -32,7 +32,7 @@ function createDbTables({ scope, childScope } = {}) {
       primary: 'id',
       ...exportTableInfo(customerSchema),
       defaultOrder: 'id',
-      excludeFromCreation: ['id'],
+      insertExclude: ['id'],
       ...(scope ? { tenantScope: scope } : {}),
       allowedWriteJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
@@ -42,7 +42,7 @@ function createDbTables({ scope, childScope } = {}) {
       primary: 'id',
       ...exportTableInfo(orderSchema),
       defaultOrder: 'id',
-      excludeFromCreation: ['id'],
+      insertExclude: ['id'],
       ...(childScope ? { tenantScope: childScope } : {}),
     },
   };
@@ -71,7 +71,7 @@ describe('insert body: the tenant column of a scoped table is offered, not requi
         primary: 'id',
         ...exportTableInfo(swapSchema),
         defaultOrder: 'id',
-        excludeFromCreation: ['id'],
+        insertExclude: ['id'],
         tenantScope: { anyOf: ['requester_agent_id', 'target_agent_id'] },
       },
     };

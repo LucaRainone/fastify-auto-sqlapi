@@ -57,7 +57,7 @@ const DbTables = {
     primary: 'id',
     ...exportTableInfo(productSchema),
     defaultOrder: 'id',
-    excludeFromCreation: ['id'],
+    insertExclude: ['id'],
   },
   product_translation: {
     primary: ['productId', 'lang'],

@@ -30,7 +30,7 @@ const ROUTES = {
   bulkDelete: { method: 'POST', url: '/bulk/test_table/delete' },
 };
 
-describe('ITable.operations - route registration whitelist', () => {
+describe('TableConfig.operations - route registration whitelist', () => {
   it('registers only the listed operations', async () => {
     const app = Fastify();
     await app.register(fastifyAutoSqlApi, {

@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
-const { fastifyAutoSqlApi, SearchTableQuery, SearchTableQueryString, Type, exportTableInfo } =
+const { fastifyAutoSqlApi, SearchTableQuery, Type, exportTableInfo } =
   await import(path.join(ROOT, 'dist/index.js'));
 
 describe('SearchTableQuery schema builder', () => {
@@ -28,8 +28,8 @@ describe('SearchTableQuery schema builder', () => {
     assert.equal(q.maximum, 2000);
   });
 
-  it('backward-compatible const uses the default cap (1000)', () => {
-    const q = SearchTableQueryString.properties.itemsPerPage;
+  it('uses the default cap (1000) when called without one', () => {
+    const q = SearchTableQuery().properties.itemsPerPage;
     assert.equal(q.default, 500);
     assert.equal(q.maximum, 1000);
   });

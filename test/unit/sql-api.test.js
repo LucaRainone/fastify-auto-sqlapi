@@ -46,7 +46,7 @@ function createTestFixture(mockPg) {
       primary: 'id',
       ...exportTableInfo(customerSchema),
       defaultOrder: 'id',
-      excludeFromCreation: ['id'],
+      insertExclude: ['id'],
       allowedReadJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
@@ -58,7 +58,7 @@ function createTestFixture(mockPg) {
       primary: 'id',
       ...exportTableInfo(orderSchema),
       defaultOrder: 'id',
-      excludeFromCreation: ['id'],
+      insertExclude: ['id'],
     },
   };
 

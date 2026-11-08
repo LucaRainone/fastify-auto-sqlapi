@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
-const { SearchTableBodyPost, SearchTableQueryString, SearchTableResponse } =
+const { SearchTableBodyPost, SearchTableQuery, SearchTableResponse } =
   await import(path.join(ROOT, 'dist/lib/schema/search.js'));
 const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
@@ -97,15 +97,16 @@ describe('SearchTableBodyPost', () => {
   });
 });
 
-describe('SearchTableQueryString', () => {
+describe('SearchTableQuery', () => {
   it('has expected fields', () => {
-    assert.ok(SearchTableQueryString.properties.orderBy);
-    assert.ok(SearchTableQueryString.properties.page);
-    assert.ok(SearchTableQueryString.properties.itemsPerPage);
-    assert.ok(SearchTableQueryString.properties.computeMin);
-    assert.ok(SearchTableQueryString.properties.computeMax);
-    assert.ok(SearchTableQueryString.properties.computeSum);
-    assert.ok(SearchTableQueryString.properties.computeAvg);
+    const query = SearchTableQuery();
+    assert.ok(query.properties.orderBy);
+    assert.ok(query.properties.page);
+    assert.ok(query.properties.itemsPerPage);
+    assert.ok(query.properties.computeMin);
+    assert.ok(query.properties.computeMax);
+    assert.ok(query.properties.computeSum);
+    assert.ok(query.properties.computeAvg);
   });
 });
 

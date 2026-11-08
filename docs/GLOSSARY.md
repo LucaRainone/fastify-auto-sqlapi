@@ -5,7 +5,7 @@ existing concept makes search fail and the concept get built twice.
 
 | Term | Meaning |
 |---|---|
-| Table config | `defineTable()` result describing one table's routes, guards and joins; type `TableConfig`. (not: model, entity; `ITable` is its deprecated type name) |
+| Table config | `defineTable()` result describing one table's routes, guards and joins; type `TableConfig`. (not: model, entity; `ITable` before 0.6.0) |
 | Schema | TypeBox definition of a table's columns, generated from the DB. (not: model) |
 | Relation | `buildRelation()` link between two schemas, identified by an alias. (not: association) |
 | Alias | Request/response key naming one relation; defaults to the joined table name. |

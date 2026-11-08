@@ -51,7 +51,7 @@ function createTestDbTables(mockPg, opts = {}) {
       primary: 'id',
       ...customerInfo,
       defaultOrder: 'id',
-      excludeFromCreation: opts.excludeFromCreation || [],
+      insertExclude: opts.insertExclude || [],
       allowedWriteJoins: opts.allowedWriteJoins ?? [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
@@ -62,7 +62,7 @@ function createTestDbTables(mockPg, opts = {}) {
       primary: 'id',
       ...orderInfo,
       defaultOrder: 'id',
-      excludeFromCreation: opts.secondaryExclude || [],
+      insertExclude: opts.secondaryExclude || [],
     },
   };
 
@@ -312,14 +312,14 @@ describe('bulkUpsertEngine - hooks', () => {
     assert.equal(hookCalls[1].secondaryRecords, undefined);
   });
 
-  it('keeps values assigned by beforeInsert to excludeFromCreation fields', async () => {
+  it('keeps values assigned by beforeInsert to insertExclude fields', async () => {
     const mockPg = createMockPg([
       // Single bulk insert for both mains (PK-only)
       { rows: [{ id: 41 }, { id: 42 }], affectedRows: 2 },
     ]);
     let nextId = 40;
     const { DbTables, db } = createTestDbTables(mockPg, {
-      excludeFromCreation: ['id'],
+      insertExclude: ['id'],
       beforeInsert: async (_db, _req, record) => {
         // The client-supplied id must already be stripped when the hook runs
         assert.equal(record.id, undefined);

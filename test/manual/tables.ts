@@ -29,7 +29,7 @@ const TableCustomer = defineTable({
   allowedWriteJoins: [
     buildRelation(SchemaCustomer, 'id', SchemaCustomerOrder, 'customerId'),
   ],
-  excludeFromCreation: ['id'],
+  insertExclude: ['id'],
   tenantScope: { column: 'organization_id' },
 });
 
@@ -37,7 +37,7 @@ const TableCustomerOrder = defineTable({
   primary: 'id',
   ...exportTableInfo(SchemaCustomerOrder),
   defaultOrder: 'order_date DESC',
-  excludeFromCreation: ['id'],
+  insertExclude: ['id'],
   tenantScope: {
     column: 'organization_id',
     through: { schema: SchemaCustomer, localField: 'customer_id', foreignField: 'id' },

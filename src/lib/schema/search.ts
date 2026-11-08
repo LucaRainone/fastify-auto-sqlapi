@@ -216,14 +216,6 @@ export function SearchTableQuery(maxItemsPerPage: number = DEFAULT_MAX_ITEMS_PER
   });
 }
 
-/**
- * The querystring schema at the default `maxItemsPerPage`.
- *
- * @deprecated Use `SearchTableQuery()`, which also takes the cap the plugin was configured
- * with: this constant always describes the default cap, whatever `maxItemsPerPage` says.
- */
-export const SearchTableQueryString = SearchTableQuery();
-
 export function SearchTableResponse(dbTables: DbTables, tableName: string): TObject {
   const tableConf = dbTables[tableName];
 

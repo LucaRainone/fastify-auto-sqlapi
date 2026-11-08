@@ -129,7 +129,7 @@ const DbTables = {
     primary: 'id',
     ...exportTableInfo(SchemaComputedLine),
     defaultOrder: 'id',
-    excludeFromCreation: ['id'],
+    insertExclude: ['id'],
   }),
 };
 

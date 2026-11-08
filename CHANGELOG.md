@@ -14,12 +14,6 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Added
 
-- **`insertExclude`**, the new name of `excludeFromCreation`, aligned with `readExclude` /
-  `writeExclude` and with the library's "insert" vocabulary. Same behaviour: client input
-  dropped on insert, field Optional in the insert body, hooks and FK auto-fill may still set
-  it. The table generator now writes `insertExclude`. `defineTable` refuses a table naming
-  both keys.
-- **`TableConfig`**, the new name of the `ITable` type, as the glossary calls the concept.
 - **`RowsByAlias`**, the exported type of rows grouped by relation alias: secondaries and
   deletions in a write, the `afterInsert`/`afterUpdate` arguments, `joinMultiple` and
   `joinLeft` in a search result.
@@ -34,23 +28,27 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   copy, such as the one `@fastify/type-provider-typebox` 6 brings in, now mix freely with this
   package's. See
   [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--typebox-1x-replaces-sinclairtypebox).
+- **BREAKING: `excludeFromCreation` is renamed `insertExclude`**, aligned with
+  `readExclude` / `writeExclude` and with the library's "insert" vocabulary. Same behaviour:
+  client input dropped on insert, field Optional in the insert body, hooks and FK auto-fill
+  may still set it. The table generator writes `insertExclude`. `defineTable` refuses the old
+  key instead of ignoring it, so a table still using it fails at startup rather than letting
+  clients write the fields it protected. See
+  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--api-cleanup-ahead-of-10).
+- **BREAKING: the `ITable` type is renamed `TableConfig`**, as the glossary calls the
+  concept. Type-level only.
 - **Hook types.** `beforeInsert` and `afterInsert` may return `void`, like every other hook
   (they required a `Promise`). The secondaries and deletions passed to `afterInsert` and
   `afterUpdate` are typed `RowsByAlias` instead of `unknown`. The record argument of
   `beforeUpdate` is named `record`, as in `beforeInsert`. Type-level only.
-
-### Deprecated
-
-- `excludeFromCreation`: use `insertExclude`.
-- The `ITable` type: use `TableConfig`.
-- `SearchTableQueryString`: use `SearchTableQuery()`, which also takes the configured
-  `maxItemsPerPage` instead of always describing the default cap.
 
 ### Removed
 
 - **BREAKING: `escapeIdent`**, deprecated since `db.qi()` replaced it. It escaped Postgres
   identifiers only, so it was wrong on MySQL. See
   [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--api-cleanup-ahead-of-10).
+- **BREAKING: `SearchTableQueryString`**: use `SearchTableQuery()`, which also takes the
+  configured `maxItemsPerPage` instead of always describing the default cap.
 - The fourth parameter of `beforeUpdate` (`secondaryFieldsFetcher?: unknown`), which the
   engine never passed.
 

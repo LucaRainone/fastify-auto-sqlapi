@@ -53,7 +53,7 @@ function createTestDbTables(mockPg, opts = {}) {
       primary: 'id',
       ...customerInfo,
       defaultOrder: 'id',
-      excludeFromCreation: opts.excludeFromCreation || [],
+      insertExclude: opts.insertExclude || [],
       allowedWriteJoins: opts.allowedWriteJoins || [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
@@ -66,7 +66,7 @@ function createTestDbTables(mockPg, opts = {}) {
       primary: 'id',
       ...orderInfo,
       defaultOrder: 'id',
-      excludeFromCreation: opts.secondaryExclude || [],
+      insertExclude: opts.secondaryExclude || [],
     },
   };
 
@@ -113,12 +113,12 @@ describe('insertEngine - main insert', () => {
     assert.equal(result.main.email, undefined);
   });
 
-  it('removes excludeFromCreation fields', async () => {
+  it('removes insertExclude fields', async () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg, {
-      excludeFromCreation: ['createdAt'],
+      insertExclude: ['createdAt'],
     });
 
     await insertEngine({
@@ -133,12 +133,12 @@ describe('insertEngine - main insert', () => {
     assert.ok(!mockPg.calls[0].text.includes('created_at'));
   });
 
-  it('keeps values assigned by beforeInsert to excludeFromCreation fields', async () => {
+  it('keeps values assigned by beforeInsert to insertExclude fields', async () => {
     const mockPg = createMockPg([
       { rows: [{ id: 42 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg, {
-      excludeFromCreation: ['id'],
+      insertExclude: ['id'],
       beforeInsert: async (_db, _req, record) => {
         // The client-supplied id must already be stripped when the hook runs
         assert.equal(record.id, undefined);
@@ -166,7 +166,7 @@ describe('insertEngine - main insert', () => {
     ]);
     let idSeenByValidate;
     const { DbTables, db } = createTestDbTables(mockPg, {
-      excludeFromCreation: ['id'],
+      insertExclude: ['id'],
       validate: async (_db, _req, main) => {
         idSeenByValidate = main.id;
         return [];
@@ -339,7 +339,7 @@ describe('insertEngine - hooks', () => {
       { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg, {
-      excludeFromCreation: ['createdAt'],
+      insertExclude: ['createdAt'],
       afterInsert: async (_db, _req, record) => {
         recordSeen = record;
       },
@@ -399,7 +399,7 @@ describe('insertEngine - secondaries', () => {
     assert.equal(result.secondaries.customer_order[0].id, 10);
   });
 
-  it('auto-fills the FK even when listed in the secondary excludeFromCreation', async () => {
+  it('auto-fills the FK even when listed in the secondary insertExclude', async () => {
     const mockPg = createMockPg([
       // Main insert (PK-only)
       { rows: [{ id: 42 }], affectedRows: 1 },
@@ -451,7 +451,7 @@ describe('insertEngine - secondaries', () => {
     assert.equal(result.secondaries, undefined);
   });
 
-  it('removes excludeFromCreation from secondary records', async () => {
+  it('removes insertExclude from secondary records', async () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }], affectedRows: 1 },
       { rows: [{ id: 10 }], affectedRows: 1 },
@@ -524,12 +524,12 @@ describe('insertEngine - upsert', () => {
     assert.ok(bulkCall.text.includes('ON CONFLICT'));
   });
 
-  it('keeps values assigned by beforeInsert to excludeFromCreation fields on the upsert path', async () => {
+  it('keeps values assigned by beforeInsert to insertExclude fields on the upsert path', async () => {
     const mockPg = createMockPg([
       { rows: [{ id: 42 }], affectedRows: 1 },
     ]);
     const { DbTables, db, customerSchema } = createTestDbTables(mockPg, {
-      excludeFromCreation: ['id'],
+      insertExclude: ['id'],
       beforeInsert: async (_db, _req, record) => {
         assert.equal(record.id, undefined);
         record.id = 42;
@@ -553,7 +553,7 @@ describe('insertEngine - upsert', () => {
 });
 
 // A secondary is a write like any other: the child table's own `tenantScope` and
-// `excludeFromCreation` are already enforced on it, but its `beforeInsert` was skipped —
+// `insertExclude` are already enforced on it, but its `beforeInsert` was skipped —
 // so a table that transforms a column on the way in (encrypting it, normalising it) stored
 // the raw client value whenever its rows arrived as children of another table's write.
 describe('insertEngine - secondaries run the child table\'s beforeInsert', () => {

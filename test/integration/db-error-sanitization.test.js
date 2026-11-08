@@ -30,7 +30,7 @@ const productSchema = {
   partialValidation: Type.Partial(Type.Object(productFields)),
 };
 
-// `id` is deliberately NOT in excludeFromCreation: the client sends it, so an existing
+// `id` is deliberately NOT in insertExclude: the client sends it, so an existing
 // value hits the primary key and the database raises a unique violation.
 const DbTables = {
   product: {

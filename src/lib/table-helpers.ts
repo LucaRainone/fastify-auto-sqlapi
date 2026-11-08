@@ -82,7 +82,7 @@ export function defineTable<F extends Record<string, TSchema>>(
   validatePrimary(config as unknown as TableConfig);
   validateReadExclude(config as unknown as TableConfig);
   validateWriteExclude(config as unknown as TableConfig);
-  validateInsertExclude(config as unknown as TableConfig);
+  rejectExcludeFromCreation(config as unknown as TableConfig);
   validateTenantScope(config as unknown as TableConfig);
   validateTenantColumnNames(config as unknown as TableConfig);
   validateUpsertMap(config as unknown as TableConfig);
@@ -300,26 +300,24 @@ function validatePrimary(config: TableConfig): void {
 }
 
 /**
+ * `excludeFromCreation` is what `insertExclude` was called until 0.6.0. The type no longer
+ * has it, but a JavaScript consumer, or a cast, can still pass it: ignoring it would let
+ * clients write the fields it was meant to protect, so it is refused with the new name.
+ */
+function rejectExcludeFromCreation(config: TableConfig): void {
+  if (!('excludeFromCreation' in config)) return;
+  throw new Error(
+    `defineTable: table '${config.Schema.tableName}' sets excludeFromCreation, which was ` +
+    `renamed to insertExclude in 0.6.0 with the same behaviour. Rename the key.`
+  );
+}
+
+/**
  * `writeExclude` names schema fields that no write may carry. A field outside the schema is a
  * typo; the primary key is refused because the update body identifies the row with it; and a
  * field that is also `readExclude`d would be neither readable nor writable, which is what
  * removing it from the Schema means — keeping it there only grows the surface for nothing.
  */
-/**
- * `excludeFromCreation` is the deprecated name of `insertExclude`. A table naming both is
- * ambiguous — one of the two lists would be silently ignored — so it is refused, even when
- * the lists agree: the fix is deleting the old key, not keeping them in sync.
- */
-function validateInsertExclude(config: TableConfig): void {
-  // eslint-disable-next-line sonarjs/deprecation -- detecting the deprecated alias is the point
-  if (config.insertExclude === undefined || config.excludeFromCreation === undefined) return;
-  throw new Error(
-    `defineTable: table '${config.Schema.tableName}' sets both insertExclude and ` +
-    `excludeFromCreation. excludeFromCreation is the deprecated name of insertExclude: ` +
-    `keep insertExclude only.`
-  );
-}
-
 function validateWriteExclude(config: TableConfig): void {
   const excluded = config.writeExclude;
   if (!excluded?.length) return;

@@ -121,7 +121,7 @@ export const TableCustomer = defineTable({
   }],
 
   // --- field visibility ---
-  insertExclude: ['id', 'createdAt'], // MUST list auto-increment PKs (CLI does it). Was `excludeFromCreation` (deprecated). Strips CLIENT input on insert only: beforeInsert and the FK auto-fill may still set it. Not a security tool: every field stays updatable (ADR 0004).
+  insertExclude: ['id', 'createdAt'], // MUST list auto-increment PKs (CLI does it). Was `excludeFromCreation` before 0.6.0, now refused by defineTable. Strips CLIENT input on insert only: beforeInsert and the FK auto-fill may still set it. Not a security tool: every field stays updatable (ADR 0004).
   readExclude: ['passwordHash'], // never projected (search, get, default join selection); naming it in filters/conditions/orderBy/aggregations/selection → 400. Still writable. Static, applies to admins too. PK not allowed.
   writeExclude: ['searchVector'], // dropped from insert/update/bulk bodies and in the engines; still readable. For trigger-owned columns; GENERATED columns need nothing. Runs after hooks. Not PK, not also in readExclude (that is excludeColumns).
   schemaOverrides: { email: Type.String({ format: 'email' }) }, // stricter type for WRITE bodies only (responses and filters keep the generated type: stored rows predate the rule). Taken verbatim: no Optional → mandatory, no Nullable → null rejected.

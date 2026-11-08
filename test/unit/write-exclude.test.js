@@ -3,7 +3,7 @@
 //
 // It exists for columns the database computes (`GENERATED ALWAYS AS ...`): those reject any
 // value, whoever sets it, so the exclusion is a fact about the column and not a policy about
-// the caller. That is what separates it from `excludeFromCreation`, which is an insert-time
+// the caller. That is what separates it from `insertExclude`, which is an insert-time
 // whitelist on CLIENT input and deliberately lets a hook assign the field (ADR 0005), and
 // from per-caller field rules, which stay in `beforeUpdate` / `validate`.
 import { describe, it } from 'node:test';
@@ -65,7 +65,7 @@ function createDbTables(mockPg, opts = {}) {
       primary: 'id',
       ...exportTableInfo(invoiceSchema),
       defaultOrder: 'id',
-      excludeFromCreation: ['id'],
+      insertExclude: ['id'],
       allowedWriteJoins: [
         buildRelation(invoiceSchema, 'id', lineSchema, 'invoiceId', { alias: 'invoice_line' }),
       ],
@@ -77,7 +77,7 @@ function createDbTables(mockPg, opts = {}) {
       primary: 'id',
       ...exportTableInfo(lineSchema),
       defaultOrder: 'id',
-      excludeFromCreation: ['id'],
+      insertExclude: ['id'],
     }),
   };
 
@@ -163,7 +163,7 @@ describe('engines strip database-computed fields from the SQL', () => {
   });
 
   it('strips AFTER beforeInsert — a hook cannot resurrect a column the DB computes', async () => {
-    // This is the opposite of excludeFromCreation, which is stripped BEFORE the hook so a
+    // This is the opposite of insertExclude, which is stripped BEFORE the hook so a
     // hook-assigned value does reach the INSERT (ADR 0005).
     const mockPg = createMockPg([{ rows: [{ id: 1 }], affectedRows: 1 }]);
     const { DbTables, db } = createDbTables(mockPg, {

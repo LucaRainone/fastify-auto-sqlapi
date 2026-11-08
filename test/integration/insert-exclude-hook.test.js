@@ -1,6 +1,6 @@
-// Regression test for the excludeFromCreation × beforeInsert ordering bug.
+// Regression test for the insertExclude × beforeInsert ordering bug.
 //
-// A TEXT primary key with no DB default, listed in excludeFromCreation and
+// A TEXT primary key with no DB default, listed in insertExclude and
 // generated server-side by beforeInsert, must reach the INSERT: before the fix
 // the exclusion was applied after the hook, the generated id was stripped and
 // the insert failed with a not-null violation. Uses the userAccount table
@@ -47,7 +47,7 @@ const DbTables = {
     primary: 'id',
     ...exportTableInfo(userAccountSchema),
     defaultOrder: 'id',
-    excludeFromCreation: ['id'],
+    insertExclude: ['id'],
     beforeInsert: async (_db, _req, record) => {
       // The consumer pattern: generate the id server-side when missing.
       // With the exclusion applied before the hook, it is always missing here.
@@ -56,7 +56,7 @@ const DbTables = {
   },
 };
 
-describe(`[${DIALECT}] excludeFromCreation + beforeInsert-generated PK`, () => {
+describe(`[${DIALECT}] insertExclude + beforeInsert-generated PK`, () => {
   let app;
   let db;
 

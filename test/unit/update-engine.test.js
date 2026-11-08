@@ -60,7 +60,7 @@ function createTestDbTables(mockPg, opts = {}) {
       primary: 'id',
       ...orderInfo,
       defaultOrder: 'id',
-      excludeFromCreation: opts.secondaryExclude || [],
+      insertExclude: opts.secondaryExclude || [],
     },
   };
 

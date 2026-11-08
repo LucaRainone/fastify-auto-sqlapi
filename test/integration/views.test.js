@@ -268,7 +268,7 @@ describe(`[${DIALECT}] writing through an updatable view`, () => {
         primary: 'id',
         ...exportTableInfo(SchemaCustomerActive),
         defaultOrder: 'id',
-        excludeFromCreation: ['id'],
+        insertExclude: ['id'],
       }),
     }, { prefix: '/auto' }));
     await cleanTables(db, ['customer_order', 'customer']);

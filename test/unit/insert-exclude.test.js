@@ -1,7 +1,6 @@
-// `insertExclude` is the name of the client-input whitelist on insert that used to be called
-// `excludeFromCreation`: same semantics (ADR 0005), aligned with `readExclude`/`writeExclude`
-// and with the library's "insert" vocabulary. The old name keeps working, deprecated; naming
-// both on one table is ambiguous and refused.
+// `insertExclude` is the client-input whitelist on insert (ADR 0005), named like
+// `readExclude`/`writeExclude` and after the library's "insert" vocabulary. Until 0.6.0 it was
+// called `excludeFromCreation`; that name is now refused rather than ignored.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -108,25 +107,16 @@ describe('insertExclude whitelists client input on insert', () => {
   });
 });
 
-describe('excludeFromCreation keeps working as the deprecated name of insertExclude', () => {
-  it('drops the client value before the INSERT', async () => {
-    const mockPg = createMockPg([{ rows: [{ id: 1 }], affectedRows: 1 }]);
-    const dbTables = createDbTables({ customer: { excludeFromCreation: ['createdAt'] } });
-
-    await insertCustomer(dbTables, mockPg, { record: { name: 'Ada', createdAt: '1999-01-01' } });
-
-    assert.deepEqual(insertedRows(mockPg.calls[0]), [{ name: 'Ada' }]);
-  });
-
-  it('defineTable refuses a table naming both, even with the same fields', () => {
+describe('excludeFromCreation, the name insertExclude had before 0.6.0', () => {
+  // Dropping the key silently would let clients write the fields it used to protect.
+  it('is refused by defineTable, pointing to insertExclude', () => {
     assert.throws(
       () => defineTable({
         primary: 'id',
         ...exportTableInfo(customerSchema),
-        insertExclude: ['id'],
         excludeFromCreation: ['id'],
       }),
-      /insertExclude.*excludeFromCreation|excludeFromCreation.*insertExclude/,
+      /excludeFromCreation.*insertExclude/,
     );
   });
 });

@@ -258,15 +258,10 @@ export interface TableConfig<F extends Record<string, TSchema> = Record<string, 
    */
   insertExclude?: (string & keyof F)[];
   defaultOrder?: string;
-  /** @deprecated Renamed to `insertExclude`, same behaviour. A table may not name both. */
-  excludeFromCreation?: (string & keyof F)[];
   distinctResults?: boolean;
   onRequests?: ((request: ApiRequest, reply: ApiReply) => Promise<void | ApiReply>)[];
   tenantScope?: TenantScope;
 }
-
-/** @deprecated Renamed to `TableConfig`, the glossary's name for a table config. */
-export type ITable<F extends Record<string, TSchema> = Record<string, TSchema>> = TableConfig<F>;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type DbTables = Record<string, TableConfig<any>>;

@@ -943,8 +943,8 @@ this change, a consumer on the type provider was the one hitting it.
 
 A sweep of the public surface for what 1.0 should not carry: an export that was already
 deprecated and wrong on one dialect, a hook parameter that never received a value, and names
-that broke the glossary. The removals break; the renames do not — the old names keep working,
-deprecated, and go away in a later minor.
+that broke the glossary. 0.6.0 was not yet published when the renames were made, so they are
+made outright rather than through a deprecation cycle: one migration instead of two.
 
 ## What changed
 
@@ -954,34 +954,38 @@ deprecated, and go away in a later minor.
   identifiers on MySQL, and that left the quoting to the caller.
 - **The fourth parameter of `beforeUpdate`** (`secondaryFieldsFetcher?: unknown`). The engine
   always called the hook with three arguments, so the parameter was `undefined` every time.
+- **`SearchTableQueryString`.** A constant built at the default cap: it described the wrong
+  `itemsPerPage` maximum whenever the plugin was configured with another `maxItemsPerPage`.
 
-### Deprecated, still working
+### Renamed
 
-| Deprecated | Use instead | Notes |
+| Before | After | Notes |
 |---|---|---|
-| `excludeFromCreation` | `insertExclude` | Same behaviour. A table naming both is refused by `defineTable`. |
+| `excludeFromCreation` | `insertExclude` | Same behaviour. `defineTable` refuses the old key with a message naming the new one. |
 | `ITable` (type) | `TableConfig` | The same type under the glossary's name. |
-| `SearchTableQueryString` | `SearchTableQuery(maxItemsPerPage)` | The constant always describes the default cap. |
 
 ## Who is affected
 
 - Code calling `escapeIdent`.
 - TypeScript code whose `beforeUpdate` declares a fourth parameter as required. An optional
   one still compiles, and was always `undefined`.
-
-The deprecations affect nobody yet: an editor shows them struck through, and
-`@typescript-eslint/no-deprecated` or `sonarjs/deprecation` reports them.
+- Every table config using `excludeFromCreation` — in practice every generated table with an
+  auto-increment primary key. TypeScript reports the unknown key on an object literal passed
+  to `defineTable` or typed as `TableConfig`/`DbTables`, and `defineTable` refuses it at
+  startup. A plain JavaScript object that skips `defineTable` would have the key silently
+  ignored: wrap it in `defineTable`, or check it by hand with the `grep` below.
+- Code importing `ITable` or `SearchTableQueryString`: a compile error, or an import error
+  when the module loads.
 
 ## Migration
 
 - `` `"${escapeIdent(name)}"` `` → `db.qi(name)` on the `QueryClient` the hook receives. It quotes
   for the right dialect (`"…"` on PostgreSQL, `` `…` `` on MySQL/MariaDB).
 - Drop the fourth parameter from `beforeUpdate`.
-- Renames, at your pace before they are removed:
-  - `excludeFromCreation:` → `insertExclude:` in every `defineTable` (search:
-    `grep -rn excludeFromCreation src/`). Regenerating the table files with
-    `npx sqlapi-generate-tables` writes the new name for new tables; existing files are never
-    overwritten.
-  - `ITable` → `TableConfig` in type annotations.
-  - `SearchTableQueryString` → `SearchTableQuery(maxItemsPerPage)` with the cap the plugin is
-    configured with.
+- `excludeFromCreation:` → `insertExclude:` in every table config (find them with
+  `grep -rn excludeFromCreation src/`). The table generator writes the new name for new
+  tables; existing files are never overwritten, so rename by hand or with
+  `sed -i 's/excludeFromCreation/insertExclude/g'` on the table files.
+- `ITable` → `TableConfig` in type annotations.
+- `SearchTableQueryString` → `SearchTableQuery(maxItemsPerPage)` with the cap the plugin is
+  configured with.
