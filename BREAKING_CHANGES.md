@@ -876,7 +876,7 @@ some main rows have no children:
 
 # Breaking Change — Node.js 22 or newer is required
 
-*Unreleased.*
+*Landed in **0.5.0**.*
 
 ## Why this changed
 

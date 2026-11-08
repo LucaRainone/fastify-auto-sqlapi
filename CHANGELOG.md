@@ -9,6 +9,8 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ## [Unreleased]
 
+## [0.5.0]
+
 ### Changed
 
 - **BREAKING: Node.js 22 or newer is required** (`engines.node` is now `>=22`, was `>=18`).
@@ -782,7 +784,8 @@ the join API redesign (documented in [BREAKING_CHANGES.md](./BREAKING_CHANGES.md
 primary key support in updates, transactional insert/update with secondaries, the hook matrix,
 and bulk operations.
 
-[Unreleased]: https://github.com/LucaRainone/fastify-auto-sqlapi/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/LucaRainone/fastify-auto-sqlapi/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/LucaRainone/fastify-auto-sqlapi/releases/tag/v0.5.0
 [0.4.1]: https://github.com/LucaRainone/fastify-auto-sqlapi/releases/tag/v0.4.1
 [0.4.0]: https://github.com/LucaRainone/fastify-auto-sqlapi/releases/tag/v0.4.0
 [0.3.0]: https://github.com/LucaRainone/fastify-auto-sqlapi/releases/tag/v0.3.0
