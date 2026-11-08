@@ -73,14 +73,22 @@ function createTestApp(rows) {
 
   const app = Fastify();
   const calls = [];
-  app.decorate('pg', {
+  const pg = {
     query: async (text, values) => {
       calls.push({ text, values });
       if (/count/i.test(text)) return { rows: [{ total: rows.length }], rowCount: 1 };
       if (/^\s*INSERT/i.test(text)) return { rows: [{ id: 1 }], rowCount: 1 };
       return { rows, rowCount: rows.length };
     },
-  });
+    // Writes run in a transaction: the connection answers the control statements itself.
+    connect: async () => ({
+      query: (text, values) => (/^\s*(BEGIN|COMMIT|ROLLBACK)\s*$/i.test(text)
+        ? Promise.resolve({ rows: [], rowCount: 0 })
+        : pg.query(text, values)),
+      release() {},
+    }),
+  };
+  app.decorate('pg', pg);
   return app.register(fastifyAutoSqlApi, { DbTables }).then(() => ({ app, calls }));
 }
 

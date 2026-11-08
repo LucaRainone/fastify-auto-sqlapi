@@ -99,7 +99,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
   }
 
   // Steps 8-10 are atomic: a failure in secondaries or deletions rolls back the main
-  // update too. Degrades to non-transactional when the adapter has no connect().
+  // update too. An adapter without connect() cannot run this at all (ADR 0023).
   return db.withTransaction(async (tx) => {
     // 8. Update main
     const hasFieldsToUpdate = Object.keys(updateFields).length > 0;

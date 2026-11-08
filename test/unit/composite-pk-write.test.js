@@ -27,17 +27,28 @@ function createMockSchema(tableName, fields) {
 }
 
 // Mock pool that ONLY returns what RETURNING asks for (realistic), or insertId for mysql.
+// Writes run in a transaction: the connection answers BEGIN/COMMIT/ROLLBACK itself and hands
+// the data statements to `query`, so `calls` lists those alone, in order.
 function createMockPool(responses = []) {
   let i = 0;
   const calls = [];
-  return {
+  const pool = {
     calls,
     query(text, values) {
       calls.push({ text: norm(text), values });
       const r = responses[i++] || { rows: [], affectedRows: 0 };
       return Promise.resolve(r);
     },
+    connect() {
+      return Promise.resolve({
+        query: (text, values) => (/^\s*(BEGIN|COMMIT|ROLLBACK)\s*$/i.test(text)
+          ? Promise.resolve({ rows: [], affectedRows: 0 })
+          : pool.query(text, values)),
+        release() {},
+      });
+    },
   };
+  return pool;
 }
 
 const infoFields = {

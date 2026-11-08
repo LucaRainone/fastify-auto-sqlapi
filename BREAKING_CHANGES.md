@@ -1094,3 +1094,53 @@ getTenantId: (req) => (req.user?.isSuperadmin ? TENANT_ADMIN : req.user?.organiz
 
 Find the sites with `grep -rn "getTenantId" src/`. A test or script that used `null` as the
 admin bypass needs the same change.
+
+---
+
+# Breaking Change — a write runs in a transaction or not at all
+
+*Landed in **0.7.0** (unreleased).*
+
+## Why this changed
+
+`QueryClient.withTransaction` degraded: when the `Queryable` had no `connect()`, it ran its
+callback directly, with no BEGIN and no ROLLBACK. Every insert and update goes through it, so
+a custom adapter without `connect()` wrote the main row, the secondaries, the deletions and
+ran the after-hooks as separate autocommitted statements — while the docs promised atomicity
+and "throw in `afterUpdate` = rollback". Nothing reported the loss. See ADR 0023.
+
+## What changed
+
+- `withTransaction` throws when the `Queryable` has no `connect()`, before running anything:
+  `Transactions are unavailable: the Queryable has no connect() …`. Over HTTP that is a 500 on
+  the first insert or update; `sqlApi.insert`/`update` reject.
+- A nested `withTransaction` still joins the outer transaction.
+- The plugin logs a warning once when the database client it was given cannot do
+  transactions. Reads keep working: they never open one.
+- `QueryClient.supportsTransactions` tells whether a client can.
+
+## Who is affected
+
+- Deployments or scripts feeding the plugin, `createSqlApi` or `createQueryClient` a custom
+  `Queryable` without `connect()`, and writing through it. The built-in `pgQueryable(pool)`
+  and `mysqlQueryable(pool)` provide `connect()`; a `fastify.pg` from `@fastify/postgres` and a
+  `mysql2/promise` pool are fine.
+- Test doubles for the database used to exercise inserts or updates.
+
+## Migration
+
+Give the adapter a `connect()` that checks out a dedicated connection and returns a
+`TransactionQueryable` (`query` plus `release`):
+
+```ts
+const queryable: Queryable = {
+  query: (sql, values) => pool.query(sql, values).then(toSqlResult),
+  connect: async () => {
+    const conn = await pool.getConnection();
+    return { query: (sql, values) => conn.query(sql, values).then(toSqlResult), release: () => conn.release() };
+  },
+};
+```
+
+A read-only surface over an adapter without `connect()` needs no change: register
+`searchRoutes` and `getRoutes` only, and the warning is the only effect.

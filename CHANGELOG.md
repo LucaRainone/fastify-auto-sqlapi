@@ -45,6 +45,14 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **BREAKING: a write runs in a transaction or not at all.** `QueryClient.withTransaction`
+  ran its callback unprotected when the `Queryable` had no `connect()`: a custom adapter
+  without it got every insert and update — main row, secondaries, deletions, after-hooks — as
+  separate autocommitted statements, and `afterUpdate`'s "throw = rollback" rolled back
+  nothing. It now throws before running anything, naming the fix; a nested call still joins
+  the outer transaction. Reads are unaffected, and the plugin warns once at startup when the
+  client it was given cannot do transactions. The built-in adapters are unaffected. New
+  `QueryClient.supportsTransactions`. ADR 0023, BREAKING_CHANGES.md.
 - **BREAKING: admin is declared, never inferred.** `getTenantId` returning `null` or
   `undefined` was "no tenant filter": an auth hook that did not run, a missing claim, a typo in
   `req.user.<x>` each served the request as a superadmin. It is now a 401 on every table with a

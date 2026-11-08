@@ -34,6 +34,14 @@ export function ensureSqlApiDecorator(
         : pgQueryable((fastify as any).pg);
       cachedDb = createQueryClient(pool, options.dialect);
       if (options.debug) cachedDb.setDebug(true);
+      // Reads work either way; the first insert or update would fail with the same message.
+      // Said once, here, so a misconfigured client is found before that request arrives.
+      if (!cachedDb.supportsTransactions) {
+        fastify.log.warn(
+          'sqlapi: the database client has no connect(): inserts and updates need a transaction ' +
+          'and will fail. Decorate a pool (fastify.pg from @fastify/postgres, a mysql2/promise pool).'
+        );
+      }
     }
     return cachedDb;
   }

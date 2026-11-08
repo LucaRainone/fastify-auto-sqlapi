@@ -26,10 +26,18 @@ export class QueryClient {
   private client: Queryable;
   private dialect: SqlDialect;
   private debug = false;
+  /** True on the client `withTransaction` hands its callback: it wraps the transaction's connection. */
+  private readonly inTransaction: boolean;
 
-  constructor(client: Queryable, dialect?: SqlDialect) {
+  constructor(client: Queryable, dialect?: SqlDialect, inTransaction = false) {
     this.client = client;
     this.dialect = dialect ?? getDialect('postgres');
+    this.inTransaction = inTransaction;
+  }
+
+  /** Whether `withTransaction` can run: the Queryable has `connect()`, or this client already is a transaction. */
+  get supportsTransactions(): boolean {
+    return this.inTransaction || typeof this.client.connect === 'function';
   }
 
   get qi(): (id: string) => string {
@@ -84,19 +92,29 @@ export class QueryClient {
 
   /**
    * Run `fn` inside a DB transaction on a dedicated connection (BEGIN/COMMIT, with
-   * ROLLBACK + rethrow on error). Requires the underlying Queryable to expose
-   * `connect()`; when it does not (legacy custom adapters), `fn` runs directly on
-   * this client without transactional guarantees.
+   * ROLLBACK + rethrow on error). Requires the underlying Queryable to expose `connect()`.
    *
-   * Nested calls join the outer transaction: the tx QueryClient wraps a dedicated
-   * connection that has no `connect()`, so an inner `withTransaction` is a no-op
-   * wrapper around the same connection.
+   * Without it the call fails, and nothing runs: a write that asked for atomicity — a main
+   * row with its secondaries, deletions and after-hooks — must not be executed as separate
+   * autocommitted statements because the adapter cannot do better. It used to; a custom
+   * adapter without `connect()` silently lost the guarantee (ADR 0023).
+   *
+   * Nested calls join the outer transaction: the tx QueryClient wraps the dedicated
+   * connection, which has no `connect()` either, so an inner `withTransaction` runs `fn` on
+   * the same connection. That is the one case where a missing `connect()` is not an error.
    */
   async withTransaction<T>(fn: (tx: QueryClient) => Promise<T>): Promise<T> {
-    if (!this.client.connect) return fn(this);
+    if (this.inTransaction) return fn(this);
+    if (!this.client.connect) {
+      throw new Error(
+        'Transactions are unavailable: the Queryable has no connect(). Pass a pool to pgQueryable()/' +
+        'mysqlQueryable(), or implement connect() on the custom adapter: a write with secondaries, ' +
+        'deletions or after-hooks runs in a transaction or not at all.'
+      );
+    }
 
     const conn = await this.client.connect();
-    const tx = new QueryClient(conn, this.dialect);
+    const tx = new QueryClient(conn, this.dialect, true);
     tx.setDebug(this.debug);
 
     try {

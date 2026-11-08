@@ -20,10 +20,11 @@ const SchemaTag = createMockSchema('tag', {
 SchemaTag.primaryKey = ['id'];
 SchemaTag.uniqueKeys = [['code']];
 
+/** pg-shaped pool with transactions: BEGIN/COMMIT/ROLLBACK are answered, data statements recorded. */
 function createMockPool(responses = []) {
   let callIndex = 0;
   const calls = [];
-  return {
+  const pool = {
     calls,
     query(text, values) {
       calls.push({ text: text.replace(/\s+/g, ' ').trim(), values });
@@ -31,7 +32,16 @@ function createMockPool(responses = []) {
       callIndex++;
       return Promise.resolve(response);
     },
+    connect() {
+      return Promise.resolve({
+        query: (text, values) => (/^\s*(BEGIN|COMMIT|ROLLBACK)\s*$/i.test(text)
+          ? Promise.resolve({ rows: [], rowCount: 0 })
+          : pool.query(text, values)),
+        release() {},
+      });
+    },
   };
+  return pool;
 }
 
 async function createApp(tableOverrides, pool) {

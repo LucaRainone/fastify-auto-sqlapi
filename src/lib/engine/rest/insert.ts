@@ -26,7 +26,7 @@ export async function insertEngine(params: InsertParams): Promise<InsertResult> 
   );
 
   // Steps 2-5 are atomic: a failure in secondaries or afterInsert rolls back the
-  // main insert too. Degrades to non-transactional when the adapter has no connect().
+  // main insert too. An adapter without connect() cannot run this at all (ADR 0023).
   return db.withTransaction(async (tx) => {
     // 2. Tenant: inject (direct) or validate FK (indirect) — enforced after user mutations
     await enforceTenantOnWrites(tx, tenant, [mainRecord]);

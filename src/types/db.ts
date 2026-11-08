@@ -18,9 +18,10 @@ export interface Queryable {
     values?: unknown[]
   ): Promise<SqlResult<T>>;
   /**
-   * Optional: check out a dedicated connection for `QueryClient.withTransaction`.
-   * When absent, `withTransaction` degrades to running its callback without
-   * transactional guarantees (legacy custom adapters keep working unchanged).
+   * Check out a dedicated connection for `QueryClient.withTransaction`. Optional in the type
+   * because a read-only client needs none, but every insert and update runs in a transaction:
+   * without `connect()` they fail with an explicit error instead of running unprotected
+   * (ADR 0023). The built-in adapters provide it from a pool.
    */
   connect?(): Promise<TransactionQueryable>;
 }

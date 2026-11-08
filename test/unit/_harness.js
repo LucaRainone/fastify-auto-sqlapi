@@ -168,9 +168,24 @@ export function createMockPg(responses = [], opts = {}) {
   const calls = [];
   const violations = [];
 
-  return {
+  const mock = {
     calls,
     violations,
+    /**
+     * Transactions, as the built-in adapters offer them from a pool: inserts and updates run
+     * inside `withTransaction` and refuse a client without `connect()`. The connection answers
+     * BEGIN/COMMIT/ROLLBACK itself and hands every other statement to `query`, so `calls`
+     * keeps listing the data statements only, in order — what the engine tests assert on.
+     */
+    connect() {
+      return Promise.resolve({
+        query(text, values) {
+          if (/^\s*(BEGIN|COMMIT|ROLLBACK)\s*$/i.test(text)) return Promise.resolve({ rows: [], affectedRows: 0 });
+          return mock.query(text, values);
+        },
+        release() {},
+      });
+    },
     query(text, values) {
       const normalized = text.replace(/\s+/g, ' ').trim();
       calls.push({ text: normalized, values });
@@ -204,6 +219,7 @@ export function createMockPg(responses = [], opts = {}) {
       return Promise.resolve(response);
     },
   };
+  return mock;
 }
 
 /** Minimal SchemaDefinition backed by camelCase → snake_case conversion. */

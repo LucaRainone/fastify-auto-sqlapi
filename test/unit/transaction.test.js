@@ -143,13 +143,16 @@ describe('QueryClient.withTransaction', () => {
     assert.equal(pool.state.released, 1);
   });
 
-  it('runs fn directly when the pool has no connect() (legacy adapters)', async () => {
+  it('refuses to run fn when the pool has no connect(): no unprotected write', async () => {
     const pool = createPlainMockPool([{ rows: [], affectedRows: 0 }]);
     const db = new QueryClient(pool);
 
-    await db.withTransaction((tx) => tx.query('SELECT 1'));
+    await assert.rejects(
+      db.withTransaction((tx) => tx.query('SELECT 1')),
+      /connect\(\)/,
+    );
 
-    assert.deepEqual(pool.calls.map((c) => c.text), ['SELECT 1'], 'no BEGIN/COMMIT expected');
+    assert.deepEqual(pool.calls, [], 'nothing may run outside the transaction it asked for');
   });
 
   it('joins the outer transaction when nested', async () => {
@@ -244,23 +247,25 @@ describe('insertEngine - transactional atomicity', () => {
     assert.ok(!texts.includes('COMMIT'));
   });
 
-  it('still works with a pool without connect() (no transaction)', async () => {
+  it('fails with a pool without connect() instead of inserting outside a transaction', async () => {
     const pool = createPlainMockPool([
       { rows: [{ id: 42 }], affectedRows: 1 },
     ]);
     const db = new QueryClient(pool);
     const DbTables = createTestDbTables();
 
-    const result = await insertEngine({
-      db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
-      request: mockRequest,
-      record: { name: 'Mario' },
-    });
+    await assert.rejects(
+      insertEngine({
+        db,
+        tableConf: DbTables.customer,
+        dbTables: DbTables,
+        request: mockRequest,
+        record: { name: 'Mario' },
+      }),
+      /connect\(\)/,
+    );
 
-    assert.equal(result.main.id, 42);
-    assert.ok(!pool.calls.some((c) => c.text === 'BEGIN'));
+    assert.equal(pool.calls.length, 0, 'the INSERT must not run unprotected');
   });
 });
 
