@@ -442,7 +442,11 @@ function validateAliasUniqueness(
 
 export interface BuildRelationOptions {
   alias?: string;
-  selection?: string;
+  /**
+   * Default fields of the joined rows, when the request names none: an array, or the same
+   * list comma-separated. Default `'*'`, every readable field.
+   */
+  selection?: string | string[];
   unique?: boolean;
   /**
    * The `DbTables` key whose config governs the joined table. Needed only when the joined
@@ -530,7 +534,8 @@ export function buildRelation<
     joinField,
     mainField,
     alias: options?.alias ?? joinSchema.tableName,
-    selection: options?.selection ?? '*',
+    // Stored comma-separated: the request may send either form and the engine splits both.
+    selection: Array.isArray(options?.selection) ? options.selection.join(',') : (options?.selection ?? '*'),
     unique: options?.unique ?? false,
     ...(options?.target !== undefined ? { target: options.target } : {}),
     ...(fields ? { fields: [...fields] } : {}),

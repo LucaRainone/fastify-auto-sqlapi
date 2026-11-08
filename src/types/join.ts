@@ -67,5 +67,6 @@ export interface JoinRefFilter {
 
 /** Per-request override of the per-relation default selection. */
 export interface JoinFetchRequest extends JoinRefFilter {
-  selection?: string;
+  /** Fields of the joined rows to return: an array, or the same list comma-separated. */
+  selection?: string | string[];
 }

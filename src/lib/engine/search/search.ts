@@ -6,6 +6,7 @@ import {
   assertFiltersReadable,
   assertKnownFilterKeys,
   readableSelectColumns,
+  hasOwnField,
   ownField,
 } from '../../read-access.js';
 import { MAX_CONDITIONS, MAX_ORDER_BY_PARTS } from '../../condition-methods.js';
@@ -17,6 +18,7 @@ import {
   refValues,
   renderRef,
   mapRowsToCamelCase,
+  buildMainSelectColumns,
 } from './fields.js';
 import { assertJoinFilterKeys, requireJoin } from './joins.js';
 import { runAfterRead } from '../read-hooks.js';
@@ -80,6 +82,7 @@ async function executeMainQuery(
   orderBy?: string,
   paginator?: { page: number; itemsPerPage: number },
   extraJoins: string[] = [],
+  projection?: MainProjection,
   selectComputed?: string[],
   maxRows?: number
 ): Promise<Record<string, unknown>[]> {
@@ -96,8 +99,11 @@ async function executeMainQuery(
     ? `${paginator.itemsPerPage} OFFSET ${(paginator.page - 1) * paginator.itemsPerPage}`
     : (maxRows != null ? String(maxRows) : null);
 
-  // Base projection: '*' unless the table hides fields via readExclude.
-  const readableColumns = readableSelectColumns(tableConf, tableConf.Schema, db);
+  // Base projection: the request's `select` plus what the query needs; otherwise '*' unless
+  // the table hides fields via readExclude.
+  const readableColumns = projection
+    ? buildMainSelectColumns(projection.select, projection.required, tableConf, db)
+    : readableSelectColumns(tableConf, tableConf.Schema, db);
 
   // Optional computed projections — bound values, if any, are NOT yet supported
   // here (would require placeholder-aware composition with WHERE values).
@@ -129,6 +135,47 @@ async function executeMainQuery(
   });
 
   return mapRowsToCamelCase(rows, tableConf.Schema, selectComputed);
+}
+
+/** A request `select`, with the fields the query itself needs projected alongside. */
+interface MainProjection {
+  select: string[];
+  required: string[];
+}
+
+/**
+ * The fields a `select` must carry even when the request leaves them out:
+ * - the primary key, which identifies each row;
+ * - the main-side key of every requested join family that runs a side query, which
+ *   correlates the child or parent rows (`joinMustExist` is an EXISTS: nothing to project);
+ * - with `distinctResults`, the plain fields the result is ordered by — the database
+ *   requires `SELECT DISTINCT` to list its ORDER BY expressions.
+ */
+function requiredProjection(params: SearchParams): string[] {
+  const { tableConf, joinMultiple, joinLeft, joinGroup, orderBy } = params;
+  const required: string[] = Array.isArray(tableConf.primary) ? [...tableConf.primary] : [tableConf.primary];
+
+  const families: [Record<string, unknown> | undefined, string, boolean][] = [
+    [joinMultiple, 'joinMultiple', false],
+    [joinLeft, 'joinLeft', true],
+    [joinGroup, 'joinGroup', false],
+  ];
+  for (const [requests, family, unique] of families) {
+    for (const alias of Object.keys(requests ?? {})) {
+      const { mainField } = requireJoin(tableConf, alias, unique, `${family}.${alias}`);
+      required.push(...(Array.isArray(mainField) ? mainField : [mainField]));
+    }
+  }
+
+  if (tableConf.distinctResults) {
+    const order = orderBy || tableConf.defaultOrder || primaryAsString(tableConf.primary);
+    for (const part of order.split(',')) {
+      const plain = /^(\w+)(?:\s+(?:ASC|DESC))?$/i.exec(part.trim());
+      if (plain && hasOwnField(tableConf.Schema.fields, plain[1])) required.push(plain[1]);
+    }
+  }
+
+  return required;
 }
 
 async function buildPagination(
@@ -356,8 +403,12 @@ export async function searchEngine(
 
   const mainValues = bound.snapshot();
 
+  const projection = params.select
+    ? { select: params.select, required: requiredProjection(params) }
+    : undefined;
   const main = await executeMainQuery(
-    db, tableConf, where, mainValues, safeOrderBy, paginator, extraJoinClauses, params.selectComputed, params.maxRows
+    db, tableConf, where, mainValues, safeOrderBy, paginator, extraJoinClauses,
+    projection, params.selectComputed, params.maxRows
   );
 
   let pagination: PaginationResult | undefined;

@@ -22,6 +22,12 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   Codes and the path grammar are listed in AGENTS_FRONTEND.md.
 - **`ValidationField`** (exported type): one entry of `fields`. **`httpError`** is exported,
   so a hook can throw a 400 in the same shape: `httpError(400, msg, { code, path })`.
+- **`select` in search**: the main fields to project, over HTTP and in `sqlApi.search()`.
+  The primary key, the keys the requested joins correlate on and, with `distinctResults`,
+  the ORDER BY fields are always projected. An unknown or `readExclude`d name is a 400 at
+  `select.<i>`.
+- **`selection` accepts an array** as well as the comma-separated string, in a join
+  reference and in `buildRelation`.
 
 ### Changed
 

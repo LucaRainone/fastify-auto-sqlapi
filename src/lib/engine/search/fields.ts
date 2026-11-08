@@ -12,6 +12,7 @@ import { httpError } from '../../errors.js';
 import {
   assertReadable,
   readableSelectColumns,
+  readableFieldNames,
   explicitSelectColumns,
   hasOwnField,
   ownField,
@@ -204,16 +205,17 @@ export function mapRowsToCamelCase(
 }
 
 /**
- * Build the SELECT columns list for a join fetch: '*' or comma-separated quoted columns.
- * A default '*' selection narrows to the join table's readable columns when it declares
- * `readExclude`; an explicit selection naming an excluded field is rejected with 400.
+ * Build the SELECT columns list for a join fetch: '*' or the quoted columns of the selected
+ * fields. A `selection` is an array of field names or the same list comma-separated (the
+ * relation's default is stored that way). A default '*' narrows to the join table's readable
+ * columns when it declares `readExclude`; a selection naming an excluded field is a 400.
  *
  * On a relation narrowed by a `fields` allowlist the '*' is always spelled out. Emitting a
  * real `SELECT *` there would fetch the excluded columns and leave them to be dropped by
  * the response serializer — which does not run for a caller of `sqlApi.search()`.
  */
 export function buildSelectionColumns(
-  selection: string,
+  selection: string | string[],
   joinSchema: SchemaDefinition,
   db: QueryClient,
   joinTableConf?: TableConfig,
@@ -225,8 +227,36 @@ export function buildSelectionColumns(
     return readableSelectColumns(joinTableConf, joinSchema, db) ?? '*';
   }
   const table = db.qi(joinSchema.tableName);
-  return selection
-    .split(',')
-    .map((c) => `${table}.${db.qi(validateSchemaField(c.trim(), joinSchema, joinTableConf, at))}`)
+  const names = Array.isArray(selection) ? selection : selection.split(',');
+  return names
+    .map((c, i) => {
+      const fieldAt = Array.isArray(selection) ? subPath(at, i) : at;
+      return `${table}.${db.qi(validateSchemaField(c.trim(), joinSchema, joinTableConf, fieldAt))}`;
+    })
     .join(', ');
+}
+
+/**
+ * The main query's SELECT list for a request `select`: the listed fields, validated one by one
+ * (unknown or `readExclude`d → 400 at `select.<i>`), then `required` ones the request did not
+ * list — the primary key, join correlation keys, DISTINCT's ORDER BY fields — when readable.
+ */
+export function buildMainSelectColumns(
+  select: string[],
+  required: string[],
+  tableConf: TableConfig,
+  db: QueryClient
+): string {
+  const schema = tableConf.Schema;
+  const table = db.qi(schema.tableName);
+  const fields: string[] = [];
+  for (const [i, name] of select.entries()) {
+    validateSchemaField(name, schema, tableConf, `select.${i}`);
+    if (!fields.includes(name)) fields.push(name);
+  }
+  const readable = readableFieldNames(tableConf, schema);
+  for (const name of required) {
+    if (!fields.includes(name) && readable.includes(name)) fields.push(name);
+  }
+  return fields.map((f) => `${table}.${db.qi(schema.col(f))}`).join(', ');
 }

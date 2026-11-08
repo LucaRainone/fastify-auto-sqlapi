@@ -42,6 +42,9 @@ function computedFieldTypes(tableConf: TableConfig | undefined): Record<string, 
   return out;
 }
 
+/** A join's `selection`: the field list as an array, or comma-separated in one string. */
+const SelectionSchema = Type.Union([Type.String(), Type.Array(Type.String())]);
+
 /** Per-alias body schemas, split by the relation's `unique` flag. */
 interface JoinBodyProps {
   joinMustExist: Record<string, TObject>;
@@ -85,7 +88,7 @@ function buildJoinBodyProps(
       props.joinLeft[alias] = Type.Object({
         filters: Type.Optional(filtersObject(joinSchemaFields)),
         conditions: Type.Optional(Type.Array(conditionItemSchema, { maxItems: MAX_CONDITIONS })),
-        selection: Type.Optional(Type.String()),
+        selection: Type.Optional(SelectionSchema),
       });
       continue;
     }
@@ -93,7 +96,7 @@ function buildJoinBodyProps(
     props.joinMustExist[alias] = Type.Object(joinRefShape);
     props.joinMultiple[alias] = Type.Object({
       ...joinRefShape,
-      selection: Type.Optional(Type.String()),
+      selection: Type.Optional(SelectionSchema),
     });
     props.joinGroup[alias] = Type.Object({
       aggregations: Type.Object({
@@ -174,6 +177,9 @@ export function SearchTableBodyPost(dbTables: DbTables, tableName: string): TObj
   const bodyProperties: Record<string, unknown> = {
     filters: filtersSchema,
     conditions: Type.Optional(Type.Array(conditionItemSchema, { maxItems: MAX_CONDITIONS })),
+    // Main projection. Names are validated by the engine (readExclude included), not here: a
+    // closed enum would be stripped by `removeAdditional` the same way a closed filters map is.
+    select: Type.Optional(Type.Array(Type.String())),
   };
 
   if (Object.keys(computedTypes).length > 0) {

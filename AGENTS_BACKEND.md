@@ -197,7 +197,7 @@ Every error the routes return has one envelope, `{statusCode, error, message, re
 ```ts
 buildRelation(mainSchema, mainField, joinSchema, joinField, {
   alias, // default joinSchema.tableName. Key in requests, responses, secondaries, deletions, dotted notation. Set it only to join one table twice or for a friendlier name. Duplicate alias → throws.
-  selection, // default '*'. 'id, name, total'
+  selection, // default '*'. ['id', 'name', 'total'] or 'id, name, total'; the request may override it in either form
   unique, // false: 1:N child→main (joinField = child FK) → joinMustExist / joinMultiple / joinGroup. true: N:1 parent→main (joinField = parent PK) → joinLeft. joinField is the target's PK → use true.
   fields, // read-only allowlist of the target's fields. Must include joinField. Not on write joins.
   target, // dbTables key whose config governs the joined table (readExclude, tenantScope, afterRead, computed, write rules). Required when several keys expose that table: startup fails until it is set. With one key, that config applies whatever the key is called.
@@ -296,7 +296,8 @@ app.get('/billing/:customerId', async (request) =>
     paginator: { page: 1, itemsPerPage: 50 },
   }, request)); // pass `request` for tenant + hooks; without it: no tenant filter, hooks get undefined
 
-sqlApi.search(table, { filters, conditions, joinMustExist, joinMultiple, joinGroup, joinLeft, selectComputed, orderBy, paginator, computeMin, computeMax, computeSum, computeAvg, maxRows }, req?)
+sqlApi.search(table, { filters, conditions, joinMustExist, joinMultiple, joinGroup, joinLeft, select, selectComputed, orderBy, paginator, computeMin, computeMax, computeSum, computeAvg, maxRows }, req?)
+// select: main fields to project; the PK, the requested joins' keys and (with distinctResults) the ORDER BY fields are always added
 sqlApi.get(table, id, req?)
 sqlApi.insert(table, { record, secondaries? }, req?)
 sqlApi.update(table, { record, secondaries?, deletions? }, req?)

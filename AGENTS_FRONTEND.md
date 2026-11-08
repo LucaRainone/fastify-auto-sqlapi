@@ -34,12 +34,13 @@ Querystring, all optional: `orderBy`, `page`, `itemsPerPage`, `computeMin|Max|Su
     { "field": "status", "method": "isIn", "params": [["active", "pending"]] },
     { "field": "orders.count.id", "method": "isGreaterOrEqual", "params": [4] } // alias.fn.field, HAVING-style: needs the matching joinGroup below
   ],
+  "select": ["id", "name"], // main fields to return; default: every readable field. The PK and the keys of the requested joins are always included. Unknown or hidden name → 400
   "selectComputed": ["displayName"], // computed fields are projected into main rows only when listed
   "joinMustExist": { // EXISTS on children: decides WHICH main rows return; fetches nothing
     "labels": { "filters": { "labelId": 1 }, "conditions": [] }
   },
   "joinMultiple": { // side query: child rows of the returned main rows
-    "orders": { "filters": { "status": "pending" }, "conditions": [], "selection": "id,total,status" }
+    "orders": { "filters": { "status": "pending" }, "conditions": [], "selection": ["id", "total", "status"] } // selection: array or "id,total,status"; default set by the backend
   },
   "joinGroup": { // aggregates child rows of the returned main rows
     "orders": {
