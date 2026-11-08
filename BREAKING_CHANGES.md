@@ -406,8 +406,8 @@ as if the filter had not been sent.
 That fails in the dangerous direction. A rejected filter returns *more* rows than the caller
 asked for, and nothing in the response says so; in an application where filters are also how
 visibility is narrowed, a typo becomes a data exposure. It was also the odd one out: an unknown
-field in `selection`, `conditions`, `orderBy` or a `joinGroup` aggregation has always been a
-400.
+field in `selection`, `conditions`, `orderBy` or a `joinGroup` aggregation has always been
+a 400.
 
 ## What changed
 

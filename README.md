@@ -267,8 +267,8 @@ full in [AGENTS_BACKEND.md](./AGENTS_BACKEND.md).
 **1. Who may call the routes** — `onRequests` runs before every generated route, globally or per
 table. It is where `jwtVerify()` and your role checks go.
 
-**2. Which routes exist** — `operations: ['search', 'get']` registers only those; the rest answer
-404. It gates HTTP only: your own code still reaches everything through `app.sqlApi.*`.
+**2. Which routes exist** — `operations: ['search', 'get']` registers only those; the rest
+answer 404. It gates HTTP only: your own code still reaches everything through `app.sqlApi.*`.
 
 **3. A declared join is a read grant.** Neither of the two above follows a join: a join is
 resolved inside the *host* table's query, so the target's hooks never run and its `operations`
