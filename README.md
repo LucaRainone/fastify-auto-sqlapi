@@ -278,7 +278,7 @@ relation pointing at it. `allowedReadJoins` is therefore a security decision —
 ([ADR 0010](./docs/adr/0010-joins-do-not-run-route-guards.md),
 [ADR 0011](./docs/adr/0011-join-fields-allowlist.md))
 
-**4. Every Schema field is updatable by default.** `excludeFromCreation` is an ergonomics tool
+**4. Every Schema field is updatable by default.** `insertExclude` is an ergonomics tool
 for inserts, not a security mechanism, and it deliberately does not apply to updates. So
 `isAdmin`, roles, ownership and state columns *will* be accepted by the generated update route
 if they are in the Schema. Whether a field may change is a product decision the plugin cannot

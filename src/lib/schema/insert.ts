@@ -1,7 +1,7 @@
 import { Type, type TObject, type TSchema } from 'typebox';
 import { primaryAsString } from '../../types.js';
 import type { DbTables } from '../../types.js';
-import { writableFields } from '../write-access.js';
+import { writableFields, insertExcludedFields } from '../write-access.js';
 import {
   pkSchema,
   applySchemaOverrides,
@@ -15,7 +15,7 @@ export function InsertTableBody(dbTables: DbTables, tableName: string): TObject 
   const tableConf = dbTables[tableName];
   const schema = tableConf.Schema;
 
-  // Main: full validation, but excludeFromCreation fields become Optional. Fields the
+  // Main: full validation, but insertExclude fields become Optional. Fields the
   // database computes are not offered at all — sending one is rejected here (400) rather
   // than by the driver (500).
   const mainFields: Record<string, TSchema> = writableFields(
@@ -23,10 +23,8 @@ export function InsertTableBody(dbTables: DbTables, tableName: string): TObject 
     tableConf,
     schema
   );
-  if (tableConf.excludeFromCreation) {
-    for (const field of tableConf.excludeFromCreation) {
-      if (field in mainFields) mainFields[field] = Type.Optional(mainFields[field]);
-    }
+  for (const field of insertExcludedFields(tableConf)) {
+    if (field in mainFields) mainFields[field] = Type.Optional(mainFields[field]);
   }
   // The tenant column is the engine's to fill or check, never the client's to be forced to send.
   relaxTenantColumns(mainFields, tableConf, schema);

@@ -1,6 +1,6 @@
 import type { ApiRequest } from '../../types/request.js';
 import type { QueryClient } from '../db.js';
-import type { ITable, ValidationError, BulkValidatorItem } from '../../types.js';
+import type { TableConfig, ValidationError, BulkValidatorItem, RowsByAlias } from '../../types.js';
 
 interface ValidationResponseField {
   path: string;
@@ -19,9 +19,9 @@ function toResponseFields(errors: ValidationError[]): ValidationResponseField[] 
 export async function runValidation(
   db: QueryClient,
   request: ApiRequest,
-  tableConf: ITable,
+  tableConf: TableConfig,
   main: Record<string, unknown>,
-  secondaries?: Record<string, Record<string, unknown>[]>
+  secondaries?: RowsByAlias
 ): Promise<void> {
   if (!tableConf.validate) return;
 
@@ -34,7 +34,7 @@ export async function runValidation(
 export async function runBulkValidation(
   db: QueryClient,
   request: ApiRequest,
-  tableConf: ITable,
+  tableConf: TableConfig,
   items: BulkValidatorItem[]
 ): Promise<void> {
   if (!tableConf.validateBulk) return;

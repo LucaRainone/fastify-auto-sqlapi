@@ -17,7 +17,7 @@ import { requireJoin, extractJoinRefs, subqueryAlias } from './joins.js';
 import { buildJoinRefCondition, dispatchConditionMethod } from './conditions.js';
 import type {
   DbTables,
-  ITable,
+  TableConfig,
   JoinGroupRequest,
   SearchCondition,
   TenantContext,
@@ -57,7 +57,7 @@ export function aggExpr(fn: AggFn, qualifiedCol: string): string {
 export function buildAggOrderExpr(
   db: QueryClient,
   dbTables: DbTables,
-  tableConf: ITable,
+  tableConf: TableConfig,
   alias: string,
   fn: string,
   field: string,
@@ -136,7 +136,7 @@ export function appendAggConditions(
   conditions: SearchCondition[],
   db: QueryClient,
   dbTables: DbTables,
-  tableConf: ITable,
+  tableConf: TableConfig,
   joinGroup: Record<string, JoinGroupRequest> | undefined,
   tenant?: TenantContext
 ): string {

@@ -1,8 +1,8 @@
 import type { ApiRequest } from './request.js';
 import type { QueryClient } from '../lib/db.js';
-import type { ITable, FilterRecord } from './table.js';
+import type { TableConfig, FilterRecord } from './table.js';
 import type { TenantContext } from './tenant.js';
-import type { JoinFetchRequest, JoinGroupRequest, JoinRefFilter } from './join.js';
+import type { JoinFetchRequest, JoinGroupRequest, JoinRefFilter, RowsByAlias } from './join.js';
 import type { SearchCondition } from './conditions.js';
 
 export interface Paginator {
@@ -12,7 +12,7 @@ export interface Paginator {
 
 export interface SearchParams {
   db: QueryClient;
-  tableConf: ITable;
+  tableConf: TableConfig;
   filters?: FilterRecord;
   conditions?: SearchCondition[];
   joinMustExist?: Record<string, JoinRefFilter>;
@@ -51,8 +51,8 @@ export interface PaginationResult {
 
 export interface SearchResult {
   main: Record<string, unknown>[];
-  joinMultiple?: Record<string, Record<string, unknown>[]>;
-  joinLeft?: Record<string, Record<string, unknown>[]>;
+  joinMultiple?: RowsByAlias;
+  joinLeft?: RowsByAlias;
   joinGroup?: Record<string, Record<string, unknown>>;
   pagination?: PaginationResult;
 }

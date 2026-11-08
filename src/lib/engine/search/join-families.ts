@@ -33,7 +33,7 @@ import type {
   AggregationRequest,
   DbTables,
   FilterRecord,
-  ITable,
+  TableConfig,
   JoinFetchRequest,
   JoinGroupRequest,
   JoinRefFilter,
@@ -41,6 +41,7 @@ import type {
   SearchCondition,
   TenantContext,
   ComputedFieldFn,
+  RowsByAlias,
 } from '../../../types.js';
 
 // ─── joinLeft: LEFT JOIN clause builder ─────────────────────
@@ -139,7 +140,7 @@ function applyJoinLeftConditions(
 export function buildLeftJoinOnClauses(
   db: QueryClient,
   dbTables: DbTables,
-  tableConf: ITable,
+  tableConf: TableConfig,
   aliasesNeedingJoin: Set<string>,
   startIdx: number,
   tenant?: TenantContext
@@ -181,7 +182,7 @@ export function buildLeftJoinOnClauses(
 export function buildLeftJoinFilters(
   db: QueryClient,
   dbTables: DbTables,
-  tableConf: ITable,
+  tableConf: TableConfig,
   aliasesNeedingJoin: Set<string>,
   joinLeft: Record<string, JoinFetchRequest> | undefined,
   startIdx: number
@@ -243,7 +244,7 @@ function scopeJoinSideQuery(
   joinSchema: SchemaDefinition,
   joinField: string,
   ids: ConditionValue[],
-  joinTableConf: ITable | undefined,
+  joinTableConf: TableConfig | undefined,
   tenant: TenantContext | undefined
 ): { where: string; values: unknown[]; tenantJoins: string[] } {
   cb.isIn(`${db.qi(joinSchema.tableName)}.${db.qi(joinSchema.col(joinField))}`, ids);
@@ -279,14 +280,14 @@ interface JoinFetchMode {
 async function fetchJoinRows(
   db: QueryClient,
   dbTables: DbTables,
-  tableConf: ITable,
+  tableConf: TableConfig,
   mainResults: Record<string, unknown>[],
   requests: Record<string, JoinFetchRequest>,
   mode: JoinFetchMode,
   tenant?: TenantContext,
   request?: ApiRequest
-): Promise<Record<string, Record<string, unknown>[]>> {
-  const result: Record<string, Record<string, unknown>[]> = {};
+): Promise<RowsByAlias> {
+  const result: RowsByAlias = {};
 
   for (const [alias, ref] of Object.entries(requests)) {
     const joinDef = requireJoin(tableConf, alias, mode.requireUnique);
@@ -336,12 +337,12 @@ async function fetchJoinRows(
 export function executeJoinMultiple(
   db: QueryClient,
   dbTables: DbTables,
-  tableConf: ITable,
+  tableConf: TableConfig,
   mainResults: Record<string, unknown>[],
   joinMultiple: Record<string, JoinFetchRequest>,
   tenant?: TenantContext,
   request?: ApiRequest
-): Promise<Record<string, Record<string, unknown>[]>> {
+): Promise<RowsByAlias> {
   return fetchJoinRows(db, dbTables, tableConf, mainResults, joinMultiple, {
     source: 'joinMultiple',
     requireUnique: false,
@@ -353,12 +354,12 @@ export function executeJoinMultiple(
 export function executeJoinLeft(
   db: QueryClient,
   dbTables: DbTables,
-  tableConf: ITable,
+  tableConf: TableConfig,
   mainResults: Record<string, unknown>[],
   joinLeft: Record<string, JoinFetchRequest>,
   tenant?: TenantContext,
   request?: ApiRequest
-): Promise<Record<string, Record<string, unknown>[]>> {
+): Promise<RowsByAlias> {
   return fetchJoinRows(db, dbTables, tableConf, mainResults, joinLeft, {
     source: 'joinLeft',
     requireUnique: true,
@@ -376,7 +377,7 @@ export function executeJoinLeft(
 function buildByExpression(
   by: string,
   joinSchema: SchemaDefinition,
-  joinTableConf: ITable | undefined,
+  joinTableConf: TableConfig | undefined,
   db: QueryClient
 ): string {
   if (typeof by !== 'string') {
@@ -409,7 +410,7 @@ function buildByExpression(
 function buildJoinGroupSelect(
   aggregations: AggregationRequest,
   joinSchema: SchemaDefinition,
-  joinTableConf: ITable | undefined,
+  joinTableConf: TableConfig | undefined,
   db: QueryClient
 ): { selectParts: string[]; groupByParts: string[] } {
   const selectParts: string[] = [];
@@ -469,7 +470,7 @@ function formatJoinGroupRows(
 export async function executeJoinGroup(
   db: QueryClient,
   dbTables: DbTables,
-  tableConf: ITable,
+  tableConf: TableConfig,
   mainResults: Record<string, unknown>[],
   joinGroup: Record<string, JoinGroupRequest>,
   tenant?: TenantContext
@@ -539,7 +540,7 @@ export function buildJoinMustExistClauses(
   params: QueryParams,
   db: QueryClient,
   dbTables: DbTables,
-  tableConf: ITable,
+  tableConf: TableConfig,
   joinMustExist: Record<string, JoinRefFilter>,
   tenant?: TenantContext
 ): string {

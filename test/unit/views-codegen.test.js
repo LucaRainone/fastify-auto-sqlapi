@@ -103,9 +103,9 @@ describe('generateSingleTableFile - views', () => {
     assert.match(out, /operations: \['search'\]/);
   });
 
-  it('does not emit excludeFromCreation for a view', () => {
+  it('does not emit insertExclude for a view', () => {
     const out = generateSingleTableFile(viewSchema(['id', 'name']), []);
-    assert.doesNotMatch(out, /^\s*excludeFromCreation:/m);
+    assert.doesNotMatch(out, /^\s*insertExclude:/m);
   });
 
   it('leaves a base table template untouched', () => {
@@ -117,7 +117,7 @@ describe('generateSingleTableFile - views', () => {
       primary: ['id'],
     };
     const out = generateSingleTableFile(base, []);
-    assert.match(out, /excludeFromCreation: \['id'\]/);
+    assert.match(out, /insertExclude: \['id'\]/);
     assert.doesNotMatch(out, /operations:/);
     assert.doesNotMatch(out, /TODO/);
   });

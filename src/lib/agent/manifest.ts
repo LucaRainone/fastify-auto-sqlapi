@@ -1,7 +1,7 @@
 import type { TSchema } from 'typebox';
 import { isCompositePrimary } from '../../types.js';
-import type { DbTables, ITable, JoinDefinition, TableOperation } from '../../types.js';
-import { writeExcludedFields } from '../write-access.js';
+import type { DbTables, TableConfig, JoinDefinition, TableOperation } from '../../types.js';
+import { writeExcludedFields, insertExcludedFields } from '../write-access.js';
 
 const ALL_OPERATIONS: TableOperation[] = [
   'search', 'get', 'insert', 'update', 'delete', 'bulkUpsert', 'bulkDelete',
@@ -65,7 +65,7 @@ function isNullable(schema: TSchema | undefined): boolean {
   return Array.isArray(t) && t.includes('null');
 }
 
-function computedTypes(tableConf: ITable): Record<string, string> | undefined {
+function computedTypes(tableConf: TableConfig): Record<string, string> | undefined {
   if (!tableConf.computedFields) return undefined;
   const out: Record<string, string> = {};
   for (const [name, fn] of Object.entries(tableConf.computedFields)) {
@@ -82,14 +82,14 @@ function computedTypes(tableConf: ITable): Record<string, string> | undefined {
   return Object.keys(out).length ? out : undefined;
 }
 
-export function tableOperations(tableConf: ITable): TableOperation[] {
+export function tableOperations(tableConf: TableConfig): TableOperation[] {
   const requested = tableConf.operations ?? ALL_OPERATIONS;
   if (!isCompositePrimary(tableConf.primary)) return [...requested];
   return requested.filter((op) => !SINGLE_PK_OPERATIONS.has(op));
 }
 
 /** Field descriptors: type, plus the flags an agent needs to build a valid payload. */
-function manifestFields(tableConf: ITable): Record<string, ManifestField> {
+function manifestFields(tableConf: TableConfig): Record<string, ManifestField> {
   const schema = tableConf.Schema;
   const required = new Set(((schema.validation as { required?: string[] }).required) ?? []);
   const readExcluded = new Set(tableConf.readExclude ?? []);
@@ -115,14 +115,14 @@ function manifestJoins(joins: JoinDefinition[] | undefined): ManifestJoin[] {
   }));
 }
 
-function manifestExtraFilters(tableConf: ITable): Record<string, string> | undefined {
+function manifestExtraFilters(tableConf: TableConfig): Record<string, string> | undefined {
   const entries = Object.entries(tableConf.extraFilters ?? {});
   if (entries.length === 0) return undefined;
   return Object.fromEntries(entries.map(([n, s]) => [n, shortType(s)]));
 }
 
 /** One table's entry. Optional keys are omitted entirely when empty, to keep the prompt small. */
-function manifestTable(tableConf: ITable): ManifestTable {
+function manifestTable(tableConf: TableConfig): ManifestTable {
   const entry: ManifestTable = {
     table: tableConf.Schema.tableName,
     primary: tableConf.primary,
@@ -135,7 +135,8 @@ function manifestTable(tableConf: ITable): ManifestTable {
   const readJoins = manifestJoins(tableConf.allowedReadJoins);
   const writeJoins = manifestJoins(tableConf.allowedWriteJoins);
 
-  if (tableConf.excludeFromCreation?.length) entry.serverGenerated = [...tableConf.excludeFromCreation];
+  const serverGenerated = insertExcludedFields(tableConf);
+  if (serverGenerated.length) entry.serverGenerated = [...serverGenerated];
   if (computed) entry.computed = computed;
   if (extraFilters) entry.extraFilters = extraFilters;
   if (readJoins.length) entry.readJoins = readJoins;

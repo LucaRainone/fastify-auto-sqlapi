@@ -2,7 +2,7 @@ import { Type, type TObject, type TSchema } from 'typebox';
 import { ALLOWED_METHODS, MAX_CONDITIONS, MAX_ORDER_BY_LENGTH } from '../condition-methods.js';
 import { readableFields } from './helpers.js';
 import { DEFAULT_MAX_ITEMS_PER_PAGE } from '../../types.js';
-import type { DbTables, ITable } from '../../types.js';
+import type { DbTables, TableConfig } from '../../types.js';
 
 /**
  * A `filters` map.
@@ -25,7 +25,7 @@ function filtersObject(fields: Record<string, TSchema>): TObject {
  * throws is skipped, because this only feeds the Swagger/body schema and the engine
  * validates for real at request time.
  */
-function computedFieldTypes(tableConf: ITable | undefined): Record<string, TSchema> {
+function computedFieldTypes(tableConf: TableConfig | undefined): Record<string, TSchema> {
   const out: Record<string, TSchema> = {};
   for (const [name, fn] of Object.entries(tableConf?.computedFields ?? {})) {
     try {
@@ -51,7 +51,7 @@ interface JoinBodyProps {
 
 function buildJoinBodyProps(
   dbTables: DbTables,
-  tableConf: ITable,
+  tableConf: TableConfig,
   conditionItemSchema: TObject
 ): JoinBodyProps {
   const props: JoinBodyProps = {
@@ -113,7 +113,7 @@ function buildJoinBodyProps(
 }
 
 /** Per-alias *response* shapes: the rows each join family contributes to the result. */
-function buildJoinResponseProps(dbTables: DbTables, tableConf: ITable): {
+function buildJoinResponseProps(dbTables: DbTables, tableConf: TableConfig): {
   joinMultipleProps: Record<string, TSchema>;
   joinLeftProps: Record<string, TSchema>;
   joinGroupProps: Record<string, TSchema>;
@@ -216,7 +216,12 @@ export function SearchTableQuery(maxItemsPerPage: number = DEFAULT_MAX_ITEMS_PER
   });
 }
 
-/** Default-cap variant, kept for granular composition and backward compatibility. */
+/**
+ * The querystring schema at the default `maxItemsPerPage`.
+ *
+ * @deprecated Use `SearchTableQuery()`, which also takes the cap the plugin was configured
+ * with: this constant always describes the default cap, whatever `maxItemsPerPage` says.
+ */
 export const SearchTableQueryString = SearchTableQuery();
 
 export function SearchTableResponse(dbTables: DbTables, tableName: string): TObject {

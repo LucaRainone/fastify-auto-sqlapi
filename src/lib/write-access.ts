@@ -1,5 +1,5 @@
 import type { TSchema } from 'typebox';
-import type { ITable, SchemaDefinition } from '../types.js';
+import type { TableConfig, SchemaDefinition } from '../types.js';
 
 /**
  * Write visibility — the counterpart of `read-access.ts`.
@@ -17,12 +17,12 @@ import type { ITable, SchemaDefinition } from '../types.js';
  * `additionalProperties: false` rather than a driver error — and dropped again in the engines,
  * which `sqlApi.*` reaches without passing through those schemas.
  *
- * This is not `excludeFromCreation`, which whitelists CLIENT input on insert only and lets a
- * hook assign the field afterwards (ADR 0005); nor is it the place for per-caller field rules,
+ * This is not `insertExclude`, which whitelists CLIENT input on insert only and lets a hook
+ * assign the field afterwards (ADR 0005); nor is it the place for per-caller field rules,
  * which stay in `beforeUpdate` / `validate` (ADR 0011).
  */
 export function writeExcludedFields(
-  tableConf: ITable | undefined,
+  tableConf: TableConfig | undefined,
   schema: SchemaDefinition | undefined
 ): Set<string> {
   const excluded = new Set<string>(schema?.generatedFields ?? []);
@@ -32,7 +32,7 @@ export function writeExcludedFields(
 
 /** True when the table has nothing to exclude — lets callers keep their existing object. */
 function hasWriteExclusions(
-  tableConf: ITable | undefined,
+  tableConf: TableConfig | undefined,
   schema: SchemaDefinition | undefined
 ): boolean {
   return (schema?.generatedFields?.length ?? 0) > 0 || (tableConf?.writeExclude?.length ?? 0) > 0;
@@ -44,7 +44,7 @@ function hasWriteExclusions(
  */
 export function writableFields(
   fields: Record<string, TSchema>,
-  tableConf: ITable | undefined,
+  tableConf: TableConfig | undefined,
   schema: SchemaDefinition | undefined
 ): Record<string, TSchema> {
   if (!hasWriteExclusions(tableConf, schema)) return fields;
@@ -59,16 +59,29 @@ export function writableFields(
 /**
  * Drop the non-writable fields from a camelCase record, in place.
  *
- * Call this AFTER the write hooks, unlike `excludeFromCreation`: a hook cannot be allowed to
- * put back a value the database will refuse, so the last word has to belong to the exclusion.
+ * Call this AFTER the write hooks, unlike `insertExclude`: a hook cannot be allowed to put
+ * back a value the database will refuse, so the last word has to belong to the exclusion.
  */
 export function removeWriteExcluded(
   record: Record<string, unknown>,
-  tableConf: ITable | undefined,
+  tableConf: TableConfig | undefined,
   schema: SchemaDefinition | undefined
 ): void {
   if (!hasWriteExclusions(tableConf, schema)) return;
   for (const field of writeExcludedFields(tableConf, schema)) {
     delete record[field];
   }
+}
+
+/**
+ * The fields a client may not send on insert: `insertExclude`, or `excludeFromCreation`, its
+ * deprecated name. `defineTable` refuses a table naming both, so at most one is set.
+ *
+ * The only place that reads either key: every insert path — the body schema, the engines, the
+ * secondaries of another table, the agent manifest — goes through here, so the two names can
+ * never drift apart.
+ */
+export function insertExcludedFields(tableConf: TableConfig | undefined): readonly string[] {
+  // eslint-disable-next-line sonarjs/deprecation -- the one reader of the deprecated alias
+  return tableConf?.insertExclude ?? tableConf?.excludeFromCreation ?? [];
 }

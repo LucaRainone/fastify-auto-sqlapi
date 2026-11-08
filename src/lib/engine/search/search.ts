@@ -36,7 +36,7 @@ import type {
   SearchParams,
   SearchResult,
   PaginationResult,
-  ITable,
+  TableConfig,
 } from '../../../types.js';
 
 /**
@@ -74,7 +74,7 @@ function assertRequestWithinLimits(params: SearchParams): void {
 
 async function executeMainQuery(
   db: QueryClient,
-  tableConf: ITable,
+  tableConf: TableConfig,
   where: string,
   values: unknown[],
   orderBy?: string,
@@ -132,7 +132,7 @@ async function executeMainQuery(
 
 async function buildPagination(
   db: QueryClient,
-  tableConf: ITable,
+  tableConf: TableConfig,
   where: string,
   values: unknown[],
   paginator: { page: number; itemsPerPage: number },

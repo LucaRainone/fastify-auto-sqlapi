@@ -2,6 +2,13 @@ import type { SchemaDefinition } from './schema.js';
 import type { FilterRecord } from './table.js';
 import type { SearchCondition } from './conditions.js';
 
+/**
+ * Rows grouped by relation alias: `secondaries` and `deletions` in a write, the rows written
+ * or removed through them as handed to `afterInsert`/`afterUpdate`, and `joinMultiple` /
+ * `joinLeft` in a search result. Rows are camelCase.
+ */
+export type RowsByAlias = Record<string, Record<string, unknown>[]>;
+
 export interface JoinDefinition {
   joinSchema: SchemaDefinition;
   joinField: string;

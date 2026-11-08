@@ -4,7 +4,7 @@ import { ConditionBuilder, type ConditionValue, type ConditionValueOrUndefined }
 import { httpError } from './errors.js';
 import type {
   DbTables,
-  ITable,
+  TableConfig,
   SqlApiPluginOptions,
   TenantId,
   TenantScope,
@@ -54,7 +54,7 @@ export function tenantOwnColumns(scope: TenantScope | undefined): string[] {
  * read or write a scoped row should not pay for resolving a tenant, and consumer code that
  * assumes an authenticated request should not run on routes that never needed one.
  */
-function scopeInReach(tableConf: ITable, dbTables: DbTables | undefined): boolean {
+function scopeInReach(tableConf: TableConfig, dbTables: DbTables | undefined): boolean {
   if (tableConf.tenantScope) return true;
   if (!dbTables) return false;
 
@@ -64,7 +64,7 @@ function scopeInReach(tableConf: ITable, dbTables: DbTables | undefined): boolea
 
 export async function resolveTenant(
   options: SqlApiPluginOptions,
-  tableConf: ITable,
+  tableConf: TableConfig,
   request: ApiRequest
 ): Promise<TenantContext | undefined> {
   if (!options.getTenantId) return undefined;
@@ -125,7 +125,7 @@ export function buildTenantCondition(
  */
 export function tenantForTable(
   tenant: TenantContext | undefined,
-  tableConf: ITable | undefined
+  tableConf: TableConfig | undefined
 ): TenantContext | undefined {
   const scope = tableConf?.tenantScope;
   if (!tenant || !scope) return undefined;

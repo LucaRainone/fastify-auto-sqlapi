@@ -6,6 +6,7 @@ import type {
   InsertParams,
   InsertResult,
   DbRecord,
+  RowsByAlias,
 } from '../../../types.js';
 
 export async function insertEngine(params: InsertParams): Promise<InsertResult> {
@@ -54,7 +55,7 @@ export async function insertEngine(params: InsertParams): Promise<InsertResult> 
     const mainPkCamel = camelcaseObject(pkResult, schema);
 
     // 4. Secondaries: need full record for FK auto-fill (camelCase)
-    let secondaryResults: Record<string, Record<string, unknown>[]> | undefined;
+    let secondaryResults: RowsByAlias | undefined;
     if (secondaries && Object.keys(secondaries).length > 0) {
       const mainForFK = { ...inputRecord, ...mainPkCamel };
       secondaryResults = await processSecondaries(

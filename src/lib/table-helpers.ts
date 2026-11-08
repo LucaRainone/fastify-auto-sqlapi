@@ -4,7 +4,7 @@ import type {
   SchemaDefinition,
   JoinDefinition,
   TableFilterFn,
-  ITable,
+  TableConfig,
   TenantScopeIndirect,
 } from '../types.js';
 import { getDialect } from './dialect.js';
@@ -73,18 +73,19 @@ export function exportTableInfo<
 }
 
 export function defineTable<F extends Record<string, TSchema>>(
-  config: ITable<F>
-): ITable<F> {
+  config: TableConfig<F>
+): TableConfig<F> {
   validateAliasUniqueness(config.allowedReadJoins, 'allowedReadJoins');
   validateAliasUniqueness(config.allowedWriteJoins, 'allowedWriteJoins');
   validateWriteJoinsUnrestricted(config.allowedWriteJoins);
-  validateComputedFields(config as unknown as ITable);
-  validatePrimary(config as unknown as ITable);
-  validateReadExclude(config as unknown as ITable);
-  validateWriteExclude(config as unknown as ITable);
-  validateTenantScope(config as unknown as ITable);
-  validateTenantColumnNames(config as unknown as ITable);
-  validateUpsertMap(config as unknown as ITable);
+  validateComputedFields(config as unknown as TableConfig);
+  validatePrimary(config as unknown as TableConfig);
+  validateReadExclude(config as unknown as TableConfig);
+  validateWriteExclude(config as unknown as TableConfig);
+  validateInsertExclude(config as unknown as TableConfig);
+  validateTenantScope(config as unknown as TableConfig);
+  validateTenantColumnNames(config as unknown as TableConfig);
+  validateUpsertMap(config as unknown as TableConfig);
   return config;
 }
 
@@ -130,7 +131,7 @@ function assertNamesColumn(
   );
 }
 
-function validateTenantScope(config: ITable): void {
+function validateTenantScope(config: TableConfig): void {
   const scope = config.tenantScope;
   if (!scope) return;
 
@@ -188,7 +189,7 @@ function validateTenantScope(config: ITable): void {
  * Every column a scope names, checked against the schema it belongs to. Runs after
  * `validateTenantScope`, so the shape is already known to be one of the three valid forms.
  */
-function validateTenantColumnNames(config: ITable): void {
+function validateTenantColumnNames(config: TableConfig): void {
   const scope = config.tenantScope;
   if (!scope) return;
   const table = config.Schema.tableName;
@@ -234,7 +235,7 @@ function validateWriteJoinsUnrestricted(joins: JoinDefinition[] | undefined): vo
   }
 }
 
-function validateReadExclude(config: ITable): void {
+function validateReadExclude(config: TableConfig): void {
   const excluded = config.readExclude;
   if (!excluded?.length) return;
 
@@ -269,7 +270,7 @@ function validateReadExclude(config: ITable): void {
  * is exactly the shape the generator emits for a view whose key it could not infer, and it is
  * a working config — not a broken one waiting to be fixed.
  */
-function validatePrimary(config: ITable): void {
+function validatePrimary(config: TableConfig): void {
   const schemaFields = Object.keys(config.Schema.fields);
   const pkFields = Array.isArray(config.primary) ? config.primary : [config.primary];
   const table = config.Schema.tableName;
@@ -304,7 +305,22 @@ function validatePrimary(config: ITable): void {
  * field that is also `readExclude`d would be neither readable nor writable, which is what
  * removing it from the Schema means — keeping it there only grows the surface for nothing.
  */
-function validateWriteExclude(config: ITable): void {
+/**
+ * `excludeFromCreation` is the deprecated name of `insertExclude`. A table naming both is
+ * ambiguous — one of the two lists would be silently ignored — so it is refused, even when
+ * the lists agree: the fix is deleting the old key, not keeping them in sync.
+ */
+function validateInsertExclude(config: TableConfig): void {
+  // eslint-disable-next-line sonarjs/deprecation -- detecting the deprecated alias is the point
+  if (config.insertExclude === undefined || config.excludeFromCreation === undefined) return;
+  throw new Error(
+    `defineTable: table '${config.Schema.tableName}' sets both insertExclude and ` +
+    `excludeFromCreation. excludeFromCreation is the deprecated name of insertExclude: ` +
+    `keep insertExclude only.`
+  );
+}
+
+function validateWriteExclude(config: TableConfig): void {
   const excluded = config.writeExclude;
   if (!excluded?.length) return;
 
@@ -348,7 +364,7 @@ const sameFieldSet = (a: string[], b: string[]): boolean =>
  * Fail-closed: a rule the Schema cannot vouch for is refused. The Schema is what is read, not
  * a table config, so a child written only through a write join needs no `defineTable`.
  */
-function validateUpsertMap(config: ITable): void {
+function validateUpsertMap(config: TableConfig): void {
   for (const [schema, keys] of config.upsertMap ?? []) {
     const problem = upsertKeyProblem(schema, keys);
     if (problem) {
@@ -384,7 +400,7 @@ function upsertKeyProblem(schema: SchemaDefinition, keys: string[]): string | nu
   );
 }
 
-function validateComputedFields(config: ITable): void {
+function validateComputedFields(config: TableConfig): void {
   const computed = config.computedFields;
   if (!computed) return;
 

@@ -17,9 +17,6 @@ interface UpsertTarget {
   keepAsIs: string[];
 }
 
-/** @deprecated Use db.qi() instead */
-export const escapeIdent = (f: string) => f.replace(/"/g, '""');
-
 export class QueryClient {
   private client: Queryable;
   private dialect: SqlDialect;

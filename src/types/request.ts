@@ -13,7 +13,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
  * else, and `.dependency-cruiser.mjs` keeps it that way by refusing a `fastify` import anywhere
  * under `src/lib/` or `src/types/` but here.
  *
- * It is a plain alias rather than a generic parameter on `ITable`: that type appears bare in
+ * It is a plain alias rather than a generic parameter on `TableConfig`: that type appears bare in
  * over a hundred places, and threading `<Req>` through all of them — plus `DbTables`, plus
  * every `*Params` — would change the public type surface today for a benefit that only
  * materialises once the core ships as its own package. See

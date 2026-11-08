@@ -32,7 +32,7 @@ npx sqlapi-generate-tables --all # existing files are skipped, never overwritten
 ```
 
 - The generated table files detect PKs, `*Id` foreign keys as relations, and put every other key in as commented code.
-- The schema CLI prints what it could not decide for you: read that output. It covers database-generated columns (`GENERATED ALWAYS AS`, put in the Schema's `generatedFields` and never writable) and identity/auto-increment PKs (made optional and listed in `excludeFromCreation`). It also prints each view's inferred PK (see Views).
+- The schema CLI prints what it could not decide for you: read that output. It covers database-generated columns (`GENERATED ALWAYS AS`, put in the Schema's `generatedFields` and never writable) and identity/auto-increment PKs (made optional and listed in `insertExclude`). It also prints each view's inferred PK (see Views).
 - Schema files import `Type` from `fastify-auto-sqlapi`; do the same for `schemaOverrides`, computed fields and extra filters. Any `typebox` 1.x schema works too, but one built with the legacy `@sinclair/typebox` 0.x loses its markers here: its `Type.Optional` fields silently become required. Their default export (`addSchema`) is optional, only for Swagger `$ref`.
 
 ## Server setup
@@ -121,7 +121,7 @@ export const TableCustomer = defineTable({
   }],
 
   // --- field visibility ---
-  excludeFromCreation: ['id', 'createdAt'], // MUST list auto-increment PKs (CLI does it). Strips CLIENT input on insert only: beforeInsert and the FK auto-fill may still set it. Not a security tool: every field stays updatable (ADR 0004).
+  insertExclude: ['id', 'createdAt'], // MUST list auto-increment PKs (CLI does it). Was `excludeFromCreation` (deprecated). Strips CLIENT input on insert only: beforeInsert and the FK auto-fill may still set it. Not a security tool: every field stays updatable (ADR 0004).
   readExclude: ['passwordHash'], // never projected (search, get, default join selection); naming it in filters/conditions/orderBy/aggregations/selection → 400. Still writable. Static, applies to admins too. PK not allowed.
   writeExclude: ['searchVector'], // dropped from insert/update/bulk bodies and in the engines; still readable. For trigger-owned columns; GENERATED columns need nothing. Runs after hooks. Not PK, not also in readExclude (that is excludeColumns).
   schemaOverrides: { email: Type.String({ format: 'email' }) }, // stricter type for WRITE bodies only (responses and filters keep the generated type: stored rows predate the rule). Taken verbatim: no Optional → mandatory, no Nullable → null rejected.
@@ -169,11 +169,11 @@ export const TableCustomer = defineTable({
     record.createdBy = req.user.id;
     record.createdAt = db.expression('NOW()'); // raw SQL value
   },
-  beforeUpdate: async (db, req, fields) => { // PK present but not in SET
-    if (!req.user.isAdmin) delete fields.isAdmin; // field-level rules: silent strip here, or 400 in validate
-    fields.updatedAt = db.expression('NOW()');
+  beforeUpdate: async (db, req, record) => { // PK present but not in SET
+    if (!req.user.isAdmin) delete record.isAdmin; // field-level rules: silent strip here, or 400 in validate
+    record.updatedAt = db.expression('NOW()');
   },
-  afterInsert: async (db, req, record, secondaryRecords) => {}, // record = input + generated PK
+  afterInsert: async (db, req, record, secondaryRecords) => {}, // record = input + generated PK; secondaryRecords: RowsByAlias
   afterUpdate: async (db, req, record, secondaryRecords, deletionRecords) => {}, // inside the transaction: throw = rollback
   beforeDelete: async (db, req, id) => {}, // throw aborts; runs after tenant ownership is verified
   afterDelete: async (db, req, id) => {}, // not called on 404
@@ -210,7 +210,7 @@ allowedReadJoins: [
 - **A read join is a read grant on the target.** It runs inside the host's route: the target's `onRequests` and `operations` do not apply, so a table with `operations: []` is still readable through it. The target's `readExclude`, `tenantScope`, `afterRead` and the relation's schema still apply. `fields` narrows that schema, fail-closed: every other field is a 400 in selection, filters, conditions, orderBy and aggregations, and so is a computed field reaching past it. A column added later is not reachable until listed. Use `readExclude` instead to hide a column from the table's own routes too. (ADR 0010, 0011)
 - joinLeft adds a real `LEFT JOIN` only when filters or orderBy need the parent; otherwise it runs a side query.
 - **Owned children** (translations, `*_info`, composite PK like `(product_id, lang)`): make them a write join on the parent, not a `dbTables` entry. The child FK is auto-filled, and an `upsertMap` rule on the child key lets clients send only the child's own fields: `PUT /rest/product { main, secondaries: { translations: [{ lang: 'en', name: 'Bike' }] } }`. Expose a composite-PK table standalone only when it stands on its own (M:N links).
-- **What a write join runs on the child**: its `excludeFromCreation`, `tenantScope` and `beforeInsert`, then the FK auto-fill, which always wins. Not its `validate` or `afterInsert` (ADR 0014).
+- **What a write join runs on the child**: its `insertExclude`, `tenantScope` and `beforeInsert`, then the FK auto-fill, which always wins. Not its `validate` or `afterInsert` (ADR 0014).
 
 ## Computed fields
 

@@ -4,11 +4,11 @@ import type { ApiRequest, ApiReply } from './request.js';
 import type { QueryClient } from '../lib/db.js';
 import type { SchemaDefinition } from './schema.js';
 import type { ComputedFieldFn } from './computed.js';
-import type { JoinDefinition } from './join.js';
+import type { JoinDefinition, RowsByAlias } from './join.js';
 import type { TenantScope } from './tenant.js';
 import type { ValidatorFn, BulkValidatorFn } from './validation.js';
 
-/** Auto-generated HTTP operations that can be enabled per table via `ITable.operations`. */
+/** Auto-generated HTTP operations that can be enabled per table via `TableConfig.operations`. */
 export type TableOperation =
   | 'search'
   | 'get'
@@ -43,7 +43,7 @@ export interface AfterReadContext {
   alias?: string;
 }
 
-export interface ITable<F extends Record<string, TSchema> = Record<string, TSchema>> {
+export interface TableConfig<F extends Record<string, TSchema> = Record<string, TSchema>> {
   primary: (string & keyof F) | (string & keyof F)[];
   Schema: SchemaDefinition<F>;
   filters: TableFilterFn;
@@ -89,19 +89,27 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
     db: QueryClient,
     req: ApiRequest,
     record: { [K in keyof F]?: Static<F[K]> | Expression | null }
-  ) => Promise<void>;
+  ) => void | Promise<void>;
   beforeUpdate?: (
     db: QueryClient,
     req: ApiRequest,
-    fields: { [K in keyof F]?: Static<F[K]> | Expression | null },
-    secondaryFieldsFetcher?: unknown
+    record: { [K in keyof F]?: Static<F[K]> | Expression | null }
   ) => void | Promise<void>;
+  /**
+   * Runs after a successful insert. Receives the camelCase input record merged with the
+   * generated primary key, and the secondaries written with it, keyed by alias (absent when
+   * the request had none).
+   *
+   * On an insert it runs inside the transaction of the INSERT and its secondaries, so throwing
+   * rolls them back (when the adapter supports transactions). On a bulk upsert it runs once
+   * per inserted item, outside any transaction (ADR 0003).
+   */
   afterInsert?: (
     db: QueryClient,
     req: ApiRequest,
     record: { [K in keyof F]?: Static<F[K]> },
-    secondaryRecords?: unknown
-  ) => Promise<void>;
+    secondaryRecords?: RowsByAlias
+  ) => void | Promise<void>;
   /**
    * Runs after a successful update, inside the same transaction as the UPDATE +
    * secondaries + deletions: throwing here rolls back the whole operation (when the
@@ -112,8 +120,8 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
     db: QueryClient,
     req: ApiRequest,
     record: { [K in keyof F]?: Static<F[K]> | Expression | null },
-    secondaryRecords?: unknown,
-    deletionRecords?: unknown
+    secondaryRecords?: RowsByAlias,
+    deletionRecords?: RowsByAlias
   ) => void | Promise<void>;
   /**
    * Runs on the rows a read returned, once per result set, before they become the response.
@@ -232,21 +240,36 @@ export interface ITable<F extends Record<string, TSchema> = Record<string, TSche
    *
    * Not a per-caller permission: it is static and applies to everyone, admins included.
    * Field-level rules that depend on who is asking belong in `beforeUpdate` (silent strip) or
-   * `validate` (loud 400). Not `excludeFromCreation` either — that one whitelists client input
-   * on insert only, and deliberately lets a hook assign the field afterwards.
+   * `validate` (loud 400). Not `insertExclude` either — that one whitelists client input on
+   * insert only, and deliberately lets a hook assign the field afterwards.
    *
    * The primary key cannot be excluded: the update body identifies the row with it.
    */
   writeExclude?: (string & keyof F)[];
+  /**
+   * Fields a client may not send on insert: their value is dropped from the client payload,
+   * and they are Optional in the insert body. The server still may set them — `beforeInsert`
+   * runs after the drop, and the FK of a secondary is auto-filled after it too (ADR 0005).
+   * The generator lists auto-increment and identity primary keys here.
+   *
+   * Insert only, and client input only: every field stays updatable (ADR 0004), and it applies
+   * to the rows this table receives as secondaries of another table as well. For a column no
+   * write may carry, whoever sets it, use `writeExclude`.
+   */
+  insertExclude?: (string & keyof F)[];
   defaultOrder?: string;
+  /** @deprecated Renamed to `insertExclude`, same behaviour. A table may not name both. */
   excludeFromCreation?: (string & keyof F)[];
   distinctResults?: boolean;
   onRequests?: ((request: ApiRequest, reply: ApiReply) => Promise<void | ApiReply>)[];
   tenantScope?: TenantScope;
 }
 
+/** @deprecated Renamed to `TableConfig`, the glossary's name for a table config. */
+export type ITable<F extends Record<string, TSchema> = Record<string, TSchema>> = TableConfig<F>;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type DbTables = Record<string, ITable<any>>;
+export type DbTables = Record<string, TableConfig<any>>;
 
 // Primary key helpers
 export function primaryAsString(pk: string | string[]): string {

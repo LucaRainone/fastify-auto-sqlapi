@@ -19,7 +19,7 @@ import {
 import { requireJoin } from './joins.js';
 import { hasOwnField, ownField } from '../../read-access.js';
 import { buildAggOrderExpr } from './aggregations.js';
-import type { DbTables, ITable, JoinGroupRequest, TenantContext } from '../../../types.js';
+import type { DbTables, TableConfig, JoinGroupRequest, TenantContext } from '../../../types.js';
 
 export interface OrderByResult {
   sql: string;
@@ -35,7 +35,7 @@ export interface OrderByResult {
  * count is known. Validates each alias against `allowedReadJoins` (throws 400), mirroring
  * `validateOrderBy`; 3-part aggregation entries are ignored (they use joinGroup, not a LEFT JOIN).
  */
-export function collectOrderByLeftAliases(orderBy: string, tableConf: ITable): Set<string> {
+export function collectOrderByLeftAliases(orderBy: string, tableConf: TableConfig): Set<string> {
   const aliases = new Set<string>();
   for (const part of orderBy.split(',')) {
     const trimmed = part.trim();
@@ -52,7 +52,7 @@ export function collectOrderByLeftAliases(orderBy: string, tableConf: ITable): S
 
 export function validateOrderBy(
   orderBy: string,
-  tableConf: ITable,
+  tableConf: TableConfig,
   db: QueryClient,
   dbTables: DbTables,
   joinGroup: Record<string, JoinGroupRequest> | undefined,
@@ -124,7 +124,7 @@ export function validateOrderBy(
  */
 export function convertConfiguredOrder(
   order: string,
-  tableConf: ITable,
+  tableConf: TableConfig,
   db: QueryClient
 ): string {
   return order

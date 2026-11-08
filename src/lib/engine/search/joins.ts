@@ -13,7 +13,7 @@ import { err400 } from './fields.js';
 import type {
   DbTables,
   FilterRecord,
-  ITable,
+  TableConfig,
   JoinDefinition,
   TenantContext,
 } from '../../../types.js';
@@ -29,7 +29,7 @@ import type {
  */
 export function appendJoinTenantScope(
   db: QueryClient,
-  joinTableConf: ITable | undefined,
+  joinTableConf: TableConfig | undefined,
   tenant: TenantContext | undefined,
   joinTableRef: string,
   cb: ConditionBuilder,
@@ -49,11 +49,11 @@ export function appendJoinTenantScope(
  * outer one and the correlation would silently compare each row with itself. The request
  * alias is used, suffixed when it would itself collide with the outer table's name.
  */
-export function subqueryAlias(alias: string, tableConf: ITable): string {
+export function subqueryAlias(alias: string, tableConf: TableConfig): string {
   return alias === tableConf.Schema.tableName ? `${alias}_sub` : alias;
 }
 
-function findJoinByAlias(tableConf: ITable, alias: string): JoinDefinition | undefined {
+function findJoinByAlias(tableConf: TableConfig, alias: string): JoinDefinition | undefined {
   return tableConf.allowedReadJoins?.find((j) => j.alias === alias);
 }
 
@@ -68,7 +68,7 @@ function findJoinByAlias(tableConf: ITable, alias: string): JoinDefinition | und
  */
 export function assertJoinFilterKeys(
   dbTables: DbTables,
-  tableConf: ITable,
+  tableConf: TableConfig,
   refs: Record<string, { filters?: FilterRecord }> | undefined,
   allowExtraFilters: boolean
 ): void {
@@ -84,7 +84,7 @@ export function assertJoinFilterKeys(
 }
 
 export function requireJoin(
-  tableConf: ITable,
+  tableConf: TableConfig,
   alias: string,
   requireUnique: boolean
 ): JoinDefinition {
@@ -117,7 +117,7 @@ export interface JoinRefs {
  * SQL builders to avoid the 4-line FK/PK destructuring boilerplate at every call site. */
 export function extractJoinRefs(
   db: QueryClient,
-  tableConf: ITable,
+  tableConf: TableConfig,
   joinDef: JoinDefinition
 ): JoinRefs {
   const { joinSchema, joinField, mainField } = joinDef;

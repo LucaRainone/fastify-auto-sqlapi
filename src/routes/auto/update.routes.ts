@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { UpdateTableBody, UpdateTableResponse } from '../../lib/schema/update.js';
 import { registerForAllTables, buildWriteDescription } from './route-helpers.js';
-import type { SqlApiPluginOptions } from '../../types.js';
+import type { SqlApiPluginOptions, RowsByAlias } from '../../types.js';
 
 export default async function updateRoutes(
   fastify: FastifyInstance,
@@ -21,8 +21,8 @@ export default async function updateRoutes(
     handle: (fastify, tableName, _tc, request) => {
       const body = request.body as {
         main: Record<string, unknown>;
-        secondaries?: Record<string, Record<string, unknown>[]>;
-        deletions?: Record<string, Record<string, unknown>[]>;
+        secondaries?: RowsByAlias;
+        deletions?: RowsByAlias;
       };
       return fastify.sqlApi.update(tableName, {
         record: body.main,

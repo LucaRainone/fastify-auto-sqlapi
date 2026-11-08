@@ -1,9 +1,9 @@
 import type { QueryClient } from './db.js';
-import type { ITable, SchemaDefinition } from '../types.js';
+import type { TableConfig, SchemaDefinition } from '../types.js';
 import { httpError } from './errors.js';
 
 /**
- * Read visibility (`ITable.readExclude`).
+ * Read visibility (`TableConfig.readExclude`).
  *
  * Excluded fields are never projected by any read query and cannot be referenced
  * from filters, conditions, orderBy, aggregations or join selections: allowing a
@@ -36,12 +36,12 @@ export function ownField<T>(
   return map !== undefined && Object.hasOwn(map, key) ? map[key] : undefined;
 }
 
-function isReadExcluded(tableConf: ITable | undefined, field: string): boolean {
+function isReadExcluded(tableConf: TableConfig | undefined, field: string): boolean {
   return tableConf?.readExclude?.includes(field) ?? false;
 }
 
 /** Throws 400 when `field` is read-excluded on `tableConf`. */
-export function assertReadable(tableConf: ITable | undefined, field: string): void {
+export function assertReadable(tableConf: TableConfig | undefined, field: string): void {
   if (isReadExcluded(tableConf, field)) {
     throw httpError(400, `Field is not readable: ${field}`);
   }
@@ -53,7 +53,7 @@ export function assertReadable(tableConf: ITable | undefined, field: string): vo
  */
 export function assertFiltersReadable(
   filters: Record<string, unknown> | undefined,
-  tableConf: ITable | undefined
+  tableConf: TableConfig | undefined
 ): void {
   if (!filters || !tableConf?.readExclude?.length) return;
   for (const key of Object.keys(filters)) {
@@ -83,7 +83,7 @@ export function assertFiltersReadable(
 export function assertKnownFilterKeys(
   filters: Record<string, unknown> | undefined,
   schema: SchemaDefinition,
-  tableConf: ITable | undefined,
+  tableConf: TableConfig | undefined,
   allowExtraFilters = true
 ): void {
   if (!filters) return;
@@ -107,7 +107,7 @@ export function assertKnownFilterKeys(
 
 /** Schema field names that may be read, in schema declaration order. */
 export function readableFieldNames(
-  tableConf: ITable | undefined,
+  tableConf: TableConfig | undefined,
   schema: SchemaDefinition
 ): string[] {
   const fields = Object.keys(schema.fields);
@@ -124,7 +124,7 @@ export function readableFieldNames(
  * would be ambiguous.
  */
 export function readableSelectColumns(
-  tableConf: ITable | undefined,
+  tableConf: TableConfig | undefined,
   schema: SchemaDefinition,
   db: QueryClient
 ): string | undefined {
@@ -137,7 +137,7 @@ export function readableSelectColumns(
  * relation narrowed by a `fields` allowlist must project the allowlist, not the table.
  */
 export function explicitSelectColumns(
-  tableConf: ITable | undefined,
+  tableConf: TableConfig | undefined,
   schema: SchemaDefinition,
   db: QueryClient
 ): string {

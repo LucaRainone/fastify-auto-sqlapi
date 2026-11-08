@@ -15,6 +15,7 @@ import type {
   UpdateParams,
   UpdateResult,
   DbRecord,
+  RowsByAlias,
 } from '../../../types.js';
 
 /**
@@ -120,7 +121,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     const mainResult = Object.fromEntries(pkFields.map((f, i) => [f, pkValues[i]]));
 
     // 9. Secondaries (upsert/insert with FK auto-fill — camelCase)
-    let secondaryResults: Record<string, Record<string, unknown>[]> | undefined;
+    let secondaryResults: RowsByAlias | undefined;
     if (secondaries && Object.keys(secondaries).length > 0) {
       const mainForFK = { ...inputRecord };
       secondaryResults = await processSecondaries(
@@ -129,7 +130,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     }
 
     // 10. Deletions (FK auto-fill from main like secondaries)
-    let deletionResults: Record<string, Record<string, unknown>[]> | undefined;
+    let deletionResults: RowsByAlias | undefined;
     if (deletions && Object.keys(deletions).length > 0) {
       const mainForFK = { ...inputRecord };
       deletionResults = await processDeletions(

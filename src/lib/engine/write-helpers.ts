@@ -2,7 +2,7 @@ import type { ApiRequest } from '../../types/request.js';
 import { camelcaseObject, snakecaseRecord } from '../naming.js';
 import type { QueryClient } from '../db.js';
 import { runValidation } from './validate.js';
-import { removeWriteExcluded } from '../write-access.js';
+import { removeWriteExcluded, insertExcludedFields } from '../write-access.js';
 import { httpError } from '../errors.js';
 import {
   tenantForTable,
@@ -12,12 +12,13 @@ import {
   tenantImmutableColumns,
 } from '../tenant.js';
 import type {
-  ITable,
+  TableConfig,
   DbTables,
   JoinDefinition,
   DbRecord,
   TenantContext,
   SchemaDefinition,
+  RowsByAlias,
 } from '../../types.js';
 
 /**
@@ -74,25 +75,24 @@ export function assertUpsertKeys(
  * container, so a request naming an undeclared alias is a 400 before it reaches here.
  */
 function findWriteJoin(
-  tableConf: ITable,
+  tableConf: TableConfig,
   alias: string
 ): JoinDefinition | undefined {
   return tableConf.allowedWriteJoins?.find((j) => j.alias === alias);
 }
 
 /**
- * Drop `excludeFromCreation` fields from a camelCase record, in place.
+ * Drop `insertExclude` fields from a camelCase record, in place.
  *
  * Exclusion is a whitelist on CLIENT input: call this on the client payload only, BEFORE any
  * server-side value is assigned (beforeInsert mutations, FK auto-fill), so engine- and
  * hook-generated values on those fields reach the SQL (ADR 0005).
  */
-function removeExcludedFieldsCamel(
+function removeInsertExcluded(
   record: Record<string, unknown>,
-  tableConf: ITable
+  tableConf: TableConfig
 ): void {
-  if (!tableConf.excludeFromCreation?.length) return;
-  for (const field of tableConf.excludeFromCreation) {
+  for (const field of insertExcludedFields(tableConf)) {
     delete record[field];
   }
 }
@@ -100,7 +100,7 @@ function removeExcludedFieldsCamel(
 export function findSecondaryTableConf(
   dbTables: DbTables,
   joinTableName: string
-): ITable | undefined {
+): TableConfig | undefined {
   for (const [, conf] of Object.entries(dbTables)) {
     if (conf.Schema.tableName === joinTableName) return conf;
   }
@@ -113,7 +113,7 @@ export function findSecondaryTableConf(
  */
 export interface WriteJoinPass {
   db: QueryClient;
-  tableConf: ITable;
+  tableConf: TableConfig;
   dbTables: DbTables;
   /** Main record (camelCase), the source of the FK auto-filled into every child row. */
   mainRecord: Record<string, unknown>;
@@ -129,7 +129,7 @@ interface WriteJoinTarget {
   joinCol: string;
   /** Value that FK takes, read off the main record. */
   mainValue: unknown;
-  childConf: ITable | undefined;
+  childConf: TableConfig | undefined;
   /** The caller's tenant re-targeted onto the child table's own scope. */
   childTenant: TenantContext | undefined;
 }
@@ -157,7 +157,7 @@ function resolveWriteJoinTarget(
 
 interface PrepareCtx {
   db: QueryClient;
-  tableConf: ITable;
+  tableConf: TableConfig;
   request: ApiRequest;
 }
 
@@ -165,7 +165,7 @@ interface PrepareCtx {
  * Prepare a single record for INSERT/UPSERT:
  *   1. shallow camelCase copy of `input`
  *   2. runValidation (camelCase — sees the client payload as sent)
- *   3. drop excludeFromCreation fields (client-input whitelist; applied BEFORE the
+ *   3. drop insertExclude fields (client-input whitelist; applied BEFORE the
  *      hook so values it assigns — e.g. a server-generated id — reach the INSERT)
  *   4. beforeInsert hook (caller can mutate the camelCase copy)
  *   5. drop non-writable fields (generated columns, writeExclude) — AFTER the hook, because
@@ -181,14 +181,14 @@ interface PrepareCtx {
 export async function prepareInsertRecord(
   ctx: PrepareCtx,
   input: Record<string, unknown>,
-  secondaries?: Record<string, Record<string, unknown>[]>,
+  secondaries?: RowsByAlias,
   options?: { skipValidate?: boolean }
 ): Promise<{ camel: Record<string, unknown>; snake: Record<string, unknown> }> {
   const camel: Record<string, unknown> = { ...input };
   if (!options?.skipValidate) {
     await runValidation(ctx.db, ctx.request, ctx.tableConf, camel, secondaries);
   }
-  removeExcludedFieldsCamel(camel, ctx.tableConf);
+  removeInsertExcluded(camel, ctx.tableConf);
   if (ctx.tableConf.beforeInsert) {
     await ctx.tableConf.beforeInsert(
       ctx.db,
@@ -211,14 +211,14 @@ export async function prepareInsertRecord(
  */
 async function forEachWriteJoin(
   pass: WriteJoinPass,
-  payload: Record<string, Record<string, unknown>[]>,
+  payload: RowsByAlias,
   writeAlias: (
     records: Record<string, unknown>[],
     target: WriteJoinTarget,
     joinDef: JoinDefinition
   ) => Promise<Record<string, unknown>[]>
-): Promise<Record<string, Record<string, unknown>[]>> {
-  const results: Record<string, Record<string, unknown>[]> = {};
+): Promise<RowsByAlias> {
+  const results: RowsByAlias = {};
 
   for (const [alias, records] of Object.entries(payload)) {
     if (!records?.length) continue;
@@ -243,8 +243,8 @@ async function forEachWriteJoin(
  */
 export function processSecondaries(
   pass: WriteJoinPass,
-  secondaries: Record<string, Record<string, unknown>[]>
-): Promise<Record<string, Record<string, unknown>[]>> {
+  secondaries: RowsByAlias
+): Promise<RowsByAlias> {
   const { db, tableConf, request } = pass;
 
   return forEachWriteJoin(pass, secondaries, async (records, target, joinDef) => {
@@ -264,7 +264,7 @@ export function processSecondaries(
     for (const rec of records) {
       const camel = { ...rec };
       if (childConf) {
-        removeExcludedFieldsCamel(camel, childConf);
+        removeInsertExcluded(camel, childConf);
         if (childConf.beforeInsert) {
           await childConf.beforeInsert(db, request, camel);
         }
@@ -323,8 +323,8 @@ export function processSecondaries(
  */
 export function processDeletions(
   pass: WriteJoinPass,
-  deletions: Record<string, Record<string, unknown>[]>
-): Promise<Record<string, Record<string, unknown>[]>> {
+  deletions: RowsByAlias
+): Promise<RowsByAlias> {
   const { db } = pass;
 
   return forEachWriteJoin(pass, deletions, async (records, target) => {

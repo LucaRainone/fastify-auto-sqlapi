@@ -20,7 +20,7 @@ import {
 import type {
   ComputedFieldFn,
   FilterRecord,
-  ITable,
+  TableConfig,
   JoinRefFilter,
   SchemaDefinition,
   SearchCondition,
@@ -102,7 +102,7 @@ function applyComputedEqualityFilters(
 function applyJoinRefConditions(
   cb: ConditionBuilder,
   conditions: SearchCondition[],
-  joinTableConf: ITable | undefined,
+  joinTableConf: TableConfig | undefined,
   joinSchema: SchemaDefinition,
   db: QueryClient,
   colQualifier: string
@@ -124,7 +124,7 @@ function applyJoinRefConditions(
 }
 
 export function buildJoinRefCondition(
-  joinTableConf: ITable | undefined,
+  joinTableConf: TableConfig | undefined,
   joinSchema: SchemaDefinition,
   ref: JoinRefFilter,
   db: QueryClient,
@@ -164,7 +164,7 @@ export function applyConditions(
   condition: ConditionBuilder,
   conditions: SearchCondition[],
   schema: SchemaDefinition,
-  tableConf: ITable,
+  tableConf: TableConfig,
   db: QueryClient
 ): void {
   for (const c of conditions) {
@@ -186,7 +186,7 @@ export function applyConditions(
 export function applyComputedFilters(
   condition: ConditionBuilder,
   filters: FilterRecord,
-  tableConf: ITable,
+  tableConf: TableConfig,
   db: QueryClient
 ): void {
   applyComputedEqualityFilters(

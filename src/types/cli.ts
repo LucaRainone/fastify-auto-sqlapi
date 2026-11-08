@@ -35,7 +35,7 @@ export interface ColumnInfo {
    * True for columns the database fills in by itself without a visible `column_default`:
    * MySQL `AUTO_INCREMENT` and PostgreSQL `GENERATED ... AS IDENTITY`. Both behave like a
    * default — omit the column and the value appears — so the generated field is Optional and
-   * the CLI lists it under `excludeFromCreation`.
+   * the CLI lists it under `insertExclude`.
    */
   is_auto_increment?: boolean;
   /**

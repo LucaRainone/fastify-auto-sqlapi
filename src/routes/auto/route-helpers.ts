@@ -2,15 +2,15 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { ensureSqlApiDecorator } from '../sql-api-decorator.js';
 import { sanitizeRouteError } from '../../lib/errors.js';
 import { isCompositePrimary } from '../../types.js';
-import type { ITable, SqlApiPluginOptions, DbTables, TableOperation } from '../../types.js';
+import type { TableConfig, SqlApiPluginOptions, DbTables, TableOperation } from '../../types.js';
 
 type RequestHook = (request: FastifyRequest, reply: FastifyReply) => Promise<void | FastifyReply>;
 
-function mergeOnRequests(options: SqlApiPluginOptions, tableConf: ITable): RequestHook[] {
+function mergeOnRequests(options: SqlApiPluginOptions, tableConf: TableConfig): RequestHook[] {
   return [...(options.onRequests || []), ...(tableConf.onRequests || [])];
 }
 
-export function buildWriteDescription(action: string, tableName: string, tableConf: ITable): string {
+export function buildWriteDescription(action: string, tableName: string, tableConf: TableConfig): string {
   const joinList = tableConf.allowedWriteJoins
     ?.map((j) => j.alias)
     .join(', ');
@@ -32,13 +32,13 @@ interface RouteSchema {
 }
 
 export interface AutoRouteSpec {
-  /** Operation key matched against `ITable.operations` to decide whether to register the route. */
+  /** Operation key matched against `TableConfig.operations` to decide whether to register the route. */
   operation: TableOperation;
   /**
    * Set when the route addresses records by a single PK value (get, delete, bulkDelete).
    * Tables with a composite primary key skip these routes: matching on the first PK column
    * alone would touch every row sharing that value. Explicitly listing the operation in
-   * `ITable.operations` for such a table throws at registration.
+   * `TableConfig.operations` for such a table throws at registration.
    */
   singlePkOnly?: boolean;
   method: 'GET' | 'POST' | 'PUT' | 'DELETE';
@@ -49,15 +49,15 @@ export interface AutoRouteSpec {
   url: (tableName: string) => string;
   successStatus: 200 | 201;
   /** Build per-table schemas (body, params, querystring, response). Response is wrapped with `{ [successStatus]: ... }` automatically. */
-  schemas: (dbTables: DbTables, tableName: string, tableConf: ITable) => RouteSchema;
+  schemas: (dbTables: DbTables, tableName: string, tableConf: TableConfig) => RouteSchema;
   summary: string;
-  description: (tableName: string, tableConf: ITable, schemas: RouteSchema) => string;
+  description: (tableName: string, tableConf: TableConfig, schemas: RouteSchema) => string;
   /** Translates the request to a sqlApi call. If it does not call reply.send/status itself,
    * the registrar will reply.status(successStatus).send(returnValue). */
   handle: (
     fastify: FastifyInstance,
     tableName: string,
-    tableConf: ITable,
+    tableConf: TableConfig,
     request: FastifyRequest,
     reply: FastifyReply,
   ) => Promise<unknown>;
@@ -77,7 +77,7 @@ export interface AutoRouteSpec {
  */
 function isTableRoutable(
   tableName: string,
-  tableConf: ITable,
+  tableConf: TableConfig,
   spec: AutoRouteSpec
 ): boolean {
   // operations acts as a whitelist; when omitted every operation is exposed.
@@ -102,7 +102,7 @@ function isTableRoutable(
  */
 function buildRouteSchema(
   tableName: string,
-  tableConf: ITable,
+  tableConf: TableConfig,
   spec: AutoRouteSpec,
   schemas: RouteSchema,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

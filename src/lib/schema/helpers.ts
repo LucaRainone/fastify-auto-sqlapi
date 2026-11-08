@@ -1,7 +1,7 @@
 import { Type, IsOptional, type TSchema } from 'typebox';
-import type { ITable, SchemaDefinition, DbTables, JoinDefinition } from '../../types.js';
+import type { TableConfig, SchemaDefinition, DbTables, JoinDefinition } from '../../types.js';
 import { readableFieldNames } from '../read-access.js';
-import { writableFields } from '../write-access.js';
+import { writableFields, insertExcludedFields } from '../write-access.js';
 import { tenantOwnColumns } from '../tenant.js';
 import { findSecondaryTableConf } from '../engine/write-helpers.js';
 
@@ -9,7 +9,7 @@ import { findSecondaryTableConf } from '../engine/write-helpers.js';
  * Build a PK-only schema for response shapes (single or composite PK).
  * Falls back to `fallback` field if tableConf is undefined.
  */
-export function pkSchema(tableConf: ITable | undefined, schema: SchemaDefinition, fallback: string): Record<string, TSchema> {
+export function pkSchema(tableConf: TableConfig | undefined, schema: SchemaDefinition, fallback: string): Record<string, TSchema> {
   const pk = tableConf?.primary || fallback;
   const fields = Array.isArray(pk) ? pk : [pk];
   const result: Record<string, TSchema> = {};
@@ -27,7 +27,7 @@ export function pkSchema(tableConf: ITable | undefined, schema: SchemaDefinition
  */
 export function relaxTenantColumns(
   fields: Record<string, TSchema>,
-  tableConf: ITable | undefined,
+  tableConf: TableConfig | undefined,
   schema: SchemaDefinition
 ): void {
   const columns = tenantOwnColumns(tableConf?.tenantScope);
@@ -40,13 +40,13 @@ export function relaxTenantColumns(
 /**
  * Build secondary table fields for body schemas:
  * - FK field becomes Optional (auto-filled from main)
- * - excludeFromCreation fields become Optional
+ * - insertExclude fields become Optional
  * - tenant column(s) become Optional (injected or validated by the engine)
  */
 function buildSecondaryFields(
   joinSchema: SchemaDefinition,
   joinField: string,
-  secondaryTableConf: ITable | undefined
+  secondaryTableConf: TableConfig | undefined
 ): Record<string, TSchema> {
   const fields: Record<string, TSchema> = writableFields(
     { ...joinSchema.fields },
@@ -58,11 +58,9 @@ function buildSecondaryFields(
     fields[joinField] = Type.Optional(fields[joinField]);
   }
 
-  if (secondaryTableConf?.excludeFromCreation) {
-    for (const field of secondaryTableConf.excludeFromCreation) {
-      if (field in fields) {
-        fields[field] = Type.Optional(fields[field]);
-      }
+  for (const field of insertExcludedFields(secondaryTableConf)) {
+    if (field in fields) {
+      fields[field] = Type.Optional(fields[field]);
     }
   }
 
@@ -97,7 +95,7 @@ export function asRequired(schema: TSchema): TSchema {
  */
 export function applySchemaOverrides(
   fields: Record<string, TSchema>,
-  tableConf: ITable | undefined
+  tableConf: TableConfig | undefined
 ): Record<string, TSchema> {
   if (!tableConf?.schemaOverrides) return fields;
   const result = { ...fields };
@@ -111,7 +109,7 @@ export function applySchemaOverrides(
 
 type JoinFieldsBuilder = (
   join: JoinDefinition,
-  secondaryConf: ITable | undefined
+  secondaryConf: TableConfig | undefined
 ) => Record<string, TSchema>;
 
 /**
@@ -120,7 +118,7 @@ type JoinFieldsBuilder = (
  * where every field is a matcher (the engine auto-injects the FK to main).
  */
 function buildJoinAliasMap(
-  tableConf: ITable,
+  tableConf: TableConfig,
   dbTables: DbTables,
   build: JoinFieldsBuilder,
   options: { itemsPartial?: boolean; strictItems?: boolean } = {}
@@ -148,7 +146,7 @@ function buildJoinAliasMap(
  */
 export function attachWriteJoinSections(
   target: Record<string, TSchema>,
-  tableConf: ITable,
+  tableConf: TableConfig,
   dbTables: DbTables,
   options: { withDeletions: boolean; secondaryFields: JoinFieldsBuilder; strictItems?: boolean }
 ): void {
@@ -195,7 +193,7 @@ export const writeJoinResponseFields: JoinFieldsBuilder = (j, sc) =>
 /** Schema fields minus the ones hidden by `readExclude`. */
 export function readableFields(
   schema: SchemaDefinition,
-  tableConf: ITable | undefined
+  tableConf: TableConfig | undefined
 ): Record<string, TSchema> {
   if (!tableConf?.readExclude?.length) return { ...schema.fields };
   const out: Record<string, TSchema> = {};

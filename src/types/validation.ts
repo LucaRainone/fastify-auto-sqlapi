@@ -1,6 +1,7 @@
 import type { TSchema, Static } from 'typebox';
 import type { ApiRequest } from './request.js';
 import type { QueryClient } from '../lib/db.js';
+import type { RowsByAlias } from './join.js';
 
 /**
  * Validation error tuple: [field, code] or [field, code, message].
@@ -16,12 +17,12 @@ export type ValidatorFn<F extends Record<string, TSchema> = Record<string, TSche
   db: QueryClient,
   req: ApiRequest,
   main: { [K in keyof F]?: Static<F[K]> },
-  secondaries?: Record<string, Record<string, unknown>[]>
+  secondaries?: RowsByAlias
 ) => Promise<ValidationError[]> | ValidationError[];
 
 export interface BulkValidatorItem<F extends Record<string, TSchema> = Record<string, TSchema>> {
   main: { [K in keyof F]?: Static<F[K]> };
-  secondaries?: Record<string, Record<string, unknown>[]>;
+  secondaries?: RowsByAlias;
 }
 
 export type BulkValidatorFn<F extends Record<string, TSchema> = Record<string, TSchema>> = (

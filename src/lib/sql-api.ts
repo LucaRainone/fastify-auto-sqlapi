@@ -30,6 +30,7 @@ import type {
   BulkDeleteResult,
   TenantId,
   TenantContext,
+  RowsByAlias,
 } from '../types.js';
 
 // ─── Public param types ─────────────────────────────────────
@@ -54,13 +55,13 @@ export interface SqlApiSearchParams {
 
 export interface SqlApiInsertParams {
   record: Record<string, unknown>;
-  secondaries?: Record<string, Record<string, unknown>[]>;
+  secondaries?: RowsByAlias;
 }
 
 export interface SqlApiUpdateParams {
   record: Record<string, unknown>;
-  secondaries?: Record<string, Record<string, unknown>[]>;
-  deletions?: Record<string, Record<string, unknown>[]>;
+  secondaries?: RowsByAlias;
+  deletions?: RowsByAlias;
 }
 
 // ─── SqlApi class ───────────────────────────────────────────

@@ -16,7 +16,7 @@ import {
   ownField,
 } from '../../read-access.js';
 import type {
-  ITable,
+  TableConfig,
   SchemaDefinition,
   ComputedFieldContext,
   ComputedFieldExpr,
@@ -28,7 +28,7 @@ import type {
 export function validateSchemaField(
   field: string,
   schema: SchemaDefinition,
-  tableConf?: ITable
+  tableConf?: TableConfig
 ): string {
   if (!hasOwnField(schema.fields, field)) {
     const err = new Error(`Unknown field: ${field}`) as Error & { statusCode: number };
@@ -85,7 +85,7 @@ export interface ResolvedFieldRef {
 export function resolveFieldRef(
   field: string,
   schema: SchemaDefinition,
-  tableConf: ITable | undefined,
+  tableConf: TableConfig | undefined,
   db: QueryClient,
   alias?: string
 ): ResolvedFieldRef {
@@ -201,7 +201,7 @@ export function buildSelectionColumns(
   selection: string,
   joinSchema: SchemaDefinition,
   db: QueryClient,
-  joinTableConf?: ITable,
+  joinTableConf?: TableConfig,
   restricted = false
 ): string {
   if (selection === '*') {

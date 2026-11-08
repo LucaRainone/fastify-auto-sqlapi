@@ -8,7 +8,7 @@ export {
 } from './lib/naming.js';
 
 // DB
-export { QueryClient, createQueryClient, escapeIdent } from './lib/db.js';
+export { QueryClient, createQueryClient } from './lib/db.js';
 
 // Dialect
 export { getDialect, type SqlDialect, type DialectName } from './lib/dialect.js';
@@ -96,6 +96,8 @@ export type {
   SelectOptions,
   SchemaDefinition,
   JoinDefinition,
+  RowsByAlias,
+  TableConfig,
   ITable,
   TableOperation,
   DbTables,

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { InsertTableBody, InsertTableResponse } from '../../lib/schema/insert.js';
 import { registerForAllTables, buildWriteDescription } from './route-helpers.js';
-import type { SqlApiPluginOptions } from '../../types.js';
+import type { SqlApiPluginOptions, RowsByAlias } from '../../types.js';
 
 export default async function insertRoutes(
   fastify: FastifyInstance,
@@ -21,7 +21,7 @@ export default async function insertRoutes(
     handle: (fastify, tableName, _tc, request) => {
       const body = request.body as {
         main: Record<string, unknown>;
-        secondaries?: Record<string, Record<string, unknown>[]>;
+        secondaries?: RowsByAlias;
       };
       return fastify.sqlApi.insert(tableName, {
         record: body.main,

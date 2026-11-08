@@ -1,11 +1,12 @@
 import type { ApiRequest } from './request.js';
 import type { QueryClient } from '../lib/db.js';
-import type { ITable, DbTables } from './table.js';
+import type { TableConfig, DbTables } from './table.js';
 import type { TenantContext } from './tenant.js';
+import type { RowsByAlias } from './join.js';
 
 interface DmlBaseParams {
   db: QueryClient;
-  tableConf: ITable;
+  tableConf: TableConfig;
   tenant?: TenantContext;
 }
 
@@ -18,26 +19,26 @@ interface DmlWriteBaseParams extends DmlBaseParams {
 
 export interface InsertParams extends DmlWriteBaseParams {
   record: Record<string, unknown>;
-  secondaries?: Record<string, Record<string, unknown>[]>;
+  secondaries?: RowsByAlias;
 }
 
 export interface InsertResult {
   main: Record<string, unknown>;
-  secondaries?: Record<string, Record<string, unknown>[]>;
+  secondaries?: RowsByAlias;
 }
 
 // ─── Update ──────────────────────────────────────────────────
 
 export interface UpdateParams extends DmlWriteBaseParams {
   record: Record<string, unknown>;
-  secondaries?: Record<string, Record<string, unknown>[]>;
-  deletions?: Record<string, Record<string, unknown>[]>;
+  secondaries?: RowsByAlias;
+  deletions?: RowsByAlias;
 }
 
 export interface UpdateResult {
   main: Record<string, unknown>;
-  secondaries?: Record<string, Record<string, unknown>[]>;
-  deletions?: Record<string, Record<string, unknown>[]>;
+  secondaries?: RowsByAlias;
+  deletions?: RowsByAlias;
 }
 
 // ─── Get ─────────────────────────────────────────────────────
@@ -67,8 +68,8 @@ export interface DeleteResult {
 
 export interface BulkUpsertItem {
   main: Record<string, unknown>;
-  secondaries?: Record<string, Record<string, unknown>[]>;
-  deletions?: Record<string, Record<string, unknown>[]>;
+  secondaries?: RowsByAlias;
+  deletions?: RowsByAlias;
 }
 
 export interface BulkUpsertParams extends DmlWriteBaseParams {
@@ -77,8 +78,8 @@ export interface BulkUpsertParams extends DmlWriteBaseParams {
 
 export interface BulkUpsertResult {
   main: Record<string, unknown>;
-  secondaries?: Record<string, Record<string, unknown>[]>;
-  deletions?: Record<string, Record<string, unknown>[]>;
+  secondaries?: RowsByAlias;
+  deletions?: RowsByAlias;
 }
 
 // ─── Bulk Delete ─────────────────────────────────────────────

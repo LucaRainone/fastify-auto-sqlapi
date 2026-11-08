@@ -1,6 +1,6 @@
 import type { ApiRequest } from '../../types/request.js';
 import type { QueryClient } from '../db.js';
-import type { AfterReadContext, ITable, ReadSource } from '../../types.js';
+import type { AfterReadContext, TableConfig, ReadSource } from '../../types.js';
 
 /**
  * Run a table's `afterRead` hook over the rows a read produced.
@@ -20,7 +20,7 @@ export async function runAfterRead(
   db: QueryClient,
   request: ApiRequest | undefined,
   rows: Record<string, unknown>[],
-  tableConf: ITable | undefined,
+  tableConf: TableConfig | undefined,
   source: ReadSource,
   alias?: string
 ): Promise<void> {

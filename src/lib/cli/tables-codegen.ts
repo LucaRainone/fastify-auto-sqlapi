@@ -377,9 +377,9 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
   // would be a line about an operation that is not exposed.
   if (!schema.isView) {
     if (autoIncrement) {
-      lines.push(`  excludeFromCreation: ['${pkFirst(pk)}'],`);
+      lines.push(`  insertExclude: ['${pkFirst(pk)}'],`);
     } else {
-      lines.push(`  // excludeFromCreation: [],`);
+      lines.push(`  // insertExclude: [],`);
     }
   }
 
@@ -403,7 +403,7 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
   lines.push(`  },`);
 
   lines.push(`  // beforeInsert: async (db, req, record) => {},`);
-  lines.push(`  // beforeUpdate: async (db, req, fields) => {},`);
+  lines.push(`  // beforeUpdate: async (db, req, record) => {},`);
 
   lines.push(tenantScopeLine(childRels));
 
@@ -427,98 +427,6 @@ export function generateDbTablesIndex(schemas: ParsedSchema[]): string {
   }
 
   lines.push(``);
-  lines.push(`export const dbTables: DbTables = {`);
-  for (const schema of schemas) {
-    const tableVarName = 'Table' + schema.schemaName.replace(/^Schema/, '');
-    lines.push(`  ${schema.tableName}: ${tableVarName},`);
-  }
-  lines.push(`};`);
-  lines.push(``);
-
-  return lines.join('\n');
-}
-
-// ─── Code Generation (legacy) ───────────────────────────────
-
-/** One `defineTable({...})` block for the legacy single-file generator. */
-function legacyTableBlock(
-  schema: ParsedSchema,
-  parentRels: DetectedRelation[],
-  childRels: DetectedRelation[]
-): string[] {
-  const { pk, autoIncrement, source } = detectPrimaryKey(schema);
-  const tableVarName = 'Table' + schema.schemaName.replace(/^Schema/, '');
-  const upsertPk = pkFields(pk).map((p) => `'${p}'`).join(', ');
-  const exampleField = schema.fields.find((f) => !pkFields(pk).includes(f)) || schema.fields[0];
-
-  const lines = [
-    ``,
-    `// ─── ${schema.tableName} ──────────────────────────────`,
-    ...viewNotice(schema, source),
-    `// Fields: ${schema.fields.join(', ')}`,
-    `const ${tableVarName} = defineTable({`,
-    `  primary: ${formatPrimary(pk)},`,
-    `  ...exportTableInfo(${schema.schemaName}),`,
-    `  defaultOrder: '${defaultOrderField(schema, pk, source)}',`,
-    ...viewOperationsLine(schema, source),
-  ];
-
-  if (!schema.isView) {
-    lines.push(
-      autoIncrement
-        ? `  excludeFromCreation: ['${pkFirst(pk)}'],`
-        : `  // excludeFromCreation: [],`
-    );
-  }
-
-  lines.push(...allowedReadJoinsLines(parentRels));
-  lines.push(
-    `  // upsertMap: buildUpsertRules(buildUpsertRule(${schema.schemaName}, [${upsertPk}])),`,
-    `  // schemaOverrides: {},`,
-    `  validate: async (db, req, main, secondaries) => {`,
-    `    const errors: ValidationError[] = [];`,
-    `    // if (!main.${exampleField}) errors.push(['${exampleField}', 'required']);`,
-    `    return errors;`,
-    `  },`,
-    `  // beforeInsert: async (db, req, record) => {},`,
-    `  // beforeUpdate: async (db, req, fields) => {},`,
-    tenantScopeLine(childRels),
-    `});`,
-  );
-
-  return lines;
-}
-
-/** Legacy single-file DbTables generator.
- * @testonly Exported only so unit tests can exercise it directly.
- */
-export function generateTablesFile(schemas: ParsedSchema[]): string {
-  const { byParent, byChild } = indexRelations(detectRelations(schemas));
-
-  const lines: string[] = [];
-
-  // Imports
-  lines.push(`import {defineTable, exportTableInfo, Type} from 'fastify-auto-sqlapi';`);
-  lines.push(`import type { DbTables, ValidationError } from 'fastify-auto-sqlapi';`);
-  lines.push(``);
-
-  // Schema imports
-  for (const schema of schemas) {
-    lines.push(`import {${schema.schemaName}} from './${schema.schemaName}.js';`);
-  }
-
-  // Table definitions
-  for (const schema of schemas) {
-    lines.push(...legacyTableBlock(
-      schema,
-      byParent.get(schema.schemaName) ?? [],
-      byChild.get(schema.schemaName) ?? []
-    ));
-  }
-
-  // DbTables export
-  lines.push(``);
-  lines.push(`// ─── DbTables ──────────────────────────────────────`);
   lines.push(`export const dbTables: DbTables = {`);
   for (const schema of schemas) {
     const tableVarName = 'Table' + schema.schemaName.replace(/^Schema/, '');
