@@ -167,7 +167,7 @@ describe('engines strip database-computed fields from the SQL', () => {
     // hook-assigned value does reach the INSERT (ADR 0005).
     const mockPg = createMockPg([{ rows: [{ id: 1 }], affectedRows: 1 }]);
     const { DbTables, db } = createDbTables(mockPg, {
-      beforeInsert: async (_db, _req, record) => {
+      beforeInsert: async ({ record }) => {
         record.total = 42;
       },
     });
@@ -187,7 +187,7 @@ describe('engines strip database-computed fields from the SQL', () => {
   it('strips AFTER beforeUpdate as well', async () => {
     const mockPg = createMockPg([{ rows: [{ id: 1 }], affectedRows: 1 }]);
     const { DbTables, db } = createDbTables(mockPg, {
-      beforeUpdate: async (_db, _req, fields) => {
+      beforeUpdate: async ({ record: fields }) => {
         fields.total = 42;
       },
     });

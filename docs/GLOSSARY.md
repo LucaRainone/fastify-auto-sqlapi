@@ -17,6 +17,7 @@ existing concept makes search fail and the concept get built twice.
 | Secondaries | Child rows written in the same request as the main row. (not: nested, children) |
 | Deletions | Child rows removed in the same request as the main row update. |
 | Computed field | Server-side derived value resolved during search. (not: virtual, derived) |
+| Hook context | The single object every hook and validator receives: `db`, `req` (may be undefined) and the operation's data under the names above (`record`, `secondaries`, `deletions`, `rows`, `id`, `ids`, `main`, `items`). (not: positional args) |
 | Extra filter | Non-column search filter declared per table. (not: custom filter) |
 | Extended condition | Consumer-supplied SQL fragment merged into a search WHERE. |
 | Dotted notation | `orderBy`/condition key counted in parts: 1-part `field`, 2-part `alias.field`, 3-part `alias.fn.field`. (not: parti) |

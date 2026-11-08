@@ -78,7 +78,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
 
   // 4. beforeUpdate hook (camelCase — user can mutate with schema field names)
   if (tableConf.beforeUpdate) {
-    await tableConf.beforeUpdate(db, request, inputRecord);
+    await tableConf.beforeUpdate({ db, req: request, record: inputRecord });
   }
 
   // 5. Drop what the database will not be told about (generated columns, writeExclude).
@@ -145,13 +145,13 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
 
     // 11. afterUpdate hook (inside the transaction: throwing rolls everything back)
     if (tableConf.afterUpdate) {
-      await tableConf.afterUpdate(
-        tx,
-        request,
-        inputRecord,
-        secondaryResults,
-        deletionResults
-      );
+      await tableConf.afterUpdate({
+        db: tx,
+        req: request,
+        record: inputRecord,
+        secondaries: secondaryResults,
+        deletions: deletionResults,
+      });
     }
 
     // 12. Return PK-only

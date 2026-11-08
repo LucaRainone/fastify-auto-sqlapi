@@ -1,7 +1,6 @@
 import type { TSchema, Static } from 'typebox';
-import type { ApiRequest } from './request.js';
-import type { QueryClient } from '../lib/db.js';
 import type { RowsByAlias } from './join.js';
+import type { HookContext } from './hooks.js';
 
 /**
  * One entry of the `fields` array every 400 response carries, whether the error came from
@@ -34,11 +33,14 @@ export type ValidationError =
   | [field: string, code: string]
   | [field: string, code: string, message: string];
 
+/** `validate`: the camelCase main record of an insert or update, and its secondaries by alias. */
+export interface ValidateContext<F extends Record<string, TSchema> = Record<string, TSchema>> extends HookContext {
+  main: { [K in keyof F]?: Static<F[K]> };
+  secondaries?: RowsByAlias;
+}
+
 export type ValidatorFn<F extends Record<string, TSchema> = Record<string, TSchema>> = (
-  db: QueryClient,
-  req: ApiRequest,
-  main: { [K in keyof F]?: Static<F[K]> },
-  secondaries?: RowsByAlias
+  ctx: ValidateContext<F>
 ) => Promise<ValidationError[]> | ValidationError[];
 
 export interface BulkValidatorItem<F extends Record<string, TSchema> = Record<string, TSchema>> {
@@ -46,8 +48,11 @@ export interface BulkValidatorItem<F extends Record<string, TSchema> = Record<st
   secondaries?: RowsByAlias;
 }
 
+/** `validateBulk`: every item of a bulk upsert, once. */
+export interface BulkValidateContext<F extends Record<string, TSchema> = Record<string, TSchema>> extends HookContext {
+  items: BulkValidatorItem<F>[];
+}
+
 export type BulkValidatorFn<F extends Record<string, TSchema> = Record<string, TSchema>> = (
-  db: QueryClient,
-  req: ApiRequest,
-  items: BulkValidatorItem<F>[]
+  ctx: BulkValidateContext<F>
 ) => Promise<ValidationError[]> | ValidationError[];

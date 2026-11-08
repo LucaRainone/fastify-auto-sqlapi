@@ -45,6 +45,18 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **BREAKING: every hook and validator receives one context object.** `validate`,
+  `validateBulk`, `beforeInsert`, `beforeUpdate`, `afterInsert`, `afterUpdate`, `afterRead`,
+  `beforeDelete`, `afterDelete`, `beforeBulkDelete` and `afterBulkDelete` take
+  `{ db, req, ...data }` instead of positional parameters: `({ db, req, record })`,
+  `({ db, req, record, secondaries, deletions })`, `({ db, req, rows, source, alias })`,
+  `({ db, req, id })`, `({ db, req, ids })`, `({ db, req, main, secondaries })`,
+  `({ db, req, items })`. `req` is typed `ApiRequest | undefined`, which is what `sqlApi.*`
+  hands a hook when called without a request; the engines no longer cast it. Exported types:
+  `HookContext`, `WriteRecord`, `WriteHookContext`, `AfterInsertContext`, `AfterUpdateContext`,
+  `AfterReadContext`, `ReadSource`, `DeleteHookContext`, `BulkDeleteHookContext`,
+  `ValidateContext`, `BulkValidateContext`. The table generator writes the new shape. See
+  BREAKING_CHANGES.md for the old→new map.
 - **BREAKING: a write runs in a transaction or not at all.** `QueryClient.withTransaction`
   ran its callback unprotected when the `Queryable` had no `connect()`: a custom adapter
   without it got every insert and update — main row, secondaries, deletions, after-hooks — as

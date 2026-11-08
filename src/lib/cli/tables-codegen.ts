@@ -396,14 +396,14 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
 
   // validate: use first non-PK field for example
   const exampleField = schema.fields.find(f => !pkFields(pk).includes(f)) || schema.fields[0];
-  lines.push(`  validate: async (db, req, main, secondaries) => {`);
+  lines.push(`  validate: async ({ db, req, main, secondaries }) => {`);
   lines.push(`    const errors: ValidationError[] = [];`);
-  lines.push(`    // if (!main.${exampleField}) errors.push(['${exampleField}', 'required']);`);
+  lines.push(`    // if (!main.${exampleField}) errors.push(['main.${exampleField}', 'required']);`);
   lines.push(`    return errors;`);
   lines.push(`  },`);
 
-  lines.push(`  // beforeInsert: async (db, req, record) => {},`);
-  lines.push(`  // beforeUpdate: async (db, req, record) => {},`);
+  lines.push(`  // beforeInsert: async ({ db, req, record }) => {},`);
+  lines.push(`  // beforeUpdate: async ({ db, req, record }) => {},`);
 
   lines.push(tenantScopeLine(childRels));
 

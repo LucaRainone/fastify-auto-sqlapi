@@ -1144,3 +1144,65 @@ const queryable: Queryable = {
 
 A read-only surface over an adapter without `connect()` needs no change: register
 `searchRoutes` and `getRoutes` only, and the warning is the only effect.
+
+---
+
+# Breaking Change — hooks and validators receive one context object
+
+*Landed in **0.7.0** (unreleased).*
+
+## Why this changed
+
+Every hook took positional parameters, `(db, req, record, secondaryRecords, deletionRecords)`,
+so every piece of information added later was a new trailing parameter — a breaking change
+each time, and a fourth parameter nobody received survived in `beforeUpdate` until 0.6.0.
+`req` was typed `ApiRequest` while `sqlApi.*` called without a request handed `undefined`
+(the engines cast it away): a hook reading `req.user` compiled and crashed. The names were not
+the glossary's either (`secondaryRecords`, `deletionRecords`, `deletedIds`).
+
+## What changed
+
+One object per hook. `db` is the client the operation runs on (the transaction's, inside a
+write); `req` is `ApiRequest | undefined`; the data carries the glossary's names.
+
+| Hook | Before | After |
+|---|---|---|
+| `validate` | `(db, req, main, secondaries)` | `({ db, req, main, secondaries })` |
+| `validateBulk` | `(db, req, items)` | `({ db, req, items })` |
+| `beforeInsert`, `beforeUpdate` | `(db, req, record)` | `({ db, req, record })` |
+| `afterInsert` | `(db, req, record, secondaryRecords)` | `({ db, req, record, secondaries })` |
+| `afterUpdate` | `(db, req, record, secondaryRecords, deletionRecords)` | `({ db, req, record, secondaries, deletions })` |
+| `afterRead` | `(db, req, rows, { source, alias })` | `({ db, req, rows, source, alias })` |
+| `beforeDelete`, `afterDelete` | `(db, req, id)` | `({ db, req, id })` |
+| `beforeBulkDelete` | `(db, req, ids)` | `({ db, req, ids })` |
+| `afterBulkDelete` | `(db, req, deletedIds)` | `({ db, req, ids })` |
+
+Behaviour is unchanged: the same hooks run at the same points with the same data.
+
+## Who is affected
+
+Every table config declaring a hook or a validator. TypeScript reports the arity mismatch on
+each one; a plain JavaScript hook keeps compiling and receives the context object as its first
+parameter, with `record`/`main`/… `undefined` — so migrate before upgrading, or the hook
+silently does nothing.
+
+## Migration
+
+Destructure what the hook used:
+
+```ts
+// before
+beforeInsert: async (db, req, record) => { record.createdBy = req.user.id; },
+afterUpdate: async (db, req, record, secondaryRecords, deletionRecords) => { … },
+afterRead: async (db, req, rows, ctx) => { … ctx.source … },
+afterBulkDelete: async (db, req, deletedIds) => { … },
+// after
+beforeInsert: async ({ req, record }) => { record.createdBy = req?.user.id; },
+afterUpdate: async ({ db, req, record, secondaries, deletions }) => { … },
+afterRead: async ({ rows, source }) => { … },
+afterBulkDelete: async ({ ids }) => { … },
+```
+
+`req` may be `undefined` for a hook reached through `sqlApi.*` without a request: guard the
+access, or pass the request. Find the sites with
+`grep -rnE "(before|after)(Insert|Update|Read|Delete|BulkDelete)|validate(Bulk)?:" src/`.

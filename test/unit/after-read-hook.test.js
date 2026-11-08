@@ -76,7 +76,8 @@ function createTestDbTables(mockPg) {
 
 /** Records every invocation so a test can assert both the payload and the call count. */
 function recordingHook(calls, transform) {
-  return (db, req, rows, ctx) => {
+  return (ctx) => {
+    const { db, req, rows } = ctx;
     calls.push({ db, req, rows, ctx });
     if (transform) for (const row of rows) transform(row);
   };
@@ -137,7 +138,7 @@ describe('afterRead on the main table', () => {
       { rows: [{ id: 1, name: 'Mario', secret: 'ENC(a)' }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
-    DbTables.customer.afterRead = async (hookDb, req, rows) => {
+    DbTables.customer.afterRead = async ({ db: hookDb, req, rows }) => {
       await delay(0);
       for (const row of rows) row.secret = 'decrypted';
     };
@@ -228,8 +229,8 @@ describe('afterRead follows a join', () => {
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
     const seen = [];
-    DbTables.customer.afterRead = (hookDb, req, rows, ctx) => seen.push(['customer', ctx.source]);
-    DbTables.customer_order.afterRead = (hookDb, req, rows, ctx) => seen.push(['customer_order', ctx.source]);
+    DbTables.customer.afterRead = (ctx) => seen.push(['customer', ctx.source]);
+    DbTables.customer_order.afterRead = (ctx) => seen.push(['customer_order', ctx.source]);
 
     const result = await searchEngine(DbTables, {
       db,
@@ -253,7 +254,7 @@ describe('afterRead follows a join', () => {
     const { DbTables, db } = createTestDbTables(mockPg);
     // A hook that rewrites the very column the relation joins on: the side query must still
     // be correlated to the value the database returned.
-    DbTables.customer.afterRead = (hookDb, req, rows) => {
+    DbTables.customer.afterRead = ({ db: hookDb, req, rows }) => {
       for (const row of rows) row.id = `masked-${row.id}`;
     };
 

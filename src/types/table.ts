@@ -1,12 +1,19 @@
-import type { Expression, ConditionBuilder, ConditionValueOrUndefined, DialectName as CbDialect } from 'node-condition-builder';
-import type { TSchema, Static } from 'typebox';
+import type { ConditionBuilder, ConditionValueOrUndefined, DialectName as CbDialect } from 'node-condition-builder';
+import type { TSchema } from 'typebox';
 import type { ApiRequest, ApiReply } from './request.js';
-import type { QueryClient } from '../lib/db.js';
 import type { SchemaDefinition } from './schema.js';
 import type { ComputedFieldFn } from './computed.js';
-import type { JoinDefinition, RowsByAlias } from './join.js';
+import type { JoinDefinition } from './join.js';
 import type { TenantScope } from './tenant.js';
 import type { ValidatorFn, BulkValidatorFn } from './validation.js';
+import type {
+  WriteHookContext,
+  AfterInsertContext,
+  AfterUpdateContext,
+  AfterReadContext,
+  DeleteHookContext,
+  BulkDeleteHookContext,
+} from './hooks.js';
 
 /** Auto-generated HTTP operations that can be enabled per table via `TableConfig.operations`. */
 export type TableOperation =
@@ -32,16 +39,6 @@ export type ExtendedConditionFn = (condition: ConditionBuilder, filters: FilterR
  * resolve against the OUTER query.
  */
 export type TableFilterFn = (filters: FilterRecord, dialect?: CbDialect, qualifier?: string) => ConditionBuilder;
-
-/** Which read path produced the rows an `afterRead` hook is handed. */
-export type ReadSource = 'get' | 'search' | 'joinMultiple' | 'joinLeft';
-
-/** Where the rows an `afterRead` hook receives came from. */
-export interface AfterReadContext {
-  source: ReadSource;
-  /** The relation's alias, on the two join sources; absent on `get` and `search`. */
-  alias?: string;
-}
 
 export interface TableConfig<F extends Record<string, TSchema> = Record<string, TSchema>> {
   primary: (string & keyof F) | (string & keyof F)[];
@@ -83,50 +80,41 @@ export interface TableConfig<F extends Record<string, TSchema> = Record<string, 
    * API is what `afterRead` (out) and `beforeInsert`/`beforeUpdate` (in) are for.
    */
   schemaOverrides?: Partial<Record<string & keyof F, TSchema>>;
+  // ─── Hooks: each receives ONE context object (`HookContext` + the operation's data) ───
+  //
+  // `ctx.db` is the client the operation runs on (inside a write, the transaction's), `ctx.req`
+  // the triggering request — `undefined` when `sqlApi.*` is called without one. The data is
+  // named as in the glossary: `record`, `secondaries`, `deletions`, `rows`, `id`, `ids`.
+
+  /** Business validation of an insert/update: `{ db, req, main, secondaries }` → errors (any → 400, nothing written). */
   validate?: ValidatorFn<F>;
+  /** Bulk upsert validation, called once with every item: `{ db, req, items }`. When set, per-item `validate` is skipped in bulk. */
   validateBulk?: BulkValidatorFn<F>;
-  beforeInsert?: (
-    db: QueryClient,
-    req: ApiRequest,
-    record: { [K in keyof F]?: Static<F[K]> | Expression | null }
-  ) => void | Promise<void>;
-  beforeUpdate?: (
-    db: QueryClient,
-    req: ApiRequest,
-    record: { [K in keyof F]?: Static<F[K]> | Expression | null }
-  ) => void | Promise<void>;
+  /** Before the INSERT, after `insertExclude` stripped the client payload (ADR 0005): mutate `ctx.record` in place. */
+  beforeInsert?: (ctx: WriteHookContext<F>) => void | Promise<void>;
+  /** Before the UPDATE: mutate `ctx.record` in place. The PK is present but never written. */
+  beforeUpdate?: (ctx: WriteHookContext<F>) => void | Promise<void>;
   /**
-   * Runs after a successful insert. Receives the camelCase input record merged with the
-   * generated primary key, and the secondaries written with it, keyed by alias (absent when
-   * the request had none).
+   * Runs after a successful insert: `{ db, req, record, secondaries }`, the camelCase input
+   * record merged with the generated primary key, and the secondaries written with it, keyed
+   * by alias (absent when the request had none).
    *
    * On an insert it runs inside the transaction of the INSERT and its secondaries, so throwing
-   * rolls them back (when the adapter supports transactions). On a bulk upsert it runs once
-   * per inserted item, outside any transaction (ADR 0003).
+   * rolls them back. On a bulk upsert it runs once per item, outside any transaction (ADR 0003).
    */
-  afterInsert?: (
-    db: QueryClient,
-    req: ApiRequest,
-    record: { [K in keyof F]?: Static<F[K]> },
-    secondaryRecords?: RowsByAlias
-  ) => void | Promise<void>;
+  afterInsert?: (ctx: AfterInsertContext<F>) => void | Promise<void>;
   /**
-   * Runs after a successful update, inside the same transaction as the UPDATE +
-   * secondaries + deletions: throwing here rolls back the whole operation (when the
-   * adapter supports transactions). Receives the camelCase input record (including the
-   * PK) plus the secondaries/deletions results, mirroring `afterInsert`.
+   * Runs after a successful update, inside the same transaction as the UPDATE + secondaries +
+   * deletions: throwing here rolls back the whole operation. `{ db, req, record, secondaries,
+   * deletions }`: the camelCase input record (including the PK) plus the secondaries written
+   * and the child rows deleted, by alias.
    */
-  afterUpdate?: (
-    db: QueryClient,
-    req: ApiRequest,
-    record: { [K in keyof F]?: Static<F[K]> | Expression | null },
-    secondaryRecords?: RowsByAlias,
-    deletionRecords?: RowsByAlias
-  ) => void | Promise<void>;
+  afterUpdate?: (ctx: AfterUpdateContext<F>) => void | Promise<void>;
   /**
-   * Runs on the rows a read returned, once per result set, before they become the response.
-   * The read-side counterpart of `beforeInsert`/`beforeUpdate`: the place to turn a stored
-   * representation back into the API one (decrypting a column, unpacking a blob).
+   * Runs on the rows a read returned, once per result set, before they become the response:
+   * `{ db, req, rows, source, alias }`. The read-side counterpart of `beforeInsert`/
+   * `beforeUpdate`: the place to turn a stored representation back into the API one
+   * (decrypting a column, unpacking a blob).
    *
    * `rows` are camelCase records and are mutated **in place** — the return value is ignored.
    * Rows cannot be added or removed: the pagination `COUNT` has already run, so a hook that
@@ -136,74 +124,38 @@ export interface TableConfig<F extends Record<string, TSchema> = Record<string, 
    *
    * Declared on the table that OWNS the column, and it follows a join: the hook runs whenever
    * that table's rows surface, including through a `joinMultiple` or `joinLeft` declared on
-   * another table (`ctx.source` and `ctx.alias` say which). It does not run on `joinGroup`,
-   * whose rows are aggregates rather than table rows.
+   * another table (`source` and `alias` say which). It does not run on `joinGroup`, whose rows
+   * are aggregates rather than table rows.
    *
    * Not called when the read returned no rows. Whatever the hook writes is serialized against
    * the response schema, so a transform that changes a field's JSON type needs a matching
    * `schemaOverrides` entry — without it `fast-json-stringify` coerces the value silently.
-   *
-   * `req` is the request that triggered the read. Same caveat as `beforeDelete`:
-   * present through the auto-generated HTTP routes, `undefined` when a programmatic caller
-   * invokes `sqlApi.search()`/`sqlApi.get()` without passing one.
    */
-  afterRead?: (
-    db: QueryClient,
-    req: ApiRequest | undefined,
-    rows: Record<string, unknown>[],
-    ctx: AfterReadContext
-  ) => void | Promise<void>;
+  afterRead?: (ctx: AfterReadContext) => void | Promise<void>;
   /**
-   * Runs before a single record is deleted (DELETE /rest/:id). Throw to abort the
-   * deletion (the thrown error's `statusCode`/`message` are surfaced to the client).
+   * Runs before a single record is deleted (DELETE /rest/:id): `{ db, req, id }`. Throw to
+   * abort the deletion (the thrown error's `statusCode`/`message` are surfaced to the client).
    * Use it to enforce referential or business rules the DB cascade would otherwise hide.
    *
    * For tenant-scoped tables the hook only runs once ownership has been verified, so it
    * never fires for rows the caller cannot access.
-   *
-   * `req` is the request that triggered the operation. It is always present when
-   * the delete comes through the auto-generated HTTP route. It is `undefined` only if you
-   * call `sqlApi.delete(table, id)` programmatically without passing a request — in that
-   * case any hook that reads request context (e.g. `req.user`) must guard for it.
    */
-  beforeDelete?: (
-    db: QueryClient,
-    req: ApiRequest,
-    id: string | number
-  ) => void | Promise<void>;
-  /**
-   * Runs after a single record has been deleted (DELETE /rest/:id). Not called when the
-   * record was not found (404). Same `req` caveat as `beforeDelete`.
-   */
-  afterDelete?: (
-    db: QueryClient,
-    req: ApiRequest,
-    id: string | number
-  ) => void | Promise<void>;
+  beforeDelete?: (ctx: DeleteHookContext) => void | Promise<void>;
+  /** Runs after a single record has been deleted: `{ db, req, id }`. Not called when the record was not found (404). */
+  afterDelete?: (ctx: DeleteHookContext) => void | Promise<void>;
   /**
    * Bulk counterpart of `beforeDelete`, invoked ONCE with all ids before a bulk delete
-   * (POST /bulk/:table/delete). Called once — not per id — to preserve the single-query
-   * optimization. Throw to abort the whole batch. `beforeDelete` is NOT called for bulk
-   * deletes; configure this hook if you need a guard there.
-   *
-   * Same `req` caveat as `beforeDelete`: present via the HTTP route, `undefined` only when
-   * `sqlApi.bulkDelete(table, ids)` is called programmatically without a request.
+   * (POST /bulk/:table/delete): `{ db, req, ids }`. Called once — not per id — to preserve the
+   * single-query optimization. Throw to abort the whole batch. `beforeDelete` is NOT called
+   * for bulk deletes; configure this hook if you need a guard there.
    */
-  beforeBulkDelete?: (
-    db: QueryClient,
-    req: ApiRequest,
-    ids: (string | number)[]
-  ) => void | Promise<void>;
+  beforeBulkDelete?: (ctx: BulkDeleteHookContext) => void | Promise<void>;
   /**
-   * Bulk counterpart of `afterDelete`, invoked ONCE after a bulk delete with the ids that
-   * were ACTUALLY deleted (which may be a subset of the requested ids). Not called when
-   * nothing was deleted. Same `req` caveat as `beforeBulkDelete`.
+   * Bulk counterpart of `afterDelete`, invoked ONCE after a bulk delete with the ids that were
+   * ACTUALLY deleted (a subset of the requested ones when some rows did not exist):
+   * `{ db, req, ids }`. Not called when nothing was deleted.
    */
-  afterBulkDelete?: (
-    db: QueryClient,
-    req: ApiRequest,
-    deletedIds: (string | number)[]
-  ) => void | Promise<void>;
+  afterBulkDelete?: (ctx: BulkDeleteHookContext) => void | Promise<void>;
   /**
    * Whitelist of auto-generated HTTP routes for this table. When omitted, ALL operations
    * are exposed (search, get, insert, update, delete, bulkUpsert, bulkDelete) — the

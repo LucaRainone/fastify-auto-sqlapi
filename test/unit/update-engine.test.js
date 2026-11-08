@@ -236,7 +236,7 @@ describe('updateEngine - beforeUpdate hook', () => {
       { rows: [], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg, {
-      beforeUpdate: async (_db, _req, fields) => {
+      beforeUpdate: async ({ record: fields }) => {
         hookFields = fields;
       },
     });

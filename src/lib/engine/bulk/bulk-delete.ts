@@ -1,5 +1,4 @@
 import { ConditionBuilder } from 'node-condition-builder';
-import type { ApiRequest } from '../../../types/request.js';
 import { buildTenantDeleteWhere, assertTenantOwnsAll } from '../../tenant.js';
 import { primaryAsString, isCompositePrimary } from '../../../types.js';
 import { httpError } from '../../errors.js';
@@ -23,7 +22,7 @@ export async function bulkDeleteEngine(params: BulkDeleteParams): Promise<BulkDe
     // Enforce tenant ownership of every id before the hook (single batched SELECT), so it
     // never runs for rows the tenant cannot access. Called once with all ids — no loop.
     await assertTenantOwnsAll(db, tenant, tableName, pkCol, ids);
-    await tableConf.beforeBulkDelete(db, request as ApiRequest, ids);
+    await tableConf.beforeBulkDelete({ db, req: request, ids });
   }
 
   let where: string;
@@ -72,7 +71,7 @@ export async function bulkDeleteEngine(params: BulkDeleteParams): Promise<BulkDe
   // Called once with the ACTUALLY deleted ids (possibly a subset of the requested ones)
   if (tableConf.afterBulkDelete && results.length > 0) {
     const deletedIds = results.map((r) => r.main[pk] as string | number);
-    await tableConf.afterBulkDelete(db, request as ApiRequest, deletedIds);
+    await tableConf.afterBulkDelete({ db, req: request, ids: deletedIds });
   }
 
   return results;

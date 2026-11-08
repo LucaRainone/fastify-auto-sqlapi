@@ -2,6 +2,7 @@ import type { ApiRequest } from '../../types/request.js';
 import type { QueryClient } from '../db.js';
 import type { AfterReadContext, TableConfig, ReadSource } from '../../types.js';
 
+
 /**
  * Run a table's `afterRead` hook over the rows a read produced.
  *
@@ -25,6 +26,6 @@ export async function runAfterRead(
   alias?: string
 ): Promise<void> {
   if (!tableConf?.afterRead || rows.length === 0) return;
-  const ctx: AfterReadContext = alias === undefined ? { source } : { source, alias };
-  await tableConf.afterRead(db, request, rows, ctx);
+  const ctx: AfterReadContext = { db, req: request, rows, source, ...(alias === undefined ? {} : { alias }) };
+  await tableConf.afterRead(ctx);
 }

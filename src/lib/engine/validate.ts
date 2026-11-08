@@ -18,14 +18,14 @@ function toResponseFields(errors: ValidationError[]): ValidationField[] {
 
 export async function runValidation(
   db: QueryClient,
-  request: ApiRequest,
+  request: ApiRequest | undefined,
   tableConf: TableConfig,
   main: Record<string, unknown>,
   secondaries?: RowsByAlias
 ): Promise<void> {
   if (!tableConf.validate) return;
 
-  const errors = await tableConf.validate(db, request, main, secondaries);
+  const errors = await tableConf.validate({ db, req: request, main, secondaries });
   if (errors.length > 0) {
     throwValidationError(toResponseFields(errors));
   }
@@ -33,13 +33,13 @@ export async function runValidation(
 
 export async function runBulkValidation(
   db: QueryClient,
-  request: ApiRequest,
+  request: ApiRequest | undefined,
   tableConf: TableConfig,
   items: BulkValidatorItem[]
 ): Promise<void> {
   if (!tableConf.validateBulk) return;
 
-  const errors = await tableConf.validateBulk(db, request, items);
+  const errors = await tableConf.validateBulk({ db, req: request, items });
   if (errors.length > 0) {
     throwValidationError(toResponseFields(errors));
   }

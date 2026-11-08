@@ -1,4 +1,3 @@
-import type { ApiRequest } from '../../../types/request.js';
 import { buildTenantDeleteWhere, assertTenantOwnsAll } from '../../tenant.js';
 import { httpError } from '../../errors.js';
 import { primaryAsString, isCompositePrimary } from '../../../types.js';
@@ -21,7 +20,7 @@ export async function deleteEngine(params: DeleteParams): Promise<DeleteResult> 
     // cannot access. (When no hook is defined, the tenant-scoped DELETE below already
     // prevents deleting non-owned rows, so the extra SELECT is skipped.)
     await assertTenantOwnsAll(db, tenant, tableName, pkCol, [id]);
-    await tableConf.beforeDelete(db, request as ApiRequest, id);
+    await tableConf.beforeDelete({ db, req: request, id });
   }
 
   if (!tenant) {
@@ -39,7 +38,7 @@ export async function deleteEngine(params: DeleteParams): Promise<DeleteResult> 
   }
 
   if (tableConf.afterDelete) {
-    await tableConf.afterDelete(db, request as ApiRequest, id);
+    await tableConf.afterDelete({ db, req: request, id });
   }
 
   return { main: { [pk]: id } };

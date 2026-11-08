@@ -113,7 +113,7 @@ export interface WriteJoinPass {
   mainRecord: Record<string, unknown>;
   tenant?: TenantContext;
   /** The request that triggered the write, handed to the child table's `beforeInsert`. */
-  request: ApiRequest;
+  request: ApiRequest | undefined;
 }
 
 /** Everything both `processSecondaries` and `processDeletions` need to write one alias. */
@@ -152,7 +152,7 @@ function resolveWriteJoinTarget(
 interface PrepareCtx {
   db: QueryClient;
   tableConf: TableConfig;
-  request: ApiRequest;
+  request: ApiRequest | undefined;
 }
 
 /**
@@ -184,11 +184,7 @@ export async function prepareInsertRecord(
   }
   removeInsertExcluded(camel, ctx.tableConf);
   if (ctx.tableConf.beforeInsert) {
-    await ctx.tableConf.beforeInsert(
-      ctx.db,
-      ctx.request,
-      camel
-    );
+    await ctx.tableConf.beforeInsert({ db: ctx.db, req: ctx.request, record: camel });
   }
   removeWriteExcluded(camel, ctx.tableConf, ctx.tableConf.Schema);
   const snake = snakecaseRecord(camel, ctx.tableConf.Schema);
@@ -260,7 +256,7 @@ export function processSecondaries(
       if (childConf) {
         removeInsertExcluded(camel, childConf);
         if (childConf.beforeInsert) {
-          await childConf.beforeInsert(db, request, camel);
+          await childConf.beforeInsert({ db, req: request, record: camel });
         }
       }
       removeWriteExcluded(camel, childConf, joinSchema);

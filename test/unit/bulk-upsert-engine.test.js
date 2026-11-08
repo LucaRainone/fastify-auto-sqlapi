@@ -230,7 +230,7 @@ describe('bulkUpsertEngine - hooks', () => {
       ], affectedRows: 2 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
-    DbTables.customer.beforeInsert = async (_db, _req, record) => {
+    DbTables.customer.beforeInsert = async ({ record }) => {
       hookCalls.push({ ...record });
     };
 
@@ -255,7 +255,7 @@ describe('bulkUpsertEngine - hooks', () => {
       { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
-    DbTables.customer.beforeInsert = async (_db, _req, record) => {
+    DbTables.customer.beforeInsert = async ({ record }) => {
       record.status = 'active';
     };
 
@@ -283,7 +283,7 @@ describe('bulkUpsertEngine - hooks', () => {
       // Item 2: no secondaries
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
-    DbTables.customer.afterInsert = async (_db, _req, record, secondaryRecords) => {
+    DbTables.customer.afterInsert = async ({ record, secondaries: secondaryRecords }) => {
       hookCalls.push({ record: { ...record }, secondaryRecords });
     };
 
@@ -320,7 +320,7 @@ describe('bulkUpsertEngine - hooks', () => {
     let nextId = 40;
     const { DbTables, db } = createTestDbTables(mockPg, {
       insertExclude: ['id'],
-      beforeInsert: async (_db, _req, record) => {
+      beforeInsert: async ({ record }) => {
         // The client-supplied id must already be stripped when the hook runs
         assert.equal(record.id, undefined);
         record.id = ++nextId;

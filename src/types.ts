@@ -10,6 +10,7 @@ export * from './types/tenant.js';
 export * from './types/computed.js';
 export * from './types/conditions.js';
 export * from './types/join.js';
+export * from './types/hooks.js';
 export * from './types/validation.js';
 export * from './types/table.js';
 export * from './types/plugin.js';

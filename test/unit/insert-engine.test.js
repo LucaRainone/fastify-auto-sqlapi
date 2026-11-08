@@ -139,7 +139,7 @@ describe('insertEngine - main insert', () => {
     ]);
     const { DbTables, db } = createTestDbTables(mockPg, {
       insertExclude: ['id'],
-      beforeInsert: async (_db, _req, record) => {
+      beforeInsert: async ({ record }) => {
         // The client-supplied id must already be stripped when the hook runs
         assert.equal(record.id, undefined);
         record.id = 42;
@@ -167,11 +167,11 @@ describe('insertEngine - main insert', () => {
     let idSeenByValidate;
     const { DbTables, db } = createTestDbTables(mockPg, {
       insertExclude: ['id'],
-      validate: async (_db, _req, main) => {
+      validate: async ({ main }) => {
         idSeenByValidate = main.id;
         return [];
       },
-      beforeInsert: async (_db, _req, record) => {
+      beforeInsert: async ({ record }) => {
         assert.equal(record.id, undefined, 'hook must not see the client-supplied id');
       },
     });
@@ -283,7 +283,7 @@ describe('insertEngine - hooks', () => {
       { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg, {
-      beforeInsert: async (_db, _req, record) => {
+      beforeInsert: async ({ record }) => {
         hookCalled = true;
         assert.ok(record.name, 'record should have name');
       },
@@ -309,7 +309,7 @@ describe('insertEngine - hooks', () => {
       { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg, {
-      afterInsert: async (_db, _req, record, secondaryRecords) => {
+      afterInsert: async ({ record, secondaries: secondaryRecords }) => {
         hookArgs = { record, secondaryRecords };
       },
     });
@@ -340,7 +340,7 @@ describe('insertEngine - hooks', () => {
     ]);
     const { DbTables, db } = createTestDbTables(mockPg, {
       insertExclude: ['createdAt'],
-      afterInsert: async (_db, _req, record) => {
+      afterInsert: async ({ record }) => {
         recordSeen = record;
       },
     });
@@ -530,7 +530,7 @@ describe('insertEngine - upsert', () => {
     ]);
     const { DbTables, db, customerSchema } = createTestDbTables(mockPg, {
       insertExclude: ['id'],
-      beforeInsert: async (_db, _req, record) => {
+      beforeInsert: async ({ record }) => {
         assert.equal(record.id, undefined);
         record.id = 42;
       },
@@ -563,7 +563,7 @@ describe('insertEngine - secondaries run the child table\'s beforeInsert', () =>
       { rows: [{ id: 10 }, { id: 11 }], affectedRows: 2 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
-    DbTables.customer_order.beforeInsert = async (hookDb, req, record) => {
+    DbTables.customer_order.beforeInsert = async ({ db: hookDb, req, record }) => {
       record.status = `ENC(${record.status})`;
     };
 
@@ -594,7 +594,7 @@ describe('insertEngine - secondaries run the child table\'s beforeInsert', () =>
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
     const seen = [];
-    DbTables.customer_order.beforeInsert = async (hookDb, req, record) => {
+    DbTables.customer_order.beforeInsert = async ({ db: hookDb, req, record }) => {
       seen.push({ req, record: { ...record } });
     };
 
@@ -621,7 +621,7 @@ describe('insertEngine - secondaries run the child table\'s beforeInsert', () =>
       { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg, { secondaryExclude: ['status'] });
-    DbTables.customer_order.beforeInsert = async (hookDb, req, record) => {
+    DbTables.customer_order.beforeInsert = async ({ db: hookDb, req, record }) => {
       record.status = 'server-assigned';
     };
 
@@ -645,7 +645,7 @@ describe('insertEngine - secondaries run the child table\'s beforeInsert', () =>
       { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
     const { DbTables, db } = createTestDbTables(mockPg);
-    DbTables.customer_order.beforeInsert = async (hookDb, req, record) => {
+    DbTables.customer_order.beforeInsert = async ({ db: hookDb, req, record }) => {
       record.customerId = 999;
     };
 

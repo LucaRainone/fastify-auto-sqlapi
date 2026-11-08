@@ -48,7 +48,7 @@ const DbTables = {
     ...exportTableInfo(userAccountSchema),
     defaultOrder: 'id',
     insertExclude: ['id'],
-    beforeInsert: async (_db, _req, record) => {
+    beforeInsert: async ({ record }) => {
       // The consumer pattern: generate the id server-side when missing.
       // With the exclusion applied before the hook, it is always missing here.
       if (!record.id) record.id = `gen_${++idCounter}`;

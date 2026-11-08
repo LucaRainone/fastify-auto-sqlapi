@@ -77,7 +77,7 @@ async function finalizeUpsertedItem(
   }
 
   if (tableConf.afterInsert) {
-    await tableConf.afterInsert(db, request, mainForFK, result.secondaries);
+    await tableConf.afterInsert({ db, req: request, record: mainForFK, secondaries: result.secondaries });
   }
 
   return result;

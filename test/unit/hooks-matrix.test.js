@@ -91,7 +91,7 @@ describe('afterUpdate hook', () => {
     const db = new QueryClient(mockPg);
     const DbTables = createTestDbTables();
     let hookArgs = null;
-    DbTables.customer.afterUpdate = async (hookDb, req, record, secondaries, deletions) => {
+    DbTables.customer.afterUpdate = async ({ db: hookDb, req, record, secondaries, deletions }) => {
       hookArgs = { req, record, secondaries, deletions };
     };
 
@@ -170,7 +170,7 @@ describe('afterDelete hook', () => {
     const db = new QueryClient(mockPg);
     const DbTables = createTestDbTables();
     let hookArgs = null;
-    DbTables.customer.afterDelete = async (hookDb, req, id) => {
+    DbTables.customer.afterDelete = async ({ db: hookDb, req, id }) => {
       hookArgs = { req, id };
     };
 
@@ -212,7 +212,7 @@ describe('afterBulkDelete hook', () => {
     const db = new QueryClient(mockPg);
     const DbTables = createTestDbTables();
     const invocations = [];
-    DbTables.customer.afterBulkDelete = async (hookDb, req, deletedIds) => {
+    DbTables.customer.afterBulkDelete = async ({ db: hookDb, req, ids: deletedIds }) => {
       invocations.push({ req, deletedIds });
     };
 

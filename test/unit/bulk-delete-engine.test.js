@@ -100,7 +100,7 @@ describe('bulkDeleteEngine', () => {
       const mockPg = createMockPg([{ rows: [], affectedRows: 3 }]);
       const { tableConf, db } = createTestTableConf(mockPg);
       const invocations = [];
-      tableConf.beforeBulkDelete = (hookDb, req, ids) => {
+      tableConf.beforeBulkDelete = ({ db: hookDb, req, ids }) => {
         invocations.push({ sameDb: hookDb === db, req, ids });
       };
       const request = { url: '/bulk' };

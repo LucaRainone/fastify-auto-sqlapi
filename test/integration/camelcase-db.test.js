@@ -215,7 +215,7 @@ describe(`[${DIALECT}] camelCase DB columns — end-to-end`, () => {
     const hookedDbTables = {
       userAccount: {
         ...DbTables.userAccount,
-        beforeInsert: async (_db, _req, record) => {
+        beforeInsert: async ({ record }) => {
           hookReceived = { ...record };
           record.accessToken = 'injected_by_hook';
         },
@@ -260,7 +260,7 @@ describe(`[${DIALECT}] camelCase DB columns — end-to-end`, () => {
     const validatedDbTables = {
       userAccount: {
         ...DbTables.userAccount,
-        validate: async (_db, _req, main) => {
+        validate: async ({ main }) => {
           validatedMain = { ...main };
           return [];
         },

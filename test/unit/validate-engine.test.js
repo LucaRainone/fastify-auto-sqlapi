@@ -75,7 +75,7 @@ describe('validate - insertEngine', () => {
   it('blocks insert when validate returns errors', async () => {
     const mockPg = createMockPg([]);
     const { DbTables, db } = createTestDbTables(mockPg, {
-      validate: (_db, _req, main) => {
+      validate: ({ main }) => {
         if (!main.name) {
           return [['name', 'required', 'is required']];
         }
@@ -152,7 +152,7 @@ describe('validate - insertEngine', () => {
     let receivedSecondaries = null;
     const mockPg = createMockPg([]);
     const { DbTables, db } = createTestDbTables(mockPg, {
-      validate: (_db, _req, _main, secondaries) => {
+      validate: ({ secondaries }) => {
         receivedSecondaries = secondaries;
         return [['test', 'stop']];
       },
@@ -183,7 +183,7 @@ describe('validate - insertEngine', () => {
     let receivedMain = null;
     const mockPg = createMockPg([]);
     const { DbTables, db } = createTestDbTables(mockPg, {
-      validate: (_db, _req, main) => {
+      validate: ({ main }) => {
         receivedMain = main;
         return [['test', 'stop']];
       },
@@ -263,7 +263,7 @@ describe('validate - updateEngine', () => {
   it('blocks update when validate returns errors', async () => {
     const mockPg = createMockPg([]);
     const { DbTables, db } = createTestDbTables(mockPg, {
-      validate: (_db, _req, main) => {
+      validate: ({ main }) => {
         if (main.name === '') {
           return [['name', 'empty', 'cannot be empty']];
         }
@@ -313,7 +313,7 @@ describe('validate - updateEngine', () => {
     let receivedSecondaries = null;
     const mockPg = createMockPg([]);
     const { DbTables, db } = createTestDbTables(mockPg, {
-      validate: (_db, _req, _main, secondaries) => {
+      validate: ({ secondaries }) => {
         receivedSecondaries = secondaries;
         return [['test', 'stop']];
       },
@@ -348,7 +348,7 @@ describe('validate - bulkUpsertEngine', () => {
   it('blocks bulk when per-item validate returns errors', async () => {
     const mockPg = createMockPg([]);
     const { DbTables, db } = createTestDbTables(mockPg, {
-      validate: (_db, _req, main) => {
+      validate: ({ main }) => {
         if (!main.name) {
           return [['name', 'required']];
         }
@@ -381,7 +381,7 @@ describe('validate - bulkUpsertEngine', () => {
     let receivedItems = null;
     const mockPg = createMockPg([]);
     const { DbTables, db } = createTestDbTables(mockPg, {
-      validateBulk: (_db, _req, items) => {
+      validateBulk: ({ items }) => {
         receivedItems = items;
         return [['periods', 'overlap', 'overlap detected']];
       },

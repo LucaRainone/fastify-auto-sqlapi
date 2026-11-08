@@ -64,7 +64,7 @@ export async function insertEngine(params: InsertParams): Promise<InsertResult> 
     // 5. afterInsert hook (camelCase — input merged with generated PK)
     if (tableConf.afterInsert) {
       const mainForHook = { ...inputRecord, ...mainPkCamel };
-      await tableConf.afterInsert(tx, request, mainForHook, secondaryResults);
+      await tableConf.afterInsert({ db: tx, req: request, record: mainForHook, secondaries: secondaryResults });
     }
 
     // 6. Return the PK and the action

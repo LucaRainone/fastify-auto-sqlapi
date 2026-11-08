@@ -152,7 +152,10 @@ export const TableCustomer = defineTable({
   },
 
   // --- validation: after schema validation, before hooks and SQL. Any error → 400, nothing written ---
-  validate: async (db, req, main, secondaries) => { // camelCase, secondaries keyed by alias
+  // Every hook and validator receives ONE context object: { db, req, ...data }. db = the client the
+  // operation runs on (inside a write, the transaction's); req = the request, undefined when sqlApi.*
+  // is called without one (guard req?.user). Data keys: record, secondaries, deletions, rows, id, ids, main, items.
+  validate: async ({ db, req, main, secondaries }) => { // camelCase, secondaries keyed by alias
     const errors: ValidationError[] = []; // [path, code] or [path, code, message]; path = dot path in the request body: main.<field>, secondaries.<alias>.<i>.<field>, '' when not attributable
     if (!main.name) errors.push(['main.name', 'required']);
     (secondaries?.orders ?? []).forEach((o, i) => {
@@ -160,27 +163,27 @@ export const TableCustomer = defineTable({
     });
     return errors;
   },
-  validateBulk: async (db, req, items) => { // bulk upsert: called once with [{ main, secondaries? }]; when defined, per-item validate is skipped in bulk. Paths start with items.<i>
+  validateBulk: async ({ db, req, items }) => { // bulk upsert: called once with [{ main, secondaries? }]; when defined, per-item validate is skipped in bulk. Paths start with items.<i>
     const codes = items.map((i) => i.main.code);
     return new Set(codes).size === codes.length ? [] : [['', 'batch_unique', 'codes must be unique within the batch']];
   },
 
   // --- hooks: camelCase records, mutations reach the SQL ---
-  beforeInsert: async (db, req, record) => {
-    record.createdBy = req.user.id;
+  beforeInsert: async ({ db, req, record }) => {
+    record.createdBy = req?.user.id;
     record.createdAt = db.expression('NOW()'); // raw SQL value
   },
-  beforeUpdate: async (db, req, record) => { // PK present but not in SET
-    if (!req.user.isAdmin) delete record.isAdmin; // field-level rules: silent strip here, or 400 in validate
+  beforeUpdate: async ({ db, req, record }) => { // PK present but not in SET
+    if (!req?.user.isAdmin) delete record.isAdmin; // field-level rules: silent strip here, or 400 in validate
     record.updatedAt = db.expression('NOW()');
   },
-  afterInsert: async (db, req, record, secondaryRecords) => {}, // record = input + generated PK; secondaryRecords: RowsByAlias
-  afterUpdate: async (db, req, record, secondaryRecords, deletionRecords) => {}, // inside the transaction: throw = rollback
-  beforeDelete: async (db, req, id) => {}, // throw aborts; runs after tenant ownership is verified
-  afterDelete: async (db, req, id) => {}, // not called on 404
-  beforeBulkDelete: async (db, req, ids) => {}, // once; throw aborts the whole batch
-  afterBulkDelete: async (db, req, deletedIds) => {}, // once, only the ids actually deleted
-  afterRead: async (db, req, rows, ctx) => { // see afterRead
+  afterInsert: async ({ db, req, record, secondaries }) => {}, // record = input + generated PK; secondaries: RowsByAlias written with it
+  afterUpdate: async ({ db, req, record, secondaries, deletions }) => {}, // inside the transaction: throw = rollback
+  beforeDelete: async ({ db, req, id }) => {}, // throw aborts; runs after tenant ownership is verified
+  afterDelete: async ({ db, req, id }) => {}, // not called on 404
+  beforeBulkDelete: async ({ db, req, ids }) => {}, // once; throw aborts the whole batch
+  afterBulkDelete: async ({ db, req, ids }) => {}, // once, only the ids actually deleted
+  afterRead: async ({ db, req, rows, source, alias }) => { // see afterRead
     for (const row of rows) if (row.ssn != null) row.ssn = decrypt(row.ssn);
   },
 });

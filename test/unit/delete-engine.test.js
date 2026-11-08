@@ -95,11 +95,11 @@ describe('deleteEngine', () => {
   });
 
   describe('beforeDelete hook', () => {
-    it('calls beforeDelete with (db, request, id) then deletes', async () => {
+    it('calls beforeDelete with { db, req, id } then deletes', async () => {
       const mockPg = createMockPg([{ rows: [], affectedRows: 1 }]);
       const { tableConf, db } = createTestTableConf(mockPg);
       const seen = [];
-      tableConf.beforeDelete = (hookDb, req, id) => {
+      tableConf.beforeDelete = ({ db: hookDb, req, id }) => {
         seen.push({ sameDb: hookDb === db, req, id });
       };
       const request = { url: '/x' };

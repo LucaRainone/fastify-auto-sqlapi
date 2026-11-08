@@ -13,7 +13,8 @@ interface DmlBaseParams {
 
 interface DmlWriteBaseParams extends DmlBaseParams {
   dbTables: DbTables;
-  request: ApiRequest;
+  /** Handed to hooks and validators as `ctx.req`; absent for a programmatic caller that did not pass one. */
+  request?: ApiRequest;
 }
 
 // ─── Insert ──────────────────────────────────────────────────

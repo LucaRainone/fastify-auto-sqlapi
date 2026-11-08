@@ -64,7 +64,7 @@ describe('insertExclude whitelists client input on insert', () => {
     const dbTables = createDbTables({
       customer: {
         insertExclude: ['id'],
-        beforeInsert: (_db, _req, record) => {
+        beforeInsert: ({ record }) => {
           assert.equal(record.id, undefined, 'the client id is stripped before the hook runs');
           record.id = 42;
         },

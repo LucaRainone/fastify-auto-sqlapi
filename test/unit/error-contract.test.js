@@ -30,7 +30,7 @@ async function createApp({ tableOverrides = {}, pluginOverrides = {}, query } = 
       primary: 'id',
       ...exportTableInfo(SchemaItem),
       insertExclude: ['id'],
-      validate: async (_db, _req, main) => (main.name === 'bad' ? [['main.name', 'custom', 'nope']] : []),
+      validate: async ({ main }) => (main.name === 'bad' ? [['main.name', 'custom', 'nope']] : []),
       ...tableOverrides,
     }),
   };
