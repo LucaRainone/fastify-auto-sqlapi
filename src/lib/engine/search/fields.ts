@@ -206,7 +206,7 @@ export function buildSelectionColumns(
 ): string {
   if (selection === '*') {
     if (restricted) return explicitSelectColumns(joinTableConf, joinSchema, db);
-    return readableSelectColumns(joinTableConf, joinSchema, db) ?? '*';
+    return readableSelectColumns(joinTableConf, joinSchema, db);
   }
   const table = db.qi(joinSchema.tableName);
   return selection

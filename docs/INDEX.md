@@ -157,7 +157,7 @@ Search before writing: `npm run find-similar -- "<what you need>"`.
 - `hasOwnField(map: Record<string, unknown> | undefined, key: string): boolean` *function* — Read visibility (`ITable.readExclude`).
 - `ownField(map: Record<string, T> | undefined, key: string): T | undefined` *function* — The value at `key`, but only when it is the map's own property.
 - `readableFieldNames(tableConf: ITable | undefined, schema: SchemaDefinition): string[]` *function* — Schema field names that may be read, in schema declaration order.
-- `readableSelectColumns(tableConf: ITable | undefined, schema: SchemaDefinition, db: QueryC…` *function* — SELECT column list for a table with read exclusions, or `undefined` when the table has none (caller…
+- `readableSelectColumns(tableConf: ITable | undefined, schema: SchemaDefinition, db: QueryC…` *function* — The SELECT projection of a table's own rows: its readable columns spelled out when the table has `r…
 ### src/lib/schema/bulk-delete.ts
 - `BulkDeleteTableBody(dbTables: DbTables, tableName: string, maxItems?: number): …` *function, public*
 - `BulkDeleteTableResponse(dbTables: DbTables, tableName: string): …` *function, public*
