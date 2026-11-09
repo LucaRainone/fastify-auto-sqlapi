@@ -122,19 +122,22 @@ export function readableFieldNames(
 }
 
 /**
- * SELECT column list for a table with read exclusions, or `undefined` when the
- * table has none (callers keep their existing `*` projection).
+ * The SELECT projection of a table's own rows: its readable columns spelled out when the
+ * table has `readExclude`, `"table".*` otherwise.
  *
- * Columns are qualified with the table name: read queries may carry a tenant
- * `through` INNER JOIN, where a bare column name shared with the through table
- * would be ambiguous.
+ * Always qualified with the table name, never a bare `*`. A read query may carry a JOIN — a
+ * filtered or ordered `joinLeft`, a tenant `through` INNER JOIN — and a bare `*` would
+ * project the joined table's columns into the row too; on a name clash (`id`, `name`,
+ * `createdAt`…) the driver keeps the LAST value read, the joined one, so every main row
+ * would carry the parent's id. Callers compose this string further (computed projections),
+ * which is why the qualification has to be in the string itself and not only in `db.select`.
  */
 export function readableSelectColumns(
   tableConf: TableConfig | undefined,
   schema: SchemaDefinition,
   db: QueryClient
-): string | undefined {
-  if (!tableConf?.readExclude?.length) return undefined;
+): string {
+  if (!tableConf?.readExclude?.length) return `${db.qi(schema.tableName)}.*`;
   return explicitSelectColumns(tableConf, schema, db);
 }
 

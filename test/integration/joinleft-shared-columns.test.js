@@ -135,4 +135,19 @@ describe(`[${DIALECT}] joinLeft with shared column names (ambiguity regression)`
     assert.equal(body.main.length, 1);
     assert.equal(body.main[0].loudName, 'MARIO');
   });
+
+  // The projection itself: with selectComputed the main query once built `*, <expr>` by hand,
+  // and the LEFT JOIN's columns leaked into the row — the org's id and name won over Mario's.
+  it("selectComputed with a filtered joinLeft keeps the main row's own id and name", async () => {
+    const body = await search('', { selectComputed: ['loudName'], joinLeft });
+    assert.equal(body.main.length, 1);
+    assert.equal(body.main[0].id, marioId, 'the customer id, not the org id');
+    assert.equal(body.main[0].name, 'Mario', 'the customer name, not the org name');
+  });
+
+  it("a parent orderBy with selectComputed keeps the main row's own id and name", async () => {
+    const body = await search('orderBy=org.name', { selectComputed: ['loudName'], joinLeft: { org: {} } });
+    assert.deepEqual(body.main.map((c) => c.name), ['Mario', 'Luigi'], 'Acme before Globex');
+    assert.equal(body.main[0].id, marioId);
+  });
 });

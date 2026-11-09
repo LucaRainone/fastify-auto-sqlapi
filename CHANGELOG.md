@@ -88,6 +88,14 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Fixed
 
+- **A search with `selectComputed` and a JOIN on the main query returned the joined table's
+  columns in the main rows** (also fixed in 0.5.1). A filtered or ordered `joinLeft`, or a
+  tenant scope with `through`, adds a JOIN to the main statement; the `selectComputed` path
+  built its projection as a bare `*, <expr> AS "x"`, which bypassed the qualification
+  `db.select` applies to a plain `*`. On a column name shared with the joined table (`id`,
+  `name`, `createdAt`…) the driver keeps the last value read, so every main row carried the
+  parent's id and its extra columns. The main projection is now always `"table".*` or the
+  table's readable columns, qualified, whatever else is projected.
 - **A join target's config applies whatever its `dbTables` key is called.** The generated
   search schemas and most read paths looked the config up as `dbTables[Schema.tableName]`,
   so a table exposed under a key other than its name ran its joins with no config at all:

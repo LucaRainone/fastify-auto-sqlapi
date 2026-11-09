@@ -99,17 +99,19 @@ async function executeMainQuery(
     ? `${paginator.itemsPerPage} OFFSET ${(paginator.page - 1) * paginator.itemsPerPage}`
     : (maxRows != null ? String(maxRows) : null);
 
-  // Base projection: the request's `select` plus what the query needs; otherwise '*' unless
-  // the table hides fields via readExclude.
+  // Base projection: the request's `select` plus what the query needs; otherwise the main
+  // table's own columns, qualified ("hour".* or the readable list). Never a bare `*`: the
+  // statement may carry a LEFT JOIN (filtered/ordered joinLeft) or the tenant's INNER JOIN,
+  // and a bare `*` would hand the joined table's columns to the row.
   const readableColumns = projection
     ? buildMainSelectColumns(projection.select, projection.required, tableConf, db)
     : readableSelectColumns(tableConf, tableConf.Schema, db);
 
   // Optional computed projections — bound values, if any, are NOT yet supported
   // here (would require placeholder-aware composition with WHERE values).
-  let columns: string | undefined = readableColumns;
+  let columns: string = readableColumns;
   if (selectComputed?.length) {
-    const projections = [readableColumns ?? '*'];
+    const projections = [readableColumns];
     for (const [i, name] of selectComputed.entries()) {
       const fn = ownField(tableConf.computedFields, name);
       if (!fn) err400('unknown_field', `selectComputed.${i}`, `Unknown computed field in selectComputed: '${name}'`);
