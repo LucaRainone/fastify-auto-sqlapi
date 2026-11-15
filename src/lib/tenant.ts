@@ -508,9 +508,11 @@ export function buildTenantUpdateExtra(
   if (!scope || isIndirect(scope)) return undefined;
   const cols = ownColumns(scope);
   const cb = new ConditionBuilder(cols.length > 1 ? 'OR' : 'AND', db.cbDialect);
+  // Quoted like every other column the plugin writes: a camelCase tenant column left bare is
+  // folded to lowercase by Postgres (`userId` → `userid`), and the UPDATE fails.
   for (const col of cols) {
-    if (tenant.ids.length === 1) cb.isEqual(col, tenant.ids[0]);
-    else cb.isIn(col, tenant.ids);
+    if (tenant.ids.length === 1) cb.isEqual(db.qi(col), tenant.ids[0]);
+    else cb.isIn(db.qi(col), tenant.ids);
   }
   return cb;
 }
