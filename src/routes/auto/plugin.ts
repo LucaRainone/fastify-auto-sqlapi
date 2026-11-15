@@ -5,7 +5,7 @@ import { ConditionBuilder } from 'node-condition-builder';
 import { getDialect } from '../../lib/dialect.js';
 import {
   createRegistrationSqlApi,
-  ensureSqlApiDecorator,
+  decorateSqlApi,
   REGISTRATION_SQL_API,
   type RegistrationOptions,
 } from '../sql-api-decorator.js';
@@ -83,9 +83,9 @@ export default fp(async function fastifyAutoSqlApi(
   ConditionBuilder.DIALECT = dialect.cbDialect;
 
   // This registration's SqlApi: its routes run through it whatever else is registered.
-  // Exposed to the parent scope via fp as `sqlApi`, unless an earlier registration did.
+  // Exposed to the parent scope via fp as `sqlApi`, unless `decorate: false`.
   const getSqlApi = createRegistrationSqlApi(fastify, options);
-  ensureSqlApiDecorator(fastify, getSqlApi);
+  if (options.decorate !== false) decorateSqlApi(fastify, getSqlApi);
 
   // Routes in a child scope — prefix applies here, not at fp level
   const { prefix, ...consumerRouteOptions } = options;

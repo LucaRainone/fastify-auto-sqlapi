@@ -55,6 +55,12 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **BREAKING: `app.sqlApi` belongs to one registration.** A second registration of the plugin
+  in the same scope, or one over a `sqlApi` the application decorated itself, fails at
+  startup instead of leaving `app.sqlApi` to whichever registration came first. New option
+  `decorate` (default `true`): a second surface passes `decorate: false`. Granular route
+  plugins no longer decorate: their decorator lived in their own encapsulated scope, where no
+  application route could see it. See BREAKING_CHANGES.md.
 - **BREAKING: every hook and validator receives one context object.** `validate`,
   `validateBulk`, `beforeInsert`, `beforeUpdate`, `afterInsert`, `afterUpdate`, `afterRead`,
   `beforeDelete`, `afterDelete`, `beforeBulkDelete` and `afterBulkDelete` take
@@ -110,8 +116,8 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   table rules. A table only the second declared answered 400 `unknown_table`; one both
   declared ran with the first one's `readExclude`, `tenantScope` and hooks — a tenant scope
   declared only on the second surface was not applied. Each registration's routes now run
-  through that registration's own SqlApi. `app.sqlApi`, for application code, is still the
-  first registration's.
+  through that registration's own SqlApi. `app.sqlApi`, for application code, belongs to
+  one registration (see `decorate` under Changed).
 - **A search with `selectComputed` and a JOIN on the main query returned the joined table's
   columns in the main rows** (also fixed in 0.5.1). A filtered or ordered `joinLeft`, or a
   tenant scope with `through`, adds a JOIN to the main statement; the `selectComputed` path

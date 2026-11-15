@@ -1206,3 +1206,39 @@ afterBulkDelete: async ({ ids }) => { … },
 `req` may be `undefined` for a hook reached through `sqlApi.*` without a request: guard the
 access, or pass the request. Find the sites with
 `grep -rnE "(before|after)(Insert|Update|Read|Delete|BulkDelete)|validate(Bulk)?:" src/`.
+
+# Breaking Change — `app.sqlApi` belongs to one registration, a second one passes `decorate: false`
+
+*Landing in the release after 0.6.0.*
+
+## Why this changed
+
+`app.sqlApi` was set by whichever registration of the plugin came first, and every later one
+skipped it silently. With the plugin registered under two prefixes — an admin surface and a
+public one, say — application code calling `app.sqlApi` got the first registration's tables,
+tenant resolver and rules, and nothing said which. The routes of each registration now run
+with their own configuration (fixed separately); the decorator, which application code reads,
+had to stop being a silent pick.
+
+## What changed
+
+- Registering the plugin in a scope that already has a `sqlApi` decorator — another
+  registration, or one the application set itself — fails at startup, naming the fix.
+- New option `decorate` (default `true`). `decorate: false` registers the routes and leaves
+  `app.sqlApi` alone. `createSqlApi()` gives application code another instance when it needs
+  one with that registration's configuration.
+- Granular route plugins (`searchRoutes`, `getRoutes`, …) no longer decorate anything. The
+  decorator they set lived in their own encapsulated scope, where no application route could
+  read it.
+
+## Who is affected
+
+Applications registering `fastifyAutoSqlApi` more than once in the same scope, or decorating
+their own `sqlApi` before registering it. A single registration is unaffected.
+
+## Migration
+
+```ts
+await app.register(fastifyAutoSqlApi, { DbTables: dbTables, prefix: '/admin' }); // owns app.sqlApi
+await app.register(fastifyAutoSqlApi, { DbTables: publicTables, prefix: '/public', decorate: false });
+```

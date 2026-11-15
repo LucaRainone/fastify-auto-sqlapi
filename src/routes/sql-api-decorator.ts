@@ -61,14 +61,21 @@ export function createRegistrationSqlApi(
 }
 
 /**
- * Decorates `fastify.sqlApi` (lazy getter) for application code, unless the decorator is
- * already present in scope. The main plugin calls this at the fp level (parent scope);
- * granular route plugins call it through `registerForAllTables`, so they also work
- * standalone, each within its own encapsulation context.
+ * Decorates `fastify.sqlApi` (lazy getter) for application code. Called by the main plugin at
+ * the fp level, so the decorator lands on the scope the plugin was registered in.
  *
- * The decorator is for the consumer's own routes only: the auto routes never read it.
+ * The decorator is for the consumer's own routes only: the auto routes never read it. It
+ * belongs to exactly one registration: when the scope already has one — another registration
+ * of this plugin, or the application's own — registration fails instead of leaving
+ * `app.sqlApi` to whichever came first.
  */
-export function ensureSqlApiDecorator(fastify: FastifyInstance, getSqlApi: SqlApiGetter): void {
-  if (fastify.hasDecorator('sqlApi')) return;
+export function decorateSqlApi(fastify: FastifyInstance, getSqlApi: SqlApiGetter): void {
+  if (fastify.hasDecorator('sqlApi')) {
+    throw new Error(
+      'fastify-auto-sqlapi: `sqlApi` is already decorated, by another registration of this plugin ' +
+      'or by the application. Pass `decorate: false` to this registration: its routes run with ' +
+      'their own configuration either way, and createSqlApi() gives application code another instance.'
+    );
+  }
   fastify.decorate('sqlApi', { getter: getSqlApi });
 }

@@ -57,6 +57,7 @@ await app.register(fastifyAutoSqlApi, {
   agentManifest: true, // GET {prefix}/agent/manifest(.md), behind the same onRequests
   debug: true, // log SQL server-side; never changes a response
   exposeDebugInfo: false, // DEV ONLY: add driver error (message, code, constraint, detail, stack) as `debugInfo` on 500s
+  decorate: true, // app.sqlApi for your own routes; false on every registration but one
   dbErrors: { '23505': { status: 409, code: 'duplicate' } }, // driver err.code → { status (400–599), code } in fields, translated client-side; yours to list, per DB ('ER_DUP_ENTRY' on MySQL/MariaDB). Unlisted → 500
 });
 // app.sqlApi is now decorated, usable from any route.
@@ -67,7 +68,8 @@ app.decorate('mysql', pool);
 app.addHook('onClose', () => pool.end());
 await app.register(fastifyAutoSqlApi, { DbTables: dbTables, dialect: 'mysql' });
 
-// Register only specific routes / different access levels per prefix. Each route plugin works standalone and decorates its own scoped sqlApi; register the main plugin if your own routes need app.sqlApi.
+// Several surfaces: register the plugin again under another prefix with `decorate: false` (app.sqlApi belongs to one registration; a second one without it fails at startup). Each registration's routes run with its own options.
+// Register only specific routes: each route plugin works standalone and decorates nothing; register the main plugin if your own routes need app.sqlApi.
 import { searchRoutes, getRoutes, insertRoutes, updateRoutes, deleteRoutes, bulkUpsertRoutes, bulkDeleteRoutes, agentManifestRoutes, setupSwagger } from 'fastify-auto-sqlapi';
 await app.register(async (instance) => {
   await setupSwagger(instance, { swagger: true });

@@ -57,7 +57,7 @@ describe('every plugin registration runs with its own configuration', () => {
     const pool = createMockPool();
     const app = await buildApp(pool, async (app) => {
       await app.register(fastifyAutoSqlApi, { DbTables: { conv: conf() }, prefix: '/admin' });
-      await app.register(fastifyAutoSqlApi, { DbTables: { onlyPublic: conf() }, prefix: '/public' });
+      await app.register(fastifyAutoSqlApi, { DbTables: { onlyPublic: conf() }, prefix: '/public', decorate: false });
     });
 
     const res = await app.inject({ method: 'POST', url: '/public/search/onlyPublic', payload: {} });
@@ -73,6 +73,7 @@ describe('every plugin registration runs with its own configuration', () => {
       await app.register(fastifyAutoSqlApi, {
         DbTables: { conv: conf({ readExclude: ['secret'] }) },
         prefix: '/public',
+        decorate: false,
       });
     });
 
@@ -92,6 +93,7 @@ describe('every plugin registration runs with its own configuration', () => {
         DbTables: { conv: conf({ tenantScope: { column: 'organization_id' } }) },
         getTenantId: () => 42,
         prefix: '/tenant',
+        decorate: false,
       });
     });
 
@@ -116,6 +118,68 @@ describe('every plugin registration runs with its own configuration', () => {
     const res = await app.inject({ method: 'POST', url: '/public/search/onlyPublic', payload: {} });
     assert.equal(res.statusCode, 200, res.body);
 
+    await app.close();
+  });
+});
+
+describe('app.sqlApi belongs to exactly one registration', () => {
+  it('a second registration that would also decorate sqlApi fails at startup', async () => {
+    const app = Fastify();
+    app.decorate('pg', createMockPool());
+    app.register(fastifyAutoSqlApi, { DbTables: { conv: conf() }, prefix: '/admin' });
+    app.register(fastifyAutoSqlApi, { DbTables: { onlyPublic: conf() }, prefix: '/public' });
+
+    await assert.rejects(app.ready(), /sqlApi.*decorate: false/s);
+  });
+
+  it('a registration with decorate: false serves its routes and leaves sqlApi to the other one', async () => {
+    const pool = createMockPool();
+    const app = await buildApp(pool, async (app) => {
+      await app.register(fastifyAutoSqlApi, { DbTables: { conv: conf() }, prefix: '/admin' });
+      await app.register(fastifyAutoSqlApi, {
+        DbTables: { onlyPublic: conf() },
+        prefix: '/public',
+        decorate: false,
+      });
+    });
+
+    const res = await app.inject({ method: 'POST', url: '/public/search/onlyPublic', payload: {} });
+    assert.equal(res.statusCode, 200, res.body);
+    await app.sqlApi.search('conv', {});
+    await assert.rejects(app.sqlApi.search('onlyPublic', {}), /onlyPublic/);
+
+    await app.close();
+  });
+
+  it('decorate: false registers no sqlApi', async () => {
+    const app = await buildApp(createMockPool(), (app) =>
+      app.register(fastifyAutoSqlApi, { DbTables: { conv: conf() }, decorate: false })
+    );
+
+    assert.equal(app.hasDecorator('sqlApi'), false);
+    const res = await app.inject({ method: 'POST', url: '/search/conv', payload: {} });
+    assert.equal(res.statusCode, 200, res.body);
+    await app.close();
+  });
+
+  it('a sqlApi the application decorated itself is not silently shadowed', async () => {
+    const app = Fastify();
+    app.decorate('pg', createMockPool());
+    app.decorate('sqlApi', { mine: true });
+    app.register(fastifyAutoSqlApi, { DbTables: { conv: conf() } });
+
+    await assert.rejects(app.ready(), /sqlApi.*decorate: false/s);
+  });
+
+  it('a granular route plugin next to the main plugin needs no decorate option', async () => {
+    const app = await buildApp(createMockPool(), async (app) => {
+      await app.register(fastifyAutoSqlApi, { DbTables: { conv: conf() } });
+      await app.register(async (instance) => {
+        await instance.register(searchRoutes, { DbTables: { onlyPublic: conf() } });
+      }, { prefix: '/public' });
+    });
+
+    await app.sqlApi.search('conv', {});
     await app.close();
   });
 });

@@ -98,6 +98,14 @@ export interface SqlApiPluginOptions {
    * Applies to the auto routes only: `sqlApi.*` throws the driver error as is.
    */
   dbErrors?: Record<string, DbErrorMapping>;
+  /**
+   * Decorate `app.sqlApi`, this registration's programmatic API, for application code. On by
+   * default. The decorator belongs to one registration: when the scope already has a `sqlApi`
+   * (another registration of the plugin, or the application's own) startup fails, so a second
+   * registration — another prefix, another surface — passes `false`. Its routes run with its
+   * own configuration either way; `createSqlApi()` gives application code another instance.
+   */
+  decorate?: boolean;
 }
 
 /** Default row cap for search (page size and no-paginator LIMIT). Override via `maxItemsPerPage`. */

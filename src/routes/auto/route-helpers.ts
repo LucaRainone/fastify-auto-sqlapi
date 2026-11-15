@@ -1,7 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import {
   createRegistrationSqlApi,
-  ensureSqlApiDecorator,
   REGISTRATION_SQL_API,
   type RegistrationOptions,
 } from '../sql-api-decorator.js';
@@ -136,11 +135,10 @@ export async function registerForAllTables(
 ): Promise<void> {
   // The routes run through the SqlApi of the registration that declared them: the main
   // plugin's when it registered this route plugin, otherwise one built from these options.
+  // A route plugin decorates nothing: it is encapsulated, so a decorator set here would be
+  // visible to its own routes only, which do not read it.
   const getSqlApi = (options as RegistrationOptions)[REGISTRATION_SQL_API]
     ?? createRegistrationSqlApi(fastify, options);
-  // Granular composition support: when a route plugin is registered without the main
-  // plugin, no ancestor has decorated `sqlApi` for application code — do it in this scope.
-  ensureSqlApiDecorator(fastify, getSqlApi);
 
   assertDbErrors(options.dbErrors);
 

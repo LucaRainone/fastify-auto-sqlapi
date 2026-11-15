@@ -255,7 +255,7 @@ Search before writing: `npm run find-similar -- "<what you need>"`.
 - `setupSwagger(fastify: FastifyInstance, options: Pick<SqlApiPluginOptions, 'swagger'>): Pr…` *function, public*
 ### src/routes/sql-api-decorator.ts
 - `createRegistrationSqlApi(fastify: FastifyInstance, options: SqlApiPluginOptions): SqlApiG…` *function* — The SqlApi of ONE registration, built lazily from that registration's options: its `DbTables`, `get…
-- `ensureSqlApiDecorator(fastify: FastifyInstance, getSqlApi: SqlApiGetter): void` *function* — Decorates `fastify.sqlApi` (lazy getter) for application code, unless the decorator is already pres…
+- `decorateSqlApi(fastify: FastifyInstance, getSqlApi: SqlApiGetter): void` *function* — Decorates `fastify.sqlApi` (lazy getter) for application code.
 - `REGISTRATION_SQL_API` *const*
 - `RegistrationOptions = SqlApiPluginOptions & { [REGISTRATION_SQL_API]?: SqlApiGetter }` *type* — Route plugin options as the main plugin passes them: the consumer's, plus its SqlApi.
 - `SqlApiGetter = () => SqlApi` *type* — Resolves a registration's SqlApi on first use (the pool may be decorated after registration).
