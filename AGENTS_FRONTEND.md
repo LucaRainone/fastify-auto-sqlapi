@@ -120,6 +120,8 @@ An unknown field or method, or `params` that is not an array or is too short →
 // action: what the statement did to the main row. "updated" when an upsert rule matched an existing row (also with nothing left to change), "inserted" otherwise; tables without a rule always say "inserted". Secondaries report PKs only.
 ```
 
+`secondaries` and `deletions` accept only the write aliases of the table (manifest): any other alias, including one that is readable but not writable, is a 400 `unknown_field` at `secondaries.<alias>` (`<i>.secondaries.<alias>` in a bulk), and nothing is written.
+
 Upsert tables (see manifest):
 - Every row, main or child, carries its conflict key: missing, null, or shared by two rows of one request → 400.
 - When the key is the id, rows without an id are inserted.

@@ -334,27 +334,27 @@ describe('updateEngine - deletions', () => {
     assert.equal(result.deletions.customer_order[0].id, 5);
   });
 
-  it('ignores deletions not in writeJoins', async () => {
-    const mockPg = createMockPg([
-      { rows: [], affectedRows: 1 },
-    ]);
+  it('refuses deletions not in writeJoins: 400 unknown_field, nothing written', async () => {
+    const mockPg = createMockPg([]);
     const { dbTables, db } = createTestDbTables(mockPg, {
       writeJoins: [],
     });
 
-    const result = await updateEngine({
-      db,
-      tableConf: dbTables.customer,
-      dbTables: dbTables,
-      request: mockRequest,
-      record: { id: 1, name: 'Mario' },
-      deletions: {
-        customer_order: [{ id: 5 }],
-      },
-    });
-
-    assert.equal(mockPg.calls.length, 1); // only main update
-    assert.equal(result.deletions, undefined);
+    await assert.rejects(
+      () => updateEngine({
+        db,
+        tableConf: dbTables.customer,
+        dbTables: dbTables,
+        request: mockRequest,
+        record: { id: 1, name: 'Mario' },
+        deletions: {
+          customer_order: [{ id: 5 }],
+        },
+      }),
+      (err) => err.statusCode === 400 && err.validationErrors[0].path === 'deletions.customer_order'
+        && err.validationErrors[0].code === 'unknown_field'
+    );
+    assert.equal(mockPg.calls.length, 0);
   });
 
   it('handles secondaries + deletions together', async () => {

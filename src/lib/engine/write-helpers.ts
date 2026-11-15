@@ -86,6 +86,26 @@ function findWriteJoin(
 }
 
 /**
+ * Refuse an alias of `secondaries` or `deletions` the table does not declare in `writeJoins`:
+ * a 400 `unknown_field` at `<at>.<section>.<alias>`, before anything is validated or written.
+ * Dropped in silence, a typo'd alias would answer success with the child rows unwritten, or
+ * the rows to delete still there. `at` is the bulk item's index, empty for a single write.
+ */
+export function assertWriteJoinAliases(
+  tableConf: TableConfig,
+  sections: { secondaries?: RowsByAlias; deletions?: RowsByAlias },
+  at = ''
+): void {
+  for (const section of ['secondaries', 'deletions'] as const) {
+    for (const alias of Object.keys(sections[section] ?? {})) {
+      if (findWriteJoin(tableConf, alias)) continue;
+      const path = [at, section, alias].filter(Boolean).join('.');
+      throw httpError(400, `Unknown write join alias: ${alias}`, { code: 'unknown_field', path });
+    }
+  }
+}
+
+/**
  * Drop `insertExclude` fields from a camelCase record, in place.
  *
  * Exclusion is a whitelist on CLIENT input: call this on the client payload only, BEFORE any

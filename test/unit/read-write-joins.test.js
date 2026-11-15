@@ -58,7 +58,7 @@ describe('readJoins and writeJoins', () => {
     assert.ok(pool.calls.some((sql) => /^INSERT INTO "customer_order"/.test(sql)), pool.calls.join('\n'));
   });
 
-  it('a relation granted for reading only is never written', async () => {
+  it('a relation granted for reading only is not writable: 400 unknown_field, nothing written', async () => {
     const dbTables = {
       customer: defineTable({
         primary: 'id',
@@ -76,8 +76,9 @@ describe('readJoins and writeJoins', () => {
       method: 'POST', url: '/rest/customer',
       payload: { main: { name: 'Mario' }, secondaries: { orders: [{ total: 5 }] } },
     });
-    assert.equal(res.statusCode, 201, res.payload);
-    assert.ok(!pool.calls.some((sql) => /INSERT INTO "customer_order"/.test(sql)), pool.calls.join('\n'));
+    assert.equal(res.statusCode, 400, res.payload);
+    assert.deepEqual(res.json().fields.map((f) => [f.path, f.code]), [['secondaries.orders', 'unknown_field']]);
+    assert.equal(pool.calls.length, 0);
     await app.close();
   });
 });

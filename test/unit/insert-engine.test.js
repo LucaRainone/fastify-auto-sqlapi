@@ -427,28 +427,27 @@ describe('insertEngine - secondaries', () => {
     assert.ok(!bulkCall.values.includes(7), 'client-supplied FK must be ignored');
   });
 
-  it('ignores secondaries not in writeJoins', async () => {
-    const mockPg = createMockPg([
-      { rows: [{ id: 1 }], affectedRows: 1 },
-    ]);
+  it('refuses secondaries not in writeJoins: 400 unknown_field, nothing written', async () => {
+    const mockPg = createMockPg([]);
     const { dbTables, db } = createTestDbTables(mockPg, {
       writeJoins: [], // no write joins allowed
     });
 
-    const result = await insertEngine({
-      db,
-      tableConf: dbTables.customer,
-      dbTables: dbTables,
-      request: mockRequest,
-      record: { name: 'Mario', email: 'mario@test.it' },
-      secondaries: {
-        customer_order: [{ total: 100, status: 'pending' }],
-      },
-    });
-
-    // Only main insert, no bulk insert
-    assert.equal(mockPg.calls.length, 1);
-    assert.equal(result.secondaries, undefined);
+    await assert.rejects(
+      () => insertEngine({
+        db,
+        tableConf: dbTables.customer,
+        dbTables: dbTables,
+        request: mockRequest,
+        record: { name: 'Mario', email: 'mario@test.it' },
+        secondaries: {
+          customer_order: [{ total: 100, status: 'pending' }],
+        },
+      }),
+      (err) => err.statusCode === 400 && err.validationErrors[0].path === 'secondaries.customer_order'
+        && err.validationErrors[0].code === 'unknown_field'
+    );
+    assert.equal(mockPg.calls.length, 0);
   });
 
   it('removes insertExclude from secondary records', async () => {

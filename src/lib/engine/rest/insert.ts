@@ -1,5 +1,5 @@
 import { camelcaseObject } from '../../naming.js';
-import { processSecondaries, prepareInsertRecord, assertUpsertKeys } from '../write-helpers.js';
+import { processSecondaries, prepareInsertRecord, assertUpsertKeys, assertWriteJoinAliases } from '../write-helpers.js';
 import { enforceTenantOnWrites, assertTenantOwnsConflicts } from '../../tenant.js';
 import { primaryAsCols } from '../../../types.js';
 import type {
@@ -17,6 +17,8 @@ export async function insertEngine(params: InsertParams): Promise<InsertResult> 
   // Full primary key columns (composite PKs need every column for RETURNING /
   // mysql synthesis, otherwise the response is missing PK fields).
   const pkCol = primaryAsCols(tableConf.primary, (f) => schema.col(f));
+
+  assertWriteJoinAliases(tableConf, { secondaries });
 
   // 1. Validate, run beforeInsert hook, snakecase, drop excluded fields.
   const { camel: inputRecord, snake: mainRecord } = await prepareInsertRecord(

@@ -1,6 +1,6 @@
 import { snakecaseRecord } from '../../naming.js';
 import { removeWriteExcluded } from '../../write-access.js';
-import { processSecondaries, processDeletions } from '../write-helpers.js';
+import { processSecondaries, processDeletions, assertWriteJoinAliases } from '../write-helpers.js';
 import {
   stripTenantColumn,
   assertTenantOwnership,
@@ -58,6 +58,8 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
   const pkFields = Array.isArray(tableConf.primary) ? tableConf.primary : [tableConf.primary];
   const pkCols = pkFields.map((f) => schema.col(f));
   const pkValues = pkFields.map((f) => record[f]);
+
+  assertWriteJoinAliases(tableConf, { secondaries, deletions });
 
   const missingIdx = pkValues.findIndex((v) => v == null);
   if (missingIdx !== -1) {

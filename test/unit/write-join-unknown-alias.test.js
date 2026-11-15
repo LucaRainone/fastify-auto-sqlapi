@@ -34,30 +34,30 @@ function createTestDbTables() {
 }
 
 /**
- * The engines skip an alias the table does not declare (see the "ignores secondaries/deletions
- * not in writeJoins" specs), so the request schema is what has to fail closed: without
- * `additionalProperties:false` on the alias container a typo'd alias validates, reaches the
- * engine, is dropped there, and the request still answers 200 having written nothing.
+ * The alias container is open: an alias the table does not declare must reach the engine,
+ * which refuses it with a 400 `unknown_field` (write-join-alias-refused.test.js). Closed,
+ * Fastify's default Ajv (`removeAdditional`) strips it, and the write answers success having
+ * written none of its child rows.
  */
-describe('write join body schemas close the alias container', () => {
+describe('write join body schemas leave the alias container open, for the engine to refuse', () => {
   const dbTables = createTestDbTables();
 
-  it('insert: secondaries rejects an undeclared alias', () => {
+  it('insert: secondaries lists the declared aliases and lets another one through', () => {
     const body = InsertTableBody(dbTables, 'customer');
-    assert.equal(body.properties.secondaries.additionalProperties, false);
-    assert.ok(body.properties.secondaries.properties.customer_order, 'declared aliases stay allowed');
+    assert.notEqual(body.properties.secondaries.additionalProperties, false);
+    assert.ok(body.properties.secondaries.properties.customer_order, 'declared aliases are documented');
   });
 
-  it('update: secondaries and deletions both reject an undeclared alias', () => {
+  it('update: secondaries and deletions both let an undeclared alias through', () => {
     const body = UpdateTableBody(dbTables, 'customer');
-    assert.equal(body.properties.secondaries.additionalProperties, false);
-    assert.equal(body.properties.deletions.additionalProperties, false);
+    assert.notEqual(body.properties.secondaries.additionalProperties, false);
+    assert.notEqual(body.properties.deletions.additionalProperties, false);
   });
 
-  it('bulkUpsert: item secondaries and deletions both reject an undeclared alias', () => {
+  it('bulkUpsert: item secondaries and deletions both let an undeclared alias through', () => {
     const item = BulkUpsertTableBody(dbTables, 'customer').items;
-    assert.equal(item.properties.secondaries.additionalProperties, false);
-    assert.equal(item.properties.deletions.additionalProperties, false);
+    assert.notEqual(item.properties.secondaries.additionalProperties, false);
+    assert.notEqual(item.properties.deletions.additionalProperties, false);
   });
 });
 

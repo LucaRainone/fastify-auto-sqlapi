@@ -173,17 +173,16 @@ export function attachWriteJoinSections(
 ): void {
   if (!tableConf.writeJoins?.length) return;
 
-  // additionalProperties:false closes the alias container itself, not just the items: an alias
-  // the table does not declare must be a validation error, never a key that reaches the engine.
-  // It goes on Partial itself: Partial rebuilds the object and drops the source's options.
-  const aliasMap = { additionalProperties: false };
+  // The alias container stays open: an alias the table does not declare must reach the engine,
+  // which refuses it with a 400 `unknown_field` at that alias (`assertWriteJoinAliases`).
+  // Closed, Fastify's default Ajv (`removeAdditional`) would strip it, and the write would
+  // answer success with the child rows unwritten.
 
   target.secondaries = Type.Optional(
     Type.Partial(
       Type.Object(
         buildJoinAliasMap(tableConf, dbTables, options.secondaryFields, { strictItems: options.strictItems })
-      ),
-      aliasMap
+      )
     )
   );
   if (options.withDeletions) {
@@ -196,8 +195,7 @@ export function attachWriteJoinSections(
             ({ joinSchema }) => joinSchema.fields,
             { itemsPartial: true },
           )
-        ),
-        aliasMap
+        )
       )
     );
   }

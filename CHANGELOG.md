@@ -57,6 +57,14 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **BREAKING: an undeclared write alias is a 400.** An alias under `secondaries` or
+  `deletions` that the table does not declare in `writeJoins` — a typo, a read-only relation,
+  any alias on a table with no write join — is a 400 `unknown_field` at that alias
+  (`<i>.secondaries.<alias>` in a bulk upsert), over HTTP and through `sqlApi`, and nothing
+  is written. It was dropped in silence: the closed alias container of the body schema was
+  stripped by Fastify's default Ajv (`removeAdditional`) instead of rejected, and the engines
+  skipped the alias, so the write answered success with its child rows unwritten. The alias
+  container is now open and the engine refuses the alias. See BREAKING_CHANGES.md.
 - **BREAKING: internals are no longer exported.** Gone from the package entry: the naming
   helpers (`toCamelCase`, `toUnderscore`, `toSchemaName`, `camelcaseObject`,
   `snakecaseRecord`), `getDialect` and `SqlDialect`, `resolveTenant`, `TenantContext`, the

@@ -1877,3 +1877,36 @@ Code importing one of those names.
 - `toUnderscore(field)` for a column → `Schema.col(field)`.
 - `SearchParams` → `SqlApiSearchParams` (and so on for the other operations).
 - `SqlApiConfig` → `CliConfig`.
+
+# Breaking Change — an undeclared write alias is a 400, not dropped
+
+## What changed
+
+```jsonc
+// writeJoins declares the alias "orders"
+POST /rest/customer
+{ "main": { "name": "Mario" }, "secondaries": { "order": [{ "total": 100 }] } }
+
+// before: 201 — the customer is written, the order is not, nothing says so
+// after:  400 { "fields": [ { "path": "secondaries.order", "code": "unknown_field" } ] }, nothing written
+```
+
+- An alias under `secondaries` or `deletions` that the table does not declare in `writeJoins`
+  is a 400 `unknown_field` at `secondaries.<alias>` / `deletions.<alias>`
+  (`<i>.secondaries.<alias>` for the item `i` of a bulk upsert). Nothing of the request is
+  written, in a bulk upsert no item either.
+- It covers a typo, a relation declared in `readJoins` only, and any alias sent to a table with
+  no write join.
+- Over HTTP and through `sqlApi.insert`, `sqlApi.update` and `sqlApi.bulkUpsert` alike.
+- The body schemas leave the alias container open, listing the declared aliases: the engine is
+  what refuses another one.
+
+## Who is affected
+
+Clients or code sending child rows under an alias the table does not declare. Those rows were
+never written, nor those deletions applied: the request now says so.
+
+## Migration
+
+- Send child rows under an alias the table declares in `writeJoins` (the agent manifest lists
+  them), or declare the relation there.

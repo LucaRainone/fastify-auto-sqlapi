@@ -4,6 +4,7 @@ import {
   processDeletions,
   prepareInsertRecord,
   assertUpsertKeys,
+  assertWriteJoinAliases,
 } from '../write-helpers.js';
 import {
   enforceTenantOnWrites,
@@ -90,6 +91,8 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
   const schema = tableConf.schema;
   // Full primary key columns — composite PKs need every column (see insertEngine).
   const pkCol = primaryAsCols(tableConf.primary, (f) => schema.col(f));
+
+  items.forEach((item, i) => assertWriteJoinAliases(tableConf, item, String(i)));
 
   // 1. Bulk validation runs once for all items (skips per-item validate). Otherwise per-item
   //    validation happens inside prepareInsertRecord below.

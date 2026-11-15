@@ -159,7 +159,7 @@ describe('validate - insertEngine', () => {
     });
 
     const secs = {
-      session_period: [
+      period: [
         { startDate: '2024-01-01', endDate: '2024-01-10' },
       ],
     };
@@ -176,7 +176,7 @@ describe('validate - insertEngine', () => {
     );
 
     assert.ok(receivedSecondaries);
-    assert.equal(receivedSecondaries.session_period.length, 1);
+    assert.equal(receivedSecondaries.period.length, 1);
   });
 
   it('receives camelCase record in validate (not snake_case)', async () => {
@@ -198,7 +198,7 @@ describe('validate - insertEngine', () => {
         // Pass camelCase field names
         record: { name: 'S1' },
         secondaries: {
-          session_period: [{ startDate: '2024-01-01', endDate: '2024-01-10' }],
+          period: [{ startDate: '2024-01-01', endDate: '2024-01-10' }],
         },
       }),
     );
@@ -320,7 +320,7 @@ describe('validate - updateEngine', () => {
     });
 
     const secs = {
-      session_period: [
+      period: [
         { startDate: '2024-01-01', endDate: '2024-01-10' },
         { startDate: '2024-02-01', endDate: '2024-02-10' },
       ],
@@ -338,7 +338,7 @@ describe('validate - updateEngine', () => {
     );
 
     assert.ok(receivedSecondaries);
-    assert.equal(receivedSecondaries.session_period.length, 2);
+    assert.equal(receivedSecondaries.period.length, 2);
   });
 });
 
@@ -394,8 +394,8 @@ describe('validate - bulkUpsertEngine', () => {
         dbTables: dbTables,
         request: mockRequest,
         items: [
-          { main: { name: 'S1' }, secondaries: { session_period: [{ startDate: '2024-01-01', endDate: '2024-01-31' }] } },
-          { main: { name: 'S2' }, secondaries: { session_period: [{ startDate: '2024-01-15', endDate: '2024-02-15' }] } },
+          { main: { name: 'S1' }, secondaries: { period: [{ startDate: '2024-01-01', endDate: '2024-01-31' }] } },
+          { main: { name: 'S2' }, secondaries: { period: [{ startDate: '2024-01-15', endDate: '2024-02-15' }] } },
         ],
       }),
       (err) => {
