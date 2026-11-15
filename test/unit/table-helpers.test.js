@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
-const { buildTableFilters, buildRelation, buildUpsertRule, buildUpsertRules } =
+const { buildTableFilters, buildRelation } =
   await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
@@ -247,33 +247,6 @@ describe('defineTable - alias uniqueness', () => {
     assert.equal(conf.allowedReadJoins.length, 2);
     assert.equal(conf.allowedReadJoins[0].alias, 'creator');
     assert.equal(conf.allowedReadJoins[1].alias, 'updater');
-  });
-});
-
-describe('buildUpsertRule', () => {
-  it('returns a tuple [schema, columns]', () => {
-    const schema = createMockSchema('customer', { id: Type.Number() });
-    const result = buildUpsertRule(schema, ['id']);
-
-    assert.equal(result[0], schema);
-    assert.deepEqual(result[1], ['id']);
-  });
-});
-
-describe('buildUpsertRules', () => {
-  it('creates a Map from rules', () => {
-    const schema1 = createMockSchema('customer', { id: Type.Number() });
-    const schema2 = createMockSchema('product', { id: Type.Number() });
-
-    const map = buildUpsertRules(
-      buildUpsertRule(schema1, ['id']),
-      buildUpsertRule(schema2, ['id', 'name'])
-    );
-
-    assert.ok(map instanceof Map);
-    assert.equal(map.size, 2);
-    assert.deepEqual(map.get(schema1), ['id']);
-    assert.deepEqual(map.get(schema2), ['id', 'name']);
   });
 });
 

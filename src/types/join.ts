@@ -33,6 +33,12 @@ export interface JoinDefinition {
    * Read joins only: a write join declaring it is rejected by `defineTable`.
    */
   fields?: string[];
+  /**
+   * Upsert the secondaries written through this relation on this key of the joined table
+   * (fields, camelCase): `INSERT … ON CONFLICT (<key>) DO UPDATE`. Absent, they are plain
+   * INSERTs. Write joins only; checked against the joined schema's keys at startup (ADR 0021).
+   */
+  upsertKey?: string[];
 }
 
 export interface AggregationRequest {

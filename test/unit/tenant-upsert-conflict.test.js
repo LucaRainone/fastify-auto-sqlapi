@@ -32,7 +32,7 @@ function makeTable(upsertKeys) {
     schema,
     defaultOrder: 'id',
     tenantScope: { column: 'organization_id' },
-    upsertMap: new Map([[schema, upsertKeys]]),
+    upsertKey: upsertKeys,
   };
   return { schema, tableConf };
 }
@@ -168,7 +168,7 @@ for (const dialect of DIALECTS) {
       assertTenantProbeThenUpsert(mockPg);
     });
 
-    it('does not probe when there is no upsertMap (plain insert)', async () => {
+    it('does not probe when there is no upsertKey (plain insert)', async () => {
       const schema = createMockSchema('customer', customerFields);
       const tableConf = { primary: 'id', schema, defaultOrder: 'id', tenantScope: { column: 'organization_id' } };
       const mockPg = createMockPg([{ rows: [{ id: 1 }] }]);

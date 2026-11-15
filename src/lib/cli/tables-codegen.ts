@@ -384,7 +384,7 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
   lines.push(...allowedReadJoinsLines(parentRels));
 
   const upsertPk = pkFields(pk).map((p) => `'${p}'`).join(', ');
-  lines.push(`  // upsertMap: buildUpsertRules(buildUpsertRule(Schema, [${upsertPk}])),`);
+  lines.push(`  // upsertKey: [${upsertPk}],`);
   lines.push(schemaOverridesLine(schema, pk));
 
   // validate: use first non-PK field for example

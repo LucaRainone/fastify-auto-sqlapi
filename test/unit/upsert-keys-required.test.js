@@ -37,7 +37,7 @@ function tagTable(keys) {
     primary: 'id',
     schema: tagSchema,
     defaultOrder: 'id',
-    upsertMap: new Map([[tagSchema, keys]]),
+    upsertKey: keys,
   };
 }
 
@@ -47,12 +47,9 @@ const contentTables = {
     schema: contentSchema,
     defaultOrder: 'id',
     allowedWriteJoins: [
-      buildRelation(contentSchema, 'id', contentInfoSchema, 'contentId', { alias: 'info' }),
+      buildRelation(contentSchema, 'id', contentInfoSchema, 'contentId', { alias: 'info', upsertKey: ['contentId', 'langId'] }),
     ],
-    upsertMap: new Map([
-      [contentSchema, ['id']],
-      [contentInfoSchema, ['contentId', 'langId']],
-    ]),
+    upsertKey: ['id'],
   },
 };
 

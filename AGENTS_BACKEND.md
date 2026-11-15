@@ -95,7 +95,7 @@ HTTP responses coerce `"42"` to a number anyway. The parsers matter for `sqlApi.
 Every key except `primary` and `schema` is optional. There is no `tableName` key: the SQL table is `schema.tableName`, and the route/manifest name is the `dbTables` key. One physical table can therefore be exposed under several keys, each with its own `operations`, `onRequests`, `tenantScope`, `readExclude` and joins.
 
 ```ts
-import { defineTable, buildRelation, buildUpsertRules, buildUpsertRule, ConditionBuilder, Type } from 'fastify-auto-sqlapi';
+import { defineTable, buildRelation, ConditionBuilder, Type } from 'fastify-auto-sqlapi';
 import type { ValidationError } from 'fastify-auto-sqlapi';
 import { SchemaCustomer as Schema } from '../schemas/SchemaCustomer';
 
@@ -133,13 +133,10 @@ export const TableCustomer = defineTable({
 
   // --- joins (see Relations) ---
   allowedReadJoins: [buildRelation(Schema, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
-  allowedWriteJoins: [buildRelation(Schema, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
+  allowedWriteJoins: [buildRelation(Schema, 'id', SchemaOrder, 'customerId', { alias: 'orders', upsertKey: ['id'] })], // upsertKey: the secondaries of this relation upsert on it
 
-  // --- upsert: INSERT becomes upsert for that schema, main or write-join child ---
-  upsertMap: buildUpsertRules(
-    buildUpsertRule(Schema, ['email']), // exactly the PK or one of the Schema's uniqueKeys, checked at startup (old Schemas: regenerate). Views: none.
-    buildUpsertRule(SchemaOrder, ['id']),
-  ),
+  // --- upsert: the main row's INSERT (POST /rest, bulk upsert) becomes INSERT … ON CONFLICT (key) DO UPDATE ---
+  upsertKey: ['email'], // exactly the PK or one of the Schema's uniqueKeys, checked at startup (old Schemas: regenerate). Views: none. Main rows only; secondaries use the relation's upsertKey. Absent: plain INSERT.
   // Each upserted row must carry its key (natural key non-null; PK whole, or absent = plain insert), no two rows of a request may share it → 400. A row must still be insertable (PG: NOT NULL without default is required even for an existing row). Another row's unique value = DB error, never a hijack.
 
   // --- tenant (see Tenant scope) ---
@@ -209,6 +206,7 @@ buildRelation(mainSchema, mainField, joinSchema, joinField, {
   unique, // false: 1:N child→main (joinField = child FK) → joinMustExist / joinMultiple / joinGroup. true: N:1 parent→main (joinField = parent PK) → joinLeft. joinField is the target's PK → use true.
   fields, // read-only allowlist of the target's fields. Must include joinField. Not on write joins.
   target, // dbTables key whose config governs the joined table (readExclude, tenantScope, afterRead, computed, write rules). Required when several keys expose that table: startup fails until it is set. With one key, that config applies whatever the key is called.
+  upsertKey, // write joins only: the secondaries upsert on this key of the joined table, e.g. ['productId', 'lang']. Exactly its PK or one of its uniqueKeys, checked by defineTable (ADR 0021). Absent: plain INSERT. On a read join → throws.
 });
 
 allowedReadJoins: [
@@ -219,7 +217,7 @@ allowedReadJoins: [
 
 - **A read join is a read grant on the target.** It runs inside the host's route: the target's `onRequests` and `operations` do not apply, so a table with `operations: []` is still readable through it. The target's `readExclude`, `tenantScope`, `afterRead` and the relation's schema still apply. `fields` narrows that schema, fail-closed: every other field is a 400 in selection, filters, conditions, orderBy and aggregations, and so is a computed field reaching past it. A column added later is not reachable until listed. Use `readExclude` instead to hide a column from the table's own routes too. (ADR 0010, 0011)
 - joinLeft adds a real `LEFT JOIN` only when filters or orderBy need the parent; otherwise it runs a side query.
-- **Owned children** (translations, `*_info`, composite PK like `(product_id, lang)`): make them a write join on the parent, not a `dbTables` entry. The child FK is auto-filled, and an `upsertMap` rule on the child key lets clients send only the child's own fields: `PUT /rest/product { main, secondaries: { translations: [{ lang: 'en', name: 'Bike' }] } }`. Expose a composite-PK table standalone only when it stands on its own (M:N links).
+- **Owned children** (translations, `*_info`, composite PK like `(product_id, lang)`): make them a write join on the parent, not a `dbTables` entry. The child FK is auto-filled, and an `upsertKey` on the relation (`{ alias: 'translations', upsertKey: ['productId', 'lang'] }`) lets clients send only the child's own fields: `PUT /rest/product { main, secondaries: { translations: [{ lang: 'en', name: 'Bike' }] } }`. Expose a composite-PK table standalone only when it stands on its own (M:N links).
 - **What a write join runs on the child**: its `insertExclude`, `tenantScope` and `beforeInsert`, then the FK auto-fill, which always wins. Not its `validate` or `afterInsert` (ADR 0014).
 
 ## Computed fields
@@ -292,7 +290,7 @@ All names in a scope are real columns. Naming a camelCase field whose column dif
 | read, get, delete | `AND col IN (...)` | INNER JOIN parent + WHERE | `AND (a IN (...) OR b IN (...))`; NULL never matches; all-NULL row = admin only; outside scope → 404 |
 | insert | single tenant: injected; mismatch → 403; multi-tenant without value → 400. Column is optional in the body | FK must belong to tenant (1 query) → 403 | no injection: at least one listed column must hold a tenant id (400 none, 403 all foreign) |
 | update | column stripped from SET, added to WHERE | pre-check → 404; changing the FK to another tenant → 403 | all listed columns stripped from SET; outside scope → 404 |
-| bulk upsert | injected on every row; `upsertMap` conflict key owned by another tenant → 403 | as insert | anchor rule per item, even for updates; listed columns never in UPDATE SET; conflict with a row outside scope → 403 |
+| bulk upsert | injected on every row; `upsertKey` conflict owned by another tenant → 403 | as insert | anchor rule per item, even for updates; listed columns never in UPDATE SET; conflict with a row outside scope → 403 |
 | joins | filtered | filtered | predicate applied in every join family (joinLeft: in the ON clause) |
 
 `anyOf` children written as secondaries follow the anchor rule: the auto-filled parent FK is not an owner.
@@ -411,7 +409,7 @@ await app.register(async (instance) => {
 Everything is imported from `fastify-auto-sqlapi`, so there is nothing else to install:
 
 - `Type`, `Static`, `ConditionBuilder`, `Expression`, `Nullable`
-- `defineTable`, `buildRelation`, `buildUpsertRule(s)`
+- `defineTable`, `buildRelation`
 - `fastifyAutoSqlApi`, `*Routes`, `agentManifestRoutes`, `setupSwagger`
 - `SqlApi`, `createSqlApi`, `QueryClient`, `createQueryClient`, `pgQueryable`, `mysqlQueryable`
 - `agentToolSchemas`

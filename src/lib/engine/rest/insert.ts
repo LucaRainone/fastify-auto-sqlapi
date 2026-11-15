@@ -33,7 +33,7 @@ export async function insertEngine(params: InsertParams): Promise<InsertResult> 
 
     // 3. Insert main → its PK, and what the statement did to the row
     let written: WrittenRow;
-    const upsertKeys = tableConf.upsertMap?.get(schema);
+    const upsertKeys = tableConf.upsertKey;
     if (upsertKeys) {
       const conflictCols = upsertKeys.map((k) => schema.col(k));
       assertUpsertKeys(schema, conflictCols, [pkCol].flat(), [mainRecord]);

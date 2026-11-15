@@ -44,7 +44,7 @@ function createDbTables(opts = {}) {
       allowedWriteJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
-      ...(opts.upsertMap ? { upsertMap: opts.upsertMap } : {}),
+      ...(opts.upsertKey ? { upsertKey: opts.upsertKey } : {}),
     },
     customer_order: { primary: 'id', schema: orderSchema, defaultOrder: 'id' },
   };
@@ -84,7 +84,7 @@ describe('bulkUpsertEngine - items with different fields', () => {
 
   it('does not overwrite on upsert a column an item omits', async () => {
     const { mockPg, db } = createDb();
-    const dbTables = createDbTables({ upsertMap: new Map([[customerSchema, ['id']]]) });
+    const dbTables = createDbTables({ upsertKey: ['id'] });
 
     await bulkUpsertEngine({
       db, tableConf: dbTables.customer, dbTables: dbTables, request: {},

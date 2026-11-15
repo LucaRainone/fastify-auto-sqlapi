@@ -56,7 +56,16 @@ export interface TableConfig<F extends Record<string, TSchema> = Record<string, 
   computedFields?: Record<string, ComputedFieldFn>;
   allowedReadJoins?: JoinDefinition[];
   allowedWriteJoins?: JoinDefinition[];
-  upsertMap?: Map<SchemaDefinition, string[]>;
+  /**
+   * Upsert the main row on this key: an insert (`POST /rest`, `sqlApi.insert`) and every bulk
+   * upsert item becomes `INSERT … ON CONFLICT (<key>) DO UPDATE`. Fields (camelCase), exactly
+   * the schema's primary key or one of its `uniqueKeys`, checked at startup (ADR 0021).
+   * Absent, those writes are plain INSERTs.
+   *
+   * The main row only: the secondaries a write join carries upsert on the `upsertKey` of that
+   * relation (`buildRelation(…, { upsertKey })`).
+   */
+  upsertKey?: (string & keyof F)[];
   /**
    * Narrow a field's generated type where the DB could only describe it loosely: a column
    * Postgres calls `text` is an email, a UUID, a URL; an `integer` has a range. The generated

@@ -1562,3 +1562,50 @@ Every consumer: the table definitions and the `register()` call. Tables generate
 - `register(fastifyAutoSqlApi, { DbTables: x })` → `{ dbTables: x }`; the same in the options
   passed to the route plugins.
 - `tableConf.Schema` → `tableConf.schema`.
+
+# Breaking Change — the upsert key is `upsertKey`, on the table and on the write relation
+
+## What changed
+
+```ts
+// before
+defineTable({
+  primary: 'id', schema: SchemaProduct,
+  allowedWriteJoins: [buildRelation(SchemaProduct, 'id', SchemaTranslation, 'productId', { alias: 'translations' })],
+  upsertMap: buildUpsertRules(
+    buildUpsertRule(SchemaProduct, ['sku']),
+    buildUpsertRule(SchemaTranslation, ['productId', 'lang']),
+  ),
+});
+
+// after
+defineTable({
+  primary: 'id', schema: SchemaProduct,
+  upsertKey: ['sku'],
+  allowedWriteJoins: [
+    buildRelation(SchemaProduct, 'id', SchemaTranslation, 'productId', { alias: 'translations', upsertKey: ['productId', 'lang'] }),
+  ],
+});
+```
+
+- `upsertKey` on the table: the main row of an insert and every bulk upsert item upsert on it.
+- `upsertKey` on a relation in `allowedWriteJoins`: the secondaries written through it upsert
+  on it. Two relations to the same table can have different keys, and the key no longer
+  depends on which Schema object the relation was built with — `upsertMap` looked rules up by
+  object identity and lost them in silence when the instance differed.
+- The check is unchanged (ADR 0021): exactly the primary key or one of the Schema's
+  `uniqueKeys`, at startup. New: an `upsertKey` on a relation in `allowedReadJoins` throws, and
+  `buildRelation` throws on a key naming a field the joined schema lacks.
+- `defineTable` with `upsertMap` throws naming `upsertKey`. `buildUpsertRule` and
+  `buildUpsertRules` are no longer exported.
+
+## Who is affected
+
+Tables declaring `upsertMap`.
+
+## Migration
+
+- A rule on the table's own Schema → `upsertKey: [...]` on the table.
+- A rule on a write-join child's Schema → `upsertKey: [...]` in the options of that relation's
+  `buildRelation` in `allowedWriteJoins`. When the same relation object is also listed in
+  `allowedReadJoins`, build a separate one for the read side.

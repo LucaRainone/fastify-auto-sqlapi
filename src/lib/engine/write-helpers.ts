@@ -235,7 +235,7 @@ export function processSecondaries(
   pass: WriteJoinPass,
   secondaries: RowsByAlias
 ): Promise<RowsByAlias> {
-  const { db, tableConf, request } = pass;
+  const { db, request } = pass;
 
   return forEachWriteJoin(pass, secondaries, async (records, target, joinDef) => {
     const { joinSchema, joinCol, mainValue, childConf, childTenant } = target;
@@ -270,7 +270,7 @@ export function processSecondaries(
     // the engine just injected is the value being validated.
     await enforceTenantOnWrites(db, childTenant, preparedRecords);
 
-    const upsertKeys = tableConf.upsertMap?.get(joinSchema);
+    const upsertKeys = joinDef.upsertKey;
     let pkRows: Record<string, unknown>[];
 
     if (upsertKeys) {

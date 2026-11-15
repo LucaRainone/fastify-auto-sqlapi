@@ -46,7 +46,7 @@ const dbTables = {
     primary: 'id',
     schema: customerSchema,
     defaultOrder: 'id',
-    upsertMap: new Map([[customerSchema, ['id']]]),
+    upsertKey: ['id'],
     allowedWriteJoins: [
       buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
     ],
@@ -226,7 +226,7 @@ describe(`[${DIALECT}] upsert — an item holding only the conflict keys`, () =>
         primary: 'id',
         schema: tagSchema,
         defaultOrder: 'id',
-        upsertMap: new Map([[tagSchema, ['code']]]),
+        upsertKey: ['code'],
       },
     }, { prefix: '/auto' }));
   });
@@ -309,7 +309,7 @@ describe(`[${DIALECT}] upsert by a natural key — re-sending the payload`, () =
         primary: 'id',
         schema: tagSchema,
         defaultOrder: 'id',
-        upsertMap: new Map([[tagSchema, ['code']]]),
+        upsertKey: ['code'],
       },
     }, { prefix: '/auto' }));
   });

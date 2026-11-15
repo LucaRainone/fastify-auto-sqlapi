@@ -21,7 +21,7 @@ export { pgQueryable } from './lib/adapters/pg-adapter.js';
 export { mysqlQueryable } from './lib/adapters/mysql-adapter.js';
 
 // Table helpers
-export { defineTable, buildRelation, buildUpsertRule, buildUpsertRules } from './lib/table-helpers.js';
+export { defineTable, buildRelation } from './lib/table-helpers.js';
 export type { TableDefinition } from './lib/table-helpers.js';
 export { Nullable } from './lib/nullable.js';
 

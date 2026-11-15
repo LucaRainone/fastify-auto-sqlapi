@@ -53,6 +53,13 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **BREAKING: the upsert key has one place per role, `upsertKey`.** On the table for its main
+  rows (`defineTable({ upsertKey: ['email'] })`: insert and bulk upsert), on the write
+  relation for its secondaries (`buildRelation(…, { upsertKey: ['productId', 'lang'] })`).
+  `upsertMap`, keyed by Schema object identity, is refused by `defineTable` naming the new
+  keys; `buildUpsertRule` and `buildUpsertRules` are no longer exported. The keys are checked
+  at startup as before (ADR 0021); an `upsertKey` on a relation in `allowedReadJoins` throws.
+  See BREAKING_CHANGES.md.
 - **BREAKING: a table config is one flat object, and the plugin option is `dbTables`.**
   `defineTable({ primary, schema, extraFilters, extendedCondition, ... })` replaces the spread
   of `exportTableInfo(Schema, extraFilters, extendedCondition)`, which is no longer exported;

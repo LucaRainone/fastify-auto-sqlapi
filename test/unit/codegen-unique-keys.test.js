@@ -1,5 +1,5 @@
 // The generated Schema records the table's unique keys (ADR 0021): `defineTable` verifies an
-// `upsertMap` rule against them, so an upsert can only target a key the database enforces.
+// `upsertKey` against them, so an upsert can only target a key the database enforces.
 // The property is emitted even when empty — its absence means "generated before unique keys
 // were known", never "this table has none".
 

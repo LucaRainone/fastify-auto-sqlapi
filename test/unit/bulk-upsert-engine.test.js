@@ -55,7 +55,7 @@ function createTestDbTables(mockPg, opts = {}) {
       allowedWriteJoins: opts.allowedWriteJoins ?? [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
-      ...(opts.upsertMap ? { upsertMap: opts.upsertMap } : {}),
+      ...(opts.upsertKey ? { upsertKey: opts.upsertKey } : {}),
       ...(opts.beforeInsert ? { beforeInsert: opts.beforeInsert } : {}),
     },
     customer_order: {
@@ -69,7 +69,7 @@ function createTestDbTables(mockPg, opts = {}) {
   return { dbTables, db: new QueryClient(mockPg), customerSchema, orderSchema };
 }
 
-describe('bulkUpsertEngine - bulk insert (no upsertMap)', () => {
+describe('bulkUpsertEngine - bulk insert (no upsertKey)', () => {
   it('inserts all mains in a single bulkInsert query, returns PK-only', async () => {
     const mockPg = createMockPg([
       // Single bulk insert for both mains (PK-only)
@@ -120,7 +120,7 @@ describe('bulkUpsertEngine - bulk insert (no upsertMap)', () => {
   });
 });
 
-describe('bulkUpsertEngine - bulk upsert with upsertMap', () => {
+describe('bulkUpsertEngine - bulk upsert with upsertKey', () => {
   it('uses bulkInsertOrUpdate with ON CONFLICT', async () => {
     const mockPg = createMockPg([
       { rows: [
@@ -129,7 +129,7 @@ describe('bulkUpsertEngine - bulk upsert with upsertMap', () => {
       ], affectedRows: 2 },
     ]);
     const { dbTables, db, customerSchema } = createTestDbTables(mockPg);
-    dbTables.customer.upsertMap = new Map([[customerSchema, ['email']]]);
+    dbTables.customer.upsertKey = ['email'];
 
     const results = await bulkUpsertEngine({
       db,

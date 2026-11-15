@@ -1,4 +1,4 @@
-// `defineTable` refuses an `upsertMap` rule that is not a unique key the database enforces
+// `defineTable` refuses an `upsertKey` that is not a unique key the database enforces
 // (ADR 0021): on PostgreSQL it would fail every write, on MySQL it would duplicate rows or
 // update a row matched through another key — in silence. The check reads the Schema, so a
 // child table written only through a write join needs no `defineTable` of its own.
@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { ROOT, createMockSchema } from './_harness.js';
 
-const { defineTable, buildRelation, buildUpsertRules, buildUpsertRule } =
+const { defineTable, buildRelation } =
   await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
@@ -31,16 +31,16 @@ const contentInfoSchema = generatedSchema(
   { primaryKey: ['contentId', 'langId'], uniqueKeys: [] },
 );
 
-function tagTable(...rules) {
+function tagTable(keys) {
   return {
     primary: 'id',
     schema: tagSchema,
     defaultOrder: 'id',
-    upsertMap: buildUpsertRules(...rules.map((keys) => buildUpsertRule(tagSchema, keys))),
+    upsertKey: keys,
   };
 }
 
-describe('defineTable - upsertMap names a verified unique key', () => {
+describe('defineTable - upsertKey names a verified unique key', () => {
   it('accepts the primary key', () => {
     assert.doesNotThrow(() => defineTable(tagTable(['id'])));
   });
@@ -56,16 +56,15 @@ describe('defineTable - upsertMap names a verified unique key', () => {
       schema: contentSchema,
       defaultOrder: 'id',
       allowedWriteJoins: [
-        buildRelation(contentSchema, 'id', contentInfoSchema, 'contentId', { alias: 'info' }),
+        buildRelation(contentSchema, 'id', contentInfoSchema, 'contentId', { alias: 'info', upsertKey: ['contentId', 'langId'] }),
       ],
-      upsertMap: buildUpsertRules(buildUpsertRule(contentInfoSchema, ['contentId', 'langId'])),
     }));
   });
 
   it('rejects fields that are no unique key, naming the keys available', () => {
     assert.throws(
       () => defineTable(tagTable(['label'])),
-      (err) => /upsertMap/.test(err.message)
+      (err) => /upsertKey/.test(err.message)
         && /'tag'/.test(err.message)
         && /\(label\)/.test(err.message)
         && /\(id\)/.test(err.message)
@@ -75,11 +74,11 @@ describe('defineTable - upsertMap names a verified unique key', () => {
   });
 
   it('rejects a superset of a unique key', () => {
-    assert.throws(() => defineTable(tagTable(['code', 'label'])), /upsertMap/);
+    assert.throws(() => defineTable(tagTable(['code', 'label'])), /upsertKey/);
   });
 
   it('rejects a subset of a composite unique key', () => {
-    assert.throws(() => defineTable(tagTable(['tenantId'])), /upsertMap/);
+    assert.throws(() => defineTable(tagTable(['tenantId'])), /upsertKey/);
   });
 
   it('rejects a natural key on a Schema generated before unique keys were known', () => {
@@ -89,7 +88,7 @@ describe('defineTable - upsertMap names a verified unique key', () => {
         primary: 'id',
         schema: legacy,
         defaultOrder: 'id',
-        upsertMap: buildUpsertRules(buildUpsertRule(legacy, ['code'])),
+        upsertKey: ['code'],
       }),
       /regenerate/,
     );
@@ -101,7 +100,7 @@ describe('defineTable - upsertMap names a verified unique key', () => {
       primary: 'id',
       schema: legacy,
       defaultOrder: 'id',
-      upsertMap: buildUpsertRules(buildUpsertRule(legacy, ['id'])),
+      upsertKey: ['id'],
     }));
   });
 
@@ -112,7 +111,7 @@ describe('defineTable - upsertMap names a verified unique key', () => {
         primary: 'id',
         schema: handWritten,
         defaultOrder: 'id',
-        upsertMap: buildUpsertRules(buildUpsertRule(handWritten, ['id'])),
+        upsertKey: ['id'],
       }),
       /regenerate/,
     );
@@ -127,7 +126,7 @@ describe('defineTable - upsertMap names a verified unique key', () => {
         primary: 'id',
         schema: view,
         defaultOrder: 'id',
-        upsertMap: buildUpsertRules(buildUpsertRule(view, ['id'])),
+        upsertKey: ['id'],
       }),
       /view/,
     );

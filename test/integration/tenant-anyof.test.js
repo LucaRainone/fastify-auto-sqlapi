@@ -38,7 +38,7 @@ const dbTables = {
     schema: swapSchema,
     defaultOrder: 'id',
     tenantScope: { anyOf: ['requester_agent_id', 'target_agent_id'] },
-    upsertMap: new Map([[swapSchema, ['id']]]),
+    upsertKey: ['id'],
   },
 };
 

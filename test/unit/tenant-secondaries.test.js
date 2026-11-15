@@ -41,7 +41,7 @@ function createTenantDbTables(mockPg, opts = {}) {
       allowedWriteJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
-      ...(opts.upsertMap ? { upsertMap: opts.upsertMap } : {}),
+      ...(opts.upsertKey ? { upsertKey: opts.upsertKey } : {}),
     },
     customer_order: {
       primary: 'id',
@@ -177,7 +177,7 @@ describe('tenant enforcement on secondaries (write joins)', () => {
     ]);
     const { dbTables, db, orderSchema } = createTenantDbTables(mockPg);
     orderSchemaHolder.schema = orderSchema;
-    dbTables.customer.upsertMap = new Map([[orderSchema, ['total']]]);
+    dbTables.customer.allowedWriteJoins[0].upsertKey = ['total'];
 
     await assert.rejects(
       () => insertEngine({
@@ -500,7 +500,7 @@ describe('upserted secondaries are conflict-guarded on every write path', () => 
       { rows: [{ x: 1 }], affectedRows: 1 }, // conflict probe finds a foreign-owned row
     ]);
     const { dbTables, db, orderSchema } = createTenantDbTables(mockPg);
-    dbTables.customer.upsertMap = new Map([[orderSchema, ['total']]]);
+    dbTables.customer.allowedWriteJoins[0].upsertKey = ['total'];
 
     await assert.rejects(
       () => updateEngine({
@@ -523,7 +523,7 @@ describe('upserted secondaries are conflict-guarded on every write path', () => 
       { rows: [{ x: 1 }], affectedRows: 1 },  // conflict probe finds a foreign-owned row
     ]);
     const { dbTables, db, orderSchema } = createTenantDbTables(mockPg);
-    dbTables.customer.upsertMap = new Map([[orderSchema, ['total']]]);
+    dbTables.customer.allowedWriteJoins[0].upsertKey = ['total'];
 
     await assert.rejects(
       () => bulkUpsertEngine({

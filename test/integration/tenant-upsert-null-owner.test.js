@@ -43,7 +43,7 @@ const dbTables = {
     // Conflict on the primary key: it has a real UNIQUE index, so a colliding insert reaches
     // ON CONFLICT (id) DO UPDATE and would genuinely claim/overwrite the existing row unless the
     // ownership probe stops it first.
-    upsertMap: new Map([[customerSchema, ['id']]]),
+    upsertKey: ['id'],
   },
 };
 

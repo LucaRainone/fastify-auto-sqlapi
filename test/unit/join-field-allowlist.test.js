@@ -121,8 +121,8 @@ describe('buildRelation fields — declaration-time checks', () => {
   });
 
   it('rejects fields on a write join', () => {
-    // Write paths look the relation's schema up by identity (upsertMap) and must write
-    // every column the caller sent: a narrowed relation there would silently degrade.
+    // Write paths must write every column the caller sent: a narrowed relation there
+    // would silently drop some.
     const rel = buildRelation(userSchema, 'id', agentSchema, 'userId', {
       alias: 'agents',
       fields: ['id', 'name', 'userId'],

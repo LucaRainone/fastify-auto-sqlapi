@@ -57,7 +57,7 @@ function createTestDbTables(mockPg, opts = {}) {
       allowedWriteJoins: opts.allowedWriteJoins || [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
-      ...(opts.upsertMap ? { upsertMap: opts.upsertMap } : {}),
+      ...(opts.upsertKey ? { upsertKey: opts.upsertKey } : {}),
       ...(opts.validate ? { validate: opts.validate } : {}),
       ...(opts.beforeInsert ? { beforeInsert: opts.beforeInsert } : {}),
       ...(opts.afterInsert ? { afterInsert: opts.afterInsert } : {}),
@@ -479,14 +479,13 @@ describe('insertEngine - secondaries', () => {
 });
 
 describe('insertEngine - upsert', () => {
-  it('uses insertOrUpdate for main when upsertMap matches', async () => {
+  it('uses insertOrUpdate for main when the table has an upsertKey', async () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
     const { dbTables, db, customerSchema } = createTestDbTables(mockPg);
 
-    // Set upsertMap using the same schema instance
-    dbTables.customer.upsertMap = new Map([[customerSchema, ['email']]]);
+    dbTables.customer.upsertKey = ['email'];
 
     await insertEngine({
       db,
@@ -499,15 +498,14 @@ describe('insertEngine - upsert', () => {
     assert.ok(mockPg.calls[0].text.includes('ON CONFLICT'));
   });
 
-  it('uses bulkInsertOrUpdate for secondaries when upsertMap matches', async () => {
+  it('uses bulkInsertOrUpdate for secondaries when the write relation has an upsertKey', async () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }], affectedRows: 1 },
       { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
     const { dbTables, db, orderSchema } = createTestDbTables(mockPg);
 
-    // Set upsertMap using the same schema instance from the join definition
-    dbTables.customer.upsertMap = new Map([[orderSchema, ['customerId', 'status']]]);
+    dbTables.customer.allowedWriteJoins[0].upsertKey = ['customerId', 'status'];
 
     await insertEngine({
       db,
@@ -535,7 +533,7 @@ describe('insertEngine - upsert', () => {
         record.id = 42;
       },
     });
-    dbTables.customer.upsertMap = new Map([[customerSchema, ['email']]]);
+    dbTables.customer.upsertKey = ['email'];
 
     await insertEngine({
       db,

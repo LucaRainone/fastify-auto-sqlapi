@@ -96,18 +96,19 @@ export function defineTable<
   rejectExcludeFromCreation(config as unknown as TableConfig);
   validateTenantScope(config as unknown as TableConfig);
   validateTenantColumnNames(config as unknown as TableConfig);
-  validateUpsertMap(config as unknown as TableConfig);
+  validateUpsertKeys(config as unknown as TableConfig);
   return config;
 }
 
 /**
- * The keys of the pre-1.0 config shape — the spread of `exportTableInfo()` — each with the
- * one that replaced it. Refused rather than ignored: a config still carrying them would run
- * without its schema, or with its `extendedCondition` silently dropped.
+ * The keys of the pre-1.0 config shape, each with what replaced it. Refused rather than
+ * ignored: a config still carrying them would run without its schema, with its
+ * `extendedCondition` dropped, or with its upserts degraded to plain inserts, in silence.
  */
 const RETIRED_CONFIG_KEYS: Record<string, string> = {
   Schema: "'schema'",
   filters: "'extendedCondition' (column filters are built from 'schema')",
+  upsertMap: "'upsertKey' on the table for its main rows, and buildRelation(…, { upsertKey }) for the secondaries of a write join",
 };
 
 /** Throw when a table config is in the pre-1.0 shape or has no schema. `where` names the caller. */
@@ -118,8 +119,7 @@ function assertTableShape(config: TableConfig, where: string): void {
   for (const [key, instead] of Object.entries(RETIRED_CONFIG_KEYS)) {
     if (Object.hasOwn(config, key)) {
       throw new TypeError(
-        `${where}: '${key}' is the pre-1.0 config shape (the spread of exportTableInfo()), ` +
-        `use ${instead}: defineTable({ primary, schema, extraFilters, extendedCondition })`
+        `${where}: '${key}' is the pre-1.0 config shape, use ${instead}`
       );
     }
   }
@@ -258,10 +258,7 @@ function validateTenantColumnNames(config: TableConfig): void {
 
 /**
  * `fields` narrows a relation for reading; it has no meaning on a write join and would be
- * actively harmful there. Write paths resolve the secondary's upsert rule by looking the
- * schema object up in `upsertMap` **by identity**, and a narrowed relation carries a copy —
- * the lookup would miss and the upsert would silently degrade to a plain insert. The
- * narrowed schema would also drop columns the caller legitimately sends.
+ * actively harmful there: the narrowed schema would drop columns the caller legitimately sends.
  */
 function validateWriteJoinsUnrestricted(joins: JoinDefinition[] | undefined): void {
   for (const join of joins ?? []) {
@@ -394,20 +391,45 @@ const sameFieldSet = (a: string[], b: string[]): boolean =>
   a.length === b.length && a.every((f) => b.includes(f));
 
 /**
- * An `upsertMap` rule must name a unique key the database enforces — the Schema's
- * `primaryKey` or one of its `uniqueKeys`, as a set: same fields, any order, nothing extra
- * (ADR 0021). Anything else fails every write on PostgreSQL, and on MySQL duplicates rows or
- * updates a row matched through another key, in silence.
+ * An `upsertKey` must name a unique key the database enforces — the Schema's `primaryKey` or
+ * one of its `uniqueKeys`, as a set: same fields, any order, nothing extra (ADR 0021).
+ * Anything else fails every write on PostgreSQL, and on MySQL duplicates rows or updates a row
+ * matched through another key, in silence.
  *
- * Fail-closed: a rule the Schema cannot vouch for is refused. The Schema is what is read, not
- * a table config, so a child written only through a write join needs no `defineTable`.
+ * Fail-closed: a key the Schema cannot vouch for is refused. The Schema is what is read, not a
+ * table config, so a child written only through a write join needs no `defineTable`.
+ *
+ * A read relation carrying one is refused too: reads never write, and a key that does nothing
+ * where it is declared hides that the write relation lacks it.
  */
-function validateUpsertMap(config: TableConfig): void {
-  for (const [schema, keys] of config.upsertMap ?? []) {
-    const problem = upsertKeyProblem(schema, keys);
+function validateUpsertKeys(config: TableConfig): void {
+  const table = config.schema.tableName;
+  if (config.upsertKey !== undefined) {
+    if (!Array.isArray(config.upsertKey) || !config.upsertKey.length) {
+      throw new TypeError(`defineTable: 'upsertKey' on table '${table}' is a non-empty array of field names`);
+    }
+    const problem = upsertKeyProblem(config.schema, config.upsertKey);
     if (problem) {
       throw new Error(
-        `defineTable: upsertMap rule on '${schema.tableName}' ${formatKey(keys)} ${problem} (ADR 0021).`
+        `defineTable: upsertKey of table '${table}' ${formatKey(config.upsertKey)} ${problem} (ADR 0021).`
+      );
+    }
+  }
+  for (const join of config.allowedWriteJoins ?? []) {
+    if (!join.upsertKey) continue;
+    const problem = upsertKeyProblem(join.joinSchema, join.upsertKey);
+    if (problem) {
+      throw new Error(
+        `defineTable: upsertKey of relation '${join.alias}' on '${join.joinSchema.tableName}' ` +
+        `${formatKey(join.upsertKey)} ${problem} (ADR 0021).`
+      );
+    }
+  }
+  for (const join of config.allowedReadJoins ?? []) {
+    if (join.upsertKey) {
+      throw new Error(
+        `defineTable: relation '${join.alias}' in allowedReadJoins declares 'upsertKey'. Reads ` +
+        `never write — declare it on the relation in allowedWriteJoins, with a separate buildRelation.`
       );
     }
   }
@@ -509,6 +531,13 @@ export interface BuildRelationOptions {
    * join.
    */
   fields?: string[];
+  /**
+   * Upsert the secondaries this relation writes on this key of the joined table (fields):
+   * `INSERT … ON CONFLICT (<key>) DO UPDATE`. Absent, they are plain INSERTs. Must be the
+   * joined schema's primary key or one of its `uniqueKeys` (checked by `defineTable`), and is
+   * for a relation in `allowedWriteJoins` only.
+   */
+  upsertKey?: string[];
 }
 
 /**
@@ -582,6 +611,24 @@ function relationSelect(options: BuildRelationOptions | undefined, joinSchema: S
   return [...select];
 }
 
+/** The relation's `upsertKey`, each entry a field of the joined schema; uniqueness is `defineTable`'s check. */
+function relationUpsertKey(options: BuildRelationOptions | undefined, joinSchema: SchemaDefinition): string[] | undefined {
+  const key = options?.upsertKey;
+  if (key === undefined) return undefined;
+  if (!Array.isArray(key) || !key.length || key.some((f) => typeof f !== 'string')) {
+    throw new TypeError(`buildRelation: 'upsertKey' is a non-empty array of field names on '${joinSchema.tableName}'`);
+  }
+  for (const field of key) {
+    if (!Object.hasOwn(joinSchema.fields, field)) {
+      throw new Error(
+        `buildRelation: 'upsertKey' entry '${field}' is not a field of schema '${joinSchema.tableName}'. ` +
+        `Available: ${Object.keys(joinSchema.fields).join(', ')}.`
+      );
+    }
+  }
+  return [...key];
+}
+
 export function buildRelation<
   M extends Record<string, TSchema>,
   J extends Record<string, TSchema>,
@@ -595,6 +642,7 @@ export function buildRelation<
   const fields = options?.fields;
   const reachable = fields ? narrowSchemaToFields(joinSchema, fields, joinField) : joinSchema;
   const select = relationSelect(options, reachable);
+  const upsertKey = relationUpsertKey(options, joinSchema);
   return {
     joinSchema: reachable,
     joinField,
@@ -604,6 +652,7 @@ export function buildRelation<
     unique: options?.unique ?? false,
     ...(options?.target !== undefined ? { target: options.target } : {}),
     ...(fields ? { fields: [...fields] } : {}),
+    ...(upsertKey ? { upsertKey } : {}),
   };
 }
 
@@ -676,15 +725,3 @@ export function validateDbTables(dbTables: DbTables): void {
   }
 }
 
-export function buildUpsertRule<F extends Record<string, TSchema>>(
-  schema: SchemaDefinition<F>,
-  columns: (string & keyof F)[]
-): [SchemaDefinition, string[]] {
-  return [schema, columns];
-}
-
-export function buildUpsertRules(
-  ...rules: [SchemaDefinition, string[]][]
-): Map<SchemaDefinition, string[]> {
-  return new Map(rules);
-}

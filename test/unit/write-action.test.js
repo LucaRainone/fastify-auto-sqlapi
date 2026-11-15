@@ -9,7 +9,7 @@ import Fastify from 'fastify';
 import path from 'node:path';
 import { ROOT, createMockSchema } from './_harness.js';
 
-const { fastifyAutoSqlApi, defineTable, buildUpsertRules, buildUpsertRule, Type } =
+const { fastifyAutoSqlApi, defineTable, Type } =
   await import(path.join(ROOT, 'dist/index.js'));
 
 const SchemaTag = createMockSchema('tag', {
@@ -54,7 +54,7 @@ async function createApp(tableOverrides, pool) {
   return app;
 }
 
-const upsertByCode = { upsertMap: buildUpsertRules(buildUpsertRule(SchemaTag, ['code'])) };
+const upsertByCode = { upsertKey: ['code'] };
 
 describe('write action — bulk upsert (postgres statement)', () => {
   it('reports inserted/updated per item from the RETURNING flag, and keeps the flag out of main', async () => {

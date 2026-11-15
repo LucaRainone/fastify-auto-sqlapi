@@ -19,8 +19,8 @@ export interface SchemaDefinition<T = Record<string, TSchema>> {
   /**
    * The table's unique keys other than the primary key, each as its fields (camelCase), as
    * introspected from the DB. Set by generated schemas — always, even when empty, so an absent
-   * property means "not known" rather than "none". `defineTable` verifies every `upsertMap`
-   * rule against `primaryKey` and these (ADR 0021).
+   * property means "not known" rather than "none". `defineTable` verifies every `upsertKey`
+   * against `primaryKey` and these (ADR 0021).
    */
   uniqueKeys?: string[][];
   /**

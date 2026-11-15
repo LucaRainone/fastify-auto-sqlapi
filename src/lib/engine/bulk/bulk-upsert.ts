@@ -28,7 +28,7 @@ async function upsertMains(
 ): Promise<WrittenRow[]> {
   const { db, tableConf, tenant } = params;
   const schema = tableConf.schema;
-  const upsertKeys = tableConf.upsertMap?.get(schema);
+  const upsertKeys = tableConf.upsertKey;
 
   if (!upsertKeys) {
     const pkRows = await db.bulkInsert(schema.tableName, preparedMains, pkCol);

@@ -34,7 +34,7 @@ function tagTable(keys) {
       primary: 'id',
       schema: tagSchema,
       defaultOrder: 'id',
-      ...(keys ? { upsertMap: new Map([[tagSchema, keys]]) } : {}),
+      ...(keys ? { upsertKey: keys } : {}),
     },
   };
 }
