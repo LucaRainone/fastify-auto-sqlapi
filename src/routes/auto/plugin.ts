@@ -3,7 +3,12 @@ import type { FastifyInstance, FastifyError } from 'fastify';
 import fp from 'fastify-plugin';
 import { ConditionBuilder } from 'node-condition-builder';
 import { getDialect } from '../../lib/dialect.js';
-import { ensureSqlApiDecorator } from '../sql-api-decorator.js';
+import {
+  createRegistrationSqlApi,
+  ensureSqlApiDecorator,
+  REGISTRATION_SQL_API,
+  type RegistrationOptions,
+} from '../sql-api-decorator.js';
 import { setupSwagger } from '../setup-swagger.js';
 import searchRoutes from './search.routes.js';
 import getRoutes from './get.routes.js';
@@ -77,11 +82,14 @@ export default fp(async function fastifyAutoSqlApi(
   const dialect = getDialect(options.dialect || 'postgres');
   ConditionBuilder.DIALECT = dialect.cbDialect;
 
-  // SqlApi: exposed to parent scope via fp
-  ensureSqlApiDecorator(fastify, options);
+  // This registration's SqlApi: its routes run through it whatever else is registered.
+  // Exposed to the parent scope via fp as `sqlApi`, unless an earlier registration did.
+  const getSqlApi = createRegistrationSqlApi(fastify, options);
+  ensureSqlApiDecorator(fastify, getSqlApi);
 
   // Routes in a child scope — prefix applies here, not at fp level
-  const { prefix, ...routeOptions } = options;
+  const { prefix, ...consumerRouteOptions } = options;
+  const routeOptions: RegistrationOptions = { ...consumerRouteOptions, [REGISTRATION_SQL_API]: getSqlApi };
   await fastify.register(async (instance) => {
     // One envelope for every error, whoever raised it:
     //   { statusCode, error, message, requestId, fields? }

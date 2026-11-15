@@ -1,7 +1,13 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { ensureSqlApiDecorator } from '../sql-api-decorator.js';
+import {
+  createRegistrationSqlApi,
+  ensureSqlApiDecorator,
+  REGISTRATION_SQL_API,
+  type RegistrationOptions,
+} from '../sql-api-decorator.js';
 import { sanitizeRouteError } from '../../lib/errors.js';
 import { validateJoinTargets } from '../../lib/table-helpers.js';
+import type { SqlApi } from '../../lib/sql-api.js';
 import { isCompositePrimary } from '../../types.js';
 import type { TableConfig, SqlApiPluginOptions, DbTables, TableOperation } from '../../types.js';
 
@@ -53,10 +59,10 @@ export interface AutoRouteSpec {
   schemas: (dbTables: DbTables, tableName: string, tableConf: TableConfig) => RouteSchema;
   summary: string;
   description: (tableName: string, tableConf: TableConfig, schemas: RouteSchema) => string;
-  /** Translates the request to a sqlApi call. If it does not call reply.send/status itself,
-   * the registrar will reply.status(successStatus).send(returnValue). */
+  /** Translates the request to a call on this registration's sqlApi. If it does not call
+   * reply.send/status itself, the registrar will reply.status(successStatus).send(returnValue). */
   handle: (
-    fastify: FastifyInstance,
+    sqlApi: SqlApi,
     tableName: string,
     tableConf: TableConfig,
     request: FastifyRequest,
@@ -128,9 +134,13 @@ export async function registerForAllTables(
   options: SqlApiPluginOptions,
   spec: AutoRouteSpec,
 ): Promise<void> {
-  // Granular composition support: when a route plugin is registered without the
-  // main plugin, no ancestor has decorated `sqlApi` — create it in this scope.
-  ensureSqlApiDecorator(fastify, options);
+  // The routes run through the SqlApi of the registration that declared them: the main
+  // plugin's when it registered this route plugin, otherwise one built from these options.
+  const getSqlApi = (options as RegistrationOptions)[REGISTRATION_SQL_API]
+    ?? createRegistrationSqlApi(fastify, options);
+  // Granular composition support: when a route plugin is registered without the main
+  // plugin, no ancestor has decorated `sqlApi` for application code — do it in this scope.
+  ensureSqlApiDecorator(fastify, getSqlApi);
 
   const { DbTables } = options;
   // The decorator is lazy, so this is the first place the configuration is seen as a whole:
@@ -149,7 +159,7 @@ export async function registerForAllTables(
       onRequest: mergeOnRequests(options, tableConf),
       handler: async (request, reply) => {
         try {
-          const result = await spec.handle(fastify, tableName, tableConf, request, reply);
+          const result = await spec.handle(getSqlApi(), tableName, tableConf, request, reply);
           if (!reply.sent) reply.status(spec.successStatus).send(result);
         } catch (err) {
           const safe = sanitizeRouteError(err, request.id, options.exposeDebugInfo);

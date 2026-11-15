@@ -21,9 +21,9 @@ export default async function deleteRoutes(
     }),
     summary: 'Delete',
     description: (name) => `Delete a record from ${name} by primary key`,
-    handle: (fastify, tableName, _tc, request) => {
+    handle: (sqlApi, tableName, _tc, request) => {
       const { id } = request.params as { id: string };
-      return fastify.sqlApi.delete(tableName, id, request);
+      return sqlApi.delete(tableName, id, request);
     },
   });
 }

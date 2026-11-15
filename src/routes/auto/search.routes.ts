@@ -74,7 +74,7 @@ export default async function searchRoutes(
         leftAliases.length && `Available joinLeft aliases: ${leftAliases.join(', ')}`,
       ].filter(Boolean).join('. ');
     },
-    handle: async (fastify, tableName, _tc, request) => {
+    handle: async (sqlApi, tableName, _tc, request) => {
       const body = request.body as SearchBody;
       const query = request.query as SearchQuery;
 
@@ -91,7 +91,7 @@ export default async function searchRoutes(
         ? { page: partialPaginator.page ?? 1, itemsPerPage: partialPaginator.itemsPerPage ?? Math.min(500, maxRows) }
         : undefined;
 
-      const result = await fastify.sqlApi.search(tableName, {
+      const result = await sqlApi.search(tableName, {
         filters: body.filters,
         conditions: body.conditions,
         joinMustExist: body.joinMustExist,

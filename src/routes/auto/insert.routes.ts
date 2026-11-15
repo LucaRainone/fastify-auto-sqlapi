@@ -18,12 +18,12 @@ export default async function insertRoutes(
     }),
     summary: 'Insert',
     description: (name, tc) => buildWriteDescription('Insert a record into', name, tc),
-    handle: (fastify, tableName, _tc, request) => {
+    handle: (sqlApi, tableName, _tc, request) => {
       const body = request.body as {
         main: Record<string, unknown>;
         secondaries?: RowsByAlias;
       };
-      return fastify.sqlApi.insert(tableName, {
+      return sqlApi.insert(tableName, {
         record: body.main,
         secondaries: body.secondaries,
       }, request);

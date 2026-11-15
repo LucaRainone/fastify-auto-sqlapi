@@ -20,9 +20,9 @@ export default async function getRoutes(
     }),
     summary: 'Get',
     description: (name) => `Get a record from ${name} by primary key`,
-    handle: (fastify, tableName, _tc, request) => {
+    handle: (sqlApi, tableName, _tc, request) => {
       const { id } = request.params as { id: string };
-      return fastify.sqlApi.get(tableName, id, request);
+      return sqlApi.get(tableName, id, request);
     },
   });
 }

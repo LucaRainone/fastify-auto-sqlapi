@@ -21,10 +21,10 @@ export default async function bulkDeleteRoutes(
     }),
     summary: 'Bulk delete',
     description: (name) => `Delete multiple records from ${name} by primary key`,
-    handle: (fastify, tableName, tc, request) => {
+    handle: (sqlApi, tableName, tc, request) => {
       const items = request.body as Record<string, unknown>[];
       const ids = items.map((item) => item[primaryAsString(tc.primary)] as string | number);
-      return fastify.sqlApi.bulkDelete(tableName, ids, request);
+      return sqlApi.bulkDelete(tableName, ids, request);
     },
   });
 }

@@ -88,6 +88,15 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Fixed
 
+- **A second registration of the plugin ran its routes with the first one's configuration.**
+  The routes called `fastify.sqlApi`, and that decorator belongs to whichever registration
+  set it first: registering the plugin under two prefixes, or a granular route plugin next to
+  the main one, served the second surface with the first one's `DbTables`, `getTenantId` and
+  table rules. A table only the second declared answered 400 `unknown_table`; one both
+  declared ran with the first one's `readExclude`, `tenantScope` and hooks — a tenant scope
+  declared only on the second surface was not applied. Each registration's routes now run
+  through that registration's own SqlApi. `app.sqlApi`, for application code, is still the
+  first registration's.
 - **A search with `selectComputed` and a JOIN on the main query returned the joined table's
   columns in the main rows** (also fixed in 0.5.1). A filtered or ordered `joinLeft`, or a
   tenant scope with `through`, adds a JOIN to the main statement; the `selectComputed` path

@@ -18,13 +18,13 @@ export default async function updateRoutes(
     }),
     summary: 'Update',
     description: (name, tc) => buildWriteDescription('Update a record in', name, tc),
-    handle: (fastify, tableName, _tc, request) => {
+    handle: (sqlApi, tableName, _tc, request) => {
       const body = request.body as {
         main: Record<string, unknown>;
         secondaries?: RowsByAlias;
         deletions?: RowsByAlias;
       };
-      return fastify.sqlApi.update(tableName, {
+      return sqlApi.update(tableName, {
         record: body.main,
         secondaries: body.secondaries,
         deletions: body.deletions,

@@ -19,9 +19,9 @@ export default async function bulkUpsertRoutes(
     }),
     summary: 'Bulk upsert',
     description: (name, tc) => buildWriteDescription('Bulk upsert records in', name, tc),
-    handle: (fastify, tableName, _tc, request) => {
+    handle: (sqlApi, tableName, _tc, request) => {
       const items = request.body as BulkUpsertItem[];
-      return fastify.sqlApi.bulkUpsert(tableName, items, request);
+      return sqlApi.bulkUpsert(tableName, items, request);
     },
   });
 }
