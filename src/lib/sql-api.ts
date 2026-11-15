@@ -1,7 +1,7 @@
 import type { ApiRequest } from '../types/request.js';
 import { ConditionBuilder } from 'node-condition-builder';
 import { createQueryClient, QueryClient } from './db.js';
-import { getDialect, type DialectName } from './dialect.js';
+import type { DialectName } from './dialect.js';
 import { resolveTenant } from './tenant.js';
 import { validateDbTables } from './table-helpers.js';
 import { httpError } from './errors.js';
@@ -107,6 +107,10 @@ function mainOf(method: 'insert' | 'update', tableName: string, params: { main?:
 // ─── SqlApi class ───────────────────────────────────────────
 
 export interface SqlApiOptions {
+  /**
+   * The dialect of a raw pool, `postgres` by default as in the plugin. Refused beside a
+   * QueryClient, which carries its own: two sources could disagree.
+   */
   dialect?: DialectName;
   /** As on the plugin: a tenant id or several, `TENANT_ADMIN` for no filter, `null`/`undefined` → 401. */
   getTenantId?: GetTenantId;
@@ -120,8 +124,14 @@ export class SqlApi {
     private dbTables: DbTables,
     private options: SqlApiOptions = {}
   ) {
-    // Accept either a QueryClient or a raw Queryable pool
+    // One source for the dialect: the QueryClient's own, or the option for a raw pool.
     if (dbOrPool instanceof QueryClient) {
+      if (options.dialect !== undefined) {
+        throw new TypeError(
+          `createSqlApi: the QueryClient already carries its dialect ('${dbOrPool.dialectName}'), ` +
+          `drop the 'dialect' option — it is for a raw pool only`
+        );
+      }
       this.db = dbOrPool;
     } else {
       this.db = createQueryClient(dbOrPool, options.dialect);
@@ -131,11 +141,9 @@ export class SqlApi {
     // configuration error: fail here, with the table's name, rather than on the first request.
     validateDbTables(dbTables);
 
-    // Set ConditionBuilder dialect (the default of the filter builders)
-    if (options.dialect) {
-      const dialect = getDialect(options.dialect);
-      ConditionBuilder.DIALECT = dialect.cbDialect;
-    }
+    // The global ConditionBuilder dialect, which a builder created without one (in an
+    // `extendedCondition`) uses, follows the dialect the queries run on.
+    ConditionBuilder.DIALECT = this.db.cbDialect;
   }
 
   private getTableConf(tableName: string) {

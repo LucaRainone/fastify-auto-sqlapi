@@ -1677,3 +1677,30 @@ Configs that name fields — what `sqlapi-generate-tables` writes — are unaffe
 
 - A DB column → its camelCase field (`created_at` → `createdAt`).
 - An expression → a computed field, ordered by its name.
+
+# Breaking Change — `createSqlApi` takes the dialect from the QueryClient
+
+## What changed
+
+```ts
+// before: accepted, and the two could disagree
+createSqlApi(createQueryClient(pool, 'mysql'), dbTables, { dialect: 'postgres' });
+
+// after
+createSqlApi(createQueryClient(pool, 'mysql'), dbTables);          // the QueryClient's dialect
+createSqlApi(mysqlPool, dbTables, { dialect: 'mysql' });           // a raw pool: the option
+createSqlApi(pgPool, dbTables);                                    // a raw pool without it: postgres
+```
+
+- With a QueryClient, a `dialect` option throws a TypeError, even when it agrees: the
+  QueryClient is the one source.
+- The global `ConditionBuilder.DIALECT` follows the dialect the SqlApi runs on. Before, only
+  the option set it, so a MySQL QueryClient without the option left it on whatever it was.
+
+## Who is affected
+
+Code passing both a QueryClient and `dialect` to `createSqlApi`.
+
+## Migration
+
+- Drop the `dialect` option when the first argument is a QueryClient.

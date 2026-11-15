@@ -53,6 +53,12 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **BREAKING: `createSqlApi` has one source for its dialect.** A QueryClient carries its own,
+  and a `dialect` option beside it throws a TypeError, even when it agrees; a raw pool takes
+  the option, `postgres` when omitted as in the plugin. The global ConditionBuilder dialect
+  (used by an `extendedCondition` building its own builders) now follows the dialect in
+  effect: it was set from the option only, so a MySQL QueryClient could leave it on postgres.
+  See BREAKING_CHANGES.md.
 - **BREAKING: `defaultOrder` has the grammar of a 1-part `orderBy`.** `field [ASC|DESC]`,
   comma separated, each a schema field or a computed field, checked by `defineTable`: a typo, a
   DB column name (the error names its field), an SQL expression or a dotted notation throws at

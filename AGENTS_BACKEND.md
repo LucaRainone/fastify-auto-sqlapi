@@ -317,9 +317,9 @@ sqlApi.delete(table, id, req?)
 sqlApi.bulkUpsert(table, items, req?) // each item writes only its own fields; items need not share keys
 sqlApi.bulkDelete(table, { ids }, req?) // the POST /bulk/:table/delete body
 
-// Standalone (jobs, scripts, tests). Always pass dialect, default is postgres syntax.
-const sqlApi = createSqlApi(mysqlQueryable(pool), dbTables, { dialect: 'mysql' });
-const sqlApi2 = createSqlApi(createQueryClient(pgQueryable(pgPool), 'postgres'), dbTables, { dialect: 'postgres' });
+// Standalone (jobs, scripts, tests). One source for the dialect:
+const sqlApi = createSqlApi(mysqlQueryable(pool), dbTables, { dialect: 'mysql' }); // raw pool: the option, postgres when omitted
+const sqlApi2 = createSqlApi(createQueryClient(mysqlQueryable(pool), 'mysql'), dbTables); // QueryClient: its own dialect; a `dialect` option beside it throws
 ```
 
 Limits: the engine enforces at most 100 `conditions` per section, 20 `orderBy` parts and an integer `paginator`, for sqlApi too. `maxItemsPerPage` and `maxBulkItems` belong to the routes only: pass `maxRows` to `search`, and cap your own bulk arrays.
