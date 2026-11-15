@@ -48,8 +48,11 @@ export interface AggregationRequest {
   count?: string[];
 }
 
-export interface JoinGroupRequest {
-  aggregations: AggregationRequest;
+/**
+ * One `joinGroup` entry: the optional GROUP BY and the aggregate functions, beside the
+ * filters and conditions that narrow the children first. At least one function is required.
+ */
+export interface JoinGroupRequest extends AggregationRequest {
   filters?: FilterRecord;
   conditions?: SearchCondition[];
 }

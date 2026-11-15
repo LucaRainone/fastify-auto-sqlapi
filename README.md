@@ -32,7 +32,7 @@ spenders first."* No resolver, no query builder, no one-off endpoint:
   "joinGroup": {
     "orders": {
       "filters": { "status": "completed" },
-      "aggregations": { "sum": ["total"], "count": ["id"] }
+      "sum": ["total"], "count": ["id"]
     }
   },
   "conditions": [{ "field": "orders.sum.total", "method": "isGreater", "params": [500] }]

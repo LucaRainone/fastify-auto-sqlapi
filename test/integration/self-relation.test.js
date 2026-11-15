@@ -97,7 +97,7 @@ describe(`[${DIALECT}] self-referencing relation (correlation shadowing regressi
     // fallback and Alice comes first.
     const body = await search(
       `orderBy=${encodeURIComponent('edited.count.id DESC')}&page=1&itemsPerPage=2`,
-      { joinGroup: { edited: { aggregations: { count: ['id'] } } } }
+      { joinGroup: { edited: { count: ['id'] } } }
     );
     assert.deepEqual(body.main.map((c) => c.name), ['Bob', 'Alice']);
   });
@@ -105,7 +105,7 @@ describe(`[${DIALECT}] self-referencing relation (correlation shadowing regressi
   it('aggregation conditions compare the aggregate of the outer row', async () => {
     // Who edited more than one row? Only Bob (2).
     const body = await search('', {
-      joinGroup: { edited: { aggregations: { count: ['id'] } } },
+      joinGroup: { edited: { count: ['id'] } },
       conditions: [{ field: 'edited.count.id', method: 'isGreater', params: [1] }],
     });
     assert.deepEqual(body.main.map((c) => c.name), ['Bob']);

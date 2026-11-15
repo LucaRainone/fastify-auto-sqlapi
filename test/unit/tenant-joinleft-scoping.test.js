@@ -235,7 +235,7 @@ describe('tenant scoping on correlated aggregation subqueries', () => {
     await searchEngine(DbTables, {
       db,
       tableConf: DbTables.customer,
-      joinGroup: { customer_order: { aggregations: { count: ['id'] } } },
+      joinGroup: { customer_order: { count: ['id'] } },
       conditions: [{ field: 'customer_order.count.id', method: 'isGreater', params: [0] }],
       tenant: TENANT,
     });
@@ -254,7 +254,7 @@ describe('tenant scoping on correlated aggregation subqueries', () => {
     await searchEngine(DbTables, {
       db,
       tableConf: DbTables.customer,
-      joinGroup: { customer_order: { aggregations: { sum: ['total'] } } },
+      joinGroup: { customer_order: { sum: ['total'] } },
       orderBy: 'customer_order.sum.total',
       tenant: TENANT,
     });
@@ -273,7 +273,7 @@ describe('tenant scoping on correlated aggregation subqueries', () => {
     await searchEngine(DbTables, {
       db,
       tableConf: DbTables.customer,
-      joinGroup: { customer_order: { aggregations: { count: ['id'] } } },
+      joinGroup: { customer_order: { count: ['id'] } },
       conditions: [{ field: 'customer_order.count.id', method: 'isGreater', params: [0] }],
     });
 

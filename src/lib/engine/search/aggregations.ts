@@ -72,7 +72,7 @@ export function buildAggOrderExpr(
   const groupReq = joinGroup?.[alias];
   if (!groupReq) err400('undeclared_aggregation', at, `orderBy/conditions reference undeclared joinGroup: ${alias}`);
 
-  const declaredFields = (groupReq.aggregations as Record<string, unknown>)[fn];
+  const declaredFields = (groupReq as unknown as Record<string, unknown>)[fn];
   if (!Array.isArray(declaredFields) || !declaredFields.includes(field)) {
     err400('undeclared_aggregation', at, `orderBy/conditions reference undeclared aggregation: ${alias}.${fn}.${field}`);
   }
@@ -80,8 +80,8 @@ export function buildAggOrderExpr(
   const joinDef = requireJoin(tableConf, alias, false, at);
   const { joinSchema, joinField } = joinDef;
 
-  if (groupReq.aggregations.by && groupReq.aggregations.by !== joinField) {
-    err400('invalid_aggregation', at, `Cannot order by aggregation on joinGroup with 'by' clause on non-FK column: ${alias} (grouped by '${groupReq.aggregations.by}', correlation FK is '${joinField}')`);
+  if (groupReq.by && groupReq.by !== joinField) {
+    err400('invalid_aggregation', at, `Cannot order by aggregation on joinGroup with 'by' clause on non-FK column: ${alias} (grouped by '${groupReq.by}', correlation FK is '${joinField}')`);
   }
 
   // Pass the join table's conf: without it validateSchemaField skips the readExclude

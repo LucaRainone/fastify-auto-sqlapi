@@ -190,7 +190,7 @@ describe('buildRelation fields — engine enforcement', () => {
   it('rejects a disallowed field in a joinGroup aggregation', async () => {
     await expect400(
       'user',
-      { joinGroup: { agents: { aggregations: { sum: ['salary'] } } } },
+      { joinGroup: { agents: { sum: ['salary'] } } },
       /salary/
     );
   });

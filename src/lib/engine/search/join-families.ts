@@ -31,7 +31,6 @@ import { resolveJoinTableConf } from '../../table-helpers.js';
 import { dispatchConditionMethod, buildJoinRefCondition } from './conditions.js';
 import { AGG_FN, aggExpr } from './aggregations.js';
 import type {
-  AggregationRequest,
   DbTables,
   FilterRecord,
   TableConfig,
@@ -401,7 +400,7 @@ function buildByExpression(
   if (fn) {
     return evaluateComputedField(
       by, fn, joinSchema, db, undefined,
-      `Computed field '${by}' with bound values cannot be used in aggregations.by`,
+      `Computed field '${by}' with bound values cannot be used in joinGroup by`,
       false, at,
     ).value;
   }
@@ -416,65 +415,72 @@ function buildByExpression(
  * Every field is validated against the join schema here, so an unknown or unreachable one
  * is a 400 regardless of what the data happens to contain.
  */
+const AGG_KINDS = ['distinctCount', 'min', 'max', 'sum', 'avg', 'count'] as const;
+
+/**
+ * SELECT and GROUP BY fragments for one joinGroup alias, plus the column alias → response
+ * position map the rows are shaped with.
+ *
+ * Refuses a request with no aggregate function (a GROUP BY alone computes nothing), and the
+ * pre-1.0 `aggregations` wrapper, which a JavaScript caller can still send: ignoring it would
+ * answer an empty result instead of saying why.
+ */
 function buildJoinGroupSelect(
-  aggregations: AggregationRequest,
+  groupReq: JoinGroupRequest,
   joinSchema: SchemaDefinition,
   joinTableConf: TableConfig | undefined,
   db: QueryClient,
   at: string
-): { selectParts: string[]; groupByParts: string[] } {
+): { selectParts: string[]; groupByParts: string[]; columns: Map<string, [string, string]> } {
+  if ('aggregations' in groupReq) {
+    err400('invalid_aggregation', `${at}.aggregations`,
+      `joinGroup '${at}': 'by' and the aggregate functions go directly in the joinGroup entry, not under 'aggregations'`);
+  }
+  if (!AGG_KINDS.some((kind) => (groupReq[kind]?.length ?? 0) > 0)) {
+    err400('invalid_aggregation', at,
+      `joinGroup '${at}' computes nothing: name at least one of ${AGG_KINDS.join(', ')}`);
+  }
+
   const selectParts: string[] = [];
   const groupByParts: string[] = [];
+  // Column alias → [function, field]: the response is shaped from this map, never by
+  // splitting the alias, so a field name holding `_` survives the round trip.
+  const columns = new Map<string, [string, string]>();
 
-  if (aggregations.by) {
-    const byExpr = buildByExpression(aggregations.by, joinSchema, joinTableConf, db, `${at}.by`);
+  if (groupReq.by) {
+    const byExpr = buildByExpression(groupReq.by, joinSchema, joinTableConf, db, `${at}.by`);
     selectParts.push(`${byExpr} as "by"`);
     groupByParts.push(byExpr);
   }
 
-  const addAgg = (kind: string, fields: string[] | undefined): void => {
-    if (!fields) return;
+  for (const kind of AGG_KINDS) {
     const fn = AGG_FN[kind];
-    for (const [i, f] of fields.entries()) {
+    for (const [i, f] of (groupReq[kind] ?? []).entries()) {
       const col = validateSchemaField(f, joinSchema, joinTableConf, `${at}.${kind}.${i}`);
       const colRef = `${db.qi(joinSchema.tableName)}.${db.qi(col)}`;
-      selectParts.push(`${aggExpr(fn, colRef)} as "${kind}_${f}"`);
+      const colAlias = `${kind}_${f}`;
+      columns.set(colAlias, [kind, f]);
+      selectParts.push(`${aggExpr(fn, colRef)} as "${colAlias}"`);
     }
-  };
-  addAgg('distinctCount', aggregations.distinctCount);
-  addAgg('min', aggregations.min);
-  addAgg('max', aggregations.max);
-  addAgg('sum', aggregations.sum);
-  addAgg('avg', aggregations.avg);
-  addAgg('count', aggregations.count);
+  }
 
-  return { selectParts, groupByParts };
+  return { selectParts, groupByParts, columns };
 }
 
-/**
- * Shape aggregation rows into the response: a single row without `by` collapses to
- * `{ fn: { field: value } }`; anything else stays a list under `rows`.
- */
+/** Shape aggregation rows into the response: `{ by?, <fn>: { <field>: value } }` per row. */
 function formatJoinGroupRows(
   rows: Record<string, unknown>[],
-  hasBy: boolean
-): Record<string, unknown> {
-  const formatted: Record<string, unknown> = {};
-  if (rows.length === 0) return formatted;
-
-  const row = rows.length === 1 && !hasBy ? rows[0] : rows;
-  if (Array.isArray(row)) {
-    formatted.rows = row;
-    return formatted;
-  }
-
-  for (const [key, value] of Object.entries(row)) {
-    if (key === 'by') continue;
-    const [fn, field] = key.split('_');
-    if (!formatted[fn]) formatted[fn] = {};
-    (formatted[fn] as Record<string, unknown>)[field] = value;
-  }
-  return formatted;
+  columns: Map<string, [string, string]>
+): Record<string, unknown>[] {
+  return rows.map((row) => {
+    const out: Record<string, unknown> = {};
+    if ('by' in row) out.by = row.by;
+    for (const [colAlias, [kind, field]] of columns) {
+      if (!out[kind]) out[kind] = {};
+      (out[kind] as Record<string, unknown>)[field] = row[colAlias];
+    }
+    return out;
+  });
 }
 
 export async function executeJoinGroup(
@@ -495,14 +501,14 @@ export async function executeJoinGroup(
 
     const ids = collectIds(mainResults, mainField);
 
-    const { aggregations, filters: groupFilters, conditions: groupConditions } = groupReq;
-    const { selectParts, groupByParts } = buildJoinGroupSelect(
-      aggregations, joinSchema, joinTableConf, db, `${at}.aggregations`
+    const { filters: groupFilters, conditions: groupConditions } = groupReq;
+    const { selectParts, groupByParts, columns } = buildJoinGroupSelect(
+      groupReq, joinSchema, joinTableConf, db, at
     );
 
     // Bail out only here: `by` and every aggregation field have now been validated.
-    if (selectParts.length === 0 || ids.length === 0) {
-      result[alias] = {};
+    if (ids.length === 0) {
+      result[alias] = { rows: [] };
       continue;
     }
 
@@ -518,7 +524,7 @@ export async function executeJoinGroup(
 
     const queryResult = await db.query(sql, values);
 
-    result[alias] = formatJoinGroupRows(queryResult.rows, Boolean(aggregations.by));
+    result[alias] = { rows: formatJoinGroupRows(queryResult.rows, columns) };
   }
 
   return result;

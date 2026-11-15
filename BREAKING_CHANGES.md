@@ -1319,3 +1319,48 @@ await app.sqlApi.bulkDelete('agent', [7, 8], req);
 fetch('/api/bulk/agent/delete', { method: 'POST', body: JSON.stringify({ ids: [7, 8] }) });
 await app.sqlApi.bulkDelete('agent', { ids: [7, 8] }, req);
 ```
+
+# Breaking Change — `joinGroup` has one request and one response shape
+
+*Landing in the release after 0.6.0.*
+
+## Why this changed
+
+The response changed shape with `by`: `{ sum: { total } }` without it, `rows: [{ by, sum_total }]`
+with it — and `sum_total` was snake_case in a camelCase API, unlike the `alias.sum.total` a
+client writes in `orderBy`. The request wrapped the functions in an `aggregations` object
+nothing else used.
+
+## What changed
+
+```jsonc
+// request — before
+"joinGroup": { "orders": { "aggregations": { "by": "status", "sum": ["total"] }, "filters": { … } } }
+// request — after
+"joinGroup": { "orders": { "by": "status", "sum": ["total"], "filters": { … } } }
+
+// response without by — before / after
+"joinGroup": { "orders": { "sum": { "total": 150 } } }
+"joinGroup": { "orders": { "rows": [{ "sum": { "total": 150 } }] } }
+
+// response with by — before / after
+"joinGroup": { "orders": { "rows": [{ "by": "pending", "sum_total": 100 }] } }
+"joinGroup": { "orders": { "rows": [{ "by": "pending", "sum": { "total": 100 } }] } }
+```
+
+- No main rows: `{ rows: [] }` instead of `{}`.
+- The `aggregations` wrapper is a 400 (`invalid_aggregation` at `joinGroup.<alias>.aggregations`),
+  not an empty result. A joinGroup with no aggregate function is a 400 at `joinGroup.<alias>`.
+- Error paths lose the `aggregations` segment: `joinGroup.<alias>.by`, `joinGroup.<alias>.sum.0`.
+- `orderBy` and conditions on `alias.fn.field` are unchanged.
+
+## Who is affected
+
+Clients sending `joinGroup` and reading `result.joinGroup`, and `sqlApi.search` callers doing
+the same. Type `JoinGroupRequest` now extends `AggregationRequest` instead of wrapping it.
+
+## Migration
+
+Move the content of `aggregations` up one level. Read every result from `rows`: without `by`,
+`result.joinGroup.orders.sum.total` becomes `result.joinGroup.orders.rows[0].sum.total`; with
+`by`, `row.sum_total` becomes `row.sum.total`.

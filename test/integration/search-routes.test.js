@@ -202,7 +202,7 @@ describe(`[${DIALECT}] search routes integration`, () => {
         filters: { name: 'Mario Rossi' },
         joinGroup: {
           customer_order: {
-            aggregations: { sum: ['total'] },
+            sum: ['total'],
           },
         },
       },
@@ -211,7 +211,7 @@ describe(`[${DIALECT}] search routes integration`, () => {
     assert.equal(res.statusCode, 200);
     const body = JSON.parse(res.payload);
     assert.ok(body.joinGroup.customer_order);
-    assert.ok(body.joinGroup.customer_order.sum);
+    assert.ok(body.joinGroup.customer_order.rows[0].sum);
   });
 
   it('search on customer_order table', async () => {

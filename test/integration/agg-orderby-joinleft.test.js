@@ -71,7 +71,7 @@ const DbTables = {
 
 // Every request combines the two bound fragments; orderBy varies per test.
 const combinedBody = {
-  joinGroup: { orders: { aggregations: { sum: ['total'] }, filters: { status: 'pending' } } },
+  joinGroup: { orders: { sum: ['total'], filters: { status: 'pending' } } },
   joinLeft: { org: { filters: { name: 'Acme' } } },
 };
 

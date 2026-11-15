@@ -122,9 +122,7 @@ Content-Type: application/json
 {
   "joinGroups": {
     "customer_order": {
-      "aggregations": {
-        "sum": ["total"]
-      }
+      "sum": ["total"]
     }
   }
 }
@@ -136,11 +134,9 @@ Content-Type: application/json
 {
   "joinGroups": {
     "customer_order": {
-      "aggregations": {
-        "sum": ["total"],
-        "min": ["total"],
-        "max": ["total"]
-      }
+      "sum": ["total"],
+      "min": ["total"],
+      "max": ["total"]
     }
   }
 }
@@ -152,9 +148,7 @@ Content-Type: application/json
 {
   "joinGroups": {
     "customer_order": {
-      "aggregations": {
-        "distinctCount": ["status"]
-      }
+      "distinctCount": ["status"]
     }
   }
 }
@@ -166,10 +160,8 @@ Content-Type: application/json
 {
   "joinGroups": {
     "customer_order": {
-      "aggregations": {
-        "by": "status",
-        "sum": ["total"]
-      }
+      "by": "status",
+      "sum": ["total"]
     }
   }
 }
@@ -181,10 +173,8 @@ Content-Type: application/json
 {
   "joinGroups": {
     "customer_order": {
-      "aggregations": {
-        "sum": ["total"],
-        "max": ["total"]
-      },
+      "sum": ["total"],
+      "max": ["total"],
       "filters": {
         "status": "completed"
       }
@@ -207,12 +197,10 @@ Content-Type: application/json
   },
   "joinGroups": {
     "customer_order": {
-      "aggregations": {
-        "sum": ["total"],
-        "min": ["total"],
-        "max": ["total"],
-        "distinctCount": ["status"]
-      }
+      "sum": ["total"],
+      "min": ["total"],
+      "max": ["total"],
+      "distinctCount": ["status"]
     }
   }
 }

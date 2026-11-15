@@ -47,7 +47,8 @@ Everything travels in the body; all keys are optional and combinable, `{}` retur
   },
   "joinGroup": { // aggregates child rows of the returned main rows
     "orders": {
-      "aggregations": { "by": "status", "sum": ["total"], "min": ["total"], "max": ["total"], "avg": ["total"], "count": ["id"], "distinctCount": ["status"] }, // by: optional GROUP BY (field or computed)
+      "by": "status", // optional GROUP BY (field or computed)
+      "sum": ["total"], "min": ["total"], "max": ["total"], "avg": ["total"], "count": ["id"], "distinctCount": ["status"], // at least one
       "filters": { "status": "active" }, "conditions": [] // narrow children before aggregating
     }
   },
@@ -64,10 +65,9 @@ Response; each section is present only if requested:
   "table": "customer",
   "main": [{ "id": 1, "name": "Mario", "creatorId": 7, "displayName": "..." }],
   "joinMultiple": { "orders": [{ "id": 10, "customerId": 1, "total": 50 }] }, // flat list for all mains: group client-side by FK
-  "joinGroup": { "orders": {
-    "sum": { "total": 150 }, // no "by": ONE total over the children of ALL returned mains
-    "rows": [{ "by": "pending", "sum_total": 100 }] // with "by": one row per group; by = FK field gives per-main values
-  }},
+  "joinGroup": { "orders": { "rows": [ // always rows, [] when no main matched
+    { "by": "pending", "sum": { "total": 100 }, "count": { "id": 2 } } // with "by": one row per group; by = FK field gives per-main values
+  ]}}, // without "by": ONE row, no "by", over the children of ALL returned mains
   "joinLeft": { "creator": [{ "id": 7, "name": "Alice" }] }, // deduplicated: match main.creatorId === creator.id
   "pagination": { // only when page or itemsPerPage is sent
     "total": 25, "pages": 3,
@@ -136,7 +136,7 @@ Every error has one shape. `error` is the HTTP reason phrase; `requestId` is the
 ```
 
 - 400 always carries `fields`, whether the request failed the schema, the backend's business validation or the engine. Map `fields[].path` to form fields; when `fields` is empty, show `message`.
-  - `path` is the dot path of the offending value in the request: body keys from the root (`main.name`, `secondaries.orders.0.total`, `filters.status`, `conditions.2.params`, `joinGroup.orders.aggregations.by`, `joinMultiple.orders.selection`), querystring and path parameters by name (`orderBy`, `itemsPerPage`, `id`). `""` when the error is not attributable to one input.
+  - `path` is the dot path of the offending value in the request: body keys from the root (`main.name`, `secondaries.orders.0.total`, `filters.status`, `conditions.2.params`, `joinGroup.orders.by`, `joinMultiple.orders.selection`), querystring and path parameters by name (`orderBy`, `itemsPerPage`, `id`). `""` when the error is not attributable to one input.
   - `code` is stable: an Ajv keyword (`required`, `type`, `maximum`, `additionalProperties`, `enum`…), a code the backend chose in its own validation, or an engine code: `unknown_field`, `not_readable`, `unknown_alias`, `wrong_join_family`, `invalid_method`, `invalid_params`, `invalid_order_by`, `invalid_paginator`, `invalid_aggregation`, `undeclared_aggregation`, `bound_values_not_allowed`, `extra_filter_not_allowed`, `limit_exceeded`, `conflicting_input`, `missing_key`, `duplicate_key`, `ambiguous_tenant`. The engine's `message` repeats the field's.
 - 403: tenant violation. 404: record not found, or outside your tenant. No `fields`, except a mapped DB error (below).
 - 500: DB errors (e.g. constraint violations): `message` is fixed, the detail is in the server log under `requestId`. The backend may answer some of them with another status instead (typically 409 on a duplicate): same envelope, plus `fields: [{ path: "", code }]` with a backend-chosen code to translate.

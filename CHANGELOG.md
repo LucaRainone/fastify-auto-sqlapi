@@ -55,6 +55,15 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **BREAKING: `joinGroup` has one request and one response shape.** The request names `by`
+  and the aggregate functions directly in the alias entry, beside `filters`/`conditions`; the
+  `aggregations` wrapper is gone and is a 400 at `joinGroup.<alias>.aggregations`. The
+  response is always `{ rows: [...] }`, one row per group or a single row without `by`, with
+  the aggregates nested as in the dotted notation: `{ by, sum: { total } }` instead of
+  `{ sum: { total } }` without `by` and `rows: [{ by, sum_total }]` with it. No main rows gives
+  `rows: []` instead of `{}`. A joinGroup with no aggregate function is a 400. Error paths drop
+  the `aggregations` segment (`joinGroup.<alias>.by`, `joinGroup.<alias>.sum.0`). See
+  BREAKING_CHANGES.md.
 - **BREAKING: a bulk delete takes `{ ids: [...] }`, over HTTP and in `sqlApi.bulkDelete`.**
   `POST /bulk/:table/delete` took an array of `{ <pk field>: value }` objects, so a client had
   to know each table's PK name to delete, and `sqlApi.bulkDelete` took a bare array: the same

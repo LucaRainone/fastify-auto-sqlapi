@@ -107,7 +107,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
       url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
       payload: {
         joinGroup: {
-          customer_order: { aggregations: { sum: ['total'] } },
+          customer_order: { sum: ['total'] },
         },
       },
     });
@@ -126,7 +126,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
       url: '/auto/search/customer?orderBy=customer_order.sum.total%20ASC',
       payload: {
         joinGroup: {
-          customer_order: { aggregations: { sum: ['total'] } },
+          customer_order: { sum: ['total'] },
         },
       },
     });
@@ -145,7 +145,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
       url: '/auto/search/customer?orderBy=customer_order.avg.total%20DESC',
       payload: {
         joinGroup: {
-          customer_order: { aggregations: { avg: ['total'] } },
+          customer_order: { avg: ['total'] },
         },
       },
     });
@@ -162,7 +162,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
       url: '/auto/search/customer?orderBy=customer_order.count.id%20DESC',
       payload: {
         joinGroup: {
-          customer_order: { aggregations: { count: ['id'] } },
+          customer_order: { count: ['id'] },
         },
       },
     });
@@ -187,7 +187,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
         payload: {
           joinGroup: {
             customer_order: {
-              aggregations: { sum: ['total'] },
+              sum: ['total'],
               filters: { status: 'completed' },
             },
           },
@@ -220,7 +220,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
         url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC,%20name%20ASC',
         payload: {
           joinGroup: {
-            customer_order: { aggregations: { sum: ['total'] } },
+            customer_order: { sum: ['total'] },
           },
         },
       });
@@ -242,7 +242,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
       url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC&page=1&itemsPerPage=2',
       payload: {
         joinGroup: {
-          customer_order: { aggregations: { sum: ['total'] } },
+          customer_order: { sum: ['total'] },
         },
       },
     });
@@ -261,7 +261,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
       url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
       payload: {
         joinGroup: {
-          customer_order: { aggregations: { sum: ['total'] } },
+          customer_order: { sum: ['total'] },
         },
       },
     });
@@ -271,7 +271,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
     assert.equal(body.main[0].name, 'Mario Rossi');
     assert.ok(body.joinGroup);
     assert.ok(body.joinGroup.customer_order);
-    assert.ok(body.joinGroup.customer_order.sum);
+    assert.ok(body.joinGroup.customer_order.rows[0].sum);
   });
 
   it('rejects orderBy with undeclared joinGroup (400)', async () => {
@@ -292,7 +292,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
       url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
       payload: {
         joinGroup: {
-          customer_order: { aggregations: { sum: ['id'] } },
+          customer_order: { sum: ['id'] },
         },
       },
     });
@@ -308,7 +308,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
       url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
       payload: {
         joinGroup: {
-          customer_order: { aggregations: { sum: ['total'], by: 'status' } },
+          customer_order: { sum: ['total'], by: 'status' },
         },
       },
     });
@@ -328,7 +328,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
           { field: 'customer_order.count.id', method: 'isGreaterOrEqual', params: [2] },
         ],
         joinGroup: {
-          customer_order: { aggregations: { count: ['id'] } },
+          customer_order: { count: ['id'] },
         },
       },
     });
@@ -350,7 +350,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
           { field: 'customer_order.sum.total', method: 'isGreater', params: [0] },
         ],
         joinGroup: {
-          customer_order: { aggregations: { sum: ['total'] } },
+          customer_order: { sum: ['total'] },
         },
       },
     });
@@ -378,7 +378,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
           ],
           joinGroup: {
             customer_order: {
-              aggregations: { sum: ['total'] },
+              sum: ['total'],
               filters: { status: 'completed' },
             },
           },
@@ -404,7 +404,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
           { field: 'customer_order.count.id', method: 'isGreater', params: [0] },
         ],
         joinGroup: {
-          customer_order: { aggregations: { sum: ['total'], count: ['id'] } },
+          customer_order: { sum: ['total'], count: ['id'] },
         },
       },
     });
@@ -443,7 +443,7 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
       payload: {
         joinGroup: {
           customer_order: {
-            aggregations: { count: ['id'], by: 'customerId' },
+            count: ['id'], by: 'customerId',
           },
         },
       },
@@ -519,7 +519,7 @@ describe(`[${DIALECT}] search orderBy agg with multi-tenant (FK scoping)`, () =>
       headers: { 'x-tenant-id': '1' },
       payload: {
         joinGroup: {
-          customer_order: { aggregations: { sum: ['total'] } },
+          customer_order: { sum: ['total'] },
         },
       },
     });
@@ -539,7 +539,7 @@ describe(`[${DIALECT}] search orderBy agg with multi-tenant (FK scoping)`, () =>
       headers: { 'x-tenant-id': '2' },
       payload: {
         joinGroup: {
-          customer_order: { aggregations: { sum: ['total'] } },
+          customer_order: { sum: ['total'] },
         },
       },
     });
@@ -614,7 +614,7 @@ describe(`[${DIALECT}] joinGroup with computed-by (date bucketing)`, () => {
       payload: {
         joinGroup: {
           customer_order: {
-            aggregations: { by: 'monthBucket', sum: ['total'] },
+            by: 'monthBucket', sum: ['total'],
           },
         },
       },
@@ -626,7 +626,7 @@ describe(`[${DIALECT}] joinGroup with computed-by (date bucketing)`, () => {
     assert.ok(Array.isArray(rows));
     assert.equal(rows.length, 3);
 
-    const byMonth = Object.fromEntries(rows.map((r) => [String(r.by).slice(0, 10), Number(r.sum_total)]));
+    const byMonth = Object.fromEntries(rows.map((r) => [String(r.by).slice(0, 10), Number(r.sum.total)]));
     assert.equal(byMonth['2026-01-01'], 150);
     assert.equal(byMonth['2026-02-01'], 200);
     assert.equal(byMonth['2026-04-01'], 75);
@@ -639,7 +639,7 @@ describe(`[${DIALECT}] joinGroup with computed-by (date bucketing)`, () => {
       payload: {
         joinGroup: {
           customer_order: {
-            aggregations: { by: 'yearBucket', count: ['id'] },
+            by: 'yearBucket', count: ['id'],
           },
         },
       },
@@ -650,7 +650,7 @@ describe(`[${DIALECT}] joinGroup with computed-by (date bucketing)`, () => {
     const rows = body.joinGroup.customer_order.rows;
     assert.equal(rows.length, 1);
     assert.equal(String(rows[0].by).slice(0, 10), '2026-01-01');
-    assert.equal(Number(rows[0].count_id), 4);
+    assert.equal(Number(rows[0].count.id), 4);
   });
 
   it('rejects unknown by name with 400', async () => {
@@ -660,7 +660,7 @@ describe(`[${DIALECT}] joinGroup with computed-by (date bucketing)`, () => {
       payload: {
         joinGroup: {
           customer_order: {
-            aggregations: { by: 'bogus', count: ['id'] },
+            by: 'bogus', count: ['id'],
           },
         },
       },
@@ -708,7 +708,7 @@ describe(`[${DIALECT}] joinGroup min/max/avg over a main row without children`, 
   for (const direction of ['ASC', 'DESC']) {
     it(`orders by max of a text column ${direction}, the childless row placed as the database places NULL`, async () => {
       const names = await search(`/auto/search/customer?orderBy=customer_order.max.status%20${direction}`, {
-        joinGroup: { customer_order: { aggregations: { by: 'customerId', max: ['status'] } } },
+        joinGroup: { customer_order: { by: 'customerId', max: ['status'] } },
       });
       const withChildren = ['Luigi Verdi', 'Mario Rossi'];
       assert.deepEqual(names, withChildless(direction === 'ASC' ? withChildren : withChildren.reverse(), direction));
@@ -716,7 +716,7 @@ describe(`[${DIALECT}] joinGroup min/max/avg over a main row without children`, 
 
     it(`orders by max of a date column ${direction}, the childless row placed as the database places NULL`, async () => {
       const names = await search(`/auto/search/customer?orderBy=customer_order.max.orderDate%20${direction}`, {
-        joinGroup: { customer_order: { aggregations: { max: ['orderDate'] } } },
+        joinGroup: { customer_order: { max: ['orderDate'] } },
       });
       const withChildren = ['Luigi Verdi', 'Mario Rossi'];
       assert.deepEqual(names, withChildless(direction === 'ASC' ? withChildren : withChildren.reverse(), direction));
@@ -725,7 +725,7 @@ describe(`[${DIALECT}] joinGroup min/max/avg over a main row without children`, 
 
   it('orders by min of a numeric column without inventing a 0 for the childless row', async () => {
     const names = await search('/auto/search/customer?orderBy=customer_order.min.total%20ASC', {
-      joinGroup: { customer_order: { aggregations: { min: ['total'] } } },
+      joinGroup: { customer_order: { min: ['total'] } },
     });
     assert.deepEqual(names, withChildless(['Luigi Verdi', 'Mario Rossi'], 'ASC'));
   });
@@ -733,7 +733,7 @@ describe(`[${DIALECT}] joinGroup min/max/avg over a main row without children`, 
   it('a HAVING-style condition on min of a numeric column does not match the childless row as 0', async () => {
     const names = await search('/auto/search/customer', {
       conditions: [{ field: 'customer_order.min.total', method: 'isLess', params: [10] }],
-      joinGroup: { customer_order: { aggregations: { min: ['total'] } } },
+      joinGroup: { customer_order: { min: ['total'] } },
     });
     assert.deepEqual(names, []);
   });
@@ -741,7 +741,7 @@ describe(`[${DIALECT}] joinGroup min/max/avg over a main row without children`, 
   it('a HAVING-style isNull on avg matches exactly the childless row', async () => {
     const names = await search('/auto/search/customer', {
       conditions: [{ field: 'customer_order.avg.total', method: 'isNull', params: [] }],
-      joinGroup: { customer_order: { aggregations: { avg: ['total'] } } },
+      joinGroup: { customer_order: { avg: ['total'] } },
     });
     assert.deepEqual(names, ['Anna Bianchi']);
   });
@@ -749,7 +749,7 @@ describe(`[${DIALECT}] joinGroup min/max/avg over a main row without children`, 
   it('a HAVING-style condition on max of a date column compares dates, not a 0', async () => {
     const names = await search('/auto/search/customer', {
       conditions: [{ field: 'customer_order.max.orderDate', method: 'isLess', params: ['2026-03-01'] }],
-      joinGroup: { customer_order: { aggregations: { max: ['orderDate'] } } },
+      joinGroup: { customer_order: { max: ['orderDate'] } },
     });
     assert.deepEqual(names, ['Luigi Verdi']);
   });
@@ -758,13 +758,13 @@ describe(`[${DIALECT}] joinGroup min/max/avg over a main row without children`, 
     for (const [fn, field] of [['count', 'id'], ['distinctCount', 'status'], ['sum', 'total']]) {
       const names = await search('/auto/search/customer', {
         conditions: [{ field: `customer_order.${fn}.${field}`, method: 'isEqual', params: [0] }],
-        joinGroup: { customer_order: { aggregations: { [fn]: [field] } } },
+        joinGroup: { customer_order: { [fn]: [field] } },
       });
       assert.deepEqual(names, ['Anna Bianchi'], `${fn} without rows`);
     }
 
     const names = await search('/auto/search/customer?orderBy=customer_order.count.id%20ASC', {
-      joinGroup: { customer_order: { aggregations: { count: ['id'] } } },
+      joinGroup: { customer_order: { count: ['id'] } },
     });
     assert.deepEqual(names, ['Anna Bianchi', 'Luigi Verdi', 'Mario Rossi']);
   });

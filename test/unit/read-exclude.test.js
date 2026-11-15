@@ -209,7 +209,7 @@ describe('readExclude - joined tables', () => {
       () => searchEngine(DbTables, {
         db: new QueryClient(mockPg),
         tableConf: DbTables.team,
-        joinGroup: { player: { aggregations: { sum: ['hiddenPotential'] } } },
+        joinGroup: { player: { sum: ['hiddenPotential'] } },
       }),
       (err) => err.statusCode === 400 && /hiddenPotential/.test(err.message)
     );
@@ -225,7 +225,7 @@ describe('readExclude - joined tables', () => {
       () => searchEngine(DbTables, {
         db: new QueryClient(mockPg),
         tableConf: DbTables.team,
-        joinGroup: { player: { aggregations: { by: 'hiddenPotential', count: ['id'] } } },
+        joinGroup: { player: { by: 'hiddenPotential', count: ['id'] } },
       }),
       (err) => err.statusCode === 400 && /hiddenPotential/.test(err.message)
     );
@@ -245,7 +245,7 @@ describe('readExclude - joined tables', () => {
         db: new QueryClient(mockPg),
         tableConf: DbTables.team,
         conditions: [{ field: 'player.sum.hiddenPotential', method: 'isGreater', params: [100] }],
-        joinGroup: { player: { aggregations: { sum: ['hiddenPotential'] } } },
+        joinGroup: { player: { sum: ['hiddenPotential'] } },
       }),
       (err) => err.statusCode === 400 && /hiddenPotential/.test(err.message)
     );
@@ -259,7 +259,7 @@ describe('readExclude - joined tables', () => {
         db: new QueryClient(createMockPg([{ rows: [], affectedRows: 0 }])),
         tableConf: DbTables.team,
         orderBy: 'player.sum.hiddenPotential DESC',
-        joinGroup: { player: { aggregations: { sum: ['hiddenPotential'] } } },
+        joinGroup: { player: { sum: ['hiddenPotential'] } },
       }),
       (err) => err.statusCode === 400 && /hiddenPotential/.test(err.message)
     );

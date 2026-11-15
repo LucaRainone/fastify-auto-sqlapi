@@ -283,7 +283,7 @@ describe('afterRead follows a join', () => {
     await searchEngine(DbTables, {
       db,
       tableConf: DbTables.customer,
-      joinGroup: { customer_order: { aggregations: { sum: ['total'] } } },
+      joinGroup: { customer_order: { sum: ['total'] } },
     });
 
     assert.equal(calls.length, 0);

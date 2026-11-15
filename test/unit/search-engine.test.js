@@ -704,7 +704,7 @@ describe('searchEngine - joinGroup', () => {
       tableConf: DbTables.customer,
       joinGroup: {
         customer_order: {
-          aggregations: { sum: ['total'] },
+          sum: ['total'],
         },
       },
     });
@@ -727,7 +727,7 @@ describe('searchEngine - joinGroup', () => {
       tableConf: DbTables.customer,
       joinGroup: {
         customer_order: {
-          aggregations: { by: 'status', sum: ['total'] },
+          by: 'status', sum: ['total'],
         },
       },
     });
@@ -773,7 +773,7 @@ describe('searchEngine - joinGroup', () => {
       tableConf: DbTables.customer,
       joinGroup: {
         customer_order: {
-          aggregations: { by: 'monthBucket', sum: ['total'] },
+          by: 'monthBucket', sum: ['total'],
         },
       },
     });
@@ -797,7 +797,7 @@ describe('searchEngine - joinGroup', () => {
         tableConf: DbTables.customer,
         joinGroup: {
           customer_order: {
-            aggregations: { by: 'bogus', sum: ['total'] },
+            by: 'bogus', sum: ['total'],
           },
         },
       }),

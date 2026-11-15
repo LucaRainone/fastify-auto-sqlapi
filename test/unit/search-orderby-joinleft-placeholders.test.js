@@ -60,7 +60,7 @@ for (const dialect of DIALECTS) {
         joinLeft: { org: { filters: { name: 'acme' } } }, // LEFT JOIN filter
         orderBy: 'session.sum.duration DESC',
         joinGroup: {
-          session: { aggregations: { sum: ['duration'] }, filters: { status: 'completed' } }, // agg subquery filter
+          session: { sum: ['duration'], filters: { status: 'completed' } }, // agg subquery filter
         },
       });
 
@@ -97,7 +97,7 @@ for (const dialect of DIALECTS) {
         tableConf: DbTables.user,
         filters: { active: true },
         orderBy: 'session.sum.duration DESC',
-        joinGroup: { session: { aggregations: { sum: ['duration'] }, filters: { status: 'done' } } },
+        joinGroup: { session: { sum: ['duration'], filters: { status: 'done' } } },
       });
 
       const call = mockPg.calls[0];

@@ -222,7 +222,7 @@ allowedReadJoins: [
 
 ## Computed fields
 
-A computed field is a SQL expression usable like a field in `filters`, `conditions`, `orderBy`, `computeMin/Max/Sum/Avg` and `joinGroup.aggregations.by`. It is projected only when requested through `selectComputed`.
+A computed field is a SQL expression usable like a field in `filters`, `conditions`, `orderBy`, `computeMin/Max/Sum/Avg` and `joinGroup.<alias>.by`. It is projected only when requested through `selectComputed`.
 
 ```ts
 computedFields: {
@@ -248,7 +248,7 @@ computedFields: {
 
 - Computed fields are per table: a join's side query uses the target table's computed fields. On joinLeft, `qiCol` adds the alias automatically.
 - A name that collides with a schema field or an extra filter throws in `defineTable`.
-- Bound `values` work in WHERE and ORDER BY positions. They are rejected (400) in `selectComputed`, `compute`, `aggregations.by` and `defaultOrder`.
+- Bound `values` work in WHERE and ORDER BY positions. They are rejected (400) in `selectComputed`, `compute`, joinGroup `by` and `defaultOrder`.
 - Limits: read-only (not writable), no computed field referencing another, not usable as a joinGroup aggregation field (`sum: [...]` takes schema fields). The expression is evaluated once per use.
 
 ## afterRead

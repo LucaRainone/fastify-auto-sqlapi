@@ -166,7 +166,7 @@ describe('anyOf scope across an aggregation subquery', () => {
     await searchEngine(DbTables, {
       db,
       tableConf: DbTables.shift,
-      joinGroup: { swap: { aggregations: { count: ['id'] } } },
+      joinGroup: { swap: { count: ['id'] } },
       conditions: [{ field: 'swap.count.id', method: 'isGreater', params: [0] }],
       tenant: TENANT,
     });
@@ -187,7 +187,7 @@ describe('anyOf scope across an aggregation subquery', () => {
     await searchEngine(DbTables, {
       db,
       tableConf: DbTables.shift,
-      joinGroup: { swap: { aggregations: { count: ['id'] } } },
+      joinGroup: { swap: { count: ['id'] } },
       tenant: TENANT,
     });
 

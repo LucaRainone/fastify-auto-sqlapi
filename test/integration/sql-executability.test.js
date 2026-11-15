@@ -136,10 +136,10 @@ const SHAPES = [
   ['joinMustExist + outer filter', 'customer', { filters: { name: 'Mario' }, joinMustExist: { orders: { filters: { status: 'pending' } } } }],
   ['joinMustExist + computed both sides', 'customer', { filters: { tier: 'vip' }, joinMustExist: { orders: { filters: { bigOrder: 1 } } } }],
 
-  ['joinGroup sum', 'customer', { joinGroup: { orders: { aggregations: { sum: ['total'] } } } }],
-  ['joinGroup by', 'customer', { joinGroup: { orders: { aggregations: { by: 'status', sum: ['total'], count: ['id'] } } } }],
-  ['joinGroup + filter', 'customer', { joinGroup: { orders: { aggregations: { sum: ['total'] }, filters: { status: 'pending' } } } }],
-  ['joinGroup + computed filter', 'customer', { joinGroup: { orders: { aggregations: { sum: ['total'] }, filters: { bigOrder: 1 } } } }],
+  ['joinGroup sum', 'customer', { joinGroup: { orders: { sum: ['total'] } } }],
+  ['joinGroup by', 'customer', { joinGroup: { orders: { by: 'status', sum: ['total'], count: ['id'] } } }],
+  ['joinGroup + filter', 'customer', { joinGroup: { orders: { sum: ['total'], filters: { status: 'pending' } } } }],
+  ['joinGroup + computed filter', 'customer', { joinGroup: { orders: { sum: ['total'], filters: { bigOrder: 1 } } } }],
 
   ['joinLeft', 'customer_order', { joinLeft: { buyer: {} } }],
   ['joinLeft + parent filter', 'customer_order', { joinLeft: { buyer: { filters: { name: 'Mario' } } } }],
@@ -149,12 +149,12 @@ const SHAPES = [
   ['joinLeft + outer filter + orderBy', 'customer_order', { filters: { status: 'pending' }, joinLeft: { buyer: { filters: { name: 'Mario' } } }, orderBy: 'buyer.name DESC' }],
 
   ['aggregation orderBy (3-part)', 'customer', {
-    joinGroup: { orders: { aggregations: { sum: ['total'] } } },
+    joinGroup: { orders: { sum: ['total'] } },
     orderBy: 'orders.sum.total DESC',
   }],
   ['aggregation orderBy + filtered joinLeft-free', 'customer', {
     filters: { name: 'Mario' },
-    joinGroup: { orders: { aggregations: { sum: ['total'] } } },
+    joinGroup: { orders: { sum: ['total'] } },
     orderBy: 'orders.sum.total DESC',
   }],
 
@@ -163,7 +163,7 @@ const SHAPES = [
     conditions: [{ field: 'id', method: 'isGreater', params: [0] }],
     joinMustExist: { orders: { filters: { status: 'pending' } } },
     joinMultiple: { orders: { filters: { bigOrder: 1 } } },
-    joinGroup: { orders: { aggregations: { by: 'status', sum: ['total'] } } },
+    joinGroup: { orders: { by: 'status', sum: ['total'] } },
     orderBy: 'tier DESC, name ASC',
     paginator: { page: 1, itemsPerPage: 5 },
     computeMin: 'id',

@@ -12,7 +12,7 @@ existing concept makes search fail and the concept get built twice.
 | Target | The `dbTables` key whose table config governs a relation's joined table; required when that table sits under several keys. (not: joinConf, childConf in config) |
 | `joinMustExist` | Child→main 1:N filter via EXISTS; never returns child rows. |
 | `joinMultiple` | Child→main 1:N side query; child rows land in `result.joinMultiple.<alias>`. |
-| `joinGroup` | Child→main 1:N aggregations in `result.joinGroup.<alias>`. |
+| `joinGroup` | Child→main 1:N aggregations: `by` and the functions in the request, `result.joinGroup.<alias>.rows` (`{ by?, <fn>: { <field> } }`) in the response. |
 | `joinLeft` | Parent→main N:1 real LEFT JOIN; needs `unique: true` on the relation. |
 | Main | The principal row of a write request: `main` in the HTTP body, in `sqlApi.insert`/`update` and in `validate`. (not: record, in a request) |
 | Record | One row a hook is writing: `record` in `beforeInsert`/`beforeUpdate`/`afterInsert`/`afterUpdate`. A main row or a secondary of another table alike. (not: main, in a hook) |

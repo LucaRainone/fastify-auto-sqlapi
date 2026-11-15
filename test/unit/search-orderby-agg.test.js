@@ -77,7 +77,7 @@ describe('orderBy - aggregation on joinGroup', () => {
       tableConf: DbTables.user,
       orderBy: 'session.sum.duration DESC',
       joinGroup: {
-        session: { aggregations: { sum: ['duration'] } },
+        session: { sum: ['duration'] },
       },
     });
 
@@ -115,7 +115,7 @@ describe('orderBy - aggregation on joinGroup', () => {
       tableConf: DbTables.user,
       orderBy: 'session.sum.duration DESC, name ASC',
       joinGroup: {
-        session: { aggregations: { sum: ['duration'] } },
+        session: { sum: ['duration'] },
       },
     });
 
@@ -142,7 +142,7 @@ describe('orderBy - aggregation on joinGroup', () => {
       orderBy: 'session.sum.duration DESC',
       joinGroup: {
         session: {
-          aggregations: { sum: ['duration'] },
+          sum: ['duration'],
           filters: { status: 'completed' },
         },
       },
@@ -167,7 +167,7 @@ describe('orderBy - aggregation on joinGroup', () => {
       db,
       tableConf: DbTables.user,
       orderBy: 'session.avg.duration DESC',
-      joinGroup: { session: { aggregations: { avg: ['duration'] } } },
+      joinGroup: { session: { avg: ['duration'] } },
     });
 
     assert.ok(mockPg.calls[0].text.includes('AVG("session"."duration")'));
@@ -184,7 +184,7 @@ describe('orderBy - aggregation on joinGroup', () => {
       db,
       tableConf: DbTables.user,
       orderBy: 'session.count.id DESC',
-      joinGroup: { session: { aggregations: { count: ['id'] } } },
+      joinGroup: { session: { count: ['id'] } },
     });
 
     assert.ok(mockPg.calls[0].text.includes('COUNT("session"."id")'));
@@ -201,7 +201,7 @@ describe('orderBy - aggregation on joinGroup', () => {
       db,
       tableConf: DbTables.user,
       orderBy: 'session.distinctCount.status DESC',
-      joinGroup: { session: { aggregations: { distinctCount: ['status'] } } },
+      joinGroup: { session: { distinctCount: ['status'] } },
     });
 
     assert.ok(mockPg.calls[0].text.includes('COUNT(DISTINCT "session"."status")'));
@@ -236,7 +236,7 @@ describe('orderBy - aggregation on joinGroup', () => {
         tableConf: DbTables.user,
         orderBy: 'session.sum.duration DESC',
         joinGroup: {
-          session: { aggregations: { sum: ['id'] } }, // duration not listed
+          session: { sum: ['id'] }, // duration not listed
         },
       }),
       (err) => {
@@ -257,7 +257,7 @@ describe('orderBy - aggregation on joinGroup', () => {
         tableConf: DbTables.user,
         orderBy: 'session.sum.duration DESC',
         joinGroup: {
-          session: { aggregations: { sum: ['duration'], by: 'status' } },
+          session: { sum: ['duration'], by: 'status' },
         },
       }),
       (err) => {
@@ -282,7 +282,7 @@ describe('orderBy - aggregation on joinGroup', () => {
       tableConf: DbTables.user,
       orderBy: 'session.count.id DESC',
       joinGroup: {
-        session: { aggregations: { count: ['id'], by: 'userId' } },
+        session: { count: ['id'], by: 'userId' },
       },
     });
 
@@ -304,7 +304,7 @@ describe('orderBy - aggregation on joinGroup', () => {
         db,
         tableConf: DbTables.user,
         orderBy: 'unknown_table.sum.foo DESC',
-        joinGroup: { unknown_table: { aggregations: { sum: ['foo'] } } },
+        joinGroup: { unknown_table: { sum: ['foo'] } },
       }),
       (err) => {
         assert.equal(err.statusCode, 400);
@@ -323,7 +323,7 @@ describe('orderBy - aggregation on joinGroup', () => {
         db,
         tableConf: DbTables.user,
         orderBy: 'session.bogus.duration DESC',
-        joinGroup: { session: { aggregations: { sum: ['duration'] } } },
+        joinGroup: { session: { sum: ['duration'] } },
       }),
       (err) => {
         assert.equal(err.statusCode, 400);
@@ -345,7 +345,7 @@ describe('orderBy - aggregation on joinGroup', () => {
         db,
         tableConf: DbTables.user,
         orderBy: 'session.sum.bogus DESC',
-        joinGroup: { session: { aggregations: { sum: ['bogus'] } } },
+        joinGroup: { session: { sum: ['bogus'] } },
       }),
       (err) => {
         assert.equal(err.statusCode, 400);
@@ -364,7 +364,7 @@ describe('orderBy - aggregation on joinGroup', () => {
         db,
         tableConf: DbTables.user,
         orderBy: 'session.sum.duration DESC',
-        joinGroup: { session: { aggregations: { sum: ['duration'] } } },
+        joinGroup: { session: { sum: ['duration'] } },
       }),
       (err) => {
         assert.equal(err.statusCode, 400);
@@ -385,7 +385,7 @@ describe('orderBy - aggregation on joinGroup', () => {
       db,
       tableConf: DbTables.user,
       orderBy: 'session.sum.duration DESC',
-      joinGroup: { session: { aggregations: { sum: ['duration'] } } },
+      joinGroup: { session: { sum: ['duration'] } },
     });
 
     // joinGroup still populated in response
@@ -410,7 +410,7 @@ describe('conditions - aggregation on joinGroup (HAVING-style)', () => {
         { field: 'session.count.id', method: 'isEqual', params: [4] },
       ],
       joinGroup: {
-        session: { aggregations: { count: ['id'] } },
+        session: { count: ['id'] },
       },
     });
 
@@ -435,7 +435,7 @@ describe('conditions - aggregation on joinGroup (HAVING-style)', () => {
       ],
     // Declare the joinGroup so the dotted condition is allowed
       joinGroup: {
-        session: { aggregations: { count: ['id'] } },
+        session: { count: ['id'] },
       },
     });
 
@@ -459,7 +459,7 @@ describe('conditions - aggregation on joinGroup (HAVING-style)', () => {
       ],
       joinGroup: {
         session: {
-          aggregations: { count: ['id'] },
+          count: ['id'],
           filters: { status: 'active' },
         },
       },
@@ -483,7 +483,7 @@ describe('conditions - aggregation on joinGroup (HAVING-style)', () => {
         { field: 'session.sum.duration', method: 'isBetween', params: [100, 500] },
       ],
       joinGroup: {
-        session: { aggregations: { sum: ['duration'] } },
+        session: { sum: ['duration'] },
       },
     });
 
@@ -503,7 +503,7 @@ describe('conditions - aggregation on joinGroup (HAVING-style)', () => {
         { field: 'session.count.id', method: 'isIn', params: [[1, 3, 5]] },
       ],
       joinGroup: {
-        session: { aggregations: { count: ['id'] } },
+        session: { count: ['id'] },
       },
     });
 
@@ -544,7 +544,7 @@ describe('conditions - aggregation on joinGroup (HAVING-style)', () => {
           { field: 'session.count.id', method: 'raw', params: [] },
         ],
         joinGroup: {
-          session: { aggregations: { count: ['id'] } },
+          session: { count: ['id'] },
         },
       }),
       (err) => {
@@ -567,13 +567,13 @@ describe('executeJoinGroups - avg and count', () => {
     const result = await searchEngine(DbTables, {
       db,
       tableConf: DbTables.user,
-      joinGroup: { session: { aggregations: { avg: ['duration'] } } },
+      joinGroup: { session: { avg: ['duration'] } },
     });
 
     const groupSql = mockPg.calls[1].text;
     assert.ok(groupSql.includes('AVG("session"."duration")'));
-    assert.ok(result.joinGroup.session.avg);
-    assert.equal(result.joinGroup.session.avg.duration, 150);
+    assert.ok(result.joinGroup.session.rows[0].avg);
+    assert.equal(result.joinGroup.session.rows[0].avg.duration, 150);
   });
 
   it('handles count aggregation', async () => {
@@ -586,11 +586,11 @@ describe('executeJoinGroups - avg and count', () => {
     const result = await searchEngine(DbTables, {
       db,
       tableConf: DbTables.user,
-      joinGroup: { session: { aggregations: { count: ['id'] } } },
+      joinGroup: { session: { count: ['id'] } },
     });
 
     const groupSql = mockPg.calls[1].text;
     assert.ok(groupSql.includes('COUNT("session"."id")'));
-    assert.equal(result.joinGroup.session.count.id, 5);
+    assert.equal(result.joinGroup.session.rows[0].count.id, 5);
   });
 });

@@ -117,15 +117,13 @@ function buildJoinBodyProps(
       selection: Type.Optional(SelectionSchema),
     });
     props.joinGroup[alias] = Type.Object({
-      aggregations: Type.Object({
-        by: Type.Optional(Type.String()),
-        distinctCount: Type.Optional(Type.Array(Type.String())),
-        min: Type.Optional(Type.Array(Type.String())),
-        max: Type.Optional(Type.Array(Type.String())),
-        sum: Type.Optional(Type.Array(Type.String())),
-        avg: Type.Optional(Type.Array(Type.String())),
-        count: Type.Optional(Type.Array(Type.String())),
-      }),
+      by: Type.Optional(Type.String()),
+      distinctCount: Type.Optional(Type.Array(Type.String())),
+      min: Type.Optional(Type.Array(Type.String())),
+      max: Type.Optional(Type.Array(Type.String())),
+      sum: Type.Optional(Type.Array(Type.String())),
+      avg: Type.Optional(Type.Array(Type.String())),
+      count: Type.Optional(Type.Array(Type.String())),
       filters: Type.Optional(filtersObject(joinFilterFields)),
       conditions: Type.Optional(Type.Array(conditionItemSchema, { maxItems: MAX_CONDITIONS })),
     });
@@ -160,14 +158,21 @@ function buildJoinResponseProps(dbTables: DbTables, tableConf: TableConfig): {
   return { joinMultipleProps, joinLeftProps, joinGroupProps };
 }
 
+/**
+ * One joinGroup alias in the response: always `rows`, one per group (a single row without
+ * `by`), each carrying `by` when grouped and the aggregates nested by function, as in the
+ * dotted notation `alias.fn.field`.
+ */
 const JoinGroupResultItem = Type.Object({
-  sum: Type.Optional(Type.Record(Type.String(), Type.Any())),
-  min: Type.Optional(Type.Record(Type.String(), Type.Any())),
-  max: Type.Optional(Type.Record(Type.String(), Type.Any())),
-  avg: Type.Optional(Type.Record(Type.String(), Type.Any())),
-  count: Type.Optional(Type.Record(Type.String(), Type.Any())),
-  distinctCount: Type.Optional(Type.Record(Type.String(), Type.Any())),
-  rows: Type.Optional(Type.Array(Type.Any())),
+  rows: Type.Array(Type.Object({
+    by: Type.Optional(Type.Any()),
+    sum: Type.Optional(Type.Record(Type.String(), Type.Any())),
+    min: Type.Optional(Type.Record(Type.String(), Type.Any())),
+    max: Type.Optional(Type.Record(Type.String(), Type.Any())),
+    avg: Type.Optional(Type.Record(Type.String(), Type.Any())),
+    count: Type.Optional(Type.Record(Type.String(), Type.Any())),
+    distinctCount: Type.Optional(Type.Record(Type.String(), Type.Any())),
+  })),
 });
 
 export function SearchTableBodyPost(
