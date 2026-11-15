@@ -53,6 +53,12 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **BREAKING: `defaultOrder` has the grammar of a 1-part `orderBy`.** `field [ASC|DESC]`,
+  comma separated, each a schema field or a computed field, checked by `defineTable`: a typo, a
+  DB column name (the error names its field), an SQL expression or a dotted notation throws at
+  startup instead of reaching the SQL as written. An expression is declared in `computedFields`
+  and ordered by name. A config written by hand past `defineTable` fails the search rather than
+  running the token. See BREAKING_CHANGES.md.
 - **BREAKING: `readJoins` / `writeJoins`.** The relation lists of a table config are named after
   what they grant, like `operations`: `allowedReadJoins` is `readJoins`, `allowedWriteJoins` is
   `writeJoins`. Same semantics and checks; the old keys throw at startup (`defineTable`, and

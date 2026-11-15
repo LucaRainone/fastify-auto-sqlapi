@@ -118,7 +118,7 @@ export const TableCustomer = defineTable({
   },
   // Unknown filter keys (not a field, extra filter or computed) are 400, on main and every join, over HTTP and sqlApi alike.
 
-  defaultOrder: 'name ASC, id DESC', // fields mapped to columns; computed allowed; unknown tokens pass as raw SQL
+  defaultOrder: 'name ASC, id DESC', // the 1-part orderBy grammar: schema or computed fields, ASC|DESC. No dotted notation, no SQL (an expression → computedFields). Checked at startup
   distinctResults: true, // SELECT DISTINCT
   operations: ['search', 'get'], // HTTP route whitelist. OMITTED = ALL ROUTES (default-open). Does not restrict sqlApi.* nor joins pointing at this table.
   onRequests: [async (req, reply) => { // per-table hooks, after the global ones

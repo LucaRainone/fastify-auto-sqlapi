@@ -4,8 +4,8 @@
  *   2-part  `alias.field`        a joinLeft parent field, via a real LEFT JOIN
  *   3-part  `alias.fn.field`     a joinGroup aggregation, via a correlated subquery
  *
- * The request `orderBy` is validated strictly; `defaultOrder` from the table config is
- * deliberately lenient — see `convertConfiguredOrder`.
+ * The request `orderBy` is validated here per request; `defaultOrder` from the table config has
+ * the 1-part grammar only, checked by `defineTable` — see `convertConfiguredOrder`.
  */
 import type { QueryClient } from '../../db.js';
 import {
@@ -17,7 +17,7 @@ import {
   evaluateComputedField,
 } from './fields.js';
 import { requireJoin } from './joins.js';
-import { resolveJoinTableConf } from '../../table-helpers.js';
+import { resolveJoinTableConf, PLAIN_ORDER_TERM, defaultOrderTermProblem, defaultOrderError } from '../../table-helpers.js';
 import { hasOwnField, ownField } from '../../read-access.js';
 import { buildAggOrderExpr } from './aggregations.js';
 import type { DbTables, TableConfig, JoinGroupRequest, TenantContext } from '../../../types.js';
@@ -99,7 +99,7 @@ export function validateOrderBy(
     }
 
     // 1-part: <field> [ASC|DESC] — schema field or computed
-    const plain = /^(\w+)(?:\s+(ASC|DESC))?$/i.exec(trimmed);
+    const plain = PLAIN_ORDER_TERM.exec(trimmed);
     if (!plain) {
       err400('invalid_order_by', 'orderBy', `Invalid orderBy: ${trimmed}`);
     }
@@ -117,11 +117,10 @@ export function validateOrderBy(
 }
 
 /**
- * Converts a configured order (`defaultOrder` or the primary-key fallback) to SQL.
- * Unlike the request `orderBy` (strictly validated by `validateOrderBy`), this is
- * lenient for backward compatibility: tokens matching a camelCase schema field are
- * mapped to their quoted DB column, computed fields (without bound values) expand
- * to their expression, and anything else passes through unchanged as raw SQL.
+ * Converts a configured order (`defaultOrder` or the primary-key fallback) to SQL: each
+ * `field [ASC|DESC]` term becomes the table-qualified column, or the expression of a computed
+ * field (without bound values). `defineTable` has already refused anything else; a config
+ * written by hand past it fails here, as a programming error, rather than reaching the SQL.
  */
 export function convertConfiguredOrder(
   order: string,
@@ -131,24 +130,19 @@ export function convertConfiguredOrder(
   return order
     .split(',')
     .map((part) => {
-      const trimmed = part.trim();
-      const match = /^(\w+)(?:\s+(ASC|DESC))?$/i.exec(trimmed);
-      if (match) {
-        const [, field, dir] = match;
-        const suffix = dir ? ` ${dir.toUpperCase()}` : '';
-        if (hasOwnField(tableConf.schema.fields, field)) {
-          return `${db.qi(tableConf.schema.tableName)}.${db.qi(tableConf.schema.col(field))}${suffix}`;
-        }
-        const computed = ownField(tableConf.computedFields, field);
-        if (computed) {
-          const ev = evaluateComputedField(
-            field, computed, tableConf.schema, db, undefined,
-            `Computed field '${field}' with bound values cannot be used in defaultOrder`,
-          );
-          return `${ev.value}${suffix}`;
-        }
+      const term = part.trim();
+      const problem = defaultOrderTermProblem(term, tableConf);
+      if (problem) throw defaultOrderError('search', term, tableConf, problem);
+      const [, field, dir] = PLAIN_ORDER_TERM.exec(term) as RegExpExecArray;
+      const suffix = dir ? ` ${dir.toUpperCase()}` : '';
+      if (hasOwnField(tableConf.schema.fields, field)) {
+        return `${db.qi(tableConf.schema.tableName)}.${db.qi(tableConf.schema.col(field))}${suffix}`;
       }
-      return trimmed;
+      const ev = evaluateComputedField(
+        field, ownField(tableConf.computedFields, field)!, tableConf.schema, db, undefined,
+        `Computed field '${field}' with bound values cannot be used in defaultOrder`,
+      );
+      return `${ev.value}${suffix}`;
     })
     .join(', ');
 }

@@ -1644,3 +1644,36 @@ Every table declaring relations.
 
 - `allowedReadJoins` → `readJoins`, `allowedWriteJoins` → `writeJoins`, a plain rename. The
   earlier sections of this file show the old names in their examples.
+
+# Breaking Change — `defaultOrder` has the grammar of `orderBy`, never raw SQL
+
+## What changed
+
+```ts
+// before: an unknown token reached the SQL as written
+defaultOrder: 'created_at DESC'      // a DB column name
+defaultOrder: 'LOWER(name), id'      // an SQL expression
+defaultOrder: 'nmae'                 // a typo → a 500 on every search
+
+// after: field [ASC|DESC], comma separated, checked at startup
+defaultOrder: 'createdAt DESC'
+defaultOrder: 'nameLower, id'        // computedFields: { nameLower: ({ qiCol }) => ({ expr: `LOWER(${qiCol('name')})`, values: [], type: Type.String() }) }
+```
+
+- Each term is a schema field or a computed field, with an optional `ASC`/`DESC`: the grammar
+  of a 1-part request `orderBy`. `defineTable` throws on anything else, naming the term — for a
+  DB column name, the field it maps to.
+- The dotted notations (`alias.field`, `alias.fn.field`) stay request-only: the default applies
+  to requests that carry no join.
+- A config written by hand, not through `defineTable`, fails the search with the same message
+  instead of running the token.
+
+## Who is affected
+
+Tables whose `defaultOrder` names DB columns instead of fields, or carries an SQL expression.
+Configs that name fields — what `sqlapi-generate-tables` writes — are unaffected.
+
+## Migration
+
+- A DB column → its camelCase field (`created_at` → `createdAt`).
+- An expression → a computed field, ordered by its name.

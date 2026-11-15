@@ -71,19 +71,6 @@ describe('searchEngine - defaultOrder camelCase mapping', () => {
     );
   });
 
-  it('passes raw SQL fragments through unchanged (backward compatibility)', async () => {
-    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const dbTables = createDbTables({ defaultOrder: 'created_at DESC' });
-
-    await searchEngine(dbTables, {
-      db: new QueryClient(mockPg),
-      tableConf: dbTables.article,
-    });
-
-    const sql = mockPg.calls[0].text;
-    assert.ok(sql.includes('ORDER BY created_at DESC'), `expected raw passthrough in: ${sql}`);
-  });
-
   it('maps the camelCase primary-key fallback when defaultOrder is absent', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
     const schema = createMockSchema('squad_member', {

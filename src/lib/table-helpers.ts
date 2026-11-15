@@ -97,7 +97,56 @@ export function defineTable<
   validateTenantScope(config as unknown as TableConfig);
   validateTenantColumnNames(config as unknown as TableConfig);
   validateUpsertKeys(config as unknown as TableConfig);
+  validateDefaultOrder(config as unknown as TableConfig);
   return config;
+}
+
+/** One term of an order string in its 1-part form: `field [ASC|DESC]`. */
+export const PLAIN_ORDER_TERM = /^(\w+)(?:\s+(ASC|DESC))?$/i;
+
+/**
+ * Why one term of a `defaultOrder` is not valid on `tableConf`, or null when it is a schema
+ * field or a computed field with an optional direction — the grammar of a 1-part request
+ * `orderBy`. The dotted notations stay request-only: the default applies to requests that carry
+ * no join. Nothing else is accepted, since nothing reaches the SQL as written: an expression is
+ * declared as a computed field and ordered by its name.
+ */
+export function defaultOrderTermProblem(term: string, tableConf: TableConfig): string | null {
+  if (!term) return 'the term is empty';
+  if (/^\w+(\.\w+)+(\s+\w+)?$/.test(term)) {
+    return 'a dotted notation is for a request orderBy only: the default applies to requests without joins';
+  }
+  const plain = PLAIN_ORDER_TERM.exec(term);
+  if (!plain) {
+    return "the grammar is 'field [ASC|DESC]': declare an expression in computedFields and order by its name";
+  }
+  const name = plain[1];
+  const { schema } = tableConf;
+  if (hasOwnField(schema.fields, name) || hasOwnField(tableConf.computedFields, name)) return null;
+  const owner = Object.keys(schema.fields).find((f) => schema.col(f) === name);
+  if (owner) return `'${name}' is the DB column of field '${owner}': defaultOrder names fields, write '${owner}'`;
+  return `'${name}' is not a field or computed field of the table`;
+}
+
+/** The error for a `defaultOrder` term `defaultOrderTermProblem` refused; `where` names the caller. */
+export function defaultOrderError(where: string, term: string, tableConf: TableConfig, problem: string): Error {
+  return new Error(`${where}: defaultOrder term '${term}' on table '${tableConf.schema.tableName}': ${problem}`);
+}
+
+function validateDefaultOrder(config: TableConfig): void {
+  const order = config.defaultOrder as unknown;
+  if (order === undefined) return;
+  if (typeof order !== 'string' || !order.trim()) {
+    throw new TypeError(
+      `defineTable: defaultOrder on table '${config.schema.tableName}' is a non-empty string, ` +
+      `e.g. 'createdAt DESC, id'`
+    );
+  }
+  for (const part of order.split(',')) {
+    const term = part.trim();
+    const problem = defaultOrderTermProblem(term, config);
+    if (problem) throw defaultOrderError('defineTable', term, config, problem);
+  }
 }
 
 /**

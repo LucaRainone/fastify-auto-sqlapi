@@ -1,5 +1,5 @@
 import type { QueryClient } from '../../db.js';
-import { buildTableFilters } from '../../table-helpers.js';
+import { buildTableFilters, PLAIN_ORDER_TERM } from '../../table-helpers.js';
 import { ConditionBuilder } from 'node-condition-builder';
 import { QueryParams } from '../query-params.js';
 import { buildTenantCondition, buildTenantJoin } from '../../tenant.js';
@@ -88,8 +88,8 @@ async function executeMainQuery(
   maxRows?: number
 ): Promise<Record<string, unknown>[]> {
   const tableName = tableConf.schema.tableName;
-  // Request orderBy arrives already validated and mapped by validateOrderBy;
-  // configured fallbacks (defaultOrder / primary key) are converted leniently here.
+  // Request orderBy arrives already validated and mapped by validateOrderBy; the configured
+  // fallbacks (defaultOrder / primary key) are converted here, with the same 1-part grammar.
   const order = orderBy || convertConfiguredOrder(
     tableConf.defaultOrder || primaryAsString(tableConf.primary), tableConf, db
   );
@@ -172,7 +172,7 @@ function requiredProjection(params: SearchParams): string[] {
   if (tableConf.distinctResults) {
     const order = orderBy || tableConf.defaultOrder || primaryAsString(tableConf.primary);
     for (const part of order.split(',')) {
-      const plain = /^(\w+)(?:\s+(?:ASC|DESC))?$/i.exec(part.trim());
+      const plain = PLAIN_ORDER_TERM.exec(part.trim());
       if (plain && hasOwnField(tableConf.schema.fields, plain[1])) required.push(plain[1]);
     }
   }
