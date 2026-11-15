@@ -53,6 +53,13 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **BREAKING: `validate` and `validateBulk` return `{ path, code }` objects.** The same shape
+  as the `fields` of the 400, with `message` mirroring the code: a hook writes no prose, the
+  client translates the code. The pre-1.0 tuples (`[path, code, message?]`), an object with a
+  `message`, a missing or non-string `path`/`code`, or a result that is not an array are a
+  programming error (500 naming the hook and the entry), never a 400, and nothing is written.
+  The `ValidationError` type is gone; hooks are typed with `ValidationField`. See
+  BREAKING_CHANGES.md.
 - **BREAKING: the plugin is the one way to mount the routes; `operations` narrows a
   registration.** The plugin option `operations` is intersected with each table's own (a
   composite-PK table is skipped for the single-PK operations, not refused); the agent

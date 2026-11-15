@@ -111,7 +111,6 @@ export type {
   TenantScopeIndirect,
   TenantScopeAnyOf,
   TenantContext,
-  ValidationError,
   ValidationField,
   ValidateContext,
   BulkValidateContext,

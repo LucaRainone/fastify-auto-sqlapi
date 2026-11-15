@@ -94,7 +94,7 @@ Every key except `primary` and `schema` is optional. There is no `tableName` key
 
 ```ts
 import { defineTable, buildRelation, ConditionBuilder, Type } from 'fastify-auto-sqlapi';
-import type { ValidationError } from 'fastify-auto-sqlapi';
+import type { ValidationField } from 'fastify-auto-sqlapi';
 import { SchemaCustomer as Schema } from '../schemas/SchemaCustomer';
 
 export const TableCustomer = defineTable({
@@ -156,16 +156,16 @@ export const TableCustomer = defineTable({
   // operation runs on (inside a write, the transaction's); req = the request, undefined when sqlApi.*
   // is called without one (guard req?.user). Data keys: record, secondaries, deletions, rows, id, ids, main, items.
   validate: async ({ db, req, main, secondaries }) => { // camelCase, secondaries keyed by alias
-    const errors: ValidationError[] = []; // [path, code] or [path, code, message]; path = dot path in the request body: main.<field>, secondaries.<alias>.<i>.<field>, '' when not attributable
-    if (!main.name) errors.push(['main.name', 'required']);
+    const errors: Pick<ValidationField, 'path' | 'code'>[] = []; // { path, code }, the fields of the 400 (message = code: no prose, the client translates). path = dot path in the request body: main.<field>, secondaries.<alias>.<i>.<field>, '' when not attributable. Anything else (a tuple, a message) → 500
+    if (!main.name) errors.push({ path: 'main.name', code: 'required' });
     (secondaries?.orders ?? []).forEach((o, i) => {
-      if (o.total < 0) errors.push([`secondaries.orders.${i}.total`, 'min', 'must be >= 0']);
+      if (o.total < 0) errors.push({ path: `secondaries.orders.${i}.total`, code: 'min' });
     });
     return errors;
   },
   validateBulk: async ({ db, req, items }) => { // bulk upsert: called once with [{ main, secondaries? }]; when defined, per-item validate is skipped in bulk. Paths start with items.<i>
     const codes = items.map((i) => i.main.code);
-    return new Set(codes).size === codes.length ? [] : [['', 'batch_unique', 'codes must be unique within the batch']];
+    return new Set(codes).size === codes.length ? [] : [{ path: '', code: 'batch_unique' }];
   },
 
   // --- hooks: camelCase records, mutations reach the SQL ---
@@ -410,6 +410,6 @@ Everything is imported from `fastify-auto-sqlapi`, so there is nothing else to i
 - `fastifyAutoSqlApi` (the one way to mount the routes)
 - `SqlApi`, `createSqlApi`, `QueryClient`, `createQueryClient`, `pgQueryable`, `mysqlQueryable`
 - `agentToolSchemas`
-- Types: `ValidationError`, `ValidatorFn`, `BulkValidatorFn`, `JoinDefinition`, `SearchCondition`, `ConditionMethod`, `DbTables`, `TableDefinition`
+- Types: `ValidationField`, `ValidatorFn`, `BulkValidatorFn`, `JoinDefinition`, `SearchCondition`, `ConditionMethod`, `DbTables`, `TableDefinition`
 
 Dialects: PG uses `"id"`, `$1` and `RETURNING`. MySQL uses backticks, `?` and `insertId`. MariaDB is like MySQL but has `RETURNING` (10.5+). The CLI uses `pg` / `mysql2`.

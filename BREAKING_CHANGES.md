@@ -1764,3 +1764,43 @@ route plugin registered alone.
   table).search.body` (and `.insert`, `.update`, `.bulkUpsert`, `.bulkDelete`).
 - Error policy in a consumer `setErrorHandler` → `dbErrors` for driver codes; `httpError` from
   a hook for your own.
+
+# Breaking Change — `validate` returns `{ path, code }` objects
+
+## What changed
+
+```ts
+// before
+validate: async ({ main }) => {
+  const errors: ValidationError[] = [];
+  if (!main.email) errors.push(['main.email', 'required']);
+  if (main.age < 18) errors.push(['main.age', 'too_young', 'Must be an adult']);
+  return errors;
+}
+
+// after
+validate: async ({ main }) => {
+  const errors: Pick<ValidationField, 'path' | 'code'>[] = [];
+  if (!main.email) errors.push({ path: 'main.email', code: 'required' });
+  if (main.age < 18) errors.push({ path: 'main.age', code: 'too_young' });
+  return errors;
+}
+```
+
+- `validate` and `validateBulk` return the objects the 400 carries in `fields`, without
+  `message`: `{ path, code }`. The response's `message` is the code — a hook writes no prose,
+  the client translates the code.
+- A tuple, an object with a `message`, a missing or non-string `path`/`code`, or a result that
+  is not an array is a programming error: a 500 whose logged message names the hook and the
+  entry, never a 400, and nothing is written.
+- The `ValidationError` type is no longer exported.
+
+## Who is affected
+
+Every `validate` / `validateBulk`, and code importing `ValidationError`.
+
+## Migration
+
+- `[path, code]` → `{ path, code }`.
+- `[path, code, message]` → `{ path, code }`: move the text to the client, keyed by the code.
+- `ValidationError[]` → `Pick<ValidationField, 'path' | 'code'>[]`.

@@ -30,7 +30,7 @@ async function createApp({ tableOverrides = {}, pluginOverrides = {}, query } = 
       primary: 'id',
       schema: SchemaItem,
       insertExclude: ['id'],
-      validate: async ({ main }) => (main.name === 'bad' ? [['main.name', 'custom', 'nope']] : []),
+      validate: async ({ main }) => (main.name === 'bad' ? [{ path: 'main.name', code: 'custom' }] : []),
       ...tableOverrides,
     }),
   };
@@ -66,14 +66,14 @@ describe('error envelope — 400 from the request schema (Ajv)', () => {
 });
 
 describe('error envelope — 400 from a table validate hook', () => {
-  it('renders the tuples as fields, verbatim', async () => {
+  it('renders the returned objects as fields, message mirroring the code', async () => {
     const app = await createApp();
     const res = await app.inject({ method: 'POST', url: '/rest/item', payload: { main: { name: 'bad' } } });
     assert.equal(res.statusCode, 400, res.payload);
     const body = res.json();
     assertEnvelope(body, 400, 'Bad Request');
     assert.equal(body.message, 'Validation failed');
-    assert.deepEqual(body.fields, [{ path: 'main.name', code: 'custom', message: 'nope' }]);
+    assert.deepEqual(body.fields, [{ path: 'main.name', code: 'custom', message: 'custom' }]);
     await app.close();
   });
 });

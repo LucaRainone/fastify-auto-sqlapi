@@ -13,7 +13,10 @@ import type { HookContext } from './hooks.js';
  * - `code`: machine-readable and stable — an Ajv keyword (`required`, `type`, `maximum`…),
  *   the code a `validate` hook returned, or one of the engine's codes (`unknown_field`,
  *   `not_readable`, `unknown_alias`, `invalid_params`…, see AGENTS_FRONTEND.md).
- * - `message`: human-readable description.
+ * - `message`: Ajv's or the engine's description, for a developer; the code itself on an
+ *   entry a hook returned — a hook writes no prose, the client translates the code.
+ *
+ * `validate` and `validateBulk` return these objects without `message`: `{ path, code }`.
  */
 export interface ValidationField {
   path: string;
@@ -21,27 +24,24 @@ export interface ValidationField {
   message: string;
 }
 
-/**
- * Validation error tuple a `validate`/`validateBulk` hook returns: [field, code] or
- * [field, code, message]. Rendered verbatim as a `ValidationField`.
- * - field: the request path of the invalid value, in the grammar of `ValidationField.path`
- *   (e.g. 'main.name', 'secondaries.orders.0.total'; in `validateBulk`, 'items.3.main.code')
- * - code: machine-readable error code (e.g. 'required', 'overlap', 'unique')
- * - message: human-readable description (defaults to code if omitted)
- */
-export type ValidationError =
-  | [field: string, code: string]
-  | [field: string, code: string, message: string];
-
 /** `validate`: the camelCase main record of an insert or update, and its secondaries by alias. */
 export interface ValidateContext<F extends Record<string, TSchema> = Record<string, TSchema>> extends HookContext {
   main: { [K in keyof F]?: Static<F[K]> };
   secondaries?: RowsByAlias;
 }
 
+/**
+ * What a `validate`/`validateBulk` hook returns: one `{ path, code }` per problem, rendered as
+ * a field of the 400 — `path` in the grammar of `ValidationField.path` (`main.name`,
+ * `secondaries.orders.0.total`; in `validateBulk`, `items.3.main.code`), `code` the stable
+ * code the client translates (`required`, `overlap`, `unique`). An empty array lets the write
+ * through.
+ */
+type ValidatorResult = Pick<ValidationField, 'path' | 'code'>[];
+
 export type ValidatorFn<F extends Record<string, TSchema> = Record<string, TSchema>> = (
   ctx: ValidateContext<F>
-) => Promise<ValidationError[]> | ValidationError[];
+) => Promise<ValidatorResult> | ValidatorResult;
 
 export interface BulkValidatorItem<F extends Record<string, TSchema> = Record<string, TSchema>> {
   main: { [K in keyof F]?: Static<F[K]> };
@@ -55,4 +55,4 @@ export interface BulkValidateContext<F extends Record<string, TSchema> = Record<
 
 export type BulkValidatorFn<F extends Record<string, TSchema> = Record<string, TSchema>> = (
   ctx: BulkValidateContext<F>
-) => Promise<ValidationError[]> | ValidationError[];
+) => Promise<ValidatorResult> | ValidatorResult;

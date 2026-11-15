@@ -77,7 +77,7 @@ describe('validate - insertEngine', () => {
     const { dbTables, db } = createTestDbTables(mockPg, {
       validate: ({ main }) => {
         if (!main.name) {
-          return [['name', 'required', 'is required']];
+          return [{ path: 'name', code: 'required' }];
         }
         return [];
       },
@@ -96,7 +96,7 @@ describe('validate - insertEngine', () => {
         assert.equal(err.validationErrors.length, 1);
         assert.equal(err.validationErrors[0].path, 'name');
         assert.equal(err.validationErrors[0].code, 'required');
-        assert.equal(err.validationErrors[0].message, 'is required');
+        assert.equal(err.validationErrors[0].message, 'required');
         return true;
       }
     );
@@ -105,10 +105,10 @@ describe('validate - insertEngine', () => {
     assert.equal(mockPg.calls.length, 0);
   });
 
-  it('defaults message to code when message is omitted', async () => {
+  it('message mirrors the code: a hook writes no prose', async () => {
     const mockPg = createMockPg([]);
     const { dbTables, db } = createTestDbTables(mockPg, {
-      validate: () => [['name', 'required']],
+      validate: () => [{ path: 'name', code: 'required' }],
     });
 
     await assert.rejects(
@@ -154,7 +154,7 @@ describe('validate - insertEngine', () => {
     const { dbTables, db } = createTestDbTables(mockPg, {
       validate: ({ secondaries }) => {
         receivedSecondaries = secondaries;
-        return [['test', 'stop']];
+        return [{ path: 'test', code: 'stop' }];
       },
     });
 
@@ -185,7 +185,7 @@ describe('validate - insertEngine', () => {
     const { dbTables, db } = createTestDbTables(mockPg, {
       validate: ({ main }) => {
         receivedMain = main;
-        return [['test', 'stop']];
+        return [{ path: 'test', code: 'stop' }];
       },
     });
 
@@ -235,7 +235,7 @@ describe('validate - insertEngine', () => {
     const mockPg = createMockPg([]);
     const { dbTables, db } = createTestDbTables(mockPg, {
       validate: async () => {
-        return [['name', 'async_error', 'async error']];
+        return [{ path: 'name', code: 'async_error' }];
       },
     });
 
@@ -250,7 +250,7 @@ describe('validate - insertEngine', () => {
       (err) => {
         assert.equal(err.validationErrors[0].path, 'name');
         assert.equal(err.validationErrors[0].code, 'async_error');
-        assert.equal(err.validationErrors[0].message, 'async error');
+        assert.equal(err.validationErrors[0].message, 'async_error');
         return true;
       }
     );
@@ -265,7 +265,7 @@ describe('validate - updateEngine', () => {
     const { dbTables, db } = createTestDbTables(mockPg, {
       validate: ({ main }) => {
         if (main.name === '') {
-          return [['name', 'empty', 'cannot be empty']];
+          return [{ path: 'name', code: 'empty' }];
         }
         return [];
       },
@@ -315,7 +315,7 @@ describe('validate - updateEngine', () => {
     const { dbTables, db } = createTestDbTables(mockPg, {
       validate: ({ secondaries }) => {
         receivedSecondaries = secondaries;
-        return [['test', 'stop']];
+        return [{ path: 'test', code: 'stop' }];
       },
     });
 
@@ -350,7 +350,7 @@ describe('validate - bulkUpsertEngine', () => {
     const { dbTables, db } = createTestDbTables(mockPg, {
       validate: ({ main }) => {
         if (!main.name) {
-          return [['name', 'required']];
+          return [{ path: 'name', code: 'required' }];
         }
         return [];
       },
@@ -383,7 +383,7 @@ describe('validate - bulkUpsertEngine', () => {
     const { dbTables, db } = createTestDbTables(mockPg, {
       validateBulk: ({ items }) => {
         receivedItems = items;
-        return [['periods', 'overlap', 'overlap detected']];
+        return [{ path: 'periods', code: 'overlap' }];
       },
     });
 
@@ -402,7 +402,7 @@ describe('validate - bulkUpsertEngine', () => {
         assert.equal(err.statusCode, 400);
         assert.equal(err.validationErrors[0].path, 'periods');
         assert.equal(err.validationErrors[0].code, 'overlap');
-        assert.equal(err.validationErrors[0].message, 'overlap detected');
+        assert.equal(err.validationErrors[0].message, 'overlap');
         return true;
       }
     );
