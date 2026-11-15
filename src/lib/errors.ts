@@ -15,7 +15,8 @@ export interface HttpErrorField {
  *
  * A 400 should also say what was wrong with the input: `field` is rendered as the single
  * entry of the response's `fields` array, so an engine rejection reaches the client in the
- * same shape as a schema or `validate` error. Errors with another status carry no fields.
+ * same shape as a schema or `validate` error. Another status takes a `field` only where the
+ * client must read a code, as a `dbErrors` answer does (ADR 0024).
  *
  * Using a function instead of a custom class keeps the throw sites lightweight
  * and matches the existing convention across the codebase.
@@ -48,8 +49,8 @@ export interface RouteErrorPolicy {
  * `error.message` verbatim — so a unique violation describes the schema to whoever
  * triggered it. Errors the plugin raises itself are deliberate `4xx` with messages written
  * for clients (`httpError`, `validationErrors`) and pass through untouched; a driver error
- * whose `code` the consumer listed in `dbErrors` gets that status, with the reason phrase or
- * the consumer's message; everything else becomes a bare `500`. The plugin maps no code of
+ * whose `code` the consumer listed in `dbErrors` gets that status and the consumer's code, as
+ * the single entry of `fields`; everything else becomes a bare `500`. The plugin maps no code of
  * its own: which ones deserve a status depends on the database, its version and the product
  * (ADR 0006).
  *
@@ -72,11 +73,7 @@ export function sanitizeRouteError(err: unknown, policy: RouteErrorPolicy = {}):
 
   const mapped = mapDbError(err, policy.dbErrors);
   const safe = (mapped
-    ? httpError(
-      mapped.status,
-      mapped.message ?? STATUS_CODES[mapped.status] ?? 'Error',
-      mapped.status === 400 ? { code: mapped.code } : undefined,
-    )
+    ? httpError(mapped.status, STATUS_CODES[mapped.status] ?? 'Error', { code: mapped.code })
     : httpError(500, 'Internal Server Error')) as Error & {
     statusCode: number;
     requestId?: string;
@@ -88,35 +85,36 @@ export function sanitizeRouteError(err: unknown, policy: RouteErrorPolicy = {}):
   return safe;
 }
 
-/** The consumer's `dbErrors` entry for this error's driver code, normalized; undefined when none. */
+/** The consumer's `dbErrors` entry for this error's driver code; undefined when none. */
 function mapDbError(
   err: unknown,
   dbErrors: Record<string, DbErrorMapping> | undefined,
-): { status: number; message?: string; code: string } | undefined {
-  const code = (err as { code?: unknown } | null | undefined)?.code;
-  if (!dbErrors || typeof code !== 'string' || !Object.hasOwn(dbErrors, code)) return undefined;
-  const entry = dbErrors[code];
-  return typeof entry === 'number' ? { status: entry, code } : { ...entry, code };
+): DbErrorMapping | undefined {
+  const driverCode = (err as { code?: unknown } | null | undefined)?.code;
+  if (!dbErrors || typeof driverCode !== 'string' || !Object.hasOwn(dbErrors, driverCode)) return undefined;
+  return dbErrors[driverCode];
 }
 
 /**
  * Refuse a `dbErrors` option a route could not honour, at registration rather than on the
- * first failing request: every status must be an integer in 400–599, every message a string.
+ * first failing request: every entry is `{ status, code }`, the status an integer in 400–599,
+ * the code a non-empty string.
  */
 export function assertDbErrors(dbErrors: unknown): void {
   if (dbErrors === undefined) return;
   if (dbErrors === null || typeof dbErrors !== 'object' || Array.isArray(dbErrors)) {
     throw new Error('dbErrors must be an object keyed by driver error code');
   }
-  for (const [code, entry] of Object.entries(dbErrors)) {
-    const { status, message } = typeof entry === 'object' && entry !== null
-      ? entry as { status?: unknown; message?: unknown }
-      : { status: entry, message: undefined };
-    if (typeof status !== 'number' || !Number.isInteger(status) || status < 400 || status > 599) {
-      throw new Error(`dbErrors["${code}"]: the status must be an integer between 400 and 599, got ${JSON.stringify(status)}`);
+  for (const [driverCode, entry] of Object.entries(dbErrors)) {
+    if (typeof entry !== 'object' || entry === null) {
+      throw new Error(`dbErrors["${driverCode}"]: expected { status, code }, got ${JSON.stringify(entry)}`);
     }
-    if (message !== undefined && typeof message !== 'string') {
-      throw new Error(`dbErrors["${code}"]: the message must be a string, got ${JSON.stringify(message)}`);
+    const { status, code } = entry as { status?: unknown; code?: unknown };
+    if (typeof status !== 'number' || !Number.isInteger(status) || status < 400 || status > 599) {
+      throw new Error(`dbErrors["${driverCode}"]: the status must be an integer between 400 and 599, got ${JSON.stringify(status)}`);
+    }
+    if (typeof code !== 'string' || code === '') {
+      throw new Error(`dbErrors["${driverCode}"]: the code must be a non-empty string, got ${JSON.stringify(code)}`);
     }
   }
 }

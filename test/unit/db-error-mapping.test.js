@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import { fastifyAutoSqlApi, searchRoutes, exportTableInfo, toUnderscore, Type } from '../../dist/index.js';
 
-// `dbErrors`: the consumer maps the driver error codes it cares about to an HTTP status. The
-// mapping is partial by nature — codes depend on the database and its version — so the
-// plugin interprets nothing: an unmapped error stays the sanitized 500 of ADR 0013, and a
-// mapped one is answered in the plugin's envelope, still without any driver detail.
+// `dbErrors`: the consumer maps the driver error codes it cares about to an HTTP status and a
+// code of its own, which the client translates. The mapping is partial by nature — codes
+// depend on the database and its version — so the plugin interprets nothing: an unmapped error
+// stays the sanitized 500 of ADR 0013, and a mapped one is answered in the plugin's envelope,
+// with no driver detail and no prose of the consumer's.
 
 const CONSTRAINT_MESSAGE = 'duplicate key value violates unique constraint "users_email_key"';
 
@@ -48,10 +49,10 @@ function assertNoDriverDetail(res) {
   }
 }
 
-describe('dbErrors maps driver error codes to an HTTP status', () => {
-  it('a mapped code answers its status in the envelope, without driver detail', async () => {
+describe('dbErrors maps driver error codes to an HTTP status and a code', () => {
+  it('a mapped driver code answers its status and the consumer code, without driver detail', async () => {
     const app = await buildApp(createFailingPool('23505'), (app) =>
-      app.register(fastifyAutoSqlApi, { DbTables, dbErrors: { '23505': 409 } })
+      app.register(fastifyAutoSqlApi, { DbTables, dbErrors: { '23505': { status: 409, code: 'duplicate' } } })
     );
 
     const res = await search(app);
@@ -61,52 +62,42 @@ describe('dbErrors maps driver error codes to an HTTP status', () => {
     assert.equal(body.error, 'Conflict');
     assert.equal(body.message, 'Conflict');
     assert.equal(typeof body.requestId, 'string');
-    assert.equal(body.fields, undefined);
+    assert.deepEqual(body.fields, [{ path: '', code: 'duplicate', message: 'Conflict' }]);
     assertNoDriverDetail(res);
     await app.close();
   });
 
-  it('a mapped code may carry a client message written by the consumer', async () => {
-    const app = await buildApp(createFailingPool('23505'), (app) =>
-      app.register(fastifyAutoSqlApi, {
-        DbTables,
-        dbErrors: { '23505': { status: 409, message: 'Already exists' } },
-      })
-    );
-
-    const res = await search(app);
-    assert.equal(res.statusCode, 409, res.body);
-    assert.equal(res.json().message, 'Already exists');
-    assert.equal(res.json().error, 'Conflict');
-    await app.close();
-  });
-
-  it('a code mapped to 400 carries fields naming the driver code', async () => {
+  it('a driver code mapped to 400 carries the consumer code in fields', async () => {
     const app = await buildApp(createFailingPool('23514'), (app) =>
-      app.register(fastifyAutoSqlApi, { DbTables, dbErrors: { '23514': 400 } })
+      app.register(fastifyAutoSqlApi, { DbTables, dbErrors: { '23514': { status: 400, code: 'check_failed' } } })
     );
 
     const res = await search(app);
     assert.equal(res.statusCode, 400, res.body);
-    assert.deepEqual(res.json().fields, [{ path: '', code: '23514', message: 'Bad Request' }]);
+    assert.deepEqual(res.json().fields, [{ path: '', code: 'check_failed', message: 'Bad Request' }]);
     await app.close();
   });
 
-  it('an unmapped code stays the sanitized 500', async () => {
+  it('an unmapped driver code stays the sanitized 500, without fields', async () => {
     const app = await buildApp(createFailingPool('23503'), (app) =>
-      app.register(fastifyAutoSqlApi, { DbTables, dbErrors: { '23505': 409 } })
+      app.register(fastifyAutoSqlApi, { DbTables, dbErrors: { '23505': { status: 409, code: 'duplicate' } } })
     );
 
     const res = await search(app);
     assert.equal(res.statusCode, 500, res.body);
     assert.equal(res.json().message, 'Internal Server Error');
+    assert.equal(res.json().fields, undefined);
     assertNoDriverDetail(res);
     await app.close();
   });
 
-  it('exposeDebugInfo stays additive on a mapped code', async () => {
+  it('exposeDebugInfo stays additive on a mapped driver code', async () => {
     const app = await buildApp(createFailingPool('23505'), (app) =>
-      app.register(fastifyAutoSqlApi, { DbTables, dbErrors: { '23505': 409 }, exposeDebugInfo: true })
+      app.register(fastifyAutoSqlApi, {
+        DbTables,
+        dbErrors: { '23505': { status: 409, code: 'duplicate' } },
+        exposeDebugInfo: true,
+      })
     );
 
     const res = await search(app);
@@ -123,21 +114,24 @@ describe('dbErrors maps driver error codes to an HTTP status', () => {
         seen = err;
         reply.status(err.statusCode).send({ message: err.message });
       });
-      return app.register(searchRoutes, { DbTables, dbErrors: { '23505': 409 } });
+      return app.register(searchRoutes, { DbTables, dbErrors: { '23505': { status: 409, code: 'duplicate' } } });
     });
 
     const res = await search(app);
     assert.equal(res.statusCode, 409, res.body);
     assert.equal(seen.statusCode, 409);
+    assert.deepEqual(seen.validationErrors.map((f) => f.code), ['duplicate']);
     assert.equal(seen.cause.code, '23505', 'the original error is not reachable as cause');
     await app.close();
   });
 
   for (const [label, dbErrors] of [
-    ['a status outside 400–599', { '23505': 200 }],
-    ['a non-integer status', { '23505': 409.5 }],
-    ['a status that is not a number', { '23505': '409' }],
-    ['a message that is not a string', { '23505': { status: 409, message: 42 } }],
+    ['a bare status without a code', { '23505': 409 }],
+    ['a status outside 400–599', { '23505': { status: 200, code: 'duplicate' } }],
+    ['a non-integer status', { '23505': { status: 409.5, code: 'duplicate' } }],
+    ['a status that is not a number', { '23505': { status: '409', code: 'duplicate' } }],
+    ['a missing code', { '23505': { status: 409 } }],
+    ['an empty code', { '23505': { status: 409, code: '' } }],
   ]) {
     it(`registration fails on ${label}`, async () => {
       const app = Fastify();

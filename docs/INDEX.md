@@ -311,7 +311,7 @@ Search before writing: `npm run find-similar -- "<what you need>"`.
 - `JoinRefFilter` *interface* — Reference filter for join-based existential filtering (joinMustExist), virtual joins data fetching …
 - `RowsByAlias = Record<string, Record<string, unknown>[]>` *type, public* — Rows grouped by relation alias: `secondaries` and `deletions` in a write, the rows written or remov…
 ### src/types/plugin.ts
-- `DbErrorMapping = number | { status: number; message?: string }` *type, public* — One `dbErrors` entry: the HTTP status, or the status with a client-safe message.
+- `DbErrorMapping` *interface, public* — One `dbErrors` entry: the HTTP status and the stable code the client translates.
 - `DEFAULT_MAX_BULK_ITEMS` *const*
 - `DEFAULT_MAX_ITEMS_PER_PAGE` *const*
 - `SqlApiPluginOptions` *interface, public*

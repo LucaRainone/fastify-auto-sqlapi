@@ -290,7 +290,8 @@ privileged transition off the auto routes entirely.
 carrying a `requestId` — driver messages name your tables, columns and constraints, and they
 stay in the log. The plugin remaps no status on its own (a unique violation is a `500`, not a
 `409`: that mapping is product logic). List the driver codes you want answered otherwise in
-`dbErrors` — `{ '23505': 409 }` — and they get that status, still without driver detail. Set
+`dbErrors` — `{ '23505': { status: 409, code: 'duplicate' } }` — and they get that status and a
+code the client translates, still without driver detail. Set
 `exposeDebugInfo: true` while developing to get the driver detail on the wire, additively.
 ([ADR 0013](./docs/adr/0013-sanitized-db-errors.md), [ADR 0024](./docs/adr/0024-the-consumer-maps-driver-codes-through-dberrors.md))
 

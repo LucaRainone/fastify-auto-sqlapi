@@ -104,7 +104,7 @@ describe(`[${DIALECT}] a real constraint violation mapped through dbErrors`, () 
   before(async () => {
     ({ app, db } = await createTestApp(DbTables, {
       prefix: '/auto',
-      dbErrors: { [uniqueViolation]: { status: 409, message: 'Product already exists' } },
+      dbErrors: { [uniqueViolation]: { status: 409, code: 'product_exists' } },
     }));
     await cleanTables(db, ['product']);
     const [row] = await seedRows(db, 'product', [{ name: 'Bike', price: 100 }], 'id');
@@ -124,7 +124,7 @@ describe(`[${DIALECT}] a real constraint violation mapped through dbErrors`, () 
     });
 
     assert.equal(res.statusCode, 409, `expected 409, got ${res.statusCode}: ${res.body}`);
-    assert.equal(res.json().message, 'Product already exists');
+    assert.deepEqual(res.json().fields.map((f) => f.code), ['product_exists']);
     for (const leak of ['product_pkey', 'duplicate key', 'Duplicate entry', 'PRIMARY']) {
       assert.ok(!res.body.includes(leak), `"${leak}" leaked to the client: ${res.body}`);
     }

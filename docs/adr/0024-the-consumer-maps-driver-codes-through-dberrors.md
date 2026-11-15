@@ -28,16 +28,18 @@ decisions (is a foreign-key violation a `409`, a `422`, a `400`?) that are not t
 The consumer declares the driver codes it cares about in a plugin option:
 
 ```ts
-dbErrors: { '23505': { status: 409, message: 'Already exists' }, 'ER_DUP_ENTRY': 409 }
+dbErrors: { '23505': { status: 409, code: 'duplicate' }, 'ER_DUP_ENTRY': { status: 409, code: 'duplicate' } }
 ```
 
 - The key is the driver's `err.code` exactly as it arrives. The plugin interprets nothing and
   ships no entry.
-- The value is a status between 400 and 599, or `{ status, message }`. Anything else fails
-  registration.
+- The value is `{ status, code }`: a status between 400 and 599 and a non-empty code of the
+  consumer's choosing. Anything else fails registration.
 - A mapped error is answered in the plugin's envelope: the status, its reason phrase as
-  `message` unless the consumer wrote one, `requestId`, and on a `400` the `fields` every 400
-  carries, `[{ path: '', code: <driver code> }]`.
+  `message`, `requestId`, and `fields: [{ path: '', code }]` whatever the status. The client
+  translates the code; the API carries no prose. This widens the envelope rule "`fields` on
+  every 400" to "and on any answer whose cause carries a code", so machine codes have one
+  place.
 - No driver detail reaches the client (0013 unchanged). `exposeDebugInfo` stays additive.
 - An unmapped error is the sanitized `500`, as before. The driver error is logged either way:
   at `error` when unmapped, at `info` when mapped, since a mapped code is an expected outcome.
@@ -53,15 +55,23 @@ dbErrors: { '23505': { status: 409, message: 'Already exists' }, 'ER_DUP_ENTRY':
 - **A function, `mapError(err, req)`** — rejected: the need is a lookup on a handful of codes,
   and a function makes the policy invisible to anyone reading the registration. A predicate
   the lookup cannot express belongs in a custom route.
-- **A per-entry `code` rendered in the response** — rejected: the envelope carries machine
-  codes in `fields`, and `fields` is a 400-only member. A `409` with a code would be a second
-  envelope shape.
+- **A consumer-written `message`** — rejected: prose in the API cannot be translated, and a
+  client would have to parse it. The client gets a code and owns the wording.
+- **A bare status, `{ '23505': 409 }`** — rejected: the client could not tell two mapped
+  errors with the same status apart, and a code defaulting to the driver's would make the
+  client's translations depend on the database.
+- **The code at the top level of the envelope** — rejected: `fields[].code` is already where a
+  client reads machine codes. A second location would make every client check two places.
 - **Shipping default mappings for common codes** — rejected for the reasons in 0006.
 
 ## Consequences
 
 - Unique violation → `409` is one line of configuration, per database: `'23505'` on
-  PostgreSQL, `'ER_DUP_ENTRY'` on MySQL and MariaDB.
+  PostgreSQL, `'ER_DUP_ENTRY'` on MySQL and MariaDB. Mapping both to the same code keeps the
+  client independent of the database.
+- `fields` may now appear on a status other than 400, only on a `dbErrors` answer.
+- The driver code alone cannot name the column (`23505` covers every unique constraint), so
+  `path` is always `''`. A field-level message needs `validate`, which knows the field.
 - `sqlApi.*` is not affected: application code calling it receives the driver error as is and
   decides there.
 - The `setErrorHandler` recipe in AGENTS_BACKEND.md is replaced by `dbErrors`. It still

@@ -10,8 +10,11 @@ export interface SwaggerOptions {
   routePrefix?: string;
 }
 
-/** One `dbErrors` entry: the HTTP status, or the status with a client-safe message. */
-export type DbErrorMapping = number | { status: number; message?: string };
+/** One `dbErrors` entry: the HTTP status and the stable code the client translates. */
+export interface DbErrorMapping {
+  status: number;
+  code: string;
+}
 
 export interface SqlApiPluginOptions {
   DbTables: DbTables;
@@ -79,17 +82,17 @@ export interface SqlApiPluginOptions {
    * Driver error codes answered with an HTTP status instead of the sanitized `500`, keyed by
    * the driver's `err.code` exactly as it arrives — `'23505'` (pg unique_violation),
    * `'ER_DUP_ENTRY'` (mysql2), `'40001'` (serialization failure) — and valued with the status
-   * (400–599) or `{ status, message }`.
+   * (400–599) and a stable code of the consumer's choosing.
    *
    * The mapping is the consumer's and partial by nature: codes depend on the database and its
    * version, and which ones deserve a status is a product decision, so the plugin ships none
    * and interprets nothing (ADR 0006). A mapped error is answered in the plugin's envelope with
-   * the status' reason phrase as `message` unless one is given, a `400` carries
-   * `fields: [{ path: '', code: <driver code> }]`, and no driver detail reaches the client
-   * (ADR 0013). Every other error stays a `500`.
+   * the status' reason phrase as `message` and `fields: [{ path: '', code }]`, whatever the
+   * status: the client translates the code, the API carries no prose. No driver detail reaches
+   * the client (ADR 0013). Every other error stays a `500`.
    *
    * ```ts
-   * dbErrors: { '23505': { status: 409, message: 'Already exists' }, '23503': 409 }
+   * dbErrors: { '23505': { status: 409, code: 'duplicate' }, '23503': { status: 409, code: 'in_use' } }
    * ```
    *
    * Applies to the auto routes only: `sqlApi.*` throws the driver error as is.

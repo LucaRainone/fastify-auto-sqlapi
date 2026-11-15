@@ -12,15 +12,16 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Added
 
-- **`dbErrors`**: driver error codes the consumer answers with an HTTP status instead of the
-  sanitized 500, keyed by `err.code` as the driver raises it:
-  `dbErrors: { '23505': { status: 409, message: 'Already exists' }, 'ER_DUP_ENTRY': 409 }`.
-  The answer keeps the error envelope and carries no driver detail; a 400 has
-  `fields: [{ path: '', code: <driver code> }]`. The plugin ships no mapping and interprets
-  nothing (ADR 0024). This replaces the documented `setErrorHandler` recipe, which never worked
-  with the main plugin: the routes' own error handler answers before an application handler
-  is reached. An invalid entry (status outside 400–599, non-string message) fails
-  registration. Exported type `DbErrorMapping`.
+- **`dbErrors`**: driver error codes the consumer answers with an HTTP status and a code of
+  its own instead of the sanitized 500, keyed by `err.code` as the driver raises it:
+  `dbErrors: { '23505': { status: 409, code: 'duplicate' } }` (`'ER_DUP_ENTRY'` on
+  MySQL/MariaDB). The answer keeps the error envelope, with the reason phrase as `message` and
+  `fields: [{ path: '', code }]` whatever the status, so the client translates a code and the
+  API carries no prose; no driver detail reaches it. The plugin ships no mapping and
+  interprets nothing (ADR 0024). This replaces the documented `setErrorHandler` recipe, which
+  never worked with the main plugin: the routes' own error handler answers before an
+  application handler is reached. An invalid entry (not `{ status, code }`, status outside
+  400–599, empty code) fails registration. Exported type `DbErrorMapping`.
 - **`target` on `buildRelation`**: the `dbTables` key whose config governs the joined table.
   Needed only when the same physical table is exposed under several keys.
 - **One error envelope**, `{statusCode, error, message, requestId, fields?}`, for every error

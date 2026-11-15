@@ -24,7 +24,7 @@ type AjvValidationErrors = NonNullable<FastifyError['validation']>;
 
 /** What an error thrown inside a route may carry for the response, besides `statusCode`. */
 interface CarriedErrorInfo {
-  /** The `fields` of a 400: set by `httpError` (engine) and by `validate`/`validateBulk`. */
+  /** The `fields` of a 400 (`httpError`, `validate`/`validateBulk`) or of a `dbErrors` answer. */
   validationErrors?: ValidationField[];
   /** Set under `exposeDebugInfo` on a sanitized 500 (ADR 0013). */
   debugInfo?: Record<string, unknown>;
@@ -97,8 +97,9 @@ export default fp(async function fastifyAutoSqlApi(
     // same value Fastify logs as `reqId`, so any error can be traced to its log line. Every
     // 400 carries `fields` — from the request schema (Ajv), from `validate`/`validateBulk`,
     // or from the engine through `httpError` — so a client has one place to look, and an
-    // empty array when the rejection is not attributable to one input. `debugInfo` is
-    // additive, under `exposeDebugInfo` only (ADR 0013).
+    // empty array when the rejection is not attributable to one input. A driver error the
+    // consumer mapped through `dbErrors` carries its code there too, whatever its status
+    // (ADR 0024). `debugInfo` is additive, under `exposeDebugInfo` only (ADR 0013).
     instance.setErrorHandler((error: FastifyError, request, reply) => {
       const carried = error as FastifyError & CarriedErrorInfo;
       const statusCode = error.validation ? 400 : (error.statusCode || 500);
@@ -109,7 +110,9 @@ export default fp(async function fastifyAutoSqlApi(
         error: STATUS_CODES[statusCode] ?? 'Error',
         message: error.validation ? 'Validation failed' : error.message,
         requestId: request.id,
-        ...(statusCode === 400 ? { fields: fields ?? [] } : {}),
+        // Every 400 has fields; another status has them only when its cause carries a code
+        // (a `dbErrors` answer), so a client reads machine codes in one place.
+        ...(statusCode === 400 || fields ? { fields: fields ?? [] } : {}),
         ...(carried.debugInfo ? { debugInfo: carried.debugInfo } : {}),
       });
     });
