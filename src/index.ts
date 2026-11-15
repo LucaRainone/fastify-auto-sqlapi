@@ -40,7 +40,7 @@ export { TENANT_ADMIN } from './types.js';
 
 // SqlApi — programmatic high-level API
 export { SqlApi, createSqlApi } from './lib/sql-api.js';
-export type { SqlApiOptions, SqlApiSearchParams, SqlApiInsertParams, SqlApiUpdateParams } from './lib/sql-api.js';
+export type { SqlApiOptions, SqlApiSearchParams, SqlApiInsertParams, SqlApiUpdateParams, SqlApiBulkDeleteParams } from './lib/sql-api.js';
 
 
 // Plugin

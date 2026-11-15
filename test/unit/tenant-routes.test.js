@@ -48,7 +48,7 @@ describe('every HTTP route forwards the caller tenant to its engine', () => {
     ['update', { method: 'PUT', url: '/rest/customer', payload: { main: { id: 1, name: 'Mario' } } }, [touched]],
     ['delete', { method: 'DELETE', url: '/rest/customer/1' }, [touched]],
     ['bulk upsert', { method: 'PUT', url: '/bulk/customer', payload: [{ main: { name: 'Mario' } }] }, [written]],
-    ['bulk delete', { method: 'POST', url: '/bulk/customer/delete', payload: [{ id: 1 }] }, [{ rows: [{ pk: 1 }], rowCount: 1 }, touched]],
+    ['bulk delete', { method: 'POST', url: '/bulk/customer/delete', payload: { ids: [1] } }, [{ rows: [{ pk: 1 }], rowCount: 1 }, touched]],
   ];
 
   for (const [name, request, responses] of routes) {
@@ -85,7 +85,7 @@ describe('every SqlApi method forwards the caller tenant to its engine', () => {
     ['update', (api) => api.update('customer', { main: { id: 1, name: 'Mario' } }, {}), [touched]],
     ['delete', (api) => api.delete('customer', '1', {}), [touched]],
     ['bulkUpsert', (api) => api.bulkUpsert('customer', [{ main: { name: 'Mario' } }], {}), [written]],
-    ['bulkDelete', (api) => api.bulkDelete('customer', [1], {}), [{ rows: [{ pk: 1 }], affectedRows: 1 }, touched]],
+    ['bulkDelete', (api) => api.bulkDelete('customer', { ids: [1] }, {}), [{ rows: [{ pk: 1 }], affectedRows: 1 }, touched]],
   ];
 
   for (const [name, run, responses] of methods) {

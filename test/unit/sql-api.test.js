@@ -211,6 +211,29 @@ describe('sqlApi writes take the HTTP body', () => {
   }
 });
 
+describe('sqlApi.bulkDelete takes the HTTP body', () => {
+  it('deletes the ids listed under `ids`, as POST /bulk/:table/delete does', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 1 }, { id: 2 }], affectedRows: 2 },
+    ]);
+    const { sqlApi } = createTestFixture(mockPg);
+
+    const result = await sqlApi.bulkDelete('customer', { ids: [1, 2] });
+
+    assert.equal(result.length, 2);
+    const del = mockPg.calls.find((c) => /DELETE/.test(c.text));
+    assert.deepEqual(del.values, [1, 2]);
+  });
+
+  it('a bare array of ids is refused, naming `ids`, before any SQL', async () => {
+    const mockPg = createMockPg([]);
+    const { sqlApi } = createTestFixture(mockPg);
+
+    await assert.rejects(() => sqlApi.bulkDelete('customer', [1, 2]), /`ids`/);
+    assert.equal(mockPg.calls.length, 0);
+  });
+});
+
 describe('SqlApi.delete', () => {
   it('deletes a record by PK', async () => {
     const mockPg = createMockPg([
@@ -230,7 +253,7 @@ describe('SqlApi.bulkDelete', () => {
     ]);
     const { sqlApi } = createTestFixture(mockPg);
 
-    const result = await sqlApi.bulkDelete('customer', [1, 2]);
+    const result = await sqlApi.bulkDelete('customer', { ids: [1, 2] });
     assert.equal(result.length, 2);
   });
 });

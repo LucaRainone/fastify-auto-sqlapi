@@ -1280,3 +1280,42 @@ await app.sqlApi.insert('customer', req.body, req); // a body for POST /rest/cus
 ```
 
 Find the sites with `grep -rnE "sqlApi\.(insert|update)\(" src/`; TypeScript reports each one.
+
+# Breaking Change — a bulk delete takes `{ ids: [...] }`
+
+*Landing in the release after 0.6.0.*
+
+## Why this changed
+
+The ids of a bulk delete had three shapes: an array of `{ <pk field>: value }` objects in the
+HTTP body, a bare array in `sqlApi.bulkDelete`, `{ ids }` in the hooks. A client had to know
+each table's primary key name just to delete, and a custom route could not hand a request body
+to `sqlApi.bulkDelete`.
+
+## What changed
+
+| | Before | After |
+|---|---|---|
+| `POST /bulk/:table/delete` body | `[{ "id": 1 }, { "id": 2 }]` | `{ "ids": [1, 2] }` |
+| `sqlApi.bulkDelete` | `bulkDelete(table, [1, 2], req)` | `bulkDelete(table, { ids: [1, 2] }, req)` |
+| `beforeBulkDelete` / `afterBulkDelete` | `{ ids }` | unchanged |
+| Response | `[{ main: { id: 1 } }, …]`, rows actually deleted | unchanged |
+
+The ids are typed as the primary key field (an integer PK refuses `"abc"` at `ids.<i>`), and
+`maxBulkItems` caps their number. The old array body is a 400 before any SQL; a bare array
+passed to `sqlApi.bulkDelete` throws a `TypeError` naming `ids`.
+
+## Who is affected
+
+HTTP clients of the bulk delete route, and application code calling `sqlApi.bulkDelete`.
+
+## Migration
+
+```js
+// before
+fetch('/api/bulk/agent/delete', { method: 'POST', body: JSON.stringify([{ agentId: 7 }, { agentId: 8 }]) });
+await app.sqlApi.bulkDelete('agent', [7, 8], req);
+// after
+fetch('/api/bulk/agent/delete', { method: 'POST', body: JSON.stringify({ ids: [7, 8] }) });
+await app.sqlApi.bulkDelete('agent', { ids: [7, 8] }, req);
+```

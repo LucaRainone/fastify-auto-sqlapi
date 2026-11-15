@@ -506,10 +506,7 @@ Content-Type: application/json
 POST http://localhost:3000/auto/bulk/customer/delete
 Content-Type: application/json
 
-[
-  { "id": 10 },
-  { "id": 11 }
-]
+{ "ids": [10, 11] }
 
 ###########################################################################
 #                     MULTI-TENANT FILTERING
@@ -779,7 +776,4 @@ POST http://localhost:3000/auto/bulk/customer/delete
 Content-Type: application/json
 X-Tenant-Id: 1
 
-[
-  { "id": 10 },
-  { "id": 11 }
-]
+{ "ids": [10, 11] }

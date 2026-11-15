@@ -130,7 +130,7 @@ describe('hook context — deletes', () => {
       beforeBulkDelete: (ctx) => { seen.before = ctx; },
       afterBulkDelete: (ctx) => { seen.after = ctx; },
     }));
-    await api.bulkDelete('customer', [1, 2], REQ);
+    await api.bulkDelete('customer', { ids: [1, 2] }, REQ);
     assertBase(seen.before, REQ);
     assert.deepEqual(seen.before.ids, [1, 2]);
     assertBase(seen.after, REQ);

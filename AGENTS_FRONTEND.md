@@ -17,7 +17,7 @@ POST {p}/rest/{table} body={main, secondaries?} → 201 {main:{id}, action, seco
 PUT {p}/rest/{table} body={main(+PK), secondaries?, deletions?} → {main:{id}, secondaries?, deletions?}
 DELETE {p}/rest/{table}/:id → {main:{id}} | 404
 PUT {p}/bulk/{table} body=[{main, secondaries?, deletions?}, ...] → [{main:{id}, action}, ...]
-POST {p}/bulk/{table}/delete body=[{id:1}, {id:2}] → [{main:{id:1}}, ...] // key = the table's PK field
+POST {p}/bulk/{table}/delete body={ids:[1, 2]} → [{main:{id:1}}, ...] // only the rows actually deleted; main key = the table's PK field
 ```
 
 ## Search

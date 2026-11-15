@@ -55,6 +55,14 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **BREAKING: a bulk delete takes `{ ids: [...] }`, over HTTP and in `sqlApi.bulkDelete`.**
+  `POST /bulk/:table/delete` took an array of `{ <pk field>: value }` objects, so a client had
+  to know each table's PK name to delete, and `sqlApi.bulkDelete` took a bare array: the same
+  ids in two shapes, a third in the hooks. The body is now `{ ids }` for every table, ids typed
+  as the PK; `maxBulkItems` caps the ids. The old array body is a 400; a bare array passed to
+  `sqlApi.bulkDelete` is a `TypeError` naming `ids`, before any SQL. The response is
+  unchanged. The bulk delete hooks already received `{ ids }`. Exported type
+  `SqlApiBulkDeleteParams`. See BREAKING_CHANGES.md.
 - **BREAKING: `sqlApi.insert` and `sqlApi.update` take the HTTP body.** The main row goes
   under `main`, as in `POST`/`PUT /rest/:table`, instead of `record`: a custom route can hand
   `req.body` over as is. A call still sending `record` is refused with a `TypeError` naming the

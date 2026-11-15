@@ -69,7 +69,7 @@ describe('a caller with an empty tenant list', () => {
     update: (api) => api.update('customer', { main: { id: 1, name: 'Mario' } }, {}),
     delete: (api) => api.delete('customer', '1', {}),
     bulkUpsert: (api) => api.bulkUpsert('customer', [{ main: { name: 'Mario' } }], {}),
-    bulkDelete: (api) => api.bulkDelete('customer', [1], {}),
+    bulkDelete: (api) => api.bulkDelete('customer', { ids: [1] }, {}),
   };
 
   for (const [name, run] of Object.entries(operations)) {

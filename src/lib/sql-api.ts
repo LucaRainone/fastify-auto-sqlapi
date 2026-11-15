@@ -73,6 +73,26 @@ export interface SqlApiUpdateParams {
   deletions?: RowsByAlias;
 }
 
+/** The body of `POST /bulk/:table/delete`: the primary key values to delete. */
+export interface SqlApiBulkDeleteParams {
+  ids: (string | number)[];
+}
+
+/**
+ * The ids of a bulk delete's params. A JavaScript caller can still pass the pre-1.0 bare
+ * array: refused, naming the key, before any SQL.
+ */
+function idsOf(tableName: string, params: { ids?: unknown }): (string | number)[] {
+  const ids = Array.isArray(params) ? undefined : params?.ids;
+  if (!Array.isArray(ids)) {
+    throw new TypeError(
+      `sqlApi.bulkDelete('${tableName}'): the ids go under \`ids\`, as in the HTTP body` +
+      (Array.isArray(params) ? ' (a bare array was the pre-1.0 form)' : '')
+    );
+  }
+  return ids as (string | number)[];
+}
+
 /**
  * The main row of a write's params. A JavaScript caller can still send the pre-1.0 key
  * `record`, which would otherwise write an empty row or miss the one to update: refused,
@@ -220,7 +240,8 @@ export class SqlApi {
     });
   }
 
-  async bulkDelete(tableName: string, ids: (string | number)[], request?: ApiRequest): Promise<BulkDeleteResult[]> {
+  async bulkDelete(tableName: string, params: SqlApiBulkDeleteParams, request?: ApiRequest): Promise<BulkDeleteResult[]> {
+    const ids = idsOf(tableName, params);
     const tableConf = this.getTableConf(tableName);
     const tenant = await this.getTenant(tableName, request);
     return bulkDeleteEngine({ db: this.db, tableConf, ids, tenant, request });

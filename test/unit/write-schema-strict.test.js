@@ -74,9 +74,9 @@ describe('bulk body schemas enforce maxItems (DoS guard)', () => {
     assert.equal(schema.maxItems, 250);
   });
 
-  it('bulk-delete array carries the provided maxItems', () => {
+  it('bulk-delete ids carry the provided maxItems', () => {
     const schema = BulkDeleteTableBody(createDbTables(), 'customer', 250);
-    assert.equal(schema.maxItems, 250);
+    assert.equal(schema.properties.ids.maxItems, 250);
   });
 
   it('omitting maxItems leaves the array uncapped (backward compatible)', () => {

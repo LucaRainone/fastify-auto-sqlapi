@@ -297,7 +297,7 @@ All names in a scope are real columns. Naming a camelCase field whose column dif
 
 ## sqlApi (application code)
 
-Same code path and results as the HTTP routes (AGENTS_FRONTEND.md). Validation, hooks, computed fields and tenant scope all run. `insert`/`update` take the HTTP body as is. One difference left: `bulkDelete` takes the ids themselves (the body's `[{ id }]`).
+Same code path, bodies and results as the HTTP routes (AGENTS_FRONTEND.md): a request body can be handed over as is. Validation, hooks, computed fields and tenant scope all run.
 
 ```ts
 app.get('/billing/:customerId', async (request) =>
@@ -315,7 +315,7 @@ sqlApi.insert(table, { main, secondaries? }, req?) // the POST /rest body: app.s
 sqlApi.update(table, { main, secondaries?, deletions? }, req?) // the PUT /rest body, PK in main
 sqlApi.delete(table, id, req?)
 sqlApi.bulkUpsert(table, items, req?) // each item writes only its own fields; items need not share keys
-sqlApi.bulkDelete(table, ids, req?)
+sqlApi.bulkDelete(table, { ids }, req?) // the POST /bulk/:table/delete body
 
 // Standalone (jobs, scripts, tests). Always pass dialect, default is postgres syntax.
 const sqlApi = createSqlApi(mysqlQueryable(pool), dbTables, { dialect: 'mysql' });
