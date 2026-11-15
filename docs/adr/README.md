@@ -38,6 +38,7 @@ not by editing history.
 | [0021](./0021-upsert-targets-a-verified-unique-key.md) | An upsert targets a unique key verified at startup — MySQL and MariaDB upsert by key, not by `ON DUPLICATE KEY` |
 | [0022](./0022-stay-on-0x-while-every-consumer-is-first-party.md) | Stay on 0.x while every consumer is first-party — a breaking change bumps the minor, never the patch |
 | [0023](./0023-a-write-runs-in-a-transaction-or-not-at-all.md) | A write runs in a transaction or not at all — `withTransaction` requires `connect()` (narrows 0003's context) |
+| [0024](./0024-the-consumer-maps-driver-codes-through-dberrors.md) | The consumer maps driver error codes through `dbErrors` — the plugin ships no mapping (narrows 0006, 0013) |
 
 ## When to write one
 

@@ -1,6 +1,7 @@
 # 0013. Database error messages are sanitized on the wire by default
 
-- **Status**: accepted — narrows [0006](./0006-raw-db-errors.md)
+- **Status**: accepted — narrows [0006](./0006-raw-db-errors.md); the consumer's remedy
+  narrowed by [0024](./0024-the-consumer-maps-driver-codes-through-dberrors.md)
 - **Date**: 2026-08-05
 
 ## Context

@@ -108,6 +108,7 @@ export type {
   DbTables,
   SqlApiPluginOptions,
   SwaggerOptions,
+  DbErrorMapping,
   SearchParams,
   SearchResult,
   Paginator,

@@ -1,7 +1,8 @@
 # 0006. Raw DB errors surface as 500 — no SQLSTATE→HTTP mapping
 
 - **Status**: accepted on the mapping; message exposure narrowed by
-  [0013](./0013-sanitized-db-errors.md)
+  [0013](./0013-sanitized-db-errors.md); the consumer's remedy narrowed by
+  [0024](./0024-the-consumer-maps-driver-codes-through-dberrors.md)
 - **Date**: 2026-07-23 (confirmed by the maintainer in June 2026)
 
 ## Context

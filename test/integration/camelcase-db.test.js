@@ -290,3 +290,63 @@ describe(`[${DIALECT}] camelCase DB columns — end-to-end`, () => {
     }
   });
 });
+
+describe(`[${DIALECT}] camelCase tenant column — direct scope on "userId"`, () => {
+  // The tenant column is a real column name, here camelCase. Every statement must quote it:
+  // unquoted, Postgres folds it to `userid` and the statement fails.
+  const scopedDbTables = {
+    userAccount: {
+      ...DbTables.userAccount,
+      tenantScope: { column: 'userId' },
+    },
+  };
+  let app;
+  let db;
+
+  before(async () => {
+    ({ app, db } = await createTestApp(scopedDbTables, {
+      prefix: '/auto',
+      getTenantId: () => 'u_alpha',
+    }));
+    await cleanTables(db, ['userAccount']);
+    await seedRows(db, 'userAccount', [
+      { id: 't1', userId: 'u_alpha', providerId: 'github', accountId: 'gh_t1' },
+      { id: 't2', userId: 'u_beta', providerId: 'github', accountId: 'gh_t2' },
+    ]);
+  });
+
+  after(async () => {
+    await cleanTables(db, ['userAccount']);
+    await app.close();
+  });
+
+  it('an update of an owned row is scoped by the quoted tenant column', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/auto/rest/userAccount',
+      payload: { main: { id: 't1', accountId: 'gh_t1_new' } },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+
+    const { rows } = await db.query(
+      `SELECT ${db.qi('accountId')} AS "a" FROM ${db.qi('userAccount')} WHERE ${db.qi('id')} = ${DIALECT === 'postgres' ? '$1' : '?'}`,
+      ['t1']
+    );
+    assert.equal(rows[0].a, 'gh_t1_new');
+  });
+
+  it('an update of another tenant\'s row is a 404 and leaves it unchanged', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/auto/rest/userAccount',
+      payload: { main: { id: 't2', accountId: 'stolen' } },
+    });
+    assert.equal(res.statusCode, 404, res.body);
+
+    const { rows } = await db.query(
+      `SELECT ${db.qi('accountId')} AS "a" FROM ${db.qi('userAccount')} WHERE ${db.qi('id')} = ${DIALECT === 'postgres' ? '$1' : '?'}`,
+      ['t2']
+    );
+    assert.equal(rows[0].a, 'gh_t2');
+  });
+});

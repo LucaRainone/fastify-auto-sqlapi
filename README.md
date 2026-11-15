@@ -288,10 +288,11 @@ privileged transition off the auto routes entirely.
 
 **5. What leaves the server.** Any error the plugin did not raise itself becomes a bare `500`
 carrying a `requestId` — driver messages name your tables, columns and constraints, and they
-stay in the log. No status code is remapped (a unique violation is a `500`, not a `409`: that
-mapping is product logic, for your `setErrorHandler`). Set `exposeDebugInfo: true` while
-developing to get the driver detail on the wire, additively.
-([ADR 0013](./docs/adr/0013-sanitized-db-errors.md))
+stay in the log. The plugin remaps no status on its own (a unique violation is a `500`, not a
+`409`: that mapping is product logic). List the driver codes you want answered otherwise in
+`dbErrors` — `{ '23505': 409 }` — and they get that status, still without driver detail. Set
+`exposeDebugInfo: true` while developing to get the driver detail on the wire, additively.
+([ADR 0013](./docs/adr/0013-sanitized-db-errors.md), [ADR 0024](./docs/adr/0024-the-consumer-maps-driver-codes-through-dberrors.md))
 
 Two caps are on by default and configurable: `maxItemsPerPage` (1000) bounds a search — and is
 applied as the `LIMIT` even with no paginator, so an empty-body search cannot dump a table — and

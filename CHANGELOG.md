@@ -12,6 +12,15 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Added
 
+- **`dbErrors`**: driver error codes the consumer answers with an HTTP status instead of the
+  sanitized 500, keyed by `err.code` as the driver raises it:
+  `dbErrors: { '23505': { status: 409, message: 'Already exists' }, 'ER_DUP_ENTRY': 409 }`.
+  The answer keeps the error envelope and carries no driver detail; a 400 has
+  `fields: [{ path: '', code: <driver code> }]`. The plugin ships no mapping and interprets
+  nothing (ADR 0024). This replaces the documented `setErrorHandler` recipe, which never worked
+  with the main plugin: the routes' own error handler answers before an application handler
+  is reached. An invalid entry (status outside 400–599, non-string message) fails
+  registration. Exported type `DbErrorMapping`.
 - **`target` on `buildRelation`**: the `dbTables` key whose config governs the joined table.
   Needed only when the same physical table is exposed under several keys.
 - **One error envelope**, `{statusCode, error, message, requestId, fields?}`, for every error
@@ -88,6 +97,11 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Fixed
 
+- **An update on a table whose tenant column is camelCase failed with a 500.** The tenant
+  predicate the UPDATE appends (direct and `anyOf` scopes) named the column unquoted, so
+  Postgres folded `"userId"` to `userid` and rejected the statement; reads, inserts and deletes
+  quoted it and worked. The column is now quoted like every other one. MySQL/MariaDB, whose
+  column names are case-insensitive, were not affected.
 - **A second registration of the plugin ran its routes with the first one's configuration.**
   The routes called `fastify.sqlApi`, and that decorator belongs to whichever registration
   set it first: registering the plugin under two prefixes, or a granular route plugin next to

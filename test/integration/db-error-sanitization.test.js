@@ -92,3 +92,41 @@ describe(`[${DIALECT}] a real constraint violation does not describe the schema`
     assert.ok(leaked, `the scenario produced no driver detail to sanitize: ${res.body}`);
   });
 });
+
+describe(`[${DIALECT}] a real constraint violation mapped through dbErrors`, () => {
+  let app;
+  let db;
+  let takenId;
+  // The driver code of a unique violation differs per database: the consumer maps the
+  // one its database raises, and the plugin interprets nothing.
+  const uniqueViolation = DIALECT === 'postgres' ? '23505' : 'ER_DUP_ENTRY';
+
+  before(async () => {
+    ({ app, db } = await createTestApp(DbTables, {
+      prefix: '/auto',
+      dbErrors: { [uniqueViolation]: { status: 409, message: 'Product already exists' } },
+    }));
+    await cleanTables(db, ['product']);
+    const [row] = await seedRows(db, 'product', [{ name: 'Bike', price: 100 }], 'id');
+    takenId = row.id;
+  });
+
+  after(async () => {
+    await cleanTables(db, ['product']);
+    await app.close();
+  });
+
+  it('the unique violation answers the mapped 409, without driver detail', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auto/rest/product',
+      payload: { main: { id: takenId, name: 'Clone', price: 50 } },
+    });
+
+    assert.equal(res.statusCode, 409, `expected 409, got ${res.statusCode}: ${res.body}`);
+    assert.equal(res.json().message, 'Product already exists');
+    for (const leak of ['product_pkey', 'duplicate key', 'Duplicate entry', 'PRIMARY']) {
+      assert.ok(!res.body.includes(leak), `"${leak}" leaked to the client: ${res.body}`);
+    }
+  });
+});

@@ -5,7 +5,7 @@ import {
   REGISTRATION_SQL_API,
   type RegistrationOptions,
 } from '../sql-api-decorator.js';
-import { sanitizeRouteError } from '../../lib/errors.js';
+import { sanitizeRouteError, assertDbErrors } from '../../lib/errors.js';
 import { validateJoinTargets } from '../../lib/table-helpers.js';
 import type { SqlApi } from '../../lib/sql-api.js';
 import { isCompositePrimary } from '../../types.js';
@@ -142,6 +142,8 @@ export async function registerForAllTables(
   // plugin, no ancestor has decorated `sqlApi` for application code — do it in this scope.
   ensureSqlApiDecorator(fastify, getSqlApi);
 
+  assertDbErrors(options.dbErrors);
+
   const { DbTables } = options;
   // The decorator is lazy, so this is the first place the configuration is seen as a whole:
   // a relation whose target is ambiguous must fail registration, not the first request.
@@ -162,8 +164,17 @@ export async function registerForAllTables(
           const result = await spec.handle(getSqlApi(), tableName, tableConf, request, reply);
           if (!reply.sent) reply.status(spec.successStatus).send(result);
         } catch (err) {
-          const safe = sanitizeRouteError(err, request.id, options.exposeDebugInfo);
-          if (safe !== err) request.log.error({ err }, 'sqlapi: unhandled error');
+          const safe = sanitizeRouteError(err, {
+            requestId: request.id,
+            exposeDebugInfo: options.exposeDebugInfo,
+            dbErrors: options.dbErrors,
+          });
+          if (safe !== err) {
+            // A code the consumer mapped is an expected outcome, not a server fault: the
+            // driver error stays in the log, at a level that does not page anyone.
+            if ((safe as { statusCode: number }).statusCode >= 500) request.log.error({ err }, 'sqlapi: unhandled error');
+            else request.log.info({ err }, 'sqlapi: database error answered through dbErrors');
+          }
           throw safe;
         }
       },
