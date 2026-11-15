@@ -6,7 +6,7 @@ import { httpError } from './errors.js';
  * Read visibility (`TableConfig.readExclude`).
  *
  * Excluded fields are never projected by any read query and cannot be referenced
- * from filters, conditions, orderBy, aggregations or join selections: allowing a
+ * from filters, conditions, orderBy, aggregations or a join `select`: allowing a
  * field to be filtered while hiding it from the output would still leak its value
  * by bisection. Write paths (insert/update/upsert) are deliberately unaffected —
  * a field can be writable but never readable (e.g. a password hash).
@@ -72,11 +72,11 @@ export function assertFiltersReadable(
  * fields; anything else used to be dropped without a word, so a mistyped key returned MORE
  * rows than the caller asked for and nothing said so. That is the dangerous direction to fail
  * in — filters are also how consumers narrow visibility — and it contradicted every
- * neighbouring path, where an unknown field in `selection`, `conditions`, `orderBy` or an
+ * neighbouring path, where an unknown field in `select`, `conditions`, `orderBy` or an
  * aggregation is already a 400.
  *
  * `schema` is the schema the relation was declared with, which for a join may be a trimmed
- * copy: a field outside it is unknown here exactly as it is for `selection`.
+ * copy: a field outside it is unknown here exactly as it is for `select`.
  *
  * `allowExtraFilters` is false on the joinLeft path, whose condition is built inline
  * (`buildLeftJoinClauses`) and never runs the table's `extendedCondition`.

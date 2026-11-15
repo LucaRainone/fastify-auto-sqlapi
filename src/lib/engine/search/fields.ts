@@ -36,6 +36,21 @@ export function err400(code: string, path: string, message: string): never {
   throw httpError(400, message, { code, path });
 }
 
+/**
+ * Reject a request key retired in 1.0: a client still sending it gets a 400 naming the key
+ * instead of a response that silently ignores it.
+ */
+export function rejectRetiredKey(input: object | undefined, key: string, at: string, instead: string): void {
+  if (input !== undefined && Object.hasOwn(input, key)) {
+    err400('retired_key', at, `'${key}' was removed in 1.0: ${instead}`);
+  }
+}
+
+/** `selectComputed` was folded into `select` in 1.0: checked at every search entry point. */
+export function rejectSelectComputed(params: object): void {
+  rejectRetiredKey(params, 'selectComputed', 'selectComputed', `list computed fields in 'select'`);
+}
+
 /** `at.key`, or '' when `at` is unknown: a child path is only as precise as its parent. */
 export function subPath(at: string, key: string | number): string {
   return at ? `${at}.${key}` : '';
@@ -205,41 +220,40 @@ export function mapRowsToCamelCase(
 }
 
 /**
- * Build the SELECT columns list for a join fetch: '*' or the quoted columns of the selected
- * fields. A `selection` is an array of field names or the same list comma-separated (the
- * relation's default is stored that way). A default '*' narrows to the join table's readable
- * columns when it declares `readExclude`; a selection naming an excluded field is a 400.
+ * Build the SELECT columns list for a join fetch: the quoted columns of the `select`ed fields,
+ * each validated (unknown or `readExclude`d → 400 at `<at>.<i>`). Without a `select`, every
+ * readable column of the join table.
  *
- * On a relation narrowed by a `fields` allowlist the '*' is always spelled out. Emitting a
+ * On a relation narrowed by a `fields` allowlist the default is always spelled out. Emitting a
  * real `SELECT *` there would fetch the excluded columns and leave them to be dropped by
  * the response serializer — which does not run for a caller of `sqlApi.search()`.
  */
-export function buildSelectionColumns(
-  selection: string | string[],
+export function buildJoinSelectColumns(
+  select: string[] | undefined,
   joinSchema: SchemaDefinition,
   db: QueryClient,
   joinTableConf?: TableConfig,
   restricted = false,
   at = ''
 ): string {
-  if (selection === '*') {
+  if (select === undefined) {
     if (restricted) return explicitSelectColumns(joinTableConf, joinSchema, db);
     return readableSelectColumns(joinTableConf, joinSchema, db);
   }
+  if (!Array.isArray(select)) {
+    throw new TypeError(`${at || 'select'}: 'select' is an array of field names`);
+  }
   const table = db.qi(joinSchema.tableName);
-  const names = Array.isArray(selection) ? selection : selection.split(',');
-  return names
-    .map((c, i) => {
-      const fieldAt = Array.isArray(selection) ? subPath(at, i) : at;
-      return `${table}.${db.qi(validateSchemaField(c.trim(), joinSchema, joinTableConf, fieldAt))}`;
-    })
+  return select
+    .map((name, i) => `${table}.${db.qi(validateSchemaField(name, joinSchema, joinTableConf, subPath(at, i)))}`)
     .join(', ');
 }
 
 /**
- * The main query's SELECT list for a request `select`: the listed fields, validated one by one
- * (unknown or `readExclude`d → 400 at `select.<i>`), then `required` ones the request did not
- * list — the primary key, join correlation keys, DISTINCT's ORDER BY fields — when readable.
+ * The main query's column list for a request `select`: the listed schema fields, validated one
+ * by one (unknown or `readExclude`d → 400 at `select.<i>`), then `required` ones the request did
+ * not list — the primary key, join correlation keys, DISTINCT's ORDER BY fields — when readable.
+ * Computed fields in `select` are skipped here: `executeMainQuery` projects them.
  */
 export function buildMainSelectColumns(
   select: string[],
@@ -251,6 +265,7 @@ export function buildMainSelectColumns(
   const table = db.qi(schema.tableName);
   const fields: string[] = [];
   for (const [i, name] of select.entries()) {
+    if (ownField(tableConf.computedFields, name)) continue;
     validateSchemaField(name, schema, tableConf, `select.${i}`);
     if (!fields.includes(name)) fields.push(name);
   }

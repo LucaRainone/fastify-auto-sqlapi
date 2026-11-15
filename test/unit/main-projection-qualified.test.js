@@ -2,8 +2,9 @@
 // `orderBy` and an indirect tenant scope add a JOIN to the main statement; with a bare `*`
 // the joined table's columns land in the row too, and on a name clash (`id`, `name`,
 // `createdAt`…) the driver keeps the LAST value read — the parent's. Every main row then
-// carries the parent's id. `db.select` already qualifies a bare `*`; the `selectComputed`
-// path built `*, <expr> AS "x"` by hand and slipped past it.
+// carries the parent's id. `db.select` already qualifies a bare `*`; the computed-field
+// projection (pre-1.0 `selectComputed`) built `*, <expr> AS "x"` by hand and slipped past it.
+// A computed field is now projected through `select`, whose columns are listed one by one.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -46,49 +47,49 @@ function createDbTables() {
 
 /** The main statement must project the main table only, never a bare `*`. */
 function assertMainProjection(sql) {
-  assert.match(sql, /^SELECT "hour"\.\*/, sql);
+  assert.match(sql, /^SELECT "hour"\.(\*|"id")/, sql);
   assert.doesNotMatch(sql, /SELECT \*/, sql);
 }
 
 const joinLeftFilter = { customer: { conditions: [{ field: 'name', method: 'isILike', params: ['%acme%'] }] } };
 
 describe('main projection stays table-qualified when the main query carries a JOIN', () => {
-  it('filtered joinLeft + selectComputed', async () => {
+  it('filtered joinLeft + a computed field in select', async () => {
     const mockPg = createMockPg([{ rows: [] }, { rows: [] }]);
     const dbTables = createDbTables();
     await searchEngine(dbTables, {
       db: new QueryClient(mockPg), tableConf: dbTables.hour,
-      selectComputed: ['upperNote'], joinLeft: joinLeftFilter,
+      select: ['id', 'note', 'upperNote'], joinLeft: joinLeftFilter,
     });
     assertMainProjection(mockPg.calls[0].text);
     assert.match(mockPg.calls[0].text, /LEFT JOIN "customer"/);
     assert.match(mockPg.calls[0].text, /UPPER\("hour"\."note"\) AS "upperNote"/);
   });
 
-  it('parent orderBy + selectComputed', async () => {
+  it('parent orderBy + a computed field in select', async () => {
     const mockPg = createMockPg([{ rows: [] }, { rows: [] }]);
     const dbTables = createDbTables();
     await searchEngine(dbTables, {
       db: new QueryClient(mockPg), tableConf: dbTables.hour,
-      selectComputed: ['upperNote'], orderBy: 'customer.name', joinLeft: { customer: {} },
+      select: ['id', 'note', 'upperNote'], orderBy: 'customer.name', joinLeft: { customer: {} },
     });
     assertMainProjection(mockPg.calls[0].text);
     assert.match(mockPg.calls[0].text, /LEFT JOIN "customer"/);
   });
 
-  it('indirect tenant scope (INNER JOIN through the parent) + selectComputed', async () => {
+  it('indirect tenant scope (INNER JOIN through the parent) + a computed field in select', async () => {
     const mockPg = createMockPg([{ rows: [] }]);
     const dbTables = createDbTables();
     await searchEngine(dbTables, {
       db: new QueryClient(mockPg), tableConf: dbTables.hourScoped,
-      selectComputed: ['upperNote'],
+      select: ['id', 'note', 'upperNote'],
       tenant: { ids: [7], scope: dbTables.hourScoped.tenantScope },
     });
     assertMainProjection(mockPg.calls[0].text);
     assert.match(mockPg.calls[0].text, /INNER JOIN "customer"/);
   });
 
-  it('filtered joinLeft without selectComputed (already qualified by db.select, kept as a guard)', async () => {
+  it('filtered joinLeft without select (already qualified by db.select, kept as a guard)', async () => {
     const mockPg = createMockPg([{ rows: [] }, { rows: [] }]);
     const dbTables = createDbTables();
     await searchEngine(dbTables, { db: new QueryClient(mockPg), tableConf: dbTables.hour, joinLeft: joinLeftFilter });

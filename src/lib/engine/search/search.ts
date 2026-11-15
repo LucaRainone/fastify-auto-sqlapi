@@ -19,6 +19,7 @@ import {
   renderRef,
   mapRowsToCamelCase,
   buildMainSelectColumns,
+  rejectSelectComputed,
 } from './fields.js';
 import { assertJoinFilterKeys, requireJoin } from './joins.js';
 import { runAfterRead } from '../read-hooks.js';
@@ -83,7 +84,6 @@ async function executeMainQuery(
   paginator?: { page: number; itemsPerPage: number },
   extraJoins: string[] = [],
   projection?: MainProjection,
-  selectComputed?: string[],
   maxRows?: number
 ): Promise<Record<string, unknown>[]> {
   const tableName = tableConf.Schema.tableName;
@@ -107,23 +107,22 @@ async function executeMainQuery(
     ? buildMainSelectColumns(projection.select, projection.required, tableConf, db)
     : readableSelectColumns(tableConf, tableConf.Schema, db);
 
-  // Optional computed projections — bound values, if any, are NOT yet supported
+  // Computed fields listed in `select` — bound values, if any, are NOT yet supported
   // here (would require placeholder-aware composition with WHERE values).
-  let columns: string = readableColumns;
-  if (selectComputed?.length) {
-    const projections = [readableColumns];
-    for (const [i, name] of selectComputed.entries()) {
-      const fn = ownField(tableConf.computedFields, name);
-      if (!fn) err400('unknown_field', `selectComputed.${i}`, `Unknown computed field in selectComputed: '${name}'`);
-      const out = evaluateComputedField(
-        name, fn, tableConf.Schema, db, undefined,
-        `Computed field '${name}' with bound values cannot be used in selectComputed`,
-        false, `selectComputed.${i}`,
-      );
-      projections.push(`${out.value} AS ${db.qi(name)}`);
-    }
-    columns = projections.join(', ');
+  const projections = [readableColumns];
+  const computedNames: string[] = [];
+  for (const [i, name] of (projection?.select ?? []).entries()) {
+    const fn = ownField(tableConf.computedFields, name);
+    if (!fn || computedNames.includes(name)) continue;
+    const out = evaluateComputedField(
+      name, fn, tableConf.Schema, db, undefined,
+      `Computed field '${name}' with bound values cannot be used in select`,
+      false, `select.${i}`,
+    );
+    projections.push(`${out.value} AS ${db.qi(name)}`);
+    computedNames.push(name);
   }
+  const columns = projections.join(', ');
 
   const rows = await db.select({
     tableName,
@@ -136,7 +135,7 @@ async function executeMainQuery(
     joins: extraJoins.length > 0 ? extraJoins : undefined,
   });
 
-  return mapRowsToCamelCase(rows, tableConf.Schema, selectComputed);
+  return mapRowsToCamelCase(rows, tableConf.Schema, computedNames);
 }
 
 /** A request `select`, with the fields the query itself needs projected alongside. */
@@ -372,6 +371,7 @@ export async function searchEngine(
     orderBy, paginator, tenant,
   } = params;
 
+  rejectSelectComputed(params);
   assertRequestWithinLimits(params);
   assertJoinRequestsAllowed(dbTables, params);
 
@@ -434,7 +434,7 @@ export async function searchEngine(
     : undefined;
   const main = await executeMainQuery(
     db, tableConf, where, mainValues, safeOrderBy, paginator, extraJoinClauses,
-    projection, params.selectComputed, params.maxRows
+    projection, params.maxRows
   );
 
   let pagination: PaginationResult | undefined;

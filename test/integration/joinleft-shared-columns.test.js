@@ -130,23 +130,24 @@ describe(`[${DIALECT}] joinLeft with shared column names (ambiguity regression)`
     assert.equal(Number(body.computed.max.id), marioId);
   });
 
-  it('selectComputed referencing a shared column reads the main table', async () => {
-    const body = await search('', { selectComputed: ['loudName'], joinLeft });
+  it('a computed field in select referencing a shared column reads the main table', async () => {
+    const body = await search('', { select: ['id', 'name', 'loudName'], joinLeft });
     assert.equal(body.main.length, 1);
     assert.equal(body.main[0].loudName, 'MARIO');
   });
 
-  // The projection itself: with selectComputed the main query once built `*, <expr>` by hand,
-  // and the LEFT JOIN's columns leaked into the row — the org's id and name won over Mario's.
-  it("selectComputed with a filtered joinLeft keeps the main row's own id and name", async () => {
-    const body = await search('', { selectComputed: ['loudName'], joinLeft });
+  // The projection itself: with a computed field (pre-1.0 `selectComputed`) the main query
+  // once built `*, <expr>` by hand, and the LEFT JOIN's columns leaked into the row — the
+  // org's id and name won over Mario's.
+  it("a computed field in select with a filtered joinLeft keeps the main row's own id and name", async () => {
+    const body = await search('', { select: ['id', 'name', 'loudName'], joinLeft });
     assert.equal(body.main.length, 1);
     assert.equal(body.main[0].id, marioId, 'the customer id, not the org id');
     assert.equal(body.main[0].name, 'Mario', 'the customer name, not the org name');
   });
 
-  it("a parent orderBy with selectComputed keeps the main row's own id and name", async () => {
-    const body = await search('orderBy=org.name', { selectComputed: ['loudName'], joinLeft: { org: {} } });
+  it("a parent orderBy with a computed field in select keeps the main row's own id and name", async () => {
+    const body = await search('orderBy=org.name', { select: ['id', 'name', 'loudName'], joinLeft: { org: {} } });
     assert.deepEqual(body.main.map((c) => c.name), ['Mario', 'Luigi'], 'Acme before Globex');
     assert.equal(body.main[0].id, marioId);
   });

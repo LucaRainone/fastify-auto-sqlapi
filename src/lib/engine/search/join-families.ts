@@ -17,7 +17,8 @@ import {
   validateSchemaField,
   evaluateComputedField,
   mapRowsToCamelCase,
-  buildSelectionColumns,
+  buildJoinSelectColumns,
+  rejectRetiredKey,
 } from './fields.js';
 import { runAfterRead } from '../read-hooks.js';
 import {
@@ -295,15 +296,15 @@ async function fetchJoinRows(
   for (const [alias, ref] of Object.entries(requests)) {
     const at = `${mode.source}.${alias}`;
     const joinDef = requireJoin(tableConf, alias, mode.requireUnique, at);
-    const { joinSchema, joinField, mainField, selection: defaultSelection } = joinDef;
+    const { joinSchema, joinField, mainField } = joinDef;
     const joinTableConf = resolveJoinTableConf(dbTables, joinDef);
 
-    // The selection is resolved before the empty-result bail-out: it is validated against
+    // The projection is resolved before the empty-result bail-out: it is validated against
     // the join schema, and that rejection must not depend on whether the main query
     // matched rows.
-    const selection = ref?.selection ?? defaultSelection;
-    const columns = buildSelectionColumns(
-      selection, joinSchema, db, joinTableConf, joinDef.fields !== undefined, `${at}.selection`
+    rejectRetiredKey(ref, 'selection', `${at}.selection`, `use 'select', an array of field names`);
+    const columns = buildJoinSelectColumns(
+      ref?.select ?? joinDef.select, joinSchema, db, joinTableConf, joinDef.fields !== undefined, `${at}.select`
     );
 
     // For joinLeft, mainField on the main table is the FK pointing at joinField (the

@@ -35,7 +35,7 @@ export interface ManifestTable {
   fields: Record<string, ManifestField>;
   /** Fields stripped from client input on insert (server-generated: PKs, timestamps). */
   serverGenerated?: string[];
-  /** Computed (virtual) fields: usable in filters/conditions/orderBy/selectComputed. */
+  /** Computed (virtual) fields: usable in filters/conditions/orderBy/compute and listed in select. */
   computed?: Record<string, string>;
   /** Extra filter names accepted in `filters` beyond schema fields. */
   extraFilters?: Record<string, string>;

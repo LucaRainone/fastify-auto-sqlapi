@@ -84,12 +84,12 @@ describe('search rejects prototype-chain keys like any unknown field', () => {
       );
     });
 
-    it(`rejects '${key}' in selectComputed`, async () => {
+    it(`rejects '${key}' in select`, async () => {
       const mockPg = createMockPg([{ rows: [] }]);
       const { DbTables, db } = createTestDbTables(mockPg);
 
       await assert.rejects(
-        () => searchEngine(DbTables, { db, tableConf: DbTables.customer, selectComputed: [key] }),
+        () => searchEngine(DbTables, { db, tableConf: DbTables.customer, select: [key] }),
         (err) => err.statusCode === 400
       );
     });
@@ -115,7 +115,7 @@ describe('search rejects prototype-chain keys like any unknown field', () => {
     await searchEngine(DbTables, {
       db,
       tableConf: DbTables.customer,
-      selectComputed: ['upperName'],
+      select: ['upperName'],
     });
     assert.ok(mockPg.calls[0].text.includes('UPPER'), mockPg.calls[0].text);
   });

@@ -60,8 +60,8 @@ function computedFieldTypes(tableConf: TableConfig | undefined): Record<string, 
   return out;
 }
 
-/** A join's `selection`: the field list as an array, or comma-separated in one string. */
-const SelectionSchema = Type.Union([Type.String(), Type.Array(Type.String())]);
+/** A projection: field names, validated by the engine (see the main `select`). */
+const SelectSchema = Type.Array(Type.String());
 
 /** Per-alias body schemas, split by the relation's `unique` flag. */
 interface JoinBodyProps {
@@ -106,7 +106,7 @@ function buildJoinBodyProps(
       props.joinLeft[alias] = Type.Object({
         filters: Type.Optional(filtersObject(joinSchemaFields)),
         conditions: Type.Optional(Type.Array(conditionItemSchema, { maxItems: MAX_CONDITIONS })),
-        selection: Type.Optional(SelectionSchema),
+        select: Type.Optional(SelectSchema),
       });
       continue;
     }
@@ -114,7 +114,7 @@ function buildJoinBodyProps(
     props.joinMustExist[alias] = Type.Object(joinRefShape);
     props.joinMultiple[alias] = Type.Object({
       ...joinRefShape,
-      selection: Type.Optional(SelectionSchema),
+      select: Type.Optional(SelectSchema),
     });
     props.joinGroup[alias] = Type.Object({
       by: Type.Optional(Type.String()),
@@ -204,9 +204,10 @@ export function SearchTableBodyPost(
   const bodyProperties: Record<string, unknown> = {
     filters: filtersSchema,
     conditions: Type.Optional(Type.Array(conditionItemSchema, { maxItems: MAX_CONDITIONS })),
-    // Main projection. Names are validated by the engine (readExclude included), not here: a
-    // closed enum would be stripped by `removeAdditional` the same way a closed filters map is.
-    select: Type.Optional(Type.Array(Type.String())),
+    // Main projection, schema and computed fields alike. Names are validated by the engine
+    // (readExclude included), not here: a closed enum would be stripped by `removeAdditional`
+    // the same way a closed filters map is.
+    select: Type.Optional(SelectSchema),
     // Ordering, paging and aggregates belong with the rest of the request. The querystring
     // (SearchTableQuery) carries the same three for compatibility; the route merges them and
     // rejects a key sent in both places.
@@ -217,10 +218,6 @@ export function SearchTableBodyPost(
     })),
     compute: Type.Optional(computeObject()),
   };
-
-  if (Object.keys(computedTypes).length > 0) {
-    bodyProperties.selectComputed = Type.Optional(Type.Array(Type.String()));
-  }
 
   if (Object.keys(joins.joinMustExist).length > 0) {
     bodyProperties.joinMustExist = Type.Optional(Type.Partial(Type.Object(joins.joinMustExist)));
@@ -254,8 +251,8 @@ export function SearchTableQuery(maxItemsPerPage: number = DEFAULT_MAX_ITEMS_PER
 export function SearchTableResponse(dbTables: DbTables, tableName: string): TObject {
   const tableConf = dbTables[tableName];
 
-  // Computed fields are present in main rows only when explicitly listed in
-  // request body's selectComputed, so they're optional/Partial here.
+  // Computed fields are present in main rows only when listed in the request's `select`,
+  // so they're optional/Partial here.
   const computedTypes = computedFieldTypes(tableConf);
 
   // Not narrowed by schemaOverrides: an override rules what this API accepts from now on,

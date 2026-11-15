@@ -839,7 +839,7 @@ function createSessionDbTables(mockPg) {
         buildRelation(sessionSchema, 'userId', userSchema, 'id', {
           alias: 'updater',
           unique: true,
-          selection: 'id,name',
+          select: ['id', 'name'],
         }),
       ],
     },
@@ -959,7 +959,7 @@ describe('searchEngine - joinLeft (N:1 parent)', () => {
     assert.ok(result.joinLeft.updater);
   });
 
-  it('respects per-request selection override', async () => {
+  it('respects per-request select override', async () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, user_id: 7, active: true }], affectedRows: 1 },
       { rows: [{ id: 7, name: 'Alice' }], affectedRows: 1 },
@@ -969,7 +969,7 @@ describe('searchEngine - joinLeft (N:1 parent)', () => {
     await searchEngine(DbTables, {
       db,
       tableConf: DbTables.session,
-      joinLeft: { creator: { selection: 'id,name' } },
+      joinLeft: { creator: { select: ['id', 'name'] } },
     });
 
     const sideSql = mockPg.calls[1].text;
@@ -1046,7 +1046,7 @@ describe('searchEngine - computed fields', () => {
     assert.ok(/ORDER BY .*first_name.*\|\|.*last_name/.test(sql));
   });
 
-  it('selectComputed projects the expr aliased in main SELECT', async () => {
+  it('a computed field in select projects the expr aliased in main SELECT', async () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, first_name: 'Mario', last_name: 'Rossi', fullName: 'Mario Rossi' }], affectedRows: 1 },
     ]);
@@ -1055,7 +1055,7 @@ describe('searchEngine - computed fields', () => {
     const result = await searchEngine(DbTables, {
       db,
       tableConf: DbTables.customer,
-      selectComputed: ['fullName'],
+      select: ['fullName'],
     });
 
     const sql = mockPg.calls[0].text;
@@ -1063,7 +1063,7 @@ describe('searchEngine - computed fields', () => {
     assert.equal(result.main[0].fullName, 'Mario Rossi');
   });
 
-  it('rejects selectComputed with unknown name (400)', async () => {
+  it('rejects an unknown name in select (400)', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
     const { DbTables, db } = createComputedDbTables(mockPg);
 
@@ -1071,9 +1071,9 @@ describe('searchEngine - computed fields', () => {
       () => searchEngine(DbTables, {
         db,
         tableConf: DbTables.customer,
-        selectComputed: ['bogus'],
+        select: ['bogus'],
       }),
-      (err) => err.statusCode === 400 && /Unknown computed field/.test(err.message)
+      (err) => err.statusCode === 400 && /Unknown field: bogus/.test(err.message)
     );
   });
 

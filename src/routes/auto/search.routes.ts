@@ -2,12 +2,13 @@ import type { FastifyInstance } from 'fastify';
 import { SearchTableBodyPost, SearchTableQuery, SearchTableResponse } from '../../lib/schema/search.js';
 import { registerForAllTables } from './route-helpers.js';
 import { httpError } from '../../lib/errors.js';
+import { rejectSelectComputed } from '../../lib/engine/search/fields.js';
 import { DEFAULT_MAX_ITEMS_PER_PAGE, COMPUTE_FNS } from '../../types.js';
 import type { SqlApiPluginOptions, ComputeRequest, SearchParams } from '../../types.js';
 
 /** The request keys that may arrive in the body or, for compatibility, in the querystring. */
 interface SearchBody extends Pick<SearchParams,
-  'filters' | 'conditions' | 'joinMustExist' | 'joinMultiple' | 'joinGroup' | 'joinLeft' | 'select' | 'selectComputed' | 'orderBy' | 'compute'
+  'filters' | 'conditions' | 'joinMustExist' | 'joinMultiple' | 'joinGroup' | 'joinLeft' | 'select' | 'orderBy' | 'compute'
 > {
   paginator?: { page?: number; itemsPerPage?: number };
 }
@@ -76,6 +77,7 @@ export default async function searchRoutes(
     },
     handle: async (sqlApi, tableName, _tc, request) => {
       const body = request.body as SearchBody;
+      rejectSelectComputed(body);
       const query = request.query as SearchQuery;
 
       const orderBy = pickOne('orderBy', body.orderBy, query.orderBy);
@@ -99,7 +101,6 @@ export default async function searchRoutes(
         joinGroup: body.joinGroup,
         joinLeft: body.joinLeft,
         select: body.select,
-        selectComputed: body.selectComputed,
         orderBy,
         paginator,
         compute,

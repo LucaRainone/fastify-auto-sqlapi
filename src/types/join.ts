@@ -14,7 +14,8 @@ export interface JoinDefinition {
   joinField: string;
   mainField: string | string[];
   alias: string;
-  selection: string;
+  /** Default fields of the joined rows, when the request names none; absent, every readable field. */
+  select?: string[];
   unique: boolean;
   /**
    * The `DbTables` key whose config governs the joined table: its `readExclude`, `tenantScope`,
@@ -27,7 +28,7 @@ export interface JoinDefinition {
    * Allowlist of the target table's fields reachable through this relation, when
    * `buildRelation` was given one. `joinSchema` is already narrowed to it — this is kept
    * so the engine can tell a restricted relation from a full one, which is what stops the
-   * default `'*'` selection from falling back to a real `SELECT *`.
+   * default projection from falling back to a real `SELECT *`.
    *
    * Read joins only: a write join declaring it is rejected by `defineTable`.
    */
@@ -68,8 +69,8 @@ export interface JoinRefFilter {
   conditions?: SearchCondition[];
 }
 
-/** Per-request override of the per-relation default selection. */
+/** Per-request override of the relation's default projection. */
 export interface JoinFetchRequest extends JoinRefFilter {
-  /** Fields of the joined rows to return: an array, or the same list comma-separated. */
-  selection?: string | string[];
+  /** Fields of the joined rows to return. Absent, the relation's `select`, else every readable field. */
+  select?: string[];
 }

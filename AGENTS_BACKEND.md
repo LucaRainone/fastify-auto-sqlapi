@@ -125,7 +125,7 @@ export const TableCustomer = defineTable({
 
   // --- field visibility ---
   insertExclude: ['id', 'createdAt'], // MUST list auto-increment PKs (CLI does it). Was `excludeFromCreation` before 0.6.0, now refused by defineTable. Strips CLIENT input on insert only: beforeInsert and the FK auto-fill may still set it. Not a security tool: every field stays updatable (ADR 0004).
-  readExclude: ['passwordHash'], // never projected (search, get, default join selection); naming it in filters/conditions/orderBy/aggregations/selection → 400. Still writable. Static, applies to admins too. PK not allowed.
+  readExclude: ['passwordHash'], // never projected (search, get, default join projection); naming it in filters/conditions/orderBy/aggregations/select → 400. Still writable. Static, applies to admins too. PK not allowed.
   writeExclude: ['searchVector'], // dropped from insert/update/bulk bodies and in the engines; still readable. For trigger-owned columns; GENERATED columns need nothing. Runs after hooks. Not PK, not also in readExclude (that is excludeColumns).
   schemaOverrides: { email: Type.String({ format: 'email' }) }, // stricter type for WRITE bodies only (responses and filters keep the generated type: stored rows predate the rule). Taken verbatim: no Optional → mandatory, no Nullable → null rejected.
 
@@ -203,7 +203,7 @@ Every error the routes return has one envelope, `{statusCode, error, message, re
 ```ts
 buildRelation(mainSchema, mainField, joinSchema, joinField, {
   alias, // default joinSchema.tableName. Key in requests, responses, secondaries, deletions, dotted notation. Set it only to join one table twice or for a friendlier name. Duplicate alias → throws.
-  selection, // default '*'. ['id', 'name', 'total'] or 'id, name, total'; the request may override it in either form
+  select, // default fields of the joined rows, e.g. ['id', 'name', 'total']; absent: every readable field. The request's select overrides it. A name the joined schema lacks → throws
   unique, // false: 1:N child→main (joinField = child FK) → joinMustExist / joinMultiple / joinGroup. true: N:1 parent→main (joinField = parent PK) → joinLeft. joinField is the target's PK → use true.
   fields, // read-only allowlist of the target's fields. Must include joinField. Not on write joins.
   target, // dbTables key whose config governs the joined table (readExclude, tenantScope, afterRead, computed, write rules). Required when several keys expose that table: startup fails until it is set. With one key, that config applies whatever the key is called.
@@ -222,7 +222,7 @@ allowedReadJoins: [
 
 ## Computed fields
 
-A computed field is a SQL expression usable like a field in `filters`, `conditions`, `orderBy`, `computeMin/Max/Sum/Avg` and `joinGroup.<alias>.by`. It is projected only when requested through `selectComputed`.
+A computed field is a SQL expression usable like a field in `filters`, `conditions`, `orderBy`, `computeMin/Max/Sum/Avg` and `joinGroup.<alias>.by`. It is projected only when listed in the request's `select`.
 
 ```ts
 computedFields: {
@@ -248,7 +248,7 @@ computedFields: {
 
 - Computed fields are per table: a join's side query uses the target table's computed fields. On joinLeft, `qiCol` adds the alias automatically.
 - A name that collides with a schema field or an extra filter throws in `defineTable`.
-- Bound `values` work in WHERE and ORDER BY positions. They are rejected (400) in `selectComputed`, `compute`, joinGroup `by` and `defaultOrder`.
+- Bound `values` work in WHERE and ORDER BY positions. They are rejected (400) in `select`, `compute`, joinGroup `by` and `defaultOrder`.
 - Limits: read-only (not writable), no computed field referencing another, not usable as a joinGroup aggregation field (`sum: [...]` takes schema fields). The expression is evaluated once per use.
 
 ## afterRead
@@ -307,7 +307,7 @@ app.get('/billing/:customerId', async (request) =>
     paginator: { page: 1, itemsPerPage: 50 },
   }, request)); // pass `request` for tenant + hooks; without it: no tenant filter, hooks get undefined
 
-sqlApi.search(table, { filters, conditions, joinMustExist, joinMultiple, joinGroup, joinLeft, select, selectComputed, orderBy, paginator, compute, maxRows }, req?)
+sqlApi.search(table, { filters, conditions, joinMustExist, joinMultiple, joinGroup, joinLeft, select, orderBy, paginator, compute, maxRows }, req?)
 // select: main fields to project; the PK, the requested joins' keys and (with distinctResults) the ORDER BY fields are always added
 // compute: { sum: ['total'], count: ['id'] } → result.computed, over every matching row; min|max|sum|avg|count|distinctCount; no paginator needed. computeMin/Max/Sum/Avg (one field each) are still accepted and merged into it
 sqlApi.get(table, id, req?)

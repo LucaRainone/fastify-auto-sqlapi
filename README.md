@@ -243,7 +243,7 @@ drop only the assumption that the endpoint looks like a table. Full rationale in
   requests. This covers what most projects reach for GraphQL for — filter, paginate, join,
   aggregate in one round trip — with a fixed JSON grammar over plain REST: curl-able,
   Swagger-documented, bounded by design. The write side is generated too. What you give up:
-  arbitrarily deep nesting, per-field selection on the main table, subscriptions.
+  arbitrarily deep nesting, subscriptions.
 - **Not a hosted black box.** PostgREST / Hasura / Supabase give you an API as a separate
   service, configured from outside. This is a plugin inside your own app: hooks, validation and
   auth are TypeScript functions in your codebase, and you can always drop to `app.sqlApi.*` or

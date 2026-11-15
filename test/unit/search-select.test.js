@@ -3,8 +3,7 @@
 // joins correlate on, and (with `distinctResults`) the ORDER BY fields, which the database
 // needs in the SELECT list. Unknown or hidden names are a 400 at `select.<i>`.
 //
-// `selection` on a join reference accepts an array as well as the comma-separated string,
-// in the request and in `buildRelation`.
+// `select` on a join reference and in `buildRelation` is the same array of field names.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -43,7 +42,7 @@ function createMockPool(responses = []) {
   };
 }
 
-async function buildApp({ conversation = {}, messageSelection } = {}, pool = createMockPool()) {
+async function buildApp({ conversation = {}, messageSelect } = {}, pool = createMockPool()) {
   const DbTables = {
     chat: defineTable({
       primary: 'id',
@@ -53,7 +52,7 @@ async function buildApp({ conversation = {}, messageSelection } = {}, pool = cre
         buildRelation(SchemaConversation, 'creatorId', SchemaUser, 'id', { alias: 'creator', unique: true }),
         buildRelation(SchemaConversation, 'id', SchemaMessage, 'conversationId', {
           alias: 'messages',
-          ...(messageSelection ? { selection: messageSelection } : {}),
+          ...(messageSelect ? { select: messageSelect } : {}),
         }),
       ],
       ...conversation,
@@ -109,7 +108,7 @@ describe('search select — main projection', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/search/chat',
-      payload: { select: ['title'], joinLeft: { creator: { selection: 'id,name' } } },
+      payload: { select: ['title'], joinLeft: { creator: { select: ['id', 'name'] } } },
     });
     assert.equal(res.statusCode, 200, res.payload);
     assert.match(selectList(pool.calls[0].text), /"conversation"\."creator_id"/, pool.calls[0].text);
@@ -151,14 +150,14 @@ describe('search select — main projection', () => {
   });
 });
 
-describe('join selection — string or array', () => {
+describe('join select — an array, in the request and in buildRelation', () => {
   it('accepts an array in the request', async () => {
     const pool = createMockPool([MAIN, { rows: [{ id: 10, conversation_id: 1, body: 'hi' }], rowCount: 1 }]);
     const app = await buildApp({}, pool);
     const res = await app.inject({
       method: 'POST',
       url: '/search/chat',
-      payload: { joinMultiple: { messages: { selection: ['id', 'body'] } } },
+      payload: { joinMultiple: { messages: { select: ['id', 'body'] } } },
     });
     assert.equal(res.statusCode, 200, res.payload);
     const list = selectList(pool.calls[1].text);
@@ -170,14 +169,14 @@ describe('join selection — string or array', () => {
   it('accepts an array in buildRelation', () => {
     const rel = buildRelation(SchemaConversation, 'id', SchemaMessage, 'conversationId', {
       alias: 'messages',
-      selection: ['id', 'body'],
+      select: ['id', 'body'],
     });
-    assert.equal(rel.selection, 'id,body');
+    assert.deepEqual(rel.select, ['id', 'body']);
   });
 
   it('a relation default given as an array drives the side query', async () => {
     const pool = createMockPool([MAIN, { rows: [{ id: 10, conversation_id: 1, body: 'hi' }], rowCount: 1 }]);
-    const app = await buildApp({ messageSelection: ['id', 'body'] }, pool);
+    const app = await buildApp({ messageSelect: ['id', 'body'] }, pool);
     const res = await app.inject({ method: 'POST', url: '/search/chat', payload: { joinMultiple: { messages: {} } } });
     assert.equal(res.statusCode, 200, res.payload);
     assert.match(selectList(pool.calls[1].text), /"message"\."id", "message"\."body"/, pool.calls[1].text);

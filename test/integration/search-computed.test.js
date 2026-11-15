@@ -101,11 +101,11 @@ describe(`[${DIALECT}] computed fields integration`, () => {
     assert.equal(body.main[2].name, 'Premium Mug');
   });
 
-  it('selectComputed projects computed values into main rows', async () => {
+  it('computed fields in select are projected into main rows', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/auto/search/product?orderBy=name+ASC',
-      payload: { selectComputed: ['productTier', 'label'] },
+      payload: { select: ['name', 'productTier', 'label'] },
     });
     assert.equal(res.statusCode, 200);
     const body = JSON.parse(res.payload);
@@ -131,11 +131,11 @@ describe(`[${DIALECT}] computed fields integration`, () => {
     assert.equal(body.main.length, 2);
   });
 
-  it('rejects selectComputed with unknown name (400)', async () => {
+  it('rejects an unknown name in select (400)', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/auto/search/product',
-      payload: { selectComputed: ['bogus'] },
+      payload: { select: ['bogus'] },
     });
     assert.equal(res.statusCode, 400);
   });

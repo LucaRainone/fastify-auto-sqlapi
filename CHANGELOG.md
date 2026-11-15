@@ -55,6 +55,12 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **BREAKING: one word for the projection, `select`.** The main `select` takes computed fields
+  too, so `selectComputed` is gone; a join reference and `buildRelation` take `select` instead
+  of `selection`, as an array only (no comma-separated string). `buildRelation` checks its
+  `select` against the joined schema at startup. The old keys are a 400 `retired_key` (an
+  error at startup in `buildRelation`) rather than ignored. `JoinDefinition.selection` becomes
+  `select?: string[]`. See BREAKING_CHANGES.md.
 - **BREAKING: `compute` stands on its own.** Its result moves from `pagination.computed` to
   `computed` at the top level of the search result, and it no longer needs a paginator: without
   one, `compute` used to be dropped silently, and a client had to paginate to get a total over

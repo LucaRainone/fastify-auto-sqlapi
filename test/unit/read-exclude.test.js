@@ -95,7 +95,7 @@ describe('readExclude - main table reads', () => {
     assert.equal(result.main.name, 'Mario');
   });
 
-  it('selectComputed keeps working alongside readExclude', async () => {
+  it('a computed field in select keeps working alongside readExclude', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
     const DbTables = createDbTables();
     DbTables.player.computedFields = {
@@ -109,7 +109,7 @@ describe('readExclude - main table reads', () => {
     await searchEngine(DbTables, {
       db: new QueryClient(mockPg),
       tableConf: DbTables.player,
-      selectComputed: ['upperName'],
+      select: ['id', 'teamId', 'name', 'upperName'],
     });
 
     const sql = mockPg.calls[0].text;
@@ -149,7 +149,7 @@ describe('readExclude - excluded fields cannot be referenced (no value probing)'
 });
 
 describe('readExclude - joined tables', () => {
-  it('joinMultiple default selection (*) omits the excluded column', async () => {
+  it('joinMultiple default projection omits the excluded column', async () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, name: 'Alpha' }], affectedRows: 1 }, // main (team)
       { rows: [], affectedRows: 0 },                          // side query (player)
@@ -167,7 +167,7 @@ describe('readExclude - joined tables', () => {
     assert.ok(!sideSql.includes('hidden_potential'), `excluded join column selected: ${sideSql}`);
   });
 
-  it('rejects an explicit join selection naming an excluded field with 400', async () => {
+  it('rejects an explicit join select naming an excluded field with 400', async () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, name: 'Alpha' }], affectedRows: 1 },
     ]);
@@ -177,7 +177,7 @@ describe('readExclude - joined tables', () => {
       () => searchEngine(DbTables, {
         db: new QueryClient(mockPg),
         tableConf: DbTables.team,
-        joinMultiple: { player: { selection: 'id,hiddenPotential' } },
+        joinMultiple: { player: { select: ['id', 'hiddenPotential'] } },
       }),
       (err) => err.statusCode === 400 && /hiddenPotential/.test(err.message)
     );

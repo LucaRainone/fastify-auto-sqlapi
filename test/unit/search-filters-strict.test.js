@@ -69,7 +69,7 @@ function createDbTables() {
         buildRelation(orderSchema, 'customerId', customerSchema, 'id', {
           alias: 'customer',
           unique: true,
-          selection: 'id, name',
+          select: ['id', 'name'],
         }),
         // Same target, unique:false — reached through buildJoinRefCondition, which does
         // run the target's extendedCondition. Contrasts with the joinLeft alias above.

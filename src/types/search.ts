@@ -43,17 +43,13 @@ export interface SearchParams {
   computeSum?: string;
   computeAvg?: string;
   /**
-   * Schema fields to project into `main` rows. Omitted, every readable field is returned.
-   * The primary key, the fields the requested joins correlate on and, with
-   * `distinctResults`, the ORDER BY fields are always projected: the response and the side
-   * queries need them. An unknown or `readExclude`d name is a 400 at `select.<i>`.
+   * Fields to project into `main` rows: schema fields and computed fields alike. Omitted,
+   * every readable schema field is returned and no computed field. The primary key, the
+   * fields the requested joins correlate on and, with `distinctResults`, the ORDER BY fields
+   * are always projected: the response and the side queries need them. An unknown or
+   * `readExclude`d name is a 400 at `select.<i>`.
    */
   select?: string[];
-  /**
-   * Names of computed fields (declared on `tableConf.computedFields`) to project
-   * into the main response. Each becomes an extra column on each `main[i]` row.
-   */
-  selectComputed?: string[];
   tenant?: TenantContext;
   /**
    * Row cap applied to the main query when no `paginator` is supplied, bounding an otherwise

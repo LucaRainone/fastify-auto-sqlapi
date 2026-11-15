@@ -443,10 +443,10 @@ function validateAliasUniqueness(
 export interface BuildRelationOptions {
   alias?: string;
   /**
-   * Default fields of the joined rows, when the request names none: an array, or the same
-   * list comma-separated. Default `'*'`, every readable field.
+   * Default fields of the joined rows, when the request names none. Absent, every readable
+   * field. Each must be a field of the joined schema (of `fields`, when given).
    */
-  selection?: string | string[];
+  select?: string[];
   unique?: boolean;
   /**
    * The `DbTables` key whose config governs the joined table. Needed only when the joined
@@ -459,7 +459,7 @@ export interface BuildRelationOptions {
    * Allowlist of the target table's fields reachable through this relation.
    *
    * The relation is declared against a schema narrowed to these fields, so every read
-   * surface — `selection`, `filters`, `conditions`, `orderBy`, aggregations, and the
+   * surface — `select`, `filters`, `conditions`, `orderBy`, aggregations, and the
    * generated request/response schemas — rejects anything outside the list with
    * `400 Unknown field`. Use it to expose a table broadly while keeping some of its
    * columns out of one relation, without hiding them from the table's own routes the way
@@ -518,6 +518,31 @@ function narrowSchemaToFields<J extends Record<string, TSchema>>(
   };
 }
 
+/**
+ * The relation's default `select`, checked against the joined schema at startup: a typo here
+ * would otherwise surface as a 400 on the first request that uses the relation. The pre-1.0
+ * `selection` option is rejected rather than ignored.
+ */
+function relationSelect(options: BuildRelationOptions | undefined, joinSchema: SchemaDefinition): string[] | undefined {
+  if (options && Object.hasOwn(options, 'selection')) {
+    throw new TypeError(`buildRelation: 'selection' was removed in 1.0, use 'select' (an array of field names)`);
+  }
+  const select = options?.select;
+  if (select === undefined) return undefined;
+  if (!Array.isArray(select)) {
+    throw new TypeError(`buildRelation: 'select' is an array of field names on '${joinSchema.tableName}'`);
+  }
+  for (const field of select) {
+    if (!Object.hasOwn(joinSchema.fields, field)) {
+      throw new Error(
+        `buildRelation: 'select' entry '${field}' is not a field of schema '${joinSchema.tableName}'. ` +
+        `Available: ${Object.keys(joinSchema.fields).join(', ')}.`
+      );
+    }
+  }
+  return [...select];
+}
+
 export function buildRelation<
   M extends Record<string, TSchema>,
   J extends Record<string, TSchema>,
@@ -529,13 +554,14 @@ export function buildRelation<
   options?: BuildRelationOptions
 ): JoinDefinition {
   const fields = options?.fields;
+  const reachable = fields ? narrowSchemaToFields(joinSchema, fields, joinField) : joinSchema;
+  const select = relationSelect(options, reachable);
   return {
-    joinSchema: fields ? narrowSchemaToFields(joinSchema, fields, joinField) : joinSchema,
+    joinSchema: reachable,
     joinField,
     mainField,
     alias: options?.alias ?? joinSchema.tableName,
-    // Stored comma-separated: the request may send either form and the engine splits both.
-    selection: Array.isArray(options?.selection) ? options.selection.join(',') : (options?.selection ?? '*'),
+    ...(select ? { select } : {}),
     unique: options?.unique ?? false,
     ...(options?.target !== undefined ? { target: options.target } : {}),
     ...(fields ? { fields: [...fields] } : {}),

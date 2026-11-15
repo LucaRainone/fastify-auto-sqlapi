@@ -167,8 +167,8 @@ describe('buildRelation fields — generated schemas', () => {
 });
 
 describe('buildRelation fields — engine enforcement', () => {
-  it('rejects a disallowed field in an explicit selection', async () => {
-    await expect400('agent', { joinLeft: { user: { selection: 'id, email' } } }, /Unknown field: email/);
+  it('rejects a disallowed field in an explicit select', async () => {
+    await expect400('agent', { joinLeft: { user: { select: ['id', 'email'] } } }, /Unknown field: email/);
   });
 
   it('rejects a disallowed field in join filters', async () => {
@@ -239,9 +239,9 @@ describe('buildRelation fields — computed fields cannot reach past the allowli
   });
 });
 
-describe('buildRelation fields — the default selection is not SELECT *', () => {
-  it('expands the default selection to the allowed columns', async () => {
-    // A relation left at selection '*' used to emit a literal SELECT *: the extra columns
+describe('buildRelation fields — the default projection is not SELECT *', () => {
+  it('expands the default projection to the allowed columns', async () => {
+    // A relation left without a select used to emit a literal SELECT *: the extra columns
     // were removed only by the response serializer, so they still reached a caller of
     // sqlApi.search(). An allowlist that leaks on its default is not an allowlist.
     const mockPg = createMockPg([

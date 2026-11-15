@@ -8,7 +8,7 @@ import type { HookContext } from './hooks.js';
  *
  * - `path`: dot path of the offending value inside the request — body keys from the root
  *   (`main.name`, `secondaries.orders.0.total`, `filters.status`, `conditions.2.params`,
- *   `joinMultiple.orders.selection`), querystring and path parameters by name (`orderBy`,
+ *   `joinMultiple.orders.select.1`), querystring and path parameters by name (`orderBy`,
  *   `itemsPerPage`, `id`). The empty string when the error is not attributable to one input.
  * - `code`: machine-readable and stable — an Ajv keyword (`required`, `type`, `maximum`…),
  *   the code a `validate` hook returned, or one of the engine's codes (`unknown_field`,

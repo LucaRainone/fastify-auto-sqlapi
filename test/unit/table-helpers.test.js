@@ -132,7 +132,7 @@ describe('buildRelation', () => {
     assert.equal(result.joinField, 'customerId');
     assert.equal(result.mainField, 'id');
     assert.equal(result.alias, 'orders');
-    assert.equal(result.selection, '*');
+    assert.equal(result.select, undefined);
     assert.equal(result.unique, false);
   });
 
@@ -146,22 +146,22 @@ describe('buildRelation', () => {
     const b = buildRelation(mainSchema, 'id', joinSchema, 'customerId', {});
     assert.equal(b.alias, 'customer_order');
 
-    const c = buildRelation(mainSchema, 'id', joinSchema, 'customerId', { selection: 'id' });
+    const c = buildRelation(mainSchema, 'id', joinSchema, 'customerId', { select: ['customerId'] });
     assert.equal(c.alias, 'customer_order');
-    assert.equal(c.selection, 'id');
+    assert.deepEqual(c.select, ['customerId']);
   });
 
-  it('supports custom selection and unique flag', () => {
+  it('supports custom select and unique flag', () => {
     const mainSchema = createMockSchema('customer', { id: Type.Number() });
     const joinSchema = createMockSchema('customer_order', { customerId: Type.Number() });
 
     const result = buildRelation(mainSchema, 'id', joinSchema, 'customerId', {
       alias: 'orders',
-      selection: 'id, total',
+      select: ['customerId'],
       unique: true,
     });
 
-    assert.equal(result.selection, 'id, total');
+    assert.deepEqual(result.select, ['customerId']);
     assert.equal(result.unique, true);
   });
 

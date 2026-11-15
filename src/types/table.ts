@@ -48,7 +48,7 @@ export interface TableConfig<F extends Record<string, TSchema> = Record<string, 
   /**
    * Virtual fields produced by a SQL expression. Usable like schema fields in
    * `filters`, `conditions` (non-dotted), `orderBy` (1-part),
-   * `computeMin/Max/Sum/Avg`, and (opt-in) in `selectComputed` for the main
+   * `compute`, and (opt-in, when listed) in `select` for the main
    * response. Each entry MUST declare `type` for Swagger and validation.
    *
    * Naming clashes with `Schema.fields` or `extraFilters` keys throw at
@@ -168,11 +168,11 @@ export interface TableConfig<F extends Record<string, TSchema> = Record<string, 
   operations?: TableOperation[];
   /**
    * Fields hidden from every read: they are not projected by search/get, not included
-   * in the read response schemas, and omitted from this table's default join selection
+   * in the read response schemas, and omitted from this table's default join projection
    * when it is the target of a join.
    *
    * Referencing an excluded field from filters, conditions, orderBy, aggregations or an
-   * explicit join selection is rejected with 400 — hiding a field from the output while
+   * explicit join `select` is rejected with 400 — hiding a field from the output while
    * letting it be filtered would still leak its value by bisection.
    *
    * Write paths are NOT affected: a field can be writable but never readable (e.g. a

@@ -37,13 +37,12 @@ Everything travels in the body; all keys are optional and combinable, `{}` retur
     { "field": "status", "method": "isIn", "params": [["active", "pending"]] },
     { "field": "orders.count.id", "method": "isGreaterOrEqual", "params": [4] } // alias.fn.field, HAVING-style: needs the matching joinGroup below
   ],
-  "select": ["id", "name"], // main fields to return; default: every readable field. The PK and the keys of the requested joins are always included. Unknown or hidden name → 400
-  "selectComputed": ["displayName"], // computed fields are projected into main rows only when listed
+  "select": ["id", "name", "displayName"], // main fields to return, computed ones included; default: every readable field and no computed one. The PK and the keys of the requested joins are always included. Unknown or hidden name → 400
   "joinMustExist": { // EXISTS on children: decides WHICH main rows return; fetches nothing
     "labels": { "filters": { "labelId": 1 }, "conditions": [] }
   },
   "joinMultiple": { // side query: child rows of the returned main rows
-    "orders": { "filters": { "status": "pending" }, "conditions": [], "selection": ["id", "total", "status"] } // selection: array or "id,total,status"; default set by the backend
+    "orders": { "filters": { "status": "pending" }, "conditions": [], "select": ["id", "total", "status"] } // default set by the backend
   },
   "joinGroup": { // aggregates child rows of the returned main rows
     "orders": {
@@ -53,7 +52,7 @@ Everything travels in the body; all keys are optional and combinable, `{}` retur
     }
   },
   "joinLeft": { // N:1 parent (alias declared unique by the backend)
-    "creator": { "selection": "id,name", "filters": {}, "conditions": [] } // filters here EXCLUDE mains whose parent does not match; no extra filters here
+    "creator": { "select": ["id", "name"], "filters": {}, "conditions": [] } // filters here EXCLUDE mains whose parent does not match; no extra filters here
   }
 }
 ```
@@ -136,8 +135,8 @@ Every error has one shape. `error` is the HTTP reason phrase; `requestId` is the
 ```
 
 - 400 always carries `fields`, whether the request failed the schema, the backend's business validation or the engine. Map `fields[].path` to form fields; when `fields` is empty, show `message`.
-  - `path` is the dot path of the offending value in the request: body keys from the root (`main.name`, `secondaries.orders.0.total`, `filters.status`, `conditions.2.params`, `joinGroup.orders.by`, `joinMultiple.orders.selection`), querystring and path parameters by name (`orderBy`, `itemsPerPage`, `id`). `""` when the error is not attributable to one input.
-  - `code` is stable: an Ajv keyword (`required`, `type`, `maximum`, `additionalProperties`, `enum`…), a code the backend chose in its own validation, or an engine code: `unknown_field`, `not_readable`, `unknown_alias`, `wrong_join_family`, `invalid_method`, `invalid_params`, `invalid_order_by`, `invalid_paginator`, `invalid_aggregation`, `undeclared_aggregation`, `bound_values_not_allowed`, `extra_filter_not_allowed`, `limit_exceeded`, `conflicting_input`, `missing_key`, `duplicate_key`, `ambiguous_tenant`. The engine's `message` repeats the field's.
+  - `path` is the dot path of the offending value in the request: body keys from the root (`main.name`, `secondaries.orders.0.total`, `filters.status`, `conditions.2.params`, `joinGroup.orders.by`, `joinMultiple.orders.select.1`), querystring and path parameters by name (`orderBy`, `itemsPerPage`, `id`). `""` when the error is not attributable to one input.
+  - `code` is stable: an Ajv keyword (`required`, `type`, `maximum`, `additionalProperties`, `enum`…), a code the backend chose in its own validation, or an engine code: `unknown_field`, `not_readable`, `unknown_alias`, `wrong_join_family`, `invalid_method`, `invalid_params`, `invalid_order_by`, `invalid_paginator`, `invalid_aggregation`, `undeclared_aggregation`, `bound_values_not_allowed`, `extra_filter_not_allowed`, `limit_exceeded`, `conflicting_input`, `retired_key` (a key removed in 1.0, e.g. `selectComputed`, a join's `selection`), `missing_key`, `duplicate_key`, `ambiguous_tenant`. The engine's `message` repeats the field's.
 - 403: tenant violation. 404: record not found, or outside your tenant. No `fields`, except a mapped DB error (below).
 - 500: DB errors (e.g. constraint violations): `message` is fixed, the detail is in the server log under `requestId`. The backend may answer some of them with another status instead (typically 409 on a duplicate): same envelope, plus `fields: [{ path: "", code }]` with a backend-chosen code to translate.
 - Per search, max 100 `conditions` per section (top level and each join) and max 20 `orderBy` parts (≤ 1024 chars); over either → 400 `limit_exceeded`. Collapse many equality conditions into one `isIn`.

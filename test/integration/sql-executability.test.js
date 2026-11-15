@@ -121,13 +121,13 @@ const SHAPES = [
   ['pagination', 'customer', { paginator: { page: 1, itemsPerPage: 5 } }],
   ['pagination + filter + computed', 'customer', { filters: { name: 'Mario', tier: 'vip' }, paginator: { page: 1, itemsPerPage: 5 } }],
   ['computeMin/Max', 'customer', { paginator: { page: 1, itemsPerPage: 5 }, computeMin: 'id', computeMax: 'id' }],
-  ['selectComputed', 'customer', { selectComputed: ['upperName'] }],
+  ['select with a computed field', 'customer', { select: ['id', 'name', 'upperName'] }],
   ['maxRows cap', 'customer', { maxRows: 10 }],
 
   ['joinMultiple', 'customer', { joinMultiple: { orders: {} } }],
   ['joinMultiple + filter', 'customer', { joinMultiple: { orders: { filters: { status: 'pending' } } } }],
   ['joinMultiple + computed filter', 'customer', { joinMultiple: { orders: { filters: { bigOrder: 1 } } } }],
-  ['joinMultiple + selection', 'customer', { joinMultiple: { orders: { selection: 'id,total' } } }],
+  ['joinMultiple + select', 'customer', { joinMultiple: { orders: { select: ['id', 'total'] } } }],
   ['joinMultiple + condition', 'customer', { joinMultiple: { orders: { conditions: [{ field: 'total', method: 'isGreater', params: [0] }] } } }],
 
   ['joinMustExist', 'customer', { joinMustExist: { orders: {} } }],
@@ -145,7 +145,7 @@ const SHAPES = [
   ['joinLeft + parent filter', 'customer_order', { joinLeft: { buyer: { filters: { name: 'Mario' } } } }],
   ['joinLeft + parent computed filter', 'customer_order', { joinLeft: { buyer: { filters: { tier: 'vip' } } } }],
   ['joinLeft + 2-part orderBy', 'customer_order', { joinLeft: { buyer: {} }, orderBy: 'buyer.name ASC' }],
-  ['joinLeft + selection', 'customer_order', { joinLeft: { buyer: { selection: 'id,name' } } }],
+  ['joinLeft + select', 'customer_order', { joinLeft: { buyer: { select: ['id', 'name'] } } }],
   ['joinLeft + outer filter + orderBy', 'customer_order', { filters: { status: 'pending' }, joinLeft: { buyer: { filters: { name: 'Mario' } } }, orderBy: 'buyer.name DESC' }],
 
   ['aggregation orderBy (3-part)', 'customer', {

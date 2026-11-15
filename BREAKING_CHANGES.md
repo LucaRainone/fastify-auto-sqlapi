@@ -1399,3 +1399,62 @@ Clients and `sqlApi.search` callers reading `pagination.computed`.
 
 Read `result.computed` instead of `result.pagination.computed`. A request that paginated only
 to get `computed` can drop the paginator.
+
+# Breaking Change — one word for the projection: `select`
+
+*Landing in the release after 0.6.0.*
+
+## Why this changed
+
+The same idea — which fields to return — had three names: `select` for the main schema fields,
+`selectComputed` for the main computed fields, and `selection` (an array or a comma-separated
+string) on a join reference and in `buildRelation`. Everywhere else (`filters`, `conditions`,
+`orderBy`) computed fields and columns already share one word, and their names cannot collide.
+
+## What changed
+
+```jsonc
+// before
+{
+  "select": ["id", "name"],
+  "selectComputed": ["displayName"],
+  "joinMultiple": { "orders": { "selection": "id,total" } },
+  "joinLeft": { "creator": { "selection": ["id", "name"] } }
+}
+// after
+{
+  "select": ["id", "name", "displayName"],
+  "joinMultiple": { "orders": { "select": ["id", "total"] } },
+  "joinLeft": { "creator": { "select": ["id", "name"] } }
+}
+```
+
+```ts
+// before
+buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { selection: 'id, total' });
+// after
+buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { select: ['id', 'total'] });
+```
+
+- `select` lists schema fields and computed fields alike. Without it, every readable schema
+  field is returned and no computed field, as before.
+- There is no "every column plus one computed field" any more: `selectComputed` alone used to
+  mean that. List the columns you need next to the computed field.
+- A join's `select` and `buildRelation`'s `select` are arrays; the comma-separated string is gone.
+  `buildRelation` checks each name against the joined schema at startup.
+- Error paths follow: `select.<i>` for a computed field too, `joinMultiple.<alias>.select.<i>`.
+- `selectComputed` and a join's `selection` are a 400 with code `retired_key` at that key, not
+  silently ignored. `buildRelation({ selection })` throws at startup.
+- `JoinDefinition.selection: string` (default `'*'`) becomes `JoinDefinition.select?: string[]`
+  (absent: every readable field); `JoinFetchRequest.selection` becomes `select`.
+
+## Who is affected
+
+Clients and `sqlApi.search` callers sending `selectComputed` or a join `selection`; backends
+passing `selection` to `buildRelation`; code reading `JoinDefinition.selection`.
+
+## Migration
+
+- `selectComputed: [c]` → `select: [...the columns you read, c]`.
+- `selection: 'a,b'` or `selection: ['a', 'b']` → `select: ['a', 'b']`, in requests and in
+  `buildRelation`.
