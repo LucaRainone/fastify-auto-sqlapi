@@ -21,7 +21,7 @@ function createTestDbTables() {
       primary: 'id',
       schema: customerSchema,
       defaultOrder: 'id',
-      allowedWriteJoins: [
+      writeJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
     },
@@ -35,7 +35,7 @@ function createTestDbTables() {
 
 /**
  * The engines skip an alias the table does not declare (see the "ignores secondaries/deletions
- * not in allowedWriteJoins" specs), so the request schema is what has to fail closed: without
+ * not in writeJoins" specs), so the request schema is what has to fail closed: without
  * `additionalProperties:false` on the alias container a typo'd alias validates, reaches the
  * engine, is dropped there, and the request still answers 200 having written nothing.
  */
@@ -65,7 +65,7 @@ describe('write join body schemas close the alias container', () => {
 describe('write join body schemas omit the sections when nothing is writable', () => {
   it('emits neither secondaries nor deletions', () => {
     const dbTables = createTestDbTables();
-    delete dbTables.customer.allowedWriteJoins;
+    delete dbTables.customer.writeJoins;
 
     const body = UpdateTableBody(dbTables, 'customer');
     assert.equal(body.properties.secondaries, undefined);

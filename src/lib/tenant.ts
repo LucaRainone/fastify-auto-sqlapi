@@ -50,7 +50,7 @@ export function tenantOwnColumns(scope: TenantScope | undefined): string[] {
  * Relations are what makes the second case necessary — a relation is a read grant on its target
  * and a write join a write grant, so a deliberately public host must still carry its neighbours'
  * scopes into the joins and secondaries it drives. One level is the whole reach: joins resolve
- * from the addressed table's own `allowedReadJoins`/`allowedWriteJoins` and never chain further.
+ * from the addressed table's own `readJoins`/`writeJoins` and never chain further.
  *
  * When nothing scoped is in reach, `getTenantId` is not called at all — a request that cannot
  * read or write a scoped row should not pay for resolving a tenant, and consumer code that
@@ -60,7 +60,7 @@ function scopeInReach(tableConf: TableConfig, dbTables: DbTables | undefined): b
   if (tableConf.tenantScope) return true;
   if (!dbTables) return false;
 
-  const relations = [...(tableConf.allowedReadJoins ?? []), ...(tableConf.allowedWriteJoins ?? [])];
+  const relations = [...(tableConf.readJoins ?? []), ...(tableConf.writeJoins ?? [])];
   return relations.some((join) => resolveJoinTableConf(dbTables, join)?.tenantScope !== undefined);
 }
 

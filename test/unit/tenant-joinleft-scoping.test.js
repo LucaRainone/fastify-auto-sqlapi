@@ -40,7 +40,7 @@ function createTenantDbTables(mockPg, opts = {}) {
       schema: orderSchema,
       defaultOrder: 'id',
       tenantScope: { column: 'organization_id' },
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(orderSchema, 'customerId', customerSchema, 'id', { alias: 'parent', unique: true }),
       ],
     },
@@ -206,7 +206,7 @@ describe('tenant scoping on correlated aggregation subqueries', () => {
           schema: customerSchema,
           defaultOrder: 'id',
           tenantScope: { column: 'organization_id' },
-          allowedReadJoins: [
+          readJoins: [
             buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
           ],
         },

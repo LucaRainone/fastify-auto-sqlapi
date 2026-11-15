@@ -50,7 +50,7 @@ const dbTables = {
     schema: customerSchema,
     defaultOrder: 'id',
     readExclude: ['taxNumber'],
-    allowedReadJoins: [
+    readJoins: [
       buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
     ],
   },

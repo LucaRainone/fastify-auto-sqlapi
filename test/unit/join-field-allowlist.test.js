@@ -41,7 +41,7 @@ function createDbTables() {
       primary: 'id',
       schema: agentSchema,
       defaultOrder: 'id',
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(agentSchema, 'userId', userSchema, 'id', {
           alias: 'user',
           unique: true,
@@ -53,7 +53,7 @@ function createDbTables() {
       primary: 'id',
       schema: userSchema,
       defaultOrder: 'id',
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(userSchema, 'id', agentSchema, 'userId', {
           alias: 'agents',
           fields: ['id', 'name', 'userId'],
@@ -131,7 +131,7 @@ describe('buildRelation fields — declaration-time checks', () => {
       () => defineTable({
         primary: 'id',
         schema: userSchema,
-        allowedWriteJoins: [rel],
+        writeJoins: [rel],
       }),
       /fields/
     );
@@ -146,7 +146,7 @@ describe('buildRelation fields — declaration-time checks', () => {
 
 describe('buildRelation fields — generated schemas', () => {
   it('the relation exposes only the allowed fields', () => {
-    const rel = createDbTables().agent.allowedReadJoins[0];
+    const rel = createDbTables().agent.readJoins[0];
     assert.deepEqual(Object.keys(rel.joinSchema.fields), ['id', 'name']);
     assert.equal(rel.joinSchema.tableName, 'user', 'table name must survive the narrowing');
   });

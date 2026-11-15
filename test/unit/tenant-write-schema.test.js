@@ -34,7 +34,7 @@ function createDbTables({ scope, childScope } = {}) {
       defaultOrder: 'id',
       insertExclude: ['id'],
       ...(scope ? { tenantScope: scope } : {}),
-      allowedWriteJoins: [
+      writeJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
     },

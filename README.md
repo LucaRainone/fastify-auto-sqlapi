@@ -275,7 +275,7 @@ answer 404. It gates HTTP only: your own code still reaches everything through `
 **3. A declared join is a read grant.** Neither of the two above follows a join: a join is
 resolved inside the *host* table's query, so the target's hooks never run and its `operations`
 whitelist does not apply. A table with `operations: []` is still fully readable through any
-relation pointing at it. `allowedReadJoins` is therefore a security decision — and
+relation pointing at it. `readJoins` is therefore a security decision — and
 `buildRelation(..., { fields: ['id', 'name'] })` narrows what a relation exposes, fail-closed.
 ([ADR 0010](./docs/adr/0010-joins-do-not-run-route-guards.md),
 [ADR 0011](./docs/adr/0011-join-fields-allowlist.md))

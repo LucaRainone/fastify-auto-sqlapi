@@ -53,11 +53,11 @@ function makeDbTables() {
       computedFields: {
         upperName: ({ qiCol }) => ({ expr: `UPPER(${qiCol('name')})`, type: Type.String() }),
       },
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'orders' }),
         buildRelation(customerSchema, 'parentId', userSchema, 'id', { alias: 'creator', unique: true }),
       ],
-      allowedWriteJoins: [
+      writeJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'orders' }),
       ],
     },

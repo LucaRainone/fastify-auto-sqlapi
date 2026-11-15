@@ -42,7 +42,7 @@ function createDbTables() {
       primary: 'id',
       ...customerInfo,
       defaultOrder: 'id',
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
     },
@@ -71,7 +71,7 @@ describe('SearchTableBodyPost', () => {
     assert.ok(filtersSchema);
   });
 
-  it('includes joins and joinGroup for tables with allowedReadJoins', () => {
+  it('includes joins and joinGroup for tables with readJoins', () => {
     const dbTables = createDbTables();
     const schema = SearchTableBodyPost(dbTables, 'customer');
 
@@ -79,7 +79,7 @@ describe('SearchTableBodyPost', () => {
     assert.ok(schema.properties.joinGroup);
   });
 
-  it('does not include joins for tables without allowedReadJoins', () => {
+  it('does not include joins for tables without readJoins', () => {
     const dbTables = createDbTables();
     const schema = SearchTableBodyPost(dbTables, 'customer_order');
 

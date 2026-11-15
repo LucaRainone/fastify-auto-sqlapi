@@ -55,7 +55,7 @@ describe('defineTable - upsertKey names a verified unique key', () => {
       primary: 'id',
       schema: contentSchema,
       defaultOrder: 'id',
-      allowedWriteJoins: [
+      writeJoins: [
         buildRelation(contentSchema, 'id', contentInfoSchema, 'contentId', { alias: 'info', upsertKey: ['contentId', 'langId'] }),
       ],
     }));

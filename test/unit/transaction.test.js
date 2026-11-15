@@ -99,7 +99,7 @@ function createTestDbTables() {
       primary: 'id',
       schema: customerSchema,
       defaultOrder: 'id',
-      allowedWriteJoins: [
+      writeJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
     },

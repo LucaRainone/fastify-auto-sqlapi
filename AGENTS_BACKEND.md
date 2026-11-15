@@ -132,8 +132,8 @@ export const TableCustomer = defineTable({
   schemaOverrides: { email: Type.String({ format: 'email' }) }, // stricter type for WRITE bodies only (responses and filters keep the generated type: stored rows predate the rule). Taken verbatim: no Optional → mandatory, no Nullable → null rejected.
 
   // --- joins (see Relations) ---
-  allowedReadJoins: [buildRelation(Schema, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
-  allowedWriteJoins: [buildRelation(Schema, 'id', SchemaOrder, 'customerId', { alias: 'orders', upsertKey: ['id'] })], // upsertKey: the secondaries of this relation upsert on it
+  readJoins: [buildRelation(Schema, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
+  writeJoins: [buildRelation(Schema, 'id', SchemaOrder, 'customerId', { alias: 'orders', upsertKey: ['id'] })], // upsertKey: the secondaries of this relation upsert on it
 
   // --- upsert: the main row's INSERT (POST /rest, bulk upsert) becomes INSERT … ON CONFLICT (key) DO UPDATE ---
   upsertKey: ['email'], // exactly the PK or one of the Schema's uniqueKeys, checked at startup (old Schemas: regenerate). Views: none. Main rows only; secondaries use the relation's upsertKey. Absent: plain INSERT.
@@ -209,7 +209,7 @@ buildRelation(mainSchema, mainField, joinSchema, joinField, {
   upsertKey, // write joins only: the secondaries upsert on this key of the joined table, e.g. ['productId', 'lang']. Exactly its PK or one of its uniqueKeys, checked by defineTable (ADR 0021). Absent: plain INSERT. On a read join → throws.
 });
 
-allowedReadJoins: [
+readJoins: [
   buildRelation(SchemaSession, 'createdBy', SchemaUser, 'id', { alias: 'creator', unique: true }),
   buildRelation(SchemaSession, 'updatedBy', SchemaUser, 'id', { alias: 'updater', unique: true, fields: ['id', 'name'] }),
 ],

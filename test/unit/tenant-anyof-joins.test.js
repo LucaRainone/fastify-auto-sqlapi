@@ -38,7 +38,7 @@ function createDbTables(mockPg) {
         primary: 'id',
         schema: shiftSchema,
         defaultOrder: 'id',
-        allowedReadJoins: [
+        readJoins: [
           buildRelation(shiftSchema, 'id', swapSchema, 'shiftId', { alias: 'swap' }),
           buildRelation(shiftSchema, 'id', swapSchema, 'shiftId', { alias: 'one_swap', unique: true }),
         ],

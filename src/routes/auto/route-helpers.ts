@@ -17,7 +17,7 @@ function mergeOnRequests(options: SqlApiPluginOptions, tableConf: TableConfig): 
 }
 
 export function buildWriteDescription(action: string, tableName: string, tableConf: TableConfig): string {
-  const joinList = tableConf.allowedWriteJoins
+  const joinList = tableConf.writeJoins
     ?.map((j) => j.alias)
     .join(', ');
   return [

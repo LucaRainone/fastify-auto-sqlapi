@@ -257,10 +257,10 @@ function tenantScopeLine(childRels: DetectedRelation[]): string {
   return `  // tenantScope: { column: 'tenant_col', through: { schema: ${rel.parentSchemaName}, localField: '${rel.childField}', foreignField: '${rel.parentField}' } },`;
 }
 
-function allowedReadJoinsLines(parentRels: DetectedRelation[]): string[] {
-  if (parentRels.length === 0) return [`  // allowedReadJoins: [],`];
+function readJoinsLines(parentRels: DetectedRelation[]): string[] {
+  if (parentRels.length === 0) return [`  // readJoins: [],`];
 
-  const lines = [`  // allowedReadJoins: [`];
+  const lines = [`  // readJoins: [`];
   for (const rel of parentRels) {
     lines.push(`  //   buildRelation(${rel.parentSchemaName}, '${rel.parentField}', ${rel.childSchemaName}, '${rel.childField}'),`);
   }
@@ -381,7 +381,7 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
 
   lines.push(...writeExcludeLines(schema));
 
-  lines.push(...allowedReadJoinsLines(parentRels));
+  lines.push(...readJoinsLines(parentRels));
 
   const upsertPk = pkFields(pk).map((p) => `'${p}'`).join(', ');
   lines.push(`  // upsertKey: [${upsertPk}],`);

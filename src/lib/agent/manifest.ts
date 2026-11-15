@@ -133,8 +133,8 @@ function manifestTable(tableConf: TableConfig): ManifestTable {
 
   const computed = computedTypes(tableConf);
   const extraFilters = manifestExtraFilters(tableConf);
-  const readJoins = manifestJoins(tableConf.allowedReadJoins);
-  const writeJoins = manifestJoins(tableConf.allowedWriteJoins);
+  const readJoins = manifestJoins(tableConf.readJoins);
+  const writeJoins = manifestJoins(tableConf.writeJoins);
 
   const serverGenerated = insertExcludedFields(tableConf);
   if (serverGenerated.length) entry.serverGenerated = [...serverGenerated];

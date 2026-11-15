@@ -57,7 +57,7 @@ function createDbTables() {
       primary: 'id',
       ...customerInfo,
       defaultOrder: 'id',
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'orders' }),
       ],
     },
@@ -65,7 +65,7 @@ function createDbTables() {
       primary: 'id',
       ...orderInfo,
       defaultOrder: 'id',
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(orderSchema, 'customerId', customerSchema, 'id', {
           alias: 'customer',
           unique: true,

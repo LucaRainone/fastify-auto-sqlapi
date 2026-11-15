@@ -43,11 +43,11 @@ function createDbTables({ scopedChild = true } = {}) {
       primary: 'id',
       schema: shiftSchema,
       defaultOrder: 'id',
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(shiftSchema, 'id', swapSchema, 'shiftId', { alias: 'swap' }),
         buildRelation(shiftSchema, 'id', swapSchema, 'shiftId', { alias: 'one_swap', unique: true }),
       ],
-      allowedWriteJoins: [
+      writeJoins: [
         buildRelation(shiftSchema, 'id', swapSchema, 'shiftId', { alias: 'swap' }),
       ],
     },
@@ -72,7 +72,7 @@ function createUnscopedOnlyTables() {
       primary: 'id',
       schema: noteSchema,
       defaultOrder: 'id',
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(noteSchema, 'shiftId', shiftSchema, 'id', { alias: 'shift', unique: true }),
       ],
     },

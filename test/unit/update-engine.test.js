@@ -51,7 +51,7 @@ function createTestDbTables(mockPg, opts = {}) {
       primary: 'id',
       ...customerInfo,
       defaultOrder: 'id',
-      allowedWriteJoins: opts.allowedWriteJoins ?? [
+      writeJoins: opts.writeJoins ?? [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
       ...(opts.beforeUpdate ? { beforeUpdate: opts.beforeUpdate } : {}),
@@ -183,7 +183,7 @@ describe('updateEngine - composite PK secondaries', () => {
         primary: 'id',
         ...agentInfo,
         defaultOrder: 'id',
-        allowedWriteJoins: [
+        writeJoins: [
           buildRelation(agentSchema, 'id', linkSchema, 'agentId', { alias: 'link' }),
         ],
       },
@@ -334,12 +334,12 @@ describe('updateEngine - deletions', () => {
     assert.equal(result.deletions.customer_order[0].id, 5);
   });
 
-  it('ignores deletions not in allowedWriteJoins', async () => {
+  it('ignores deletions not in writeJoins', async () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 1 },
     ]);
     const { dbTables, db } = createTestDbTables(mockPg, {
-      allowedWriteJoins: [],
+      writeJoins: [],
     });
 
     const result = await updateEngine({

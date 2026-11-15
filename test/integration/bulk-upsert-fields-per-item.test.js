@@ -47,7 +47,7 @@ const dbTables = {
     schema: customerSchema,
     defaultOrder: 'id',
     upsertKey: ['id'],
-    allowedWriteJoins: [
+    writeJoins: [
       buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
     ],
   },

@@ -51,7 +51,7 @@ function createTenantDbTables(mockPg) {
       schema: customerSchema,
       defaultOrder: 'id',
       tenantScope: { column: 'organization_id' },
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
     },
@@ -60,7 +60,7 @@ function createTenantDbTables(mockPg) {
       schema: orderSchema,
       defaultOrder: 'id',
       tenantScope: { column: 'organization_id' },
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(orderSchema, 'customerId', customerSchema, 'id', { alias: 'customer', unique: true }),
       ],
     },
@@ -249,7 +249,7 @@ describe('indirect join-table scope through a third table', () => {
         schema: customerSchema,
         defaultOrder: 'id',
         tenantScope: { column: 'organization_id' },
-        allowedReadJoins: [
+        readJoins: [
           buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
         ],
       },

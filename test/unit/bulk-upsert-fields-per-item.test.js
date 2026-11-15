@@ -41,7 +41,7 @@ function createDbTables(opts = {}) {
       primary: 'id',
       schema: customerSchema,
       defaultOrder: 'id',
-      allowedWriteJoins: [
+      writeJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
       ...(opts.upsertKey ? { upsertKey: opts.upsertKey } : {}),

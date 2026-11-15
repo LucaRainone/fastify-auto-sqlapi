@@ -1609,3 +1609,38 @@ Tables declaring `upsertMap`.
 - A rule on a write-join child's Schema → `upsertKey: [...]` in the options of that relation's
   `buildRelation` in `allowedWriteJoins`. When the same relation object is also listed in
   `allowedReadJoins`, build a separate one for the read side.
+
+# Breaking Change — `readJoins` and `writeJoins`
+
+## What changed
+
+```ts
+// before
+defineTable({
+  primary: 'id', schema: SchemaCustomer,
+  allowedReadJoins: [buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
+  allowedWriteJoins: [buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
+});
+
+// after
+defineTable({
+  primary: 'id', schema: SchemaCustomer,
+  readJoins: [buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
+  writeJoins: [buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
+});
+```
+
+- The table config's whitelists are named after what they list, as `operations` is:
+  `readJoins` (search) and `writeJoins` (secondaries and deletions). Nothing else changes.
+- `allowedReadJoins` / `allowedWriteJoins` throw at startup naming the new key: in
+  `defineTable`, and in the plugin, the route plugins and `createSqlApi` for a `dbTables` entry
+  written by hand.
+
+## Who is affected
+
+Every table declaring relations.
+
+## Migration
+
+- `allowedReadJoins` → `readJoins`, `allowedWriteJoins` → `writeJoins`, a plain rename. The
+  earlier sections of this file show the old names in their examples.

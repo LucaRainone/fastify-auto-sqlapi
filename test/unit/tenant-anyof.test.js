@@ -397,7 +397,7 @@ describe('an anyOf-scoped table written as a secondary', () => {
           schema: shiftSchema,
           defaultOrder: 'id',
           tenantScope: { column: 'agent_id' },
-          allowedWriteJoins: [
+          writeJoins: [
             buildRelation(shiftSchema, 'id', childSchema, 'shiftId', { alias: 'swap' }),
           ],
         },

@@ -29,7 +29,7 @@ const dbTables = {
   customer: {
     primary: 'id',
     schema: SchemaCustomer,
-    allowedReadJoins: [buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
+    readJoins: [buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
   },
   customer_order: { primary: 'id', schema: SchemaOrder },
 };

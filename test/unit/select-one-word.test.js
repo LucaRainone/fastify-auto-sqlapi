@@ -48,7 +48,7 @@ function dbTables(messageOptions = {}) {
         loudTitle: ({ qiCol }) => ({ expr: `UPPER(${qiCol('title')})`, values: [], type: Type.String() }),
         titleLike: ({ qiCol }) => ({ expr: `${qiCol('title')} LIKE ?`, values: ['a%'], type: Type.Boolean() }),
       },
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(SchemaConversation, 'creatorId', SchemaUser, 'id', { alias: 'creator', unique: true }),
         buildRelation(SchemaConversation, 'id', SchemaMessage, 'conversationId', { alias: 'messages', ...messageOptions }),
       ],
@@ -141,7 +141,7 @@ describe('select on a join reference and in buildRelation', () => {
 
   it("buildRelation's select is the relation's default projection", async () => {
     const tables = dbTables({ select: ['id', 'body'] });
-    assert.deepEqual(tables.chat.allowedReadJoins[1].select, ['id', 'body']);
+    assert.deepEqual(tables.chat.readJoins[1].select, ['id', 'body']);
 
     const pool = createMockPool([MAIN, { rows: [{ id: 10, conversation_id: 1, body: 'hi' }], rowCount: 1 }]);
     const res = await search({ joinMultiple: { messages: {} } }, pool, tables);
@@ -150,7 +150,7 @@ describe('select on a join reference and in buildRelation', () => {
   });
 
   it('buildRelation with no select leaves the default projection to every readable field', () => {
-    assert.equal(dbTables().chat.allowedReadJoins[1].select, undefined);
+    assert.equal(dbTables().chat.readJoins[1].select, undefined);
   });
 
   it('buildRelation rejects a select naming a field the joined schema does not have', () => {

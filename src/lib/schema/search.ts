@@ -84,7 +84,7 @@ function buildJoinBodyProps(
     joinLeft: {},
   };
 
-  for (const joinDef of tableConf.allowedReadJoins ?? []) {
+  for (const joinDef of tableConf.readJoins ?? []) {
     const { joinSchema, alias, unique } = joinDef;
     const joinTableConf = resolveJoinTableConf(dbTables, joinDef);
 
@@ -143,7 +143,7 @@ function buildJoinResponseProps(dbTables: DbTables, tableConf: TableConfig): {
   const joinLeftProps: Record<string, TSchema> = {};
   const joinGroupProps: Record<string, TSchema> = {};
 
-  for (const joinDef of tableConf.allowedReadJoins ?? []) {
+  for (const joinDef of tableConf.readJoins ?? []) {
     const { joinSchema, alias, unique } = joinDef;
     const itemArray = Type.Array(
       Type.Partial(Type.Object(readableFields(joinSchema, resolveJoinTableConf(dbTables, joinDef))))

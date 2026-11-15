@@ -47,10 +47,10 @@ function createTestFixture(mockPg) {
       schema: customerSchema,
       defaultOrder: 'id',
       insertExclude: ['id'],
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
-      allowedWriteJoins: [
+      writeJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
     },

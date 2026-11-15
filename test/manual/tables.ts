@@ -25,10 +25,10 @@ const TableCustomer = defineTable({
     }
   },
   defaultOrder: 'name',
-  allowedReadJoins: [
+  readJoins: [
     buildRelation(SchemaCustomer, 'id', SchemaCustomerOrder, 'customerId'),
   ],
-  allowedWriteJoins: [
+  writeJoins: [
     buildRelation(SchemaCustomer, 'id', SchemaCustomerOrder, 'customerId'),
   ],
   insertExclude: ['id'],

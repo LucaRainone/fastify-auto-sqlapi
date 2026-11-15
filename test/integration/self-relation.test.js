@@ -41,7 +41,7 @@ const dbTables = {
     primary: 'id',
     schema: customerSchema,
     defaultOrder: 'id',
-    allowedReadJoins: [
+    readJoins: [
       // Rows edited by this customer: join.updated_by = main.id
       buildRelation(customerSchema, 'id', customerSchema, 'updatedBy', { alias: 'edited' }),
     ],

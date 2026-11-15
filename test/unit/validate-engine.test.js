@@ -52,7 +52,7 @@ function createTestDbTables(mockPg, opts = {}) {
       primary: 'id',
       ...sessionInfo,
       defaultOrder: 'id',
-      allowedWriteJoins: [
+      writeJoins: [
         buildRelation(sessionSchema, 'id', periodSchema, 'sessionId', { alias: 'period' }),
       ],
       ...(opts.validate ? { validate: opts.validate } : {}),

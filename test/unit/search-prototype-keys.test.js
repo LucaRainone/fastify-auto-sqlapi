@@ -23,7 +23,7 @@ function createTestDbTables(mockPg) {
       computedFields: {
         upperName: ({ qiCol }) => ({ expr: `UPPER(${qiCol('name')})`, values: [], type: Type.String() }),
       },
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
     },

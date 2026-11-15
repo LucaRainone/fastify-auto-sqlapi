@@ -54,7 +54,7 @@ function createTestDbTables(mockPg, opts = {}) {
       ...customerInfo,
       defaultOrder: 'id',
       insertExclude: opts.insertExclude || [],
-      allowedWriteJoins: opts.allowedWriteJoins || [
+      writeJoins: opts.writeJoins || [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
       ...(opts.upsertKey ? { upsertKey: opts.upsertKey } : {}),
@@ -427,12 +427,12 @@ describe('insertEngine - secondaries', () => {
     assert.ok(!bulkCall.values.includes(7), 'client-supplied FK must be ignored');
   });
 
-  it('ignores secondaries not in allowedWriteJoins', async () => {
+  it('ignores secondaries not in writeJoins', async () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
     const { dbTables, db } = createTestDbTables(mockPg, {
-      allowedWriteJoins: [], // no write joins allowed
+      writeJoins: [], // no write joins allowed
     });
 
     const result = await insertEngine({
@@ -505,7 +505,7 @@ describe('insertEngine - upsert', () => {
     ]);
     const { dbTables, db, orderSchema } = createTestDbTables(mockPg);
 
-    dbTables.customer.allowedWriteJoins[0].upsertKey = ['customerId', 'status'];
+    dbTables.customer.writeJoins[0].upsertKey = ['customerId', 'status'];
 
     await insertEngine({
       db,

@@ -213,7 +213,7 @@ describe('defineTable - computedFields validation', () => {
 });
 
 describe('defineTable - alias uniqueness', () => {
-  it('rejects duplicate aliases in allowedReadJoins', async () => {
+  it('rejects duplicate aliases in readJoins', async () => {
     const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
     const mainSchema = createMockSchema('session', { id: Type.Number(), userId: Type.Number() });
     const userSchema = createMockSchema('user', { id: Type.Number() });
@@ -222,7 +222,7 @@ describe('defineTable - alias uniqueness', () => {
       () => defineTable({
         primary: 'id',
         schema: mainSchema,
-        allowedReadJoins: [
+        readJoins: [
           buildRelation(mainSchema, 'userId', userSchema, 'id', { unique: true }), // alias defaults to 'user'
           buildRelation(mainSchema, 'userId', userSchema, 'id', { unique: true }), // alias defaults to 'user' again
         ],
@@ -239,14 +239,14 @@ describe('defineTable - alias uniqueness', () => {
     const conf = defineTable({
       primary: 'id',
       schema: mainSchema,
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(mainSchema, 'createdBy', userSchema, 'id', { alias: 'creator', unique: true }),
         buildRelation(mainSchema, 'updatedBy', userSchema, 'id', { alias: 'updater', unique: true }),
       ],
     });
-    assert.equal(conf.allowedReadJoins.length, 2);
-    assert.equal(conf.allowedReadJoins[0].alias, 'creator');
-    assert.equal(conf.allowedReadJoins[1].alias, 'updater');
+    assert.equal(conf.readJoins.length, 2);
+    assert.equal(conf.readJoins[0].alias, 'creator');
+    assert.equal(conf.readJoins[1].alias, 'updater');
   });
 });
 

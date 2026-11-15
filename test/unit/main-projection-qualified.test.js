@@ -28,7 +28,7 @@ function createDbTables() {
       computedFields: {
         upperNote: ({ qiCol }) => ({ expr: `UPPER(${qiCol('note')})`, values: [], type: Type.String() }),
       },
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(hourSchema, 'customerId', customerSchema, 'id', { alias: 'customer', unique: true }),
       ],
     },

@@ -54,8 +54,8 @@ export interface TableConfig<F extends Record<string, TSchema> = Record<string, 
    * `defineTable` time.
    */
   computedFields?: Record<string, ComputedFieldFn>;
-  allowedReadJoins?: JoinDefinition[];
-  allowedWriteJoins?: JoinDefinition[];
+  readJoins?: JoinDefinition[];
+  writeJoins?: JoinDefinition[];
   /**
    * Upsert the main row on this key: an insert (`POST /rest`, `sqlApi.insert`) and every bulk
    * upsert item becomes `INSERT … ON CONFLICT (<key>) DO UPDATE`. Fields (camelCase), exactly

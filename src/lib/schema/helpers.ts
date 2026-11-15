@@ -145,9 +145,9 @@ function buildJoinAliasMap(
   options: { itemsPartial?: boolean; strictItems?: boolean } = {}
 ): Record<string, TSchema> {
   const out: Record<string, TSchema> = {};
-  if (!tableConf.allowedWriteJoins?.length) return out;
+  if (!tableConf.writeJoins?.length) return out;
   const objOpts = options.strictItems ? { additionalProperties: false } : {};
-  for (const j of tableConf.allowedWriteJoins) {
+  for (const j of tableConf.writeJoins) {
     const sc = resolveJoinTableConf(dbTables, j);
     const item = Type.Object(build(j, sc), objOpts);
     // Partial rebuilds the object and drops the source's options: hand them over again.
@@ -158,7 +158,7 @@ function buildJoinAliasMap(
 
 /**
  * Attach `secondaries` (and optionally `deletions`) sections to the given target object,
- * iterating once over `tableConf.allowedWriteJoins`. Mutates `target` in-place.
+ * iterating once over `tableConf.writeJoins`. Mutates `target` in-place.
  * Used by body and response schema builders for insert/update/bulk-upsert.
  *
  * Deletions are emitted with every field Optional (Type.Partial) because the engine
@@ -171,7 +171,7 @@ export function attachWriteJoinSections(
   dbTables: DbTables,
   options: { withDeletions: boolean; secondaryFields: JoinFieldsBuilder; strictItems?: boolean }
 ): void {
-  if (!tableConf.allowedWriteJoins?.length) return;
+  if (!tableConf.writeJoins?.length) return;
 
   // additionalProperties:false closes the alias container itself, not just the items: an alias
   // the table does not declare must be a validation error, never a key that reaches the engine.

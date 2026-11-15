@@ -37,7 +37,7 @@ function createDbTables() {
       schema: customerSchema,
       defaultOrder: 'id',
       tenantScope: { column: 'organization_id' },
-      allowedWriteJoins: [
+      writeJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
     },
@@ -51,7 +51,7 @@ function createDbTables() {
       primary: 'id',
       schema: shiftSchema,
       defaultOrder: 'id',
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(shiftSchema, 'id', customerSchema, 'id', { alias: 'customer' }),
       ],
     },

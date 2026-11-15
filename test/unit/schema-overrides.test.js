@@ -222,7 +222,7 @@ describe('schemaOverrides - responses keep the generated type', () => {
         primary: 'id',
         schema: customerSchema,
         defaultOrder: 'id',
-        allowedReadJoins: [
+        readJoins: [
           buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
         ],
       },

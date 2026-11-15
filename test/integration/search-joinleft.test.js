@@ -43,7 +43,7 @@ const dbTables = {
     primary: 'id',
     ...orderInfo,
     defaultOrder: 'id',
-    allowedReadJoins: [
+    readJoins: [
       buildRelation(orderSchema, 'customerId', customerSchema, 'id', {
         alias: 'customer',
         unique: true,

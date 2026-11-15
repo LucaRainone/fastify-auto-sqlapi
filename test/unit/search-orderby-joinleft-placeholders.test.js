@@ -35,7 +35,7 @@ function createTestDbTables(mockPg, dialect) {
       primary: 'id',
       schema: userSchema,
       defaultOrder: 'id',
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(userSchema, 'id', sessionSchema, 'userId', { alias: 'session' }),             // unique:false → joinGroup
         buildRelation(userSchema, 'orgId', orgSchema, 'id', { alias: 'org', unique: true }),         // unique:true → joinLeft
       ],

@@ -66,7 +66,7 @@ function createDbTables(mockPg, opts = {}) {
       schema: invoiceSchema,
       defaultOrder: 'id',
       insertExclude: ['id'],
-      allowedWriteJoins: [
+      writeJoins: [
         buildRelation(invoiceSchema, 'id', lineSchema, 'invoiceId', { alias: 'invoice_line' }),
       ],
       ...(opts.writeExclude ? { writeExclude: opts.writeExclude } : {}),

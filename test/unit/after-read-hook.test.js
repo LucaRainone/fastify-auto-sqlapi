@@ -59,7 +59,7 @@ function createTestDbTables(mockPg) {
       primary: 'id',
       schema: customerSchema,
       defaultOrder: 'id',
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
         buildRelation(customerSchema, 'id', orderSchema, 'id', { alias: 'main_order', unique: true }),
       ],

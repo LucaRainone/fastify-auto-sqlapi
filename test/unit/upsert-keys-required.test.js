@@ -46,7 +46,7 @@ const contentTables = {
     primary: 'id',
     schema: contentSchema,
     defaultOrder: 'id',
-    allowedWriteJoins: [
+    writeJoins: [
       buildRelation(contentSchema, 'id', contentInfoSchema, 'contentId', { alias: 'info', upsertKey: ['contentId', 'langId'] }),
     ],
     upsertKey: ['id'],

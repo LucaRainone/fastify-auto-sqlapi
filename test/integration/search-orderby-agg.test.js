@@ -44,7 +44,7 @@ const dbTables = {
     primary: 'id',
     ...customerInfo,
     defaultOrder: 'id',
-    allowedReadJoins: [
+    readJoins: [
       buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
     ],
   },
@@ -484,7 +484,7 @@ describe(`[${DIALECT}] search orderBy agg with multi-tenant (FK scoping)`, () =>
       ...customerInfo,
       defaultOrder: 'id',
       tenantScope: { column: 'organization_id' },
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
     },
@@ -570,7 +570,7 @@ const DbTablesBuckets = {
     primary: 'id',
     ...customerInfo,
     defaultOrder: 'id',
-    allowedReadJoins: [
+    readJoins: [
       buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
     ],
   },

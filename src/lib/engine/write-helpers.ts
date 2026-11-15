@@ -72,9 +72,9 @@ export function assertUpsertKeys(
 /**
  * Resolve the write join an alias names, or undefined when the table does not declare it.
  *
- * An undeclared alias is skipped rather than rejected: a table with no `allowedWriteJoins`
+ * An undeclared alias is skipped rather than rejected: a table with no `writeJoins`
  * ignores any secondaries sent to it, which is the tested contract (see the "ignores
- * secondaries/deletions not in allowedWriteJoins" specs). The HTTP boundary is what fails
+ * secondaries/deletions not in writeJoins" specs). The HTTP boundary is what fails
  * closed — the generated body schema declares `additionalProperties:false` on the alias
  * container, so a request naming an undeclared alias is a 400 before it reaches here.
  */
@@ -82,7 +82,7 @@ function findWriteJoin(
   tableConf: TableConfig,
   alias: string
 ): JoinDefinition | undefined {
-  return tableConf.allowedWriteJoins?.find((j) => j.alias === alias);
+  return tableConf.writeJoins?.find((j) => j.alias === alias);
 }
 
 /**

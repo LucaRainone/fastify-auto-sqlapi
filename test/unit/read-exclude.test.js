@@ -46,7 +46,7 @@ function createDbTables() {
       primary: 'id',
       schema: teamSchema,
       readExclude: ['secretBudget'],
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(teamSchema, 'id', playerSchema, 'teamId', { alias: 'player' }),
       ],
     },
@@ -54,7 +54,7 @@ function createDbTables() {
       primary: 'id',
       schema: playerSchema,
       readExclude: ['hiddenPotential'],
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(playerSchema, 'teamId', teamSchema, 'id', { alias: 'team', unique: true }),
       ],
     },

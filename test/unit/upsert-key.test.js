@@ -76,7 +76,7 @@ describe('upsertKey on the table: the main row', () => {
   });
 
   it('does not reach the secondaries: a relation without upsertKey inserts them', async () => {
-    const tableConf = customerTable({ upsertKey: ['email'], allowedWriteJoins: [ordersRelation()] });
+    const tableConf = customerTable({ upsertKey: ['email'], writeJoins: [ordersRelation()] });
     const [, child] = await insert(tableConf, { orders: [{ status: 'open', total: 1 }] });
     assert.match(child, /^INSERT INTO "customer_order"/);
     assert.doesNotMatch(child, /ON CONFLICT/);
@@ -86,7 +86,7 @@ describe('upsertKey on the table: the main row', () => {
 describe('upsertKey on the write relation: the secondaries', () => {
   it('the secondaries upsert on it, with the FK filled in', async () => {
     const tableConf = customerTable({
-      allowedWriteJoins: [ordersRelation({ upsertKey: ['customerId', 'status'] })],
+      writeJoins: [ordersRelation({ upsertKey: ['customerId', 'status'] })],
     });
     const [main, child] = await insert(tableConf, { orders: [{ status: 'open', total: 1 }] });
     assert.doesNotMatch(main, /ON CONFLICT/);
@@ -96,7 +96,7 @@ describe('upsertKey on the write relation: the secondaries', () => {
   it('holds whichever Schema instance the relation was built with', async () => {
     const copy = { ...orderSchema };
     const tableConf = customerTable({
-      allowedWriteJoins: [
+      writeJoins: [
         buildRelation(customerSchema, 'id', copy, 'customerId', { alias: 'orders', upsertKey: ['customerId', 'status'] }),
       ],
     });
@@ -112,15 +112,15 @@ describe('upsertKey is checked at startup', () => {
 
   it('the relation key must be a unique key of the joined schema, naming the alias', () => {
     assert.throws(
-      () => customerTable({ allowedWriteJoins: [ordersRelation({ upsertKey: ['status'] })] }),
+      () => customerTable({ writeJoins: [ordersRelation({ upsertKey: ['status'] })] }),
       /upsertKey.*'orders'.*\(status\)/s
     );
   });
 
-  it('a relation upsertKey in allowedReadJoins is refused: reads never write', () => {
+  it('a relation upsertKey in readJoins is refused: reads never write', () => {
     assert.throws(
-      () => customerTable({ allowedReadJoins: [ordersRelation({ upsertKey: ['customerId', 'status'] })] }),
-      /'orders'.*allowedReadJoins.*upsertKey/s
+      () => customerTable({ readJoins: [ordersRelation({ upsertKey: ['customerId', 'status'] })] }),
+      /'orders'.*readJoins.*upsertKey/s
     );
   });
 

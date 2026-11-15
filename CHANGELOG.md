@@ -53,6 +53,11 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **BREAKING: `readJoins` / `writeJoins`.** The relation lists of a table config are named after
+  what they grant, like `operations`: `allowedReadJoins` is `readJoins`, `allowedWriteJoins` is
+  `writeJoins`. Same semantics and checks; the old keys throw at startup (`defineTable`, and
+  the plugin / `createSqlApi` for an entry written by hand), naming the new one. See
+  BREAKING_CHANGES.md.
 - **BREAKING: the upsert key has one place per role, `upsertKey`.** On the table for its main
   rows (`defineTable({ upsertKey: ['email'] })`: insert and bulk upsert), on the write
   relation for its secondaries (`buildRelation(…, { upsertKey: ['productId', 'lang'] })`).

@@ -51,7 +51,7 @@ function createTestDbTables(mockPg) {
       primary: 'id',
       ...customerInfo,
       defaultOrder: 'id',
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
     },
@@ -748,7 +748,7 @@ describe('searchEngine - joinGroup', () => {
         primary: 'id',
         schema: customerSchema,
         defaultOrder: 'id',
-        allowedReadJoins: [
+        readJoins: [
           buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
         ],
       },
@@ -830,7 +830,7 @@ function createSessionDbTables(mockPg) {
       primary: 'id',
       ...sessionInfo,
       defaultOrder: 'id',
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(sessionSchema, 'userId', userSchema, 'id', {
           alias: 'creator',
           unique: true,

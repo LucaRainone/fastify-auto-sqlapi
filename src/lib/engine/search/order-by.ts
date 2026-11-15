@@ -33,7 +33,7 @@ export interface OrderByResult {
  * Pre-scan `orderBy` for the joinLeft aliases referenced in 2-part notation (`<alias>.<field>`).
  * Needed BEFORE building the LEFT JOIN clauses (which must know their aliases) while the actual
  * orderBy SQL — with its parameter placeholders — is only baked later, once the LEFT JOIN value
- * count is known. Validates each alias against `allowedReadJoins` (throws 400), mirroring
+ * count is known. Validates each alias against `readJoins` (throws 400), mirroring
  * `validateOrderBy`; 3-part aggregation entries are ignored (they use joinGroup, not a LEFT JOIN).
  */
 export function collectOrderByLeftAliases(orderBy: string, tableConf: TableConfig): Set<string> {

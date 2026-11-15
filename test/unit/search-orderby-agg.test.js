@@ -49,7 +49,7 @@ function createTestDbTables(mockPg, opts = {}) {
       primary: 'id',
       ...userInfo,
       defaultOrder: 'id',
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(userSchema, 'id', sessionSchema, 'userId', { alias: 'session' }),
       ],
       ...(opts.distinctResults ? { distinctResults: true } : {}),

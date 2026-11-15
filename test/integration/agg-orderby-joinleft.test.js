@@ -58,7 +58,7 @@ const dbTables = {
     primary: 'id',
     schema: customerSchema,
     defaultOrder: 'id',
-    allowedReadJoins: [
+    readJoins: [
       // Multiple children: enables joinGroup and the 3-part aggregation orderBy.
       buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'orders' }),
       // Unique parent: enables joinLeft with a filter on the parent.

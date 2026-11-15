@@ -86,9 +86,9 @@ export function defineTable<
 >(definition: TableDefinition<F, EF>): TableConfig<F> {
   const config = definition as unknown as TableConfig<F>;
   assertTableShape(config as unknown as TableConfig, 'defineTable');
-  validateAliasUniqueness(config.allowedReadJoins, 'allowedReadJoins');
-  validateAliasUniqueness(config.allowedWriteJoins, 'allowedWriteJoins');
-  validateWriteJoinsUnrestricted(config.allowedWriteJoins);
+  validateAliasUniqueness(config.readJoins, 'readJoins');
+  validateAliasUniqueness(config.writeJoins, 'writeJoins');
+  validateWriteJoinsUnrestricted(config.writeJoins);
   validateComputedFields(config as unknown as TableConfig);
   validatePrimary(config as unknown as TableConfig);
   validateReadExclude(config as unknown as TableConfig);
@@ -109,6 +109,8 @@ const RETIRED_CONFIG_KEYS: Record<string, string> = {
   Schema: "'schema'",
   filters: "'extendedCondition' (column filters are built from 'schema')",
   upsertMap: "'upsertKey' on the table for its main rows, and buildRelation(…, { upsertKey }) for the secondaries of a write join",
+  allowedReadJoins: "'readJoins'",
+  allowedWriteJoins: "'writeJoins'",
 };
 
 /** Throw when a table config is in the pre-1.0 shape or has no schema. `where` names the caller. */
@@ -264,9 +266,9 @@ function validateWriteJoinsUnrestricted(joins: JoinDefinition[] | undefined): vo
   for (const join of joins ?? []) {
     if (join.fields) {
       throw new Error(
-        `defineTable: relation '${join.alias}' in allowedWriteJoins declares 'fields'. ` +
+        `defineTable: relation '${join.alias}' in writeJoins declares 'fields'. ` +
         `The fields allowlist restricts reading only — remove it, and use a separate ` +
-        `buildRelation for the read side if that relation is also in allowedReadJoins.`
+        `buildRelation for the read side if that relation is also in readJoins.`
       );
     }
   }
@@ -415,7 +417,7 @@ function validateUpsertKeys(config: TableConfig): void {
       );
     }
   }
-  for (const join of config.allowedWriteJoins ?? []) {
+  for (const join of config.writeJoins ?? []) {
     if (!join.upsertKey) continue;
     const problem = upsertKeyProblem(join.joinSchema, join.upsertKey);
     if (problem) {
@@ -425,11 +427,11 @@ function validateUpsertKeys(config: TableConfig): void {
       );
     }
   }
-  for (const join of config.allowedReadJoins ?? []) {
+  for (const join of config.readJoins ?? []) {
     if (join.upsertKey) {
       throw new Error(
-        `defineTable: relation '${join.alias}' in allowedReadJoins declares 'upsertKey'. Reads ` +
-        `never write — declare it on the relation in allowedWriteJoins, with a separate buildRelation.`
+        `defineTable: relation '${join.alias}' in readJoins declares 'upsertKey'. Reads ` +
+        `never write — declare it on the relation in writeJoins, with a separate buildRelation.`
       );
     }
   }
@@ -535,7 +537,7 @@ export interface BuildRelationOptions {
    * Upsert the secondaries this relation writes on this key of the joined table (fields):
    * `INSERT … ON CONFLICT (<key>) DO UPDATE`. Absent, they are plain INSERTs. Must be the
    * joined schema's primary key or one of its `uniqueKeys` (checked by `defineTable`), and is
-   * for a relation in `allowedWriteJoins` only.
+   * for a relation in `writeJoins` only.
    */
   upsertKey?: string[];
 }
@@ -715,7 +717,7 @@ export function validateDbTables(dbTables: DbTables): void {
   }
   for (const [key, conf] of Object.entries(dbTables)) assertTableShape(conf, `dbTables.${key}`);
   for (const [key, conf] of Object.entries(dbTables)) {
-    for (const join of [...(conf.allowedReadJoins ?? []), ...(conf.allowedWriteJoins ?? [])]) {
+    for (const join of [...(conf.readJoins ?? []), ...(conf.writeJoins ?? [])]) {
       try {
         resolveJoinTableConf(dbTables, join);
       } catch (err) {

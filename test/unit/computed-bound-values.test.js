@@ -55,7 +55,7 @@ function createDbTables() {
       schema: employeeSchema,
       defaultOrder: 'id',
       computedFields: { bonus: bonusField },
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(employeeSchema, 'deptId', deptSchema, 'id', { alias: 'dept', unique: true }),
       ],
     },
@@ -63,7 +63,7 @@ function createDbTables() {
       primary: 'id',
       schema: deptSchema,
       defaultOrder: 'id',
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(deptSchema, 'id', employeeSchema, 'deptId', { alias: 'staff' }),
       ],
       computedFields: {

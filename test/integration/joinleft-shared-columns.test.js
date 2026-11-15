@@ -56,7 +56,7 @@ const dbTables = {
     schema: customerSchema,
     defaultOrder: 'id',
     computedFields: customerComputed,
-    allowedReadJoins: [
+    readJoins: [
       buildRelation(customerSchema, 'organizationId', orgSchema, 'id', { alias: 'org', unique: true }),
     ],
   },

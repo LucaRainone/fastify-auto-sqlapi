@@ -28,7 +28,7 @@ function createDbTables({ customer = {}, order = {} } = {}) {
     customer: {
       primary: 'id',
       schema: customerSchema,
-      allowedWriteJoins: [buildRelation(customerSchema, 'id', orderSchema, 'customerId')],
+      writeJoins: [buildRelation(customerSchema, 'id', orderSchema, 'customerId')],
       ...customer,
     },
     customer_order: {

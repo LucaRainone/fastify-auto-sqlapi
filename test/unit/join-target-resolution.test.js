@@ -28,7 +28,7 @@ const SchemaMessage = createMockSchema('message', {
   secret: Type.String(),
 });
 
-function conversationConf(relationOptions = {}, lists = ['allowedReadJoins']) {
+function conversationConf(relationOptions = {}, lists = ['readJoins']) {
   const relation = buildRelation(SchemaConversation, 'id', SchemaMessage, 'conversationId', {
     alias: 'messages',
     ...relationOptions,
@@ -131,7 +131,7 @@ describe('join target resolution — several keys over the joined table', () => 
     await assert.rejects(
       async () => app.register(fastifyAutoSqlApi, {
         dbTables: {
-          chat: conversationConf({}, ['allowedWriteJoins']),
+          chat: conversationConf({}, ['writeJoins']),
           msgAdmin: messageConf(),
           msgPublic: messageConf(),
         },

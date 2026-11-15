@@ -55,7 +55,7 @@ export function subqueryAlias(alias: string, tableConf: TableConfig): string {
 }
 
 function findJoinByAlias(tableConf: TableConfig, alias: string): JoinDefinition | undefined {
-  return tableConf.allowedReadJoins?.find((j) => j.alias === alias);
+  return tableConf.readJoins?.find((j) => j.alias === alias);
 }
 
 /**

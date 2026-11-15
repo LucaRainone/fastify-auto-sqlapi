@@ -48,7 +48,7 @@ async function buildApp({ conversation = {}, messageSelect } = {}, pool = create
       primary: 'id',
       schema: SchemaConversation,
       readExclude: ['secret'],
-      allowedReadJoins: [
+      readJoins: [
         buildRelation(SchemaConversation, 'creatorId', SchemaUser, 'id', { alias: 'creator', unique: true }),
         buildRelation(SchemaConversation, 'id', SchemaMessage, 'conversationId', {
           alias: 'messages',
