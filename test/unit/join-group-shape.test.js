@@ -1,12 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
-import {
-  fastifyAutoSqlApi,
-  buildRelation,
-  toUnderscore,
-  Type,
-} from '../../dist/index.js';
+import { fastifyAutoSqlApi, buildRelation, Type } from '../../dist/index.js';
+import { toUnderscore } from '../../dist/lib/naming.js';
 
 // joinGroup has one request shape and one response shape. The request names `by` and the
 // aggregate functions next to `filters`/`conditions`; the response is always `rows`, one per

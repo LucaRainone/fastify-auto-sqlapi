@@ -1,7 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
-import { fastifyAutoSqlApi, toUnderscore, Type } from '../../dist/index.js';
+import { fastifyAutoSqlApi, Type } from '../../dist/index.js';
+import { toUnderscore } from '../../dist/lib/naming.js';
 
 // `compute` aggregates over ALL rows matching the search, whatever page is returned. It
 // stands on its own: no paginator needed, the result in `computed` at the top level, and the

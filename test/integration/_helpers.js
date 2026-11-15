@@ -33,7 +33,6 @@ const dist = await import(path.join(ROOT, 'dist/index.js'));
 export const {
   fastifyAutoSqlApi,
   buildRelation,
-  toUnderscore,
   Type,
   QueryClient,
   createQueryClient,
@@ -41,6 +40,7 @@ export const {
   mysqlQueryable,
   TENANT_ADMIN,
 } = dist;
+export const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 
 /**
  * Create a Fastify app configured for the current dialect, with the plugin registered.

@@ -1,7 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
-import { fastifyAutoSqlApi, toUnderscore, Type } from '../../dist/index.js';
+import { fastifyAutoSqlApi, Type } from '../../dist/index.js';
+import { toUnderscore } from '../../dist/lib/naming.js';
 
 // `dbErrors`: the consumer maps the driver error codes it cares about to an HTTP status and a
 // code of its own, which the client translates. The mapping is partial by nature — codes

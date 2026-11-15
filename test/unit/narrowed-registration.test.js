@@ -1,7 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
-import { fastifyAutoSqlApi, toUnderscore, Type } from '../../dist/index.js';
+import { fastifyAutoSqlApi, Type } from '../../dist/index.js';
+import { toUnderscore } from '../../dist/lib/naming.js';
 
 // A registration narrowed with `operations` (AGENTS_BACKEND.md, "Several surfaces") serves
 // the routes it keeps, through its own SqlApi, under its own prefix. It replaces registering

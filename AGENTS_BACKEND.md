@@ -12,7 +12,8 @@ Setting up the plugin and configuring tables. Client request grammar: AGENTS_FRO
 ## CLI: generate Schemas and tables
 
 ```ts
-// sqlapi.config.ts — CLI only, never read at runtime. These six keys are all that exist.
+// sqlapi.config.ts — CLI only, never read at runtime. These six keys are all that exist, all optional.
+import type { CliConfig } from 'fastify-auto-sqlapi';
 export default {
   outputDir: './src/db', // default './src/db'
   schema: 'public', // PostgreSQL only
@@ -20,7 +21,7 @@ export default {
   envFile: '.env', // relative to cwd; useful in monorepos
   excludeTables: ['knex_*'], // DB table names or * globs: no schema generated, old one removed
   excludeColumns: ['*.password_hash', 'user.internal_*'], // "<table>.<column>" DB names, * globs. The column does not exist for the API at all (no read, write, filter, manifest). Cannot exclude a PK; a pattern leaving a table with no columns fails the run.
-};
+} satisfies CliConfig;
 ```
 
 Connection comes from env (a `.env` in cwd is loaded, set vars win): `DATABASE_URL`, or `POSTGRES_HOST|PORT|USER|PASSWORD|DB` / `MYSQL_HOST|PORT|USER|PASSWORD|DB`.
@@ -405,11 +406,13 @@ await app.register(fastifyAutoSqlApi, {
 
 Everything is imported from `fastify-auto-sqlapi`, so there is nothing else to install:
 
-- `Type`, `Static`, `ConditionBuilder`, `Expression`, `Nullable`
-- `defineTable`, `buildRelation`
-- `fastifyAutoSqlApi` (the one way to mount the routes)
-- `SqlApi`, `createSqlApi`, `QueryClient`, `createQueryClient`, `pgQueryable`, `mysqlQueryable`
-- `agentToolSchemas`
-- Types: `ValidationField`, `ValidatorFn`, `BulkValidatorFn`, `JoinDefinition`, `SearchCondition`, `ConditionMethod`, `DbTables`, `TableDefinition`
+- `fastifyAutoSqlApi` (the one way to mount the routes), `SqlApi`, `createSqlApi`
+- `defineTable`, `buildRelation`, `Nullable`, `Type`, `Static`
+- for hooks: `httpError`, `TENANT_ADMIN`, `ConditionBuilder`, `Expression`
+- `QueryClient`, `createQueryClient`, `pgQueryable`, `mysqlQueryable`
+- `agentToolSchemas`, `buildAgentManifest`, `renderAgentManifestMd`
+- Types: those of the config (`DbTables`, `TableDefinition`, `TableConfig`, `JoinDefinition`, `TenantScope`…), of the hooks (`ValidationField`, `ValidatorFn`, `BulkValidatorFn`, `WriteHookContext`…), of `sqlApi` (`SqlApi*Params`, `SearchResult`…) and of the CLI (`CliConfig`)
+
+Nothing else is public: the engines, route plugins, schema builders, naming helpers, dialect table and tenant resolution are internals.
 
 Dialects: PG uses `"id"`, `$1` and `RETURNING`. MySQL uses backticks, `?` and `insertId`. MariaDB is like MySQL but has `RETURNING` (10.5+). The CLI uses `pg` / `mysql2`.

@@ -1,12 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
-import {
-  fastifyAutoSqlApi,
-  agentToolSchemas,
-  toUnderscore,
-  Type,
-} from '../../dist/index.js';
+import { fastifyAutoSqlApi, agentToolSchemas, Type } from '../../dist/index.js';
+import { toUnderscore } from '../../dist/lib/naming.js';
 
 // A bulk delete names its rows the same way everywhere: `{ ids: [...] }` in the HTTP body, in
 // `sqlApi.bulkDelete` and in the bulk delete hooks — whatever the primary key field is called.

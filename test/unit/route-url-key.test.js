@@ -1,12 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
-import {
-  fastifyAutoSqlApi,
-  toUnderscore,
-  buildAgentManifest,
-  Type,
-} from '../../dist/index.js';
+import { fastifyAutoSqlApi, buildAgentManifest, Type } from '../../dist/index.js';
+import { toUnderscore } from '../../dist/lib/naming.js';
 
 // The route URL names the dbTables KEY, not the physical table (Schema.tableName).
 // Several table configs over the same physical table must each get their own routes,

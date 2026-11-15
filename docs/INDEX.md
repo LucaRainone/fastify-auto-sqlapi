@@ -28,7 +28,7 @@ Search before writing: `npm run find-similar -- "<what you need>"`.
 - `agentToolSchemas(dbTables: DbTables, tableName: string, opts?: { maxItemsPerPage?: number…` *function, public* — Ready-to-use JSON Schemas for exposing a table's operations as strict LLM tools — the same TypeBox …
 - `AgentToolSchemas` *interface, public*
 ### src/lib/cli/config.ts
-- `loadConfig(): Promise<SqlApiConfig>` *function*
+- `loadConfig(): Promise<ResolvedCliConfig>` *function*
 ### src/lib/cli/load-dependency.ts
 - `loadOptionalDependency(modulePath: string, installHint: string): T` *function* — Load an optional peer dependency by trying the consumer's CWD first (so it works when installed via…
 ### src/lib/cli/mysql-introspect.ts
@@ -67,8 +67,8 @@ Search before writing: `npm run find-similar -- "<what you need>"`.
 - `QueryClient` *class, public*
 ### src/lib/dialect.ts
 - `DialectName = 'postgres' | 'mysql' | 'mariadb'` *type, public*
-- `getDialect(name: DialectName): SqlDialect` *function, public*
-- `SqlDialect` *interface, public*
+- `getDialect(name: DialectName): SqlDialect` *function*
+- `SqlDialect` *interface*
 ### src/lib/engine/bulk/bulk-delete.ts
 - `bulkDeleteEngine(params: BulkDeleteParams): Promise<BulkDeleteResult[]>` *function*
 ### src/lib/engine/bulk/bulk-upsert.ts
@@ -147,11 +147,11 @@ Search before writing: `npm run find-similar -- "<what you need>"`.
 - `RouteErrorPolicy` *interface* — How a route answers an error it did not raise itself: the plugin options that decide it.
 - `sanitizeRouteError(err: unknown, policy: RouteErrorPolicy = {}): unknown` *function* — Replace an error escaping a route handler with one that carries no database detail.
 ### src/lib/naming.ts
-- `camelcaseObject(obj: T, schema?: SchemaDefinition): Record<string, unknown>` *function, public* — Convert DB row (actual column names) to API record (camelCase field names).
-- `snakecaseRecord(obj: Record<string, unknown>, schema?: SchemaDefinition): Record<string, …` *function, public* — Convert API record (camelCase keys) to DB record (actual column names).
-- `toCamelCase(str: string): string` *function, public*
-- `toSchemaName(tableName: string): string` *function, public*
-- `toUnderscore(str: string): string` *function, public*
+- `camelcaseObject(obj: T, schema?: SchemaDefinition): Record<string, unknown>` *function* — Convert DB row (actual column names) to API record (camelCase field names).
+- `snakecaseRecord(obj: Record<string, unknown>, schema?: SchemaDefinition): Record<string, …` *function* — Convert API record (camelCase keys) to DB record (actual column names).
+- `toCamelCase(str: string): string` *function*
+- `toSchemaName(tableName: string): string` *function*
+- `toUnderscore(str: string): string` *function*
 ### src/lib/nullable.ts
 - `Nullable(schema: T): TUnsafe<Static<T> | null>` *function, public* — Mark a schema as nullable using the JSON-Schema type-array form (`{ type: ['integer', 'null'] }`).
 ### src/lib/read-access.ts
@@ -224,7 +224,7 @@ Search before writing: `npm run find-similar -- "<what you need>"`.
 - `enforceTenantFKOnUpdate(db: QueryClient, tenant: TenantContext | undefined, updateFields:…` *function* — For an UPDATE on an indirect-tenant table: the record's ownership is verified against its CURRENT t…
 - `enforceTenantOnWrites(db: QueryClient, tenant: TenantContext | undefined, records: Record…` *function* — For insert/bulk-upsert: enforce tenant on records that are about to be written.
 - `injectTenantValue(record: Record<string, unknown>, scope: TenantScopeDirect | TenantScope…` *function* — Writes the tenant value into a record according to its scope.
-- `resolveTenant(options: SqlApiPluginOptions, tableConf: TableConfig, request: ApiRequest):…` *function, public*
+- `resolveTenant(options: SqlApiPluginOptions, tableConf: TableConfig, request: ApiRequest):…` *function*
 - `stripTenantColumn(fields: Record<string, unknown>, scope: TenantScope): void` *function* — Mutates `fields` in-place: removes the tenant columns from a SET payload (scopes whose columns live…
 - `tenantForTable(tenant: TenantContext | undefined, tableConf: TableConfig | undefined): Te…` *function* — Re-target a tenant context onto a related table: the caller's tenant ids paired with that table's O…
 - `tenantImmutableColumns(tenant: TenantContext | undefined): string[]` *function* — Columns an UPSERT must leave alone when it lands on an existing row.
@@ -266,9 +266,9 @@ Search before writing: `npm run find-similar -- "<what you need>"`.
 - `RegistrationOptions = SqlApiPluginOptions & { [REGISTRATION_SQL_API]: SqlApiGetter }` *type* — Route plugin options as the main plugin passes them: the consumer's, plus its SqlApi.
 - `SqlApiGetter = () => SqlApi` *type* — Resolves a registration's SqlApi on first use (the pool may be decorated after registration).
 ### src/types/cli.ts
-- `ColumnInfo` *interface, public*
-- `SqlApiConfig` *interface, public*
-- `TableMap` *interface, public*
+- `CliConfig` *interface, public* — `sqlapi.config.ts`, read by the CLI only — never at runtime: `export default { outputDir: './src/db…
+- `ColumnInfo` *interface*
+- `TableMap` *interface*
 ### src/types/computed.ts
 - `ComputedFieldContext` *interface, public* — Context passed to ComputedFieldFn when the engine resolves a computed field.
 - `ComputedFieldExpr` *interface, public* — Result returned by a ComputedFieldFn.
@@ -286,18 +286,18 @@ Search before writing: `npm run find-similar -- "<what you need>"`.
 - `WriteAction = 'inserted' | 'updated'` *type, public* — What a write that may be an upsert did to a row.
 - `WrittenRow` *interface, public* — A written row: its primary key columns, and whether the statement inserted or updated it.
 ### src/types/dml.ts
-- `BulkDeleteParams` *interface, public*
+- `BulkDeleteParams` *interface*
 - `BulkDeleteResult` *interface, public*
 - `BulkUpsertItem` *interface, public*
-- `BulkUpsertParams` *interface, public*
+- `BulkUpsertParams` *interface*
 - `BulkUpsertResult` *interface, public*
-- `DeleteParams` *interface, public*
+- `DeleteParams` *interface*
 - `DeleteResult` *interface, public*
-- `GetParams` *interface, public*
+- `GetParams` *interface*
 - `GetResult` *interface, public*
-- `InsertParams` *interface, public*
+- `InsertParams` *interface*
 - `InsertResult` *interface, public*
-- `UpdateParams` *interface, public*
+- `UpdateParams` *interface*
 - `UpdateResult` *interface, public*
 ### src/types/hooks.ts
 - `AfterInsertContext` *interface, public* — `afterInsert`: the input record merged with the generated primary key, and the secondaries written,…
@@ -334,7 +334,7 @@ Search before writing: `npm run find-similar -- "<what you need>"`.
 - `ComputeRequest = Partial<Record<ComputeFn, string[]>>` *type, public* — Aggregates over ALL rows matching the search, whatever page is returned, by function: `{ sum: ['tot…
 - `PaginationResult` *interface, public*
 - `Paginator` *interface, public*
-- `SearchParams` *interface, public*
+- `SearchParams` *interface*
 - `SearchResult` *interface, public*
 ### src/types/table.ts
 - `DbTables = Record<string, TableConfig<any>>` *type, public*
@@ -350,7 +350,7 @@ Search before writing: `npm run find-similar -- "<what you need>"`.
 - `GetTenantId = (request: ApiRequest) => TenantResolution | Promise<TenantResolution>` *type, public*
 - `TENANT_ADMIN` *const, public*
 - `TenantAdmin = typeof TENANT_ADMIN` *type, public*
-- `TenantContext` *interface, public* — Who the caller is, for this request — plus how the table currently being addressed is scoped.
+- `TenantContext` *interface* — Who the caller is, for this request — plus how the table currently being addressed is scoped.
 - `TenantId = string | number` *type, public*
 - `TenantResolution = TenantId | TenantId[] | TenantAdmin | null | undefined` *type, public* — What `getTenantId` resolves a request to: one tenant id, several (a caller who belongs to more than…
 - `TenantScope = TenantScopeDirect | TenantScopeIndirect | TenantScopeAnyOf` *type, public*

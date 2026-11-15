@@ -1,11 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
-import {
-  fastifyAutoSqlApi,
-  toUnderscore,
-  Type,
-} from '../../dist/index.js';
+import { fastifyAutoSqlApi, Type } from '../../dist/index.js';
+import { toUnderscore } from '../../dist/lib/naming.js';
 
 // One table set, several surfaces: the plugin registered more than once, each registration
 // with its own dbTables, tenant resolver and table rules. Every registration's routes must run

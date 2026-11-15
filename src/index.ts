@@ -1,12 +1,3 @@
-// Re-export utilities
-export {
-  toCamelCase,
-  toUnderscore,
-  toSchemaName,
-  camelcaseObject,
-  snakecaseRecord,
-} from './lib/naming.js';
-
 // Errors: throw from a hook to answer in the plugin's envelope (a 400 with `fields`)
 export { httpError, type HttpErrorField } from './lib/errors.js';
 
@@ -14,7 +5,7 @@ export { httpError, type HttpErrorField } from './lib/errors.js';
 export { QueryClient, createQueryClient } from './lib/db.js';
 
 // Dialect
-export { getDialect, type SqlDialect, type DialectName } from './lib/dialect.js';
+export type { DialectName } from './lib/dialect.js';
 
 // Adapters
 export { pgQueryable } from './lib/adapters/pg-adapter.js';
@@ -35,7 +26,6 @@ export {
 export { agentToolSchemas, type AgentToolSchemas } from './lib/agent/tool-schemas.js';
 
 // Tenant
-export { resolveTenant } from './lib/tenant.js';
 export { TENANT_ADMIN } from './types.js';
 
 // SqlApi — programmatic high-level API
@@ -53,9 +43,7 @@ export { ConditionBuilder, Expression } from 'node-condition-builder';
 // Types
 export type {
   ApiRequest,
-  SqlApiConfig,
-  ColumnInfo,
-  TableMap,
+  CliConfig,
   Queryable,
   TransactionQueryable,
   SqlResult,
@@ -73,7 +61,6 @@ export type {
   SqlApiPluginOptions,
   SwaggerOptions,
   DbErrorMapping,
-  SearchParams,
   SearchResult,
   Paginator,
   ComputeFn,
@@ -87,20 +74,14 @@ export type {
   ComputedFieldFn,
   ComputedFieldContext,
   ComputedFieldExpr,
-  GetParams,
   GetResult,
-  DeleteParams,
   DeleteResult,
-  InsertParams,
   InsertResult,
   BulkUpsertItem,
-  BulkUpsertParams,
   BulkUpsertResult,
-  BulkDeleteParams,
   BulkDeleteResult,
   ConditionMethod,
   SearchCondition,
-  UpdateParams,
   UpdateResult,
   TenantId,
   TenantAdmin,
@@ -110,7 +91,6 @@ export type {
   TenantScopeDirect,
   TenantScopeIndirect,
   TenantScopeAnyOf,
-  TenantContext,
   ValidationField,
   ValidateContext,
   BulkValidateContext,

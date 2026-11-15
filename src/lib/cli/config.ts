@@ -1,14 +1,17 @@
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
-import type { SqlApiConfig } from '../../types.js';
+import type { CliConfig } from '../../types.js';
 
-const DEFAULTS: SqlApiConfig = {
+/** The configuration the CLI runs with: the user's over the defaults. */
+type ResolvedCliConfig = CliConfig & { outputDir: string };
+
+const DEFAULTS: ResolvedCliConfig = {
   outputDir: './src/db',
   schema: 'public',
 };
 
-export async function loadConfig(): Promise<SqlApiConfig> {
+export async function loadConfig(): Promise<ResolvedCliConfig> {
   const candidates = ['sqlapi.config.ts', 'sqlapi.config.mjs', 'sqlapi.config.js'];
   const configPath = candidates
     .map((f) => resolve(process.cwd(), f))
@@ -21,7 +24,7 @@ export async function loadConfig(): Promise<SqlApiConfig> {
   try {
     const configUrl = pathToFileURL(configPath).href;
     const mod = await import(configUrl);
-    const userConfig: Partial<SqlApiConfig> = mod.default ?? mod;
+    const userConfig: CliConfig = mod.default ?? mod;
 
     return {
       ...DEFAULTS,

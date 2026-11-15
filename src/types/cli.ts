@@ -1,7 +1,12 @@
 import type { DialectName } from '../lib/dialect.js';
 
-export interface SqlApiConfig {
-  outputDir: string;
+/**
+ * `sqlapi.config.ts`, read by the CLI only — never at runtime:
+ * `export default { outputDir: './src/db' } satisfies CliConfig`. Every key is optional.
+ */
+export interface CliConfig {
+  /** Where `schemas/` and `tables/` are generated. Default `./src/db`. */
+  outputDir?: string;
   schema?: string;
   dialect?: DialectName;
   envFile?: string;

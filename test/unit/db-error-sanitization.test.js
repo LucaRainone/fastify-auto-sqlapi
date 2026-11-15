@@ -1,7 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
-import { fastifyAutoSqlApi, toUnderscore, Type } from '../../dist/index.js';
+import { fastifyAutoSqlApi, Type } from '../../dist/index.js';
+import { toUnderscore } from '../../dist/lib/naming.js';
 
 // A driver error carries schema details — table, column and constraint names — in its
 // message. ADR 0013: those never reach the client, while the consumer keeps the original

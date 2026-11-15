@@ -53,6 +53,13 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **BREAKING: internals are no longer exported.** Gone from the package entry: the naming
+  helpers (`toCamelCase`, `toUnderscore`, `toSchemaName`, `camelcaseObject`,
+  `snakecaseRecord`), `getDialect` and `SqlDialect`, `resolveTenant`, `TenantContext`, the
+  engine parameter types (`SearchParams`, `GetParams`, `InsertParams`,
+  `UpdateParams`, `DeleteParams`, `BulkUpsertParams`, `BulkDeleteParams`), `ColumnInfo` and
+  `TableMap`. `SqlApiConfig` is `CliConfig`, every key optional, for
+  `export default { … } satisfies CliConfig` in `sqlapi.config.ts`. See BREAKING_CHANGES.md.
 - **BREAKING: the QueryClient has one method per upsert, `upsert` and `bulkUpsert`.** Both
   answer `{ pk, action }` (per record, in input order, for the bulk one); `bulkUpsert` takes
   `{ chunkSize, immutableCols }` as an options object, and a positional chunk size or immutable

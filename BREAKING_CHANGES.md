@@ -1843,3 +1843,37 @@ Hooks and scripts calling the QueryClient upsert methods; code catching the 400
 - `bulkInsertOrUpdate(…, n, cols)` → `(await bulkUpsert(…, { chunkSize: n, immutableCols: cols })).map((r) => r.pk)`;
   `bulkInsertOrUpdateWithAction` → `bulkUpsert`.
 - An unknown table name is a bug to fix at the call site, not an error to handle.
+
+# Breaking Change — internals are no longer exported
+
+## What changed
+
+The package entry exports the public API only. Gone:
+
+- the naming helpers `toCamelCase`, `toUnderscore`, `toSchemaName`, `camelcaseObject`,
+  `snakecaseRecord` — a column name is `schema.col(field)`;
+- `getDialect` and the `SqlDialect` type — a dialect is named (`'mysql'`), and a QueryClient
+  answers `db.dialectName` / `db.cbDialect`;
+- `resolveTenant`, `TenantContext` — a table declares `tenantScope`, the plugin and
+  `createSqlApi` take `getTenantId` (its return type, `TenantResolution`, stays exported);
+- the engine parameter types `SearchParams`, `GetParams`, `InsertParams`, `UpdateParams`,
+  `DeleteParams`, `BulkUpsertParams`, `BulkDeleteParams` — `sqlApi` has `SqlApi*Params`;
+- `ColumnInfo`, `TableMap` — CLI internals.
+
+`SqlApiConfig` is renamed `CliConfig`, and every key is optional, as the CLI reads it:
+
+```ts
+// sqlapi.config.ts
+import type { CliConfig } from 'fastify-auto-sqlapi';
+export default { outputDir: './src/db', dialect: 'postgres' } satisfies CliConfig;
+```
+
+## Who is affected
+
+Code importing one of those names.
+
+## Migration
+
+- `toUnderscore(field)` for a column → `Schema.col(field)`.
+- `SearchParams` → `SqlApiSearchParams` (and so on for the other operations).
+- `SqlApiConfig` → `CliConfig`.
