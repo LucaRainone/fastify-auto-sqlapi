@@ -1,12 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { BulkUpsertTableBody, BulkUpsertTableResponse } from '../../lib/schema/bulk-upsert.js';
 import { registerForAllTables, buildWriteDescription } from './route-helpers.js';
+import type { RegistrationOptions } from '../sql-api-decorator.js';
 import { DEFAULT_MAX_BULK_ITEMS } from '../../types.js';
-import type { SqlApiPluginOptions, BulkUpsertItem } from '../../types.js';
+import type { BulkUpsertItem } from '../../types.js';
 
 export default async function bulkUpsertRoutes(
   fastify: FastifyInstance,
-  options: SqlApiPluginOptions,
+  options: RegistrationOptions,
 ): Promise<void> {
   await registerForAllTables(fastify, options, {
     operation: 'bulkUpsert',

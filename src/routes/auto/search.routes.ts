@@ -1,9 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { SearchTableBodyPost, SearchTableResponse } from '../../lib/schema/search.js';
 import { registerForAllTables } from './route-helpers.js';
+import type { RegistrationOptions } from '../sql-api-decorator.js';
 import { rejectRetiredKey, rejectRetiredSearchKeys } from '../../lib/engine/search/fields.js';
 import { DEFAULT_MAX_ITEMS_PER_PAGE } from '../../types.js';
-import type { SqlApiPluginOptions, SearchParams } from '../../types.js';
+import type { SearchParams } from '../../types.js';
 
 /** The search request: every key travels in the body. */
 interface SearchBody extends Pick<SearchParams,
@@ -33,7 +34,7 @@ function rejectRetiredQuery(query: object): void {
 
 export default async function searchRoutes(
   fastify: FastifyInstance,
-  options: SqlApiPluginOptions,
+  options: RegistrationOptions,
 ): Promise<void> {
   const maxRows = options.maxItemsPerPage ?? DEFAULT_MAX_ITEMS_PER_PAGE;
 

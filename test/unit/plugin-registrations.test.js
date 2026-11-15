@@ -3,15 +3,14 @@ import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import {
   fastifyAutoSqlApi,
-  searchRoutes,
   toUnderscore,
   Type,
 } from '../../dist/index.js';
 
-// One table set, several surfaces: the plugin (or a granular route plugin) registered more
-// than once, each registration with its own dbTables, tenant resolver and table rules. Every
-// registration's routes must run with the configuration they were registered with — never
-// with whichever registration happened to decorate `sqlApi` first.
+// One table set, several surfaces: the plugin registered more than once, each registration
+// with its own dbTables, tenant resolver and table rules. Every registration's routes must run
+// with the configuration they were registered with — never with whichever registration
+// happened to decorate `sqlApi` first.
 
 const fields = {
   id: Type.Number(),
@@ -105,13 +104,13 @@ describe('every plugin registration runs with its own configuration', () => {
     await app.close();
   });
 
-  it('a granular route plugin next to the main plugin serves its own dbTables', async () => {
+  it('a registration narrowed with operations, next to the main one, serves its own dbTables', async () => {
     const pool = createMockPool();
     const app = await buildApp(pool, async (app) => {
       await app.register(fastifyAutoSqlApi, { dbTables: { conv: conf() } });
-      await app.register(async (instance) => {
-        await instance.register(searchRoutes, { dbTables: { onlyPublic: conf() } });
-      }, { prefix: '/public' });
+      await app.register(fastifyAutoSqlApi, {
+        dbTables: { onlyPublic: conf() }, prefix: '/public', operations: ['search'], decorate: false,
+      });
     });
 
     const res = await app.inject({ method: 'POST', url: '/public/search/onlyPublic', payload: {} });
@@ -168,17 +167,5 @@ describe('app.sqlApi belongs to exactly one registration', () => {
     app.register(fastifyAutoSqlApi, { dbTables: { conv: conf() } });
 
     await assert.rejects(app.ready(), /sqlApi.*decorate: false/s);
-  });
-
-  it('a granular route plugin next to the main plugin needs no decorate option', async () => {
-    const app = await buildApp(createMockPool(), async (app) => {
-      await app.register(fastifyAutoSqlApi, { dbTables: { conv: conf() } });
-      await app.register(async (instance) => {
-        await instance.register(searchRoutes, { dbTables: { onlyPublic: conf() } });
-      }, { prefix: '/public' });
-    });
-
-    await app.sqlApi.search('conv', {});
-    await app.close();
   });
 });

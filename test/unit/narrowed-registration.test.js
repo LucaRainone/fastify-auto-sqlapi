@@ -1,11 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
-import { searchRoutes, getRoutes, toUnderscore, Type } from '../../dist/index.js';
+import { fastifyAutoSqlApi, toUnderscore, Type } from '../../dist/index.js';
 
-// Granular composition: route plugins registered WITHOUT the main plugin
-// (AGENTS_BACKEND.md "Register only specific routes") must create the sqlApi
-// decorator on their own instead of exploding with 500 at request time.
+// A registration narrowed with `operations` (AGENTS_BACKEND.md, "Several surfaces") serves
+// the routes it keeps, through its own SqlApi, under its own prefix. It replaces registering
+// the route plugins one by one, which are no longer exported.
 
 const schema = {
   col: (f) => toUnderscore(f),
@@ -45,13 +45,13 @@ async function buildApp(pool, register) {
   return app;
 }
 
-describe('granular route plugins registered standalone', () => {
-  it('searchRoutes works without the main plugin', async () => {
+describe('a registration narrowed with operations', () => {
+  it('serves search alone', async () => {
     const pool = createMockPool([
       { rows: [{ id: 1, name: 'Mario' }], rowCount: 1 }, // main (no paginator: no COUNT)
     ]);
     const app = await buildApp(pool, (app) =>
-      app.register(searchRoutes, { dbTables })
+      app.register(fastifyAutoSqlApi, { dbTables, operations: ['search'] })
     );
 
     const res = await app.inject({
@@ -69,14 +69,13 @@ describe('granular route plugins registered standalone', () => {
     await app.close();
   });
 
-  it('searchRoutes + getRoutes work as siblings in the same scope', async () => {
+  it('serves search and get together', async () => {
     const pool = createMockPool([
       { rows: [], rowCount: 0 },                         // search main (no paginator: no COUNT)
       { rows: [{ id: 7, name: 'Luigi' }], rowCount: 1 }, // get
     ]);
     const app = await buildApp(pool, async (app) => {
-      await app.register(searchRoutes, { dbTables });
-      await app.register(getRoutes, { dbTables });
+      await app.register(fastifyAutoSqlApi, { dbTables, operations: ['search', 'get'] });
     });
 
     const search = await app.inject({
@@ -93,14 +92,12 @@ describe('granular route plugins registered standalone', () => {
     await app.close();
   });
 
-  it('granular routes respect a prefix on the enclosing scope', async () => {
+  it('serves its routes under its own prefix', async () => {
     const pool = createMockPool([
       { rows: [], rowCount: 0 },
     ]);
     const app = await buildApp(pool, (app) =>
-      app.register(async (instance) => {
-        await instance.register(searchRoutes, { dbTables });
-      }, { prefix: '/public' })
+      app.register(fastifyAutoSqlApi, { dbTables, operations: ['search'], prefix: '/public' })
     );
 
     const res = await app.inject({

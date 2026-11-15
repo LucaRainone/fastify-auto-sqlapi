@@ -1,13 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { BulkDeleteTableBody, BulkDeleteTableResponse } from '../../lib/schema/bulk-delete.js';
 import { registerForAllTables } from './route-helpers.js';
+import type { RegistrationOptions } from '../sql-api-decorator.js';
 import { DEFAULT_MAX_BULK_ITEMS } from '../../types.js';
-import type { SqlApiPluginOptions } from '../../types.js';
 import type { SqlApiBulkDeleteParams } from '../../lib/sql-api.js';
 
 export default async function bulkDeleteRoutes(
   fastify: FastifyInstance,
-  options: SqlApiPluginOptions,
+  options: RegistrationOptions,
 ): Promise<void> {
   await registerForAllTables(fastify, options, {
     operation: 'bulkDelete',

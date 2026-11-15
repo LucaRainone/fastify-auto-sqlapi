@@ -1,11 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import {
-  createRegistrationSqlApi,
-  REGISTRATION_SQL_API,
-  type RegistrationOptions,
-} from '../sql-api-decorator.js';
-import { sanitizeRouteError, assertDbErrors } from '../../lib/errors.js';
-import { validateDbTables } from '../../lib/table-helpers.js';
+import { REGISTRATION_SQL_API, type RegistrationOptions } from '../sql-api-decorator.js';
+import { sanitizeRouteError } from '../../lib/errors.js';
 import type { SqlApi } from '../../lib/sql-api.js';
 import { isCompositePrimary } from '../../types.js';
 import type { TableConfig, SqlApiPluginOptions, DbTables, TableOperation } from '../../types.js';
@@ -84,9 +79,11 @@ export interface AutoRouteSpec {
 function isTableRoutable(
   tableName: string,
   tableConf: TableConfig,
-  spec: AutoRouteSpec
+  spec: AutoRouteSpec,
+  allowed: TableOperation[] | undefined
 ): boolean {
-  // operations acts as a whitelist; when omitted every operation is exposed.
+  // Both whitelists apply, the registration's and the table's; an omitted one allows all.
+  if (allowed && !allowed.includes(spec.operation)) return false;
   if (tableConf.operations && !tableConf.operations.includes(spec.operation)) return false;
   if (!spec.singlePkOnly || !isCompositePrimary(tableConf.primary)) return true;
 
@@ -130,25 +127,16 @@ function buildRouteSchema(
 
 export async function registerForAllTables(
   fastify: FastifyInstance,
-  options: SqlApiPluginOptions,
+  options: RegistrationOptions,
   spec: AutoRouteSpec,
 ): Promise<void> {
-  // The routes run through the SqlApi of the registration that declared them: the main
-  // plugin's when it registered this route plugin, otherwise one built from these options.
-  // A route plugin decorates nothing: it is encapsulated, so a decorator set here would be
-  // visible to its own routes only, which do not read it.
-  const getSqlApi = (options as RegistrationOptions)[REGISTRATION_SQL_API]
-    ?? createRegistrationSqlApi(fastify, options);
-
-  assertDbErrors(options.dbErrors);
-
+  // The routes run through the SqlApi of the registration that declared them, never through
+  // whatever `fastify.sqlApi` resolves to in their scope.
+  const getSqlApi = options[REGISTRATION_SQL_API];
   const { dbTables } = options;
-  // The decorator is lazy, so this is the first place the configuration is seen as a whole:
-  // a relation whose target is ambiguous must fail registration, not the first request.
-  validateDbTables(dbTables);
 
   for (const [tableName, tableConf] of Object.entries(dbTables)) {
-    if (!isTableRoutable(tableName, tableConf, spec)) continue;
+    if (!isTableRoutable(tableName, tableConf, spec, options.operations)) continue;
 
     const schemas = spec.schemas(dbTables, tableName, tableConf);
 

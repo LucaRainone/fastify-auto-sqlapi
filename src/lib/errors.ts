@@ -54,8 +54,7 @@ export interface RouteErrorPolicy {
  * its own: which ones deserve a status depends on the database, its version and the product
  * (ADR 0006).
  *
- * The original is attached as `cause`, so a consumer `setErrorHandler` reached by a route
- * plugin registered standalone can still apply its own policy.
+ * The original is attached as `cause`, and logged by the route under the same `reqId`.
  *
  * `requestId` is carried on the sanitized error and rendered in the response body: it is the
  * same value Fastify logs as `reqId` on every line, so the log entry holding the real error

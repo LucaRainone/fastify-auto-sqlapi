@@ -10,8 +10,9 @@ import Fastify from 'fastify';
 import path from 'node:path';
 import { ROOT, createMockSchema } from './_harness.js';
 
-const { fastifyAutoSqlApi, buildRelation, defineTable, createSqlApi, SearchTableBodyPost, Type } =
+const { fastifyAutoSqlApi, buildRelation, defineTable, createSqlApi, Type } =
   await import(path.join(ROOT, 'dist/index.js'));
+const { SearchTableBodyPost } = await import(path.join(ROOT, 'dist/lib/schema/search.js'));
 
 const SchemaConversation = createMockSchema('conversation', {
   id: Type.Integer(),

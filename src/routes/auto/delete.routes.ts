@@ -3,11 +3,11 @@ import { Type } from 'typebox';
 import { primaryAsString } from '../../types.js';
 import { pkParams, pkSchema } from '../../lib/schema/helpers.js';
 import { registerForAllTables } from './route-helpers.js';
-import type { SqlApiPluginOptions } from '../../types.js';
+import type { RegistrationOptions } from '../sql-api-decorator.js';
 
 export default async function deleteRoutes(
   fastify: FastifyInstance,
-  options: SqlApiPluginOptions,
+  options: RegistrationOptions,
 ): Promise<void> {
   await registerForAllTables(fastify, options, {
     operation: 'delete',

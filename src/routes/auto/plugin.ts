@@ -4,6 +4,7 @@ import fp from 'fastify-plugin';
 import { ConditionBuilder } from 'node-condition-builder';
 import { getDialect } from '../../lib/dialect.js';
 import { validateDbTables } from '../../lib/table-helpers.js';
+import { assertDbErrors } from '../../lib/errors.js';
 import {
   createRegistrationSqlApi,
   decorateSqlApi,
@@ -19,6 +20,7 @@ import deleteRoutes from './delete.routes.js';
 import bulkUpsertRoutes from './bulk-upsert.routes.js';
 import bulkDeleteRoutes from './bulk-delete.routes.js';
 import agentManifestRoutes from './agent-manifest.routes.js';
+import { TABLE_OPERATIONS } from '../../types.js';
 import type { SqlApiPluginOptions, ValidationField } from '../../types.js';
 
 type AjvValidationErrors = NonNullable<FastifyError['validation']>;
@@ -75,6 +77,19 @@ function normalizeAjvErrors(errors: AjvValidationErrors): ValidationField[] {
   });
 }
 
+/** Refuse an `operations` option the routes could not honour, at registration. */
+function assertPluginOperations(operations: unknown): void {
+  if (operations === undefined) return;
+  if (!Array.isArray(operations)) {
+    throw new TypeError(`the plugin option 'operations' is an array of: ${TABLE_OPERATIONS.join(', ')}`);
+  }
+  for (const op of operations) {
+    if (!TABLE_OPERATIONS.includes(op)) {
+      throw new TypeError(`the plugin option 'operations' names '${op}', which is not one of: ${TABLE_OPERATIONS.join(', ')}`);
+    }
+  }
+}
+
 export default fp(async function fastifyAutoSqlApi(
   fastify: FastifyInstance,
   options: SqlApiPluginOptions
@@ -84,6 +99,8 @@ export default fp(async function fastifyAutoSqlApi(
     throw new TypeError("the plugin option 'DbTables' is now 'dbTables' (camelCase, like every other option)");
   }
   validateDbTables(options.dbTables);
+  assertPluginOperations(options.operations);
+  assertDbErrors(options.dbErrors);
 
   // Set ConditionBuilder dialect globally
   const dialect = getDialect(options.dialect || 'postgres');

@@ -137,7 +137,7 @@ which is what makes this different from adding an ORM to a project that already 
   `fastify.mysql` off the instance — if your app already registers `@fastify/postgres`, there is
   nothing to wire.
 - **It stays inside its prefix.** `prefix: '/api/auto'` and your existing routes never meet it.
-  You can also register only the route plugins you want (`searchRoutes`, `getRoutes`, …), or
+  You can narrow a registration to some operations (`operations: ['search', 'get']`), or
   mount the same tables twice under different prefixes with different auth.
 - **Generated files go where you say** (`outputDir`), and the `Table*.ts` files are yours: the
   generator never overwrites one that exists, so re-running it only adds files for new tables.

@@ -69,14 +69,12 @@ app.addHook('onClose', () => pool.end());
 await app.register(fastifyAutoSqlApi, { dbTables, dialect: 'mysql' });
 
 // Several surfaces: register the plugin again under another prefix with `decorate: false` (app.sqlApi belongs to one registration; a second one without it fails at startup). Each registration's routes run with its own options.
-// Register only specific routes: each route plugin works standalone and decorates nothing; register the main plugin if your own routes need app.sqlApi.
-import { searchRoutes, getRoutes, insertRoutes, updateRoutes, deleteRoutes, bulkUpsertRoutes, bulkDeleteRoutes, agentManifestRoutes, setupSwagger } from 'fastify-auto-sqlapi';
-await app.register(async (instance) => {
-  await setupSwagger(instance, { swagger: true });
-  const opts = { dbTables: publicTables, dialect: 'postgres' };
-  await instance.register(searchRoutes, opts); // read-only: no insert/update/delete/bulk
-  await instance.register(getRoutes, opts);
-}, { prefix: '/public' });
+// `operations` narrows a registration: intersected with each table's own (a composite-PK table is skipped for get/delete/bulkDelete, not refused).
+await app.register(fastifyAutoSqlApi, {
+  dbTables: publicTables, prefix: '/public', decorate: false,
+  operations: ['search', 'get'], // read-only: no insert/update/delete/bulk
+  swagger: true,
+});
 ```
 
 `pg` returns `numeric`/`int8` as strings and shifts `date`/`timestamp` to local time. The plugin leaves `pg.types` alone (global state). If you want numbers and verbatim dates, set this at startup:
@@ -195,7 +193,7 @@ Nullable columns are generated as `Type.Optional(Nullable(T))`, i.e. `{ type: ['
 
 Write bodies are closed (`additionalProperties: false`), so a column that is not in the Schema can never be written (no mass assignment). With Fastify's default `removeAdditional: true`, unknown properties are stripped silently. `Fastify({ ajv: { customOptions: { removeAdditional: false } } })` makes them a 400.
 
-Every error the routes return has one envelope, `{statusCode, error, message, requestId, fields?}` (AGENTS_FRONTEND.md, "Errors"): `error` is the reason phrase, `requestId` the log's `reqId`, and every 400 carries `fields` as `ValidationField[]`. Errors the plugin raises itself are 4xx with client-safe messages. To answer in the same shape from a hook, throw `httpError(400, 'Order is closed', { code: 'closed', path: 'main.status' })` (exported); a thrown error with another `statusCode` is rendered as is, without `fields`. Anything else (a constraint violation, a hook throwing without `statusCode`) returns a fixed `{statusCode:500, error, message:"Internal Server Error", requestId}`: the driver error is logged and set as `err.cause`. The plugin maps no code of its own (ADR 0006); to answer one with a status, list its driver code in `dbErrors` with a status and a code of yours: the response keeps the envelope, with the reason phrase as `message`, `fields: [{ path: '', code }]` whatever the status, and no driver detail (ADR 0024). An application `setErrorHandler` never sees these errors: the routes' own handler answers first. `sqlApi.*` throws the driver error as is. Errors thrown by `onRequests` are unaffected.
+Every error the routes return has one envelope, `{statusCode, error, message, requestId, fields?}` (AGENTS_FRONTEND.md, "Errors"): `error` is the reason phrase, `requestId` the log's `reqId`, and every 400 carries `fields` as `ValidationField[]`. Errors the plugin raises itself are 4xx with client-safe messages. To answer in the same shape from a hook, throw `httpError(400, 'Order is closed', { code: 'closed', path: 'main.status' })` (exported); a thrown error with another `statusCode` is rendered as is, without `fields`. Anything else (a constraint violation, a hook throwing without `statusCode`) returns a fixed `{statusCode:500, error, message:"Internal Server Error", requestId}`: the driver error is logged under that `requestId`. The plugin maps no code of its own (ADR 0006); to answer one with a status, list its driver code in `dbErrors` with a status and a code of yours: the response keeps the envelope, with the reason phrase as `message`, `fields: [{ path: '', code }]` whatever the status, and no driver detail (ADR 0024). An application `setErrorHandler` never sees these errors: the routes' own handler answers first. `sqlApi.*` throws the driver error as is. Errors thrown by `onRequests` are unaffected.
 
 ## Relations
 
@@ -393,16 +391,15 @@ A view (materialized ones included) is an ordinary table config (ADR 0016).
 A read-only surface for LLM agents, with the plugin as the enforcement layer:
 
 ```ts
-await app.register(async (instance) => {
-  const opts = { dbTables, onRequests: [agentAuth] };
-  await instance.register(searchRoutes, opts);
-  await instance.register(getRoutes, opts);
-  await instance.register(agentManifestRoutes, opts); // GET /agent/manifest(.md)
-}, { prefix: '/agent' });
+await app.register(fastifyAutoSqlApi, {
+  dbTables, prefix: '/ai', decorate: false, onRequests: [agentAuth],
+  operations: ['search', 'get'],
+  agentManifest: true, // GET /ai/agent/manifest(.md), listing this registration's operations
+});
 ```
 
-- **System prompt**: AGENTS_FRONTEND.md (grammar, shipped in the package) + the output of `GET /agent/manifest.md` (this deployment's tables, fields and aliases).
-- **Tools**: either a loose generic tool, retrying on the structured 400 `fields[]`, or strict per-table tools from `agentToolSchemas(dbTables, table)`.
+- **System prompt**: AGENTS_FRONTEND.md (grammar, shipped in the package) + the output of `GET {prefix}/agent/manifest.md` (this registration's tables, fields and aliases).
+- **Tools**: either a loose generic tool, retrying on the structured 400 `fields[]`, or strict per-table tools from `agentToolSchemas(dbTables, table, { operations })` (pass the registration's `operations` and caps).
 
 ## Exports
 
@@ -410,7 +407,7 @@ Everything is imported from `fastify-auto-sqlapi`, so there is nothing else to i
 
 - `Type`, `Static`, `ConditionBuilder`, `Expression`, `Nullable`
 - `defineTable`, `buildRelation`
-- `fastifyAutoSqlApi`, `*Routes`, `agentManifestRoutes`, `setupSwagger`
+- `fastifyAutoSqlApi` (the one way to mount the routes)
 - `SqlApi`, `createSqlApi`, `QueryClient`, `createQueryClient`, `pgQueryable`, `mysqlQueryable`
 - `agentToolSchemas`
 - Types: `ValidationError`, `ValidatorFn`, `BulkValidatorFn`, `JoinDefinition`, `SearchCondition`, `ConditionMethod`, `DbTables`, `TableDefinition`

@@ -1,6 +1,6 @@
 import type { ApiRequest, ApiReply } from './request.js';
 import type { DialectName } from '../lib/dialect.js';
-import type { DbTables } from './table.js';
+import type { DbTables, TableOperation } from './table.js';
 import type { GetTenantId } from './tenant.js';
 
 export interface SwaggerOptions {
@@ -18,6 +18,16 @@ export interface DbErrorMapping {
 
 export interface SqlApiPluginOptions {
   dbTables: DbTables;
+  /**
+   * The operations this registration exposes, intersected with each table's own
+   * `operations`: a table registers a route only when both allow it. Omitted, every table
+   * exposes what its config allows. A read-only surface beside a full one is a second
+   * registration with `operations: ['search', 'get']`, its own `prefix` and `decorate: false`.
+   *
+   * Unlike a table's `operations`, naming a single-PK operation (`get`, `delete`,
+   * `bulkDelete`) here does not refuse a composite-PK table: the table is skipped for it.
+   */
+  operations?: TableOperation[];
   onRequests?: ((request: ApiRequest, reply: ApiReply) => Promise<void | ApiReply>)[];
   prefix?: string;
   swagger?: boolean | SwaggerOptions;
@@ -71,8 +81,7 @@ export interface SqlApiPluginOptions {
    *
    * Without it the response carries no database detail, and the original error is still
    * reachable: logged through `request.log.error` under the same `reqId` the body reports as
-   * `requestId`, and attached as the `cause` of the error a consumer `setErrorHandler`
-   * receives — which is where policy such as unique-violation → `409` belongs (ADR 0006).
+   * `requestId`. A status for a driver code (unique violation → `409`) is `dbErrors`.
    *
    * Nothing derives this: not `debug` (whoever registers the plugin decides that one, and
    * may wire it to an environment variable), not `NODE_ENV`. See ADR 0013.

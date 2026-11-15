@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
-import { fastifyAutoSqlApi, searchRoutes, toUnderscore, Type } from '../../dist/index.js';
+import { fastifyAutoSqlApi, toUnderscore, Type } from '../../dist/index.js';
 
 // `dbErrors`: the consumer maps the driver error codes it cares about to an HTTP status and a
 // code of its own, which the client translates. The mapping is partial by nature — codes
@@ -104,24 +104,6 @@ describe('dbErrors maps driver error codes to an HTTP status and a code', () => 
     assert.equal(res.statusCode, 409, res.body);
     assert.equal(res.json().message, 'Conflict');
     assert.equal(res.json().debugInfo.code, '23505');
-    await app.close();
-  });
-
-  it('a route plugin registered standalone hands the mapped error to the consumer handler', async () => {
-    let seen = null;
-    const app = await buildApp(createFailingPool('23505'), (app) => {
-      app.setErrorHandler((err, request, reply) => {
-        seen = err;
-        reply.status(err.statusCode).send({ message: err.message });
-      });
-      return app.register(searchRoutes, { dbTables, dbErrors: { '23505': { status: 409, code: 'duplicate' } } });
-    });
-
-    const res = await search(app);
-    assert.equal(res.statusCode, 409, res.body);
-    assert.equal(seen.statusCode, 409);
-    assert.deepEqual(seen.validationErrors.map((f) => f.code), ['duplicate']);
-    assert.equal(seen.cause.code, '23505', 'the original error is not reachable as cause');
     await app.close();
   });
 

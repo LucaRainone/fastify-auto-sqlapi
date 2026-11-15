@@ -1704,3 +1704,63 @@ Code passing both a QueryClient and `dialect` to `createSqlApi`.
 ## Migration
 
 - Drop the `dialect` option when the first argument is a QueryClient.
+
+# Breaking Change — the plugin is the one way to mount the routes
+
+## What changed
+
+```ts
+// before: route plugins assembled by hand
+import { searchRoutes, getRoutes, agentManifestRoutes, setupSwagger } from 'fastify-auto-sqlapi';
+await app.register(async (instance) => {
+  await setupSwagger(instance, { swagger: true });
+  const opts = { dbTables: publicTables };
+  await instance.register(searchRoutes, opts);
+  await instance.register(getRoutes, opts);
+  await instance.register(agentManifestRoutes, opts);
+}, { prefix: '/public' });
+
+// after: a second registration, narrowed
+await app.register(fastifyAutoSqlApi, {
+  dbTables: publicTables, prefix: '/public', decorate: false,
+  operations: ['search', 'get'],
+  swagger: true, agentManifest: true,
+});
+```
+
+- New plugin option `operations`, intersected with each table's own `operations`: a route is
+  registered only when both allow it. Omitted, nothing changes. A composite-PK table is
+  skipped for `get`/`delete`/`bulkDelete` named here, not refused (naming them on the table
+  itself still throws). Not an array, or an unknown operation, fails at register.
+- The agent manifest of a registration lists its intersected operations;
+  `agentToolSchemas(dbTables, table, { operations })` takes the same option.
+- No longer exported:
+  - the route plugins `searchRoutes`, `getRoutes`, `insertRoutes`, `updateRoutes`,
+    `deleteRoutes`, `bulkUpsertRoutes`, `bulkDeleteRoutes`, `agentManifestRoutes`, and
+    `setupSwagger`;
+  - the engines `searchEngine`, `getEngine`, `insertEngine`, `updateEngine`, `deleteEngine`,
+    `bulkUpsertEngine`, `bulkDeleteEngine` — `sqlApi.*` is the programmatic API;
+  - the schema builders `SearchTableBodyPost`, `SearchTableResponse`, `InsertTableBody`,
+    `InsertTableResponse`, `UpdateTableBody`, `UpdateTableResponse`, `BulkUpsertTableBody`,
+    `BulkUpsertTableResponse`, `BulkDeleteTableBody`, `BulkDeleteTableResponse` —
+    `agentToolSchemas` gives the request schemas of a table.
+- A consumer `setErrorHandler` never sees a route error: the plugin's own handler answers
+  first. The driver error behind a sanitized 500 is in the log, under the `requestId` the
+  response carries; a status for a driver code is `dbErrors`.
+
+## Who is affected
+
+Code that registers route plugins one by one, calls the engines directly, or builds the
+route schemas; a consumer `setErrorHandler` that relied on receiving the route errors of a
+route plugin registered alone.
+
+## Migration
+
+- Route plugins assembled by hand → one more `register(fastifyAutoSqlApi, { …, operations,
+  prefix, decorate: false })`; `setupSwagger` → `swagger: true`; `agentManifestRoutes` →
+  `agentManifest: true`.
+- `xxxEngine({ db, tableConf, … })` → `createSqlApi(db, dbTables).xxx(table, …)`.
+- `SearchTableBodyPost(dbTables, table)` and the other builders → `agentToolSchemas(dbTables,
+  table).search.body` (and `.insert`, `.update`, `.bulkUpsert`, `.bulkDelete`).
+- Error policy in a consumer `setErrorHandler` → `dbErrors` for driver codes; `httpError` from
+  a hook for your own.

@@ -53,6 +53,16 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **BREAKING: the plugin is the one way to mount the routes; `operations` narrows a
+  registration.** The plugin option `operations` is intersected with each table's own (a
+  composite-PK table is skipped for the single-PK operations, not refused); the agent
+  manifest of that registration lists the intersected operations, and `agentToolSchemas`
+  takes the same `operations`. No longer exported: the route plugins (`searchRoutes`,
+  `getRoutes`, `insertRoutes`, `updateRoutes`, `deleteRoutes`, `bulkUpsertRoutes`,
+  `bulkDeleteRoutes`, `agentManifestRoutes`), `setupSwagger`, the engines (`searchEngine`, …)
+  and the body/response schema builders (`SearchTableBodyPost`, `InsertTableBody`, …). A
+  read-only surface is a second registration with `operations`, `prefix` and `decorate: false`.
+  See BREAKING_CHANGES.md.
 - **BREAKING: `createSqlApi` has one source for its dialect.** A QueryClient carries its own,
   and a `dialect` option beside it throws a TypeError, even when it agrees; a raw pool takes
   the option, `postgres` when omitted as in the plugin. The global ConditionBuilder dialect

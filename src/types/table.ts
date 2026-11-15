@@ -25,6 +25,11 @@ export type TableOperation =
   | 'bulkUpsert'
   | 'bulkDelete';
 
+/** Every {@link TableOperation}, in route order. */
+export const TABLE_OPERATIONS: readonly TableOperation[] = [
+  'search', 'get', 'insert', 'update', 'delete', 'bulkUpsert', 'bulkDelete',
+];
+
 export type FilterRecord = Record<string, ConditionValueOrUndefined>;
 export type ExtendedConditionFn = (condition: ConditionBuilder, filters: FilterRecord) => void;
 

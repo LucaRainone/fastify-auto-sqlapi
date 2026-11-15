@@ -10,7 +10,7 @@ const ROOT = path.resolve(__dirname, '../..');
 const { SearchTableBodyPost } = await import(path.join(ROOT, 'dist/lib/schema/search.js'));
 const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
-const { searchRoutes, Type } = await import(path.join(ROOT, 'dist/index.js'));
+const { fastifyAutoSqlApi, Type } = await import(path.join(ROOT, 'dist/index.js'));
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 
@@ -152,7 +152,7 @@ function createMockPool() {
 async function buildApp(pool) {
   const app = Fastify();
   app.decorate('pg', pool);
-  await app.register(searchRoutes, { dbTables: createDbTables() });
+  await app.register(fastifyAutoSqlApi, { dbTables: createDbTables(), operations: ['search'] });
   await app.ready();
   return app;
 }

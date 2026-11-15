@@ -15,14 +15,14 @@ declare module 'fastify' {
 export type SqlApiGetter = () => SqlApi;
 
 /**
- * Route options key under which the main plugin hands its own SqlApi to the route plugins it
- * registers, so the eight of them share one instance. A symbol: it is not an option a
+ * Route options key under which the main plugin hands its own SqlApi to the internal route
+ * plugins it registers, so all of them share one instance. A symbol: it is not an option a
  * consumer can set, and it never collides with one.
  */
 export const REGISTRATION_SQL_API = Symbol('fastify-auto-sqlapi.registrationSqlApi');
 
 /** Route plugin options as the main plugin passes them: the consumer's, plus its SqlApi. */
-export type RegistrationOptions = SqlApiPluginOptions & { [REGISTRATION_SQL_API]?: SqlApiGetter };
+export type RegistrationOptions = SqlApiPluginOptions & { [REGISTRATION_SQL_API]: SqlApiGetter };
 
 /**
  * The SqlApi of ONE registration, built lazily from that registration's options: its

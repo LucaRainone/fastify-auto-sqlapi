@@ -9,8 +9,9 @@ import { createMockPg, createMockSchema, insertedRows, ROOT } from './_harness.j
 
 const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/insert.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
-const { Type, defineTable, buildRelation, InsertTableBody, buildAgentManifest } =
+const { Type, defineTable, buildRelation, buildAgentManifest } =
   await import(path.join(ROOT, 'dist/index.js'));
+const { InsertTableBody } = await import(path.join(ROOT, 'dist/lib/schema/insert.js'));
 
 const customerSchema = createMockSchema('customer', {
   id: Type.Number(),

@@ -2,11 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import { GetTableResponse } from '../../lib/schema/get.js';
 import { pkParams } from '../../lib/schema/helpers.js';
 import { registerForAllTables } from './route-helpers.js';
-import type { SqlApiPluginOptions } from '../../types.js';
+import type { RegistrationOptions } from '../sql-api-decorator.js';
 
 export default async function getRoutes(
   fastify: FastifyInstance,
-  options: SqlApiPluginOptions,
+  options: RegistrationOptions,
 ): Promise<void> {
   await registerForAllTables(fastify, options, {
     operation: 'get',

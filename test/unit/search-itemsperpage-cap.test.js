@@ -14,8 +14,8 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
-const { fastifyAutoSqlApi, SearchTableBodyPost, Type } =
-  await import(path.join(ROOT, 'dist/index.js'));
+const { fastifyAutoSqlApi, Type } = await import(path.join(ROOT, 'dist/index.js'));
+const { SearchTableBodyPost } = await import(path.join(ROOT, 'dist/lib/schema/search.js'));
 
 function testDbTables() {
   const fields = { id: Type.Number(), name: Type.String() };

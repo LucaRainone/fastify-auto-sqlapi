@@ -14,7 +14,7 @@ export default async function agentManifestRoutes(
   fastify: FastifyInstance,
   options: SqlApiPluginOptions,
 ): Promise<void> {
-  const manifest = buildAgentManifest(options.dbTables);
+  const manifest = buildAgentManifest(options.dbTables, { operations: options.operations });
   const markdown = renderAgentManifestMd(manifest);
   const onRequest = options.onRequests?.length ? options.onRequests : undefined;
 

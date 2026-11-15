@@ -1,12 +1,9 @@
 import type { TSchema } from 'typebox';
-import { isCompositePrimary } from '../../types.js';
+import { isCompositePrimary, TABLE_OPERATIONS } from '../../types.js';
 import type { DbTables, TableConfig, JoinDefinition, TableOperation } from '../../types.js';
 import { extraFilterFields } from '../read-access.js';
 import { writeExcludedFields, insertExcludedFields } from '../write-access.js';
 
-const ALL_OPERATIONS: TableOperation[] = [
-  'search', 'get', 'insert', 'update', 'delete', 'bulkUpsert', 'bulkDelete',
-];
 const SINGLE_PK_OPERATIONS = new Set<TableOperation>(['get', 'delete', 'bulkDelete']);
 
 interface ManifestField {
@@ -83,9 +80,14 @@ function computedTypes(tableConf: TableConfig): Record<string, string> | undefin
   return Object.keys(out).length ? out : undefined;
 }
 
-export function tableOperations(tableConf: TableConfig): TableOperation[] {
-  const requested = tableConf.operations ?? ALL_OPERATIONS;
-  if (!isCompositePrimary(tableConf.primary)) return [...requested];
+/**
+ * The operations a table exposes: its own `operations` (all when omitted), within `allowed`
+ * — the registration's `operations` — when given, minus the single-PK ones on a composite PK.
+ */
+export function tableOperations(tableConf: TableConfig, allowed?: readonly TableOperation[]): TableOperation[] {
+  const requested = (tableConf.operations ?? TABLE_OPERATIONS)
+    .filter((op) => !allowed || allowed.includes(op));
+  if (!isCompositePrimary(tableConf.primary)) return requested;
   return requested.filter((op) => !SINGLE_PK_OPERATIONS.has(op));
 }
 
@@ -123,11 +125,11 @@ function manifestExtraFilters(tableConf: TableConfig): Record<string, string> | 
 }
 
 /** One table's entry. Optional keys are omitted entirely when empty, to keep the prompt small. */
-function manifestTable(tableConf: TableConfig): ManifestTable {
+function manifestTable(tableConf: TableConfig, allowed: readonly TableOperation[] | undefined): ManifestTable {
   const entry: ManifestTable = {
     table: tableConf.schema.tableName,
     primary: tableConf.primary,
-    operations: tableOperations(tableConf),
+    operations: tableOperations(tableConf, allowed),
     fields: manifestFields(tableConf),
   };
 
@@ -153,12 +155,16 @@ function manifestTable(tableConf: TableConfig): ManifestTable {
  * fields (type/required/nullable), enabled operations, join aliases, computed fields,
  * extra filters, tenant scoping. Derived entirely from `dbTables`, so it is always in
  * sync with the running configuration. Pairs with AGENTS_FRONTEND.md (the request grammar)
- * to give an LLM client everything it needs to drive the API.
+ * to give an LLM client everything it needs to drive the API. `operations` is the
+ * registration's own, when it narrows what the tables expose.
  */
-export function buildAgentManifest(dbTables: DbTables): AgentManifest {
+export function buildAgentManifest(
+  dbTables: DbTables,
+  options: { operations?: readonly TableOperation[] } = {}
+): AgentManifest {
   const tables: Record<string, ManifestTable> = {};
   for (const [key, tableConf] of Object.entries(dbTables)) {
-    tables[key] = manifestTable(tableConf);
+    tables[key] = manifestTable(tableConf, options.operations);
   }
   return { tables };
 }

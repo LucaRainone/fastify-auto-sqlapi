@@ -5,7 +5,7 @@ import { BulkUpsertTableBody } from '../schema/bulk-upsert.js';
 import { BulkDeleteTableBody } from '../schema/bulk-delete.js';
 import { tableOperations } from './manifest.js';
 import { DEFAULT_MAX_ITEMS_PER_PAGE, DEFAULT_MAX_BULK_ITEMS } from '../../types.js';
-import type { DbTables } from '../../types.js';
+import type { DbTables, TableOperation } from '../../types.js';
 
 export interface AgentToolSchemas {
   /** POST /search/{table}: the whole request, `orderBy`/`paginator`/`compute` included. */
@@ -20,7 +20,8 @@ export interface AgentToolSchemas {
  * Ready-to-use JSON Schemas for exposing a table's operations as strict LLM tools —
  * the same TypeBox schemas the HTTP routes validate with (TypeBox objects ARE plain
  * JSON Schema). Only the operations actually enabled for the table are included
- * (`operations` whitelist, composite-PK rules). `get` and `delete` take a single PK
+ * (`operations` whitelist, composite-PK rules). `opts` mirrors the plugin options of the
+ * registration the tools call: its caps and its `operations`. `get` and `delete` take a single PK
  * path param and need no schema.
  *
  * Strict tools trade prompt size for provider-side validation; the lighter
@@ -30,14 +31,14 @@ export interface AgentToolSchemas {
 export function agentToolSchemas(
   dbTables: DbTables,
   tableName: string,
-  opts?: { maxItemsPerPage?: number; maxBulkItems?: number }
+  opts?: { maxItemsPerPage?: number; maxBulkItems?: number; operations?: TableOperation[] }
 ): AgentToolSchemas {
   const tableConf = dbTables[tableName];
   if (!tableConf) {
     throw new Error(`Unknown table "${tableName}". Available: ${Object.keys(dbTables).join(', ')}`);
   }
 
-  const ops = new Set(tableOperations(tableConf));
+  const ops = new Set(tableOperations(tableConf, opts?.operations));
   const out: AgentToolSchemas = {};
 
   if (ops.has('search')) {

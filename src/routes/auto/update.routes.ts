@@ -1,12 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { UpdateTableBody, UpdateTableResponse } from '../../lib/schema/update.js';
 import { registerForAllTables, buildWriteDescription } from './route-helpers.js';
-import type { SqlApiPluginOptions } from '../../types.js';
+import type { RegistrationOptions } from '../sql-api-decorator.js';
 import type { SqlApiUpdateParams } from '../../lib/sql-api.js';
 
 export default async function updateRoutes(
   fastify: FastifyInstance,
-  options: SqlApiPluginOptions,
+  options: RegistrationOptions,
 ): Promise<void> {
   await registerForAllTables(fastify, options, {
     operation: 'update',

@@ -1,11 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
-import { fastifyAutoSqlApi, searchRoutes, toUnderscore, Type } from '../../dist/index.js';
+import { fastifyAutoSqlApi, toUnderscore, Type } from '../../dist/index.js';
 
 // A driver error carries schema details — table, column and constraint names — in its
 // message. ADR 0013: those never reach the client, while the consumer keeps the original
-// error through the log and `err.cause`.
+// error through the log, under the request id the response carries.
 
 const CONSTRAINT_MESSAGE =
   'duplicate key value violates unique constraint "users_email_key"';
@@ -97,17 +97,6 @@ describe('database errors are sanitized before reaching the client', () => {
     await app.close();
   });
 
-  it('a driver error surfaces as a bare 500 (route plugin registered standalone)', async () => {
-    const app = await buildApp(createFailingPool(), (app) =>
-      app.register(searchRoutes, { dbTables })
-    );
-
-    const res = await app.inject({ method: 'POST', url: '/search/test_table', payload: {} });
-
-    assertNoLeak(res);
-    await app.close();
-  });
-
   it('4xx raised by the plugin keeps its message', async () => {
     const app = await buildApp(createMockPool(), (app) =>
       app.register(fastifyAutoSqlApi, { dbTables })
@@ -117,27 +106,6 @@ describe('database errors are sanitized before reaching the client', () => {
 
     assert.equal(res.statusCode, 404, `expected 404, got ${res.statusCode}: ${res.body}`);
     assert.equal(res.json().message, 'Record not found: 7');
-    await app.close();
-  });
-
-  it('the original error stays reachable through err.cause', async () => {
-    let seen = null;
-    const app = await buildApp(createFailingPool(), (app) => {
-      app.setErrorHandler((err, request, reply) => {
-        seen = err;
-        reply.status(500).send({ statusCode: 500, message: err.message });
-      });
-      return app.register(searchRoutes, { dbTables });
-    });
-
-    await app.inject({ method: 'POST', url: '/search/test_table', payload: {} });
-
-    assert.ok(seen, 'the consumer error handler never ran');
-    assert.equal(seen.message, 'Internal Server Error');
-    assert.ok(seen.cause, 'the original error was not attached as cause');
-    assert.equal(seen.cause.message, CONSTRAINT_MESSAGE);
-    assert.equal(seen.cause.code, '23505');
-    assert.ok(seen.requestId, 'the sanitized error carries no request id to correlate on');
     await app.close();
   });
 
