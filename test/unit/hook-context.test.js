@@ -47,7 +47,7 @@ describe('hook context — writes', () => {
   it('validate gets { db, req, main, secondaries }', async () => {
     let seen;
     const api = createSqlApi(okDb(), createDbTables({ validate: (ctx) => { seen = ctx; return []; } }));
-    await api.insert('customer', { record: { name: 'Mario' }, secondaries: { orders: [{ total: 5 }] } }, REQ);
+    await api.insert('customer', { main: { name: 'Mario' }, secondaries: { orders: [{ total: 5 }] } }, REQ);
     assertBase(seen, REQ);
     assert.deepEqual(seen.main, { name: 'Mario' });
     assert.deepEqual(seen.secondaries, { orders: [{ total: 5 }] });
@@ -57,7 +57,7 @@ describe('hook context — writes', () => {
     let seen;
     const db = okDb();
     const api = createSqlApi(db, createDbTables({ beforeInsert: (ctx) => { seen = ctx; ctx.record.name = 'Luigi'; } }));
-    await api.insert('customer', { record: { name: 'Mario' } }, REQ);
+    await api.insert('customer', { main: { name: 'Mario' } }, REQ);
     assertBase(seen, REQ);
     const insert = db.calls.find((c) => /^INSERT/.test(c.text));
     assert.ok(insert.values.includes('Luigi'), insert.text);
@@ -66,7 +66,7 @@ describe('hook context — writes', () => {
   it('afterInsert gets { db, req, record, secondaries }', async () => {
     let seen;
     const api = createSqlApi(okDb(), createDbTables({ afterInsert: (ctx) => { seen = ctx; } }));
-    await api.insert('customer', { record: { name: 'Mario' }, secondaries: { orders: [{ total: 5 }] } }, REQ);
+    await api.insert('customer', { main: { name: 'Mario' }, secondaries: { orders: [{ total: 5 }] } }, REQ);
     assertBase(seen, REQ);
     assert.equal(seen.record.name, 'Mario');
     assert.equal(seen.record.id, 1, 'the generated PK is merged in');
@@ -80,7 +80,7 @@ describe('hook context — writes', () => {
       afterUpdate: (ctx) => { seen.after = ctx; },
     }));
     await api.update('customer', {
-      record: { id: 1, name: 'Mario' },
+      main: { id: 1, name: 'Mario' },
       secondaries: { orders: [{ total: 5 }] },
       deletions: { orders: [{ id: 9 }] },
     }, REQ);
@@ -103,7 +103,7 @@ describe('hook context — writes', () => {
   it("a secondary's own beforeInsert gets the same shape", async () => {
     let seen;
     const api = createSqlApi(okDb(), createDbTables({}, { beforeInsert: (ctx) => { seen = ctx; } }));
-    await api.insert('customer', { record: { name: 'Mario' }, secondaries: { orders: [{ total: 5 }] } }, REQ);
+    await api.insert('customer', { main: { name: 'Mario' }, secondaries: { orders: [{ total: 5 }] } }, REQ);
     assertBase(seen, REQ);
     assert.equal(seen.record.total, 5);
   });
@@ -167,7 +167,7 @@ describe('hook context — req is undefined when sqlApi.* runs without a request
       beforeDelete: record,
       afterRead: record,
     }));
-    await api.insert('customer', { record: { name: 'Mario' } });
+    await api.insert('customer', { main: { name: 'Mario' } });
     await api.delete('customer', 1);
     await api.get('customer', 1);
     assert.equal(reqs.length, 5, 'validate, beforeInsert, afterInsert, beforeDelete, afterRead');

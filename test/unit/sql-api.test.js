@@ -157,7 +157,7 @@ describe('SqlApi.insert', () => {
     const { sqlApi } = createTestFixture(mockPg);
 
     const result = await sqlApi.insert('customer', {
-      record: { name: 'Mario', email: 'm@t.it' },
+      main: { name: 'Mario', email: 'm@t.it' },
     });
 
     assert.ok(result.main);
@@ -166,6 +166,49 @@ describe('SqlApi.insert', () => {
     assert.ok(sql.includes('INSERT'));
     assert.ok(sql.includes('customer'));
   });
+});
+
+describe('sqlApi writes take the HTTP body', () => {
+  it('insert takes the main row as `main`, as POST /rest/:table does', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 1 }], affectedRows: 1 },
+    ]);
+    const { sqlApi } = createTestFixture(mockPg);
+
+    const body = { main: { name: 'Mario', email: 'm@t.it' } };
+    const result = await sqlApi.insert('customer', body);
+
+    assert.equal(result.main.id, 1);
+    assert.match(mockPg.calls[0].text, /INSERT/);
+    assert.ok(mockPg.calls[0].values.includes('Mario'), 'the main row was not written');
+  });
+
+  it('update takes the main row as `main`, as PUT /rest/:table does', async () => {
+    const mockPg = createMockPg([
+      { rows: [], affectedRows: 1 },
+    ]);
+    const { sqlApi } = createTestFixture(mockPg);
+
+    const result = await sqlApi.update('customer', { main: { id: 1, email: 'new@t.it' } });
+
+    assert.equal(result.main.id, 1);
+    const update = mockPg.calls.find((c) => /UPDATE/.test(c.text));
+    assert.ok(update, 'no UPDATE was run');
+    assert.ok(update.values.includes('new@t.it'), 'the main row was not written');
+  });
+
+  for (const method of ['insert', 'update']) {
+    it(`${method} without \`main\` is refused, naming the key, before any SQL`, async () => {
+      const mockPg = createMockPg([]);
+      const { sqlApi } = createTestFixture(mockPg);
+
+      await assert.rejects(
+        () => sqlApi[method]('customer', { record: { id: 1, name: 'Mario' } }),
+        /`main`/
+      );
+      assert.equal(mockPg.calls.length, 0);
+    });
+  }
 });
 
 describe('SqlApi.delete', () => {

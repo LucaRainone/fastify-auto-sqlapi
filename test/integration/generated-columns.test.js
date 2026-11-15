@@ -237,7 +237,7 @@ describe(`[${DIALECT}] writes against real computed columns`, () => {
   it('drops a computed column sent through sqlApi, which skips the body schema', async () => {
     // The HTTP schema is not in the way here, so this is the engine's own strip.
     const result = await app.sqlApi.insert('computed_line', {
-      record: { payload: JSON.stringify({ status: 'via-api' }), qty: 2, price: 3, subtotal: 999 },
+      main: { payload: JSON.stringify({ status: 'via-api' }), qty: 2, price: 3, subtotal: 999 },
     });
 
     const read = await app.sqlApi.get('computed_line', result.main.id);

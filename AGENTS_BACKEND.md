@@ -297,7 +297,7 @@ All names in a scope are real columns. Naming a camelCase field whose column dif
 
 ## sqlApi (application code)
 
-Same code path and results as the HTTP routes (AGENTS_FRONTEND.md). Validation, hooks, computed fields and tenant scope all run. The parameters differ from the HTTP bodies in two places: `insert`/`update` take the main row as `record` (the body's `main`), and `bulkDelete` takes the ids themselves (the body's `[{ id }]`).
+Same code path and results as the HTTP routes (AGENTS_FRONTEND.md). Validation, hooks, computed fields and tenant scope all run. `insert`/`update` take the HTTP body as is. One difference left: `bulkDelete` takes the ids themselves (the body's `[{ id }]`).
 
 ```ts
 app.get('/billing/:customerId', async (request) =>
@@ -311,8 +311,8 @@ sqlApi.search(table, { filters, conditions, joinMustExist, joinMultiple, joinGro
 // select: main fields to project; the PK, the requested joins' keys and (with distinctResults) the ORDER BY fields are always added
 // compute: { sum: ['total'], max: ['total'] } → result.pagination.computed; needs paginator. computeMin/Max/Sum/Avg (one field each) are still accepted and merged into it
 sqlApi.get(table, id, req?)
-sqlApi.insert(table, { record, secondaries? }, req?)
-sqlApi.update(table, { record, secondaries?, deletions? }, req?)
+sqlApi.insert(table, { main, secondaries? }, req?) // the POST /rest body: app.sqlApi.insert('customer', req.body, req)
+sqlApi.update(table, { main, secondaries?, deletions? }, req?) // the PUT /rest body, PK in main
 sqlApi.delete(table, id, req?)
 sqlApi.bulkUpsert(table, items, req?) // each item writes only its own fields; items need not share keys
 sqlApi.bulkDelete(table, ids, req?)

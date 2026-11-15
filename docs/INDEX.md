@@ -192,10 +192,10 @@ Search before writing: `npm run find-similar -- "<what you need>"`.
 ### src/lib/sql-api.ts
 - `createSqlApi(dbOrPool: QueryClient | Queryable, dbTables: DbTables, options?: SqlApiOptio…` *function, public*
 - `SqlApi` *class, public*
-- `SqlApiInsertParams` *interface, public*
+- `SqlApiInsertParams` *interface, public* — The body of `POST /rest/:table`: the main row and the secondaries written with it.
 - `SqlApiOptions` *interface, public*
 - `SqlApiSearchParams` *interface, public*
-- `SqlApiUpdateParams` *interface, public*
+- `SqlApiUpdateParams` *interface, public* — The body of `PUT /rest/:table`: the main row (with its PK), secondaries and deletions.
 ### src/lib/table-helpers.ts
 - `buildRelation(mainSchema: SchemaDefinition<M>, mainField: string & keyof M | (string & ke…` *function, public*
 - `BuildRelationOptions` *interface*

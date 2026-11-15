@@ -55,6 +55,12 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **BREAKING: `sqlApi.insert` and `sqlApi.update` take the HTTP body.** The main row goes
+  under `main`, as in `POST`/`PUT /rest/:table`, instead of `record`: a custom route can hand
+  `req.body` over as is. A call still sending `record` is refused with a `TypeError` naming the
+  key, before any SQL; it would otherwise insert an empty row or miss the one to update. Hooks
+  keep `record`: they receive one row of their table, which may be a secondary of another
+  table's request. See BREAKING_CHANGES.md.
 - **BREAKING: `app.sqlApi` belongs to one registration.** A second registration of the plugin
   in the same scope, or one over a `sqlApi` the application decorated itself, fails at
   startup instead of leaving `app.sqlApi` to whichever registration came first. New option

@@ -60,15 +60,33 @@ export interface SqlApiSearchParams {
   maxRows?: number;
 }
 
+/** The body of `POST /rest/:table`: the main row and the secondaries written with it. */
 export interface SqlApiInsertParams {
-  record: Record<string, unknown>;
+  main: Record<string, unknown>;
   secondaries?: RowsByAlias;
 }
 
+/** The body of `PUT /rest/:table`: the main row (with its PK), secondaries and deletions. */
 export interface SqlApiUpdateParams {
-  record: Record<string, unknown>;
+  main: Record<string, unknown>;
   secondaries?: RowsByAlias;
   deletions?: RowsByAlias;
+}
+
+/**
+ * The main row of a write's params. A JavaScript caller can still send the pre-1.0 key
+ * `record`, which would otherwise write an empty row or miss the one to update: refused,
+ * naming the key, before any SQL.
+ */
+function mainOf(method: 'insert' | 'update', tableName: string, params: { main?: unknown }): Record<string, unknown> {
+  const main = params?.main;
+  if (main === null || typeof main !== 'object' || Array.isArray(main)) {
+    throw new TypeError(
+      `sqlApi.${method}('${tableName}'): the main row goes under \`main\`, as in the HTTP body` +
+      ('record' in (params ?? {}) ? ' (`record` was renamed `main`)' : '')
+    );
+  }
+  return main as Record<string, unknown>;
 }
 
 // ─── SqlApi class ───────────────────────────────────────────
@@ -162,7 +180,7 @@ export class SqlApi {
       tableConf,
       dbTables: this.dbTables,
       request,
-      record: params.record,
+      record: mainOf('insert', tableName, params),
       secondaries: params.secondaries,
       tenant,
     });
@@ -176,7 +194,7 @@ export class SqlApi {
       tableConf,
       dbTables: this.dbTables,
       request,
-      record: params.record,
+      record: mainOf('update', tableName, params),
       secondaries: params.secondaries,
       deletions: params.deletions,
       tenant,

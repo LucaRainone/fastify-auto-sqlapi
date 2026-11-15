@@ -1242,3 +1242,41 @@ their own `sqlApi` before registering it. A single registration is unaffected.
 await app.register(fastifyAutoSqlApi, { DbTables: dbTables, prefix: '/admin' }); // owns app.sqlApi
 await app.register(fastifyAutoSqlApi, { DbTables: publicTables, prefix: '/public', decorate: false });
 ```
+
+# Breaking Change — `sqlApi.insert` / `sqlApi.update` take `main`, as the HTTP body does
+
+*Landing in the release after 0.6.0.*
+
+## Why this changed
+
+The same row had two names: `main` in the body of `POST`/`PUT /rest/:table` and in `validate`,
+`record` in `sqlApi.insert`/`update`. Code written against the HTTP contract failed on the
+programmatic one, and a custom route could not forward a request body without rebuilding it.
+
+## What changed
+
+| | Before | After |
+|---|---|---|
+| `sqlApi.insert` | `{ record, secondaries? }` | `{ main, secondaries? }` |
+| `sqlApi.update` | `{ record, secondaries?, deletions? }` | `{ main, secondaries?, deletions? }` |
+
+A call still sending `record` (plain JavaScript, or a cast) throws a `TypeError` naming the key
+before any SQL runs. Hooks are unchanged: `beforeInsert`, `beforeUpdate`, `afterInsert` and
+`afterUpdate` still receive `record`, the one row of their table being written, which may be
+a secondary of another table's request.
+
+## Who is affected
+
+Application code calling `sqlApi.insert` or `sqlApi.update`. HTTP clients and hooks are not.
+
+## Migration
+
+```ts
+// before
+await app.sqlApi.insert('customer', { record: { name: 'Mario' } }, req);
+// after
+await app.sqlApi.insert('customer', { main: { name: 'Mario' } }, req);
+await app.sqlApi.insert('customer', req.body, req); // a body for POST /rest/customer, as is
+```
+
+Find the sites with `grep -rnE "sqlApi\.(insert|update)\(" src/`; TypeScript reports each one.

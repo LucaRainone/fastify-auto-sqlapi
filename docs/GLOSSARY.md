@@ -14,6 +14,8 @@ existing concept makes search fail and the concept get built twice.
 | `joinMultiple` | Child→main 1:N side query; child rows land in `result.joinMultiple.<alias>`. |
 | `joinGroup` | Child→main 1:N aggregations in `result.joinGroup.<alias>`. |
 | `joinLeft` | Parent→main N:1 real LEFT JOIN; needs `unique: true` on the relation. |
+| Main | The principal row of a write request: `main` in the HTTP body, in `sqlApi.insert`/`update` and in `validate`. (not: record, in a request) |
+| Record | One row a hook is writing: `record` in `beforeInsert`/`beforeUpdate`/`afterInsert`/`afterUpdate`. A main row or a secondary of another table alike. (not: main, in a hook) |
 | Secondaries | Child rows written in the same request as the main row. (not: nested, children) |
 | Deletions | Child rows removed in the same request as the main row update. |
 | Computed field | Server-side derived value resolved during search. (not: virtual, derived) |

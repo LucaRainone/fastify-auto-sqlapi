@@ -130,7 +130,7 @@ describe('tenant scoping when the addressed table declares no scope of its own',
 
     await assert.rejects(
       () => api.insert('shift', {
-        record: { day: '2026-09-01' },
+        main: { day: '2026-09-01' },
         secondaries: { swap: [{ agentId: 999 }] },
       }, {}),
       (err) => err.statusCode === 403,
