@@ -1,6 +1,7 @@
 # 0003. Bulk operations are not transactional
 
-- **Status**: accepted
+- **Status**: accepted; the context's "degrading gracefully" sentence superseded by
+  [0023](./0023-a-write-runs-in-a-transaction-or-not-at-all.md)
 - **Date**: 2026-07-23 (confirmed by the maintainer in June 2026)
 
 ## Context

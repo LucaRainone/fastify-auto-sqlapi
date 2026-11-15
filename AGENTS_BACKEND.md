@@ -297,7 +297,7 @@ All names in a scope are real columns. Naming a camelCase field whose column dif
 
 ## sqlApi (application code)
 
-Same code path, bodies and results as the HTTP routes (AGENTS_FRONTEND.md). Validation, hooks, computed fields and tenant scope all run.
+Same code path and results as the HTTP routes (AGENTS_FRONTEND.md). Validation, hooks, computed fields and tenant scope all run. The parameters differ from the HTTP bodies in two places: `insert`/`update` take the main row as `record` (the body's `main`), and `bulkDelete` takes the ids themselves (the body's `[{ id }]`).
 
 ```ts
 app.get('/billing/:customerId', async (request) =>

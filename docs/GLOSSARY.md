@@ -26,7 +26,7 @@ existing concept makes search fail and the concept get built twice.
 | Anchor | The owner column an `anyOf` write names to tie a new row to the caller. |
 | Engine | Dialect-agnostic function performing one operation. (not: service, handler) |
 | Route | Fastify plugin exposing an engine over HTTP. (not: controller) |
-| Dialect | Per-DB SQL differences (`postgres` \| `mysql`). |
+| Dialect | Per-DB SQL differences (`postgres` \| `mysql` \| `mariadb`). |
 | QueryClient | Connection wrapper the engines run SQL through. (not: db, connection) |
 | Paginator | Request object carrying page and items-per-page. (not: pagination, pager) |
 | Manifest | Runtime description of a deployment's tables, for agent clients. |
