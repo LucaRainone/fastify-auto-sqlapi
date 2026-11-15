@@ -479,7 +479,7 @@ describe('insertEngine - secondaries', () => {
 });
 
 describe('insertEngine - upsert', () => {
-  it('uses insertOrUpdate for main when the table has an upsertKey', async () => {
+  it('uses upsert for main when the table has an upsertKey', async () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
@@ -498,7 +498,7 @@ describe('insertEngine - upsert', () => {
     assert.ok(mockPg.calls[0].text.includes('ON CONFLICT'));
   });
 
-  it('uses bulkInsertOrUpdate for secondaries when the write relation has an upsertKey', async () => {
+  it('uses bulkUpsert for secondaries when the write relation has an upsertKey', async () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }], affectedRows: 1 },
       { rows: [{ id: 10 }], affectedRows: 1 },

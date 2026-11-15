@@ -1804,3 +1804,42 @@ Every `validate` / `validateBulk`, and code importing `ValidationError`.
 - `[path, code]` → `{ path, code }`.
 - `[path, code, message]` → `{ path, code }`: move the text to the client, keyed by the code.
 - `ValidationError[]` → `Pick<ValidationField, 'path' | 'code'>[]`.
+
+# Breaking Change — QueryClient `upsert` / `bulkUpsert`, and `sqlApi` table names
+
+## What changed
+
+```ts
+// before
+db.insertOrUpdate(table, record, keys, pk)                       // → pk
+db.insertOrUpdateWithAction(table, record, keys, pk)             // → { pk, action }
+db.bulkInsertOrUpdate(table, records, keys, pk, 500, ['org_id']) // → pk[]
+db.bulkInsertOrUpdateWithAction(table, records, keys, pk)        // → { pk, action }[]
+
+// after
+db.upsert(table, record, keys, pk)                                                    // → { pk, action }
+db.bulkUpsert(table, records, keys, pk, { chunkSize: 500, immutableCols: ['org_id'] }) // → { pk, action }[]
+```
+
+- One method per operation, named as the route is, answering what it did to each row.
+- `bulkUpsert` takes its options as an object. A positional chunk size or immutable column
+  list throws a TypeError: dropped in silence, an immutable column would be written on update.
+- `DbRecordValue` accepts `Date`. A JSON object is still not a value: the drivers do not
+  serialize it as JSON (pg sends an array as a Postgres array, mysql2 expands an object into
+  `key = value` pairs), so `JSON.stringify` it.
+- `sqlApi.<method>('<table>')` with a table that is not a key of `dbTables` throws a plain
+  Error naming the known tables: a programming error, no longer a 400 `unknown_table`.
+  `createSqlApi` infers the table names from the `dbTables` it is given, so a misspelled one
+  fails at compile time. `app.sqlApi` takes any string, as before.
+
+## Who is affected
+
+Hooks and scripts calling the QueryClient upsert methods; code catching the 400
+`unknown_table` from `sqlApi`.
+
+## Migration
+
+- `insertOrUpdate(…)` → `(await upsert(…)).pk`; `insertOrUpdateWithAction` → `upsert`.
+- `bulkInsertOrUpdate(…, n, cols)` → `(await bulkUpsert(…, { chunkSize: n, immutableCols: cols })).map((r) => r.pk)`;
+  `bulkInsertOrUpdateWithAction` → `bulkUpsert`.
+- An unknown table name is a bug to fix at the call site, not an error to handle.

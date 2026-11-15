@@ -40,8 +40,8 @@ async function upsertMains(
   // Tenant isolation: a conflicting upsert must not overwrite rows owned by another tenant, nor
   // re-assign the owner of a row it legitimately updates.
   await assertTenantOwnsConflicts(db, tenant, schema.tableName, conflictCols, preparedMains);
-  return db.bulkInsertOrUpdateWithAction(
-    schema.tableName, preparedMains, conflictCols, pkCol, undefined, tenantImmutableColumns(tenant)
+  return db.bulkUpsert(
+    schema.tableName, preparedMains, conflictCols, pkCol, { immutableCols: tenantImmutableColumns(tenant) }
   );
 }
 

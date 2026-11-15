@@ -39,7 +39,7 @@ export async function insertEngine(params: InsertParams): Promise<InsertResult> 
       assertUpsertKeys(schema, conflictCols, [pkCol].flat(), [mainRecord]);
       // Tenant isolation: a conflicting upsert must not overwrite a row owned by another tenant.
       await assertTenantOwnsConflicts(tx, tenant, schema.tableName, conflictCols, [mainRecord]);
-      written = await tx.insertOrUpdateWithAction(
+      written = await tx.upsert(
         schema.tableName,
         mainRecord as DbRecord,
         conflictCols,

@@ -314,6 +314,7 @@ sqlApi.update(table, { main, secondaries?, deletions? }, req?) // the PUT /rest 
 sqlApi.delete(table, id, req?)
 sqlApi.bulkUpsert(table, items, req?) // each item writes only its own fields; items need not share keys
 sqlApi.bulkDelete(table, { ids }, req?) // the POST /bulk/:table/delete body
+// table: a key of dbTables. createSqlApi infers them, so a typo fails at compile time; at runtime an unknown name throws (a programming error, not a 400)
 
 // Standalone (jobs, scripts, tests). One source for the dialect:
 const sqlApi = createSqlApi(mysqlQueryable(pool), dbTables, { dialect: 'mysql' }); // raw pool: the option, postgres when omitted
@@ -328,11 +329,9 @@ Limits: the engine enforces at most 100 `conditions` per section, 20 `orderBy` p
 
 ```ts
 db.insert(table, record, pkCol) // → PK row
-db.insertOrUpdate(table, record, conflictKeys, pkCol) // → PK row
-db.insertOrUpdateWithAction(table, record, conflictKeys, pkCol) // → { pk, action: 'inserted' | 'updated' }
+db.upsert(table, record, conflictKeys, pkCol) // → { pk, action: 'inserted' | 'updated' }
 db.bulkInsert(table, records, pkCol, chunkSize?) // → PK rows in input order
-db.bulkInsertOrUpdate(table, records, conflictKeys, pkCol, chunkSize?) // → PK rows in input order
-db.bulkInsertOrUpdateWithAction(table, records, conflictKeys, pkCol, chunkSize?) // → [{ pk, action }] in input order
+db.bulkUpsert(table, records, conflictKeys, pkCol, { chunkSize?, immutableCols? }?) // → [{ pk, action }] in input order. immutableCols: written on insert, never on update
 db.update(table, record, where, extraCondition?) // → affected rows (number)
 db.delete(table, where) // → affected rows
 db.select({ tableName, columns?, where, values, limit?, orderBy?, joins?, distinct? })
@@ -342,6 +341,7 @@ db.qi(name); db.dialectName; db.cbDialect // quoting, dialect, ConditionBuilder 
 ```
 
 - `pkCol` is a string or an array. Bulk methods issue one statement per distinct column set.
+- Values: string, number, boolean, null, `Date` (bound as a timestamp), `db.expression(...)`. `JSON.stringify` a JSON value first: the drivers do not serialize objects as JSON.
 - `conflictKeys` must be a unique key enforced by the DB. PG uses `ON CONFLICT (keys)`. MySQL/MariaDB upsert by key (a probe SELECT per chunk, then INSERT new and UPDATE existing), because `ON DUPLICATE KEY` fires on any unique index. A key matching several rows is refused.
 - `action` comes from the statement on PG (`(xmax = 0)` in RETURNING; on `DO NOTHING`, the rows RETURNING names are the inserted ones) and from the probe on MySQL/MariaDB. No extra statement either way.
 - Called directly, none of the `defineTable` checks apply.

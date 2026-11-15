@@ -27,10 +27,10 @@ function mysqlTable(existing, { insertId = 100, updateMatches } = {}) {
   });
 }
 
-function upsert(mock, records, opts = {}) {
-  return createQueryClient(mock, opts.dialect ?? 'mysql').bulkInsertOrUpdate(
-    'tag', records, ['code'], 'id', undefined, opts.immutable ?? []
-  );
+async function upsert(mock, records, opts = {}) {
+  return (await createQueryClient(mock, opts.dialect ?? 'mysql').bulkUpsert(
+    'tag', records, ['code'], 'id', { immutableCols: opts.immutable ?? [] }
+  )).map((r) => r.pk);
 }
 
 describe('mysql upsert by key', () => {
@@ -98,8 +98,8 @@ describe('mysql upsert by key', () => {
   it('does not probe records that lack the key: they can only be inserted', async () => {
     const mock = mysqlTable({});
 
-    const result = await createQueryClient(mock, 'mysql')
-      .bulkInsertOrUpdate('tag', [{ label: 'A' }, { label: 'B' }], ['id'], 'id');
+    const result = (await createQueryClient(mock, 'mysql')
+      .bulkUpsert('tag', [{ label: 'A' }, { label: 'B' }], ['id'], 'id')).map((r) => r.pk);
 
     assert.deepEqual(result, [{ id: 100 }, { id: 101 }]);
     assert.deepEqual(mock.calls.map((c) => c.text.split(' ')[0]), ['INSERT']);
@@ -140,7 +140,7 @@ describe('postgres upsert keeps ON CONFLICT (key)', () => {
   it('runs one statement per chunk, targeting exactly the key', async () => {
     const mock = createMockPg((call) => ({ rows: insertedRows(call).map((_, i) => ({ id: i + 1 })), affectedRows: 2 }));
 
-    await new QueryClient(mock).bulkInsertOrUpdate(
+    await new QueryClient(mock).bulkUpsert(
       'tag', [{ code: 'a', label: 'A' }, { code: 'b', label: 'B' }], ['code'], 'id'
     );
 

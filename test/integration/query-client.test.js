@@ -50,6 +50,22 @@ describe(`[${DIALECT}] QueryClient: single operations`, () => {
     assert.equal(row.name, undefined);
   });
 
+  it('a Date value is bound as a timestamp, by insert and by upsert', async () => {
+    // Whole seconds: MySQL TIMESTAMP stores no fraction.
+    const at = new Date('2026-03-04T05:06:07Z');
+    const later = new Date('2026-03-05T05:06:07Z');
+    const readBack = async (id) => (await db.query(
+      `SELECT ${db.qi('updated_at')} AS at FROM ${db.qi('customer')} WHERE ${db.qi('id')} = ${db.ph(1)}`, [id]
+    )).rows[0].at;
+
+    const ins = await db.insert('customer', { name: 'Dated', email: 'dated@t.it', updated_at: at }, 'id');
+    assert.equal(new Date(await readBack(ins.id)).getTime(), at.getTime());
+
+    const ups = await db.upsert('customer', { id: ins.id, name: 'Dated', updated_at: later }, ['id'], 'id');
+    assert.equal(ups.action, 'updated');
+    assert.equal(new Date(await readBack(ins.id)).getTime(), later.getTime());
+  });
+
   it('update returns affected rows count', async () => {
     const ins = await db.insert('customer', { name: 'A', email: 'a@t.it' }, 'id');
     const affectedRows = await db.update('customer', { name: 'B' }, { id: ins.id });
@@ -59,19 +75,19 @@ describe(`[${DIALECT}] QueryClient: single operations`, () => {
     assert.equal(check.rows[0].name, 'B');
   });
 
-  it('insertOrUpdate uses upsert path', async () => {
+  it('upsert takes the upsert path', async () => {
     const ins = await db.insert('product', {
       name: 'Widget',
       price: 10,
       is_available: true,
     }, 'id');
 
-    const ups = await db.insertOrUpdate(
+    const ups = (await db.upsert(
       'product',
       { id: ins.id, name: 'Widget Pro', price: 25, is_available: true },
       ['id'],
       'id'
-    );
+    )).pk;
     assert.equal(ups.id, ins.id);
 
     const check = await db.query(
@@ -179,13 +195,13 @@ describe(`[${DIALECT}] QueryClient: bulk operations`, () => {
     assert.equal(rows.length, 5);
   });
 
-  it('bulkInsertOrUpdate updates existing rows', async () => {
+  it('bulkUpsert updates existing rows', async () => {
     const inserted = await db.bulkInsert('product', [
       { name: 'Upsert1', price: 10, is_available: true },
       { name: 'Upsert2', price: 20, is_available: true },
     ], 'id');
 
-    const upserted = await db.bulkInsertOrUpdate(
+    const upserted = (await db.bulkUpsert(
       'product',
       [
         { id: inserted[0].id, name: 'Upsert1 Updated', price: 99, is_available: true },
@@ -193,7 +209,7 @@ describe(`[${DIALECT}] QueryClient: bulk operations`, () => {
       ],
       ['id'],
       'id'
-    );
+    )).map((r) => r.pk);
 
     assert.equal(upserted.length, 2);
     assert.equal(upserted[0].id, inserted[0].id);

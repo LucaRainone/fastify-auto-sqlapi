@@ -110,12 +110,12 @@ describe('QueryClient.bulkInsert - records with different fields', () => {
   });
 });
 
-describe('QueryClient.bulkInsertOrUpdate - records with different fields', () => {
+describe('QueryClient.bulkUpsert - records with different fields', () => {
   it('writes a field present only on a later record', async () => {
     const mock = namesAsIds();
     const records = [{ id: 1, name: 'A' }, { id: 2, name: 'B', price: 20 }];
 
-    await new QueryClient(mock).bulkInsertOrUpdate('product', records, ['id'], 'id');
+    await new QueryClient(mock).bulkUpsert('product', records, ['id'], 'id');
 
     assertEachRecordWritesOwnFields(mock.calls, records);
   });
@@ -124,7 +124,7 @@ describe('QueryClient.bulkInsertOrUpdate - records with different fields', () =>
     const mock = namesAsIds();
     const records = [{ id: 1, name: 'A', price: 10 }, { id: 2, name: 'B' }];
 
-    await new QueryClient(mock).bulkInsertOrUpdate('product', records, ['id'], 'id');
+    await new QueryClient(mock).bulkUpsert('product', records, ['id'], 'id');
 
     assertEachRecordWritesOwnFields(mock.calls, records);
     const statementForB = mock.calls.find((c) => insertedRows(c).some((r) => r.id === 2));
@@ -139,7 +139,7 @@ describe('QueryClient.bulkInsertOrUpdate - records with different fields', () =>
       { id: 3, name: 'c', price: 3 },
     ];
 
-    const result = await new QueryClient(mock).bulkInsertOrUpdate('product', records, ['id'], 'id');
+    const result = (await new QueryClient(mock).bulkUpsert('product', records, ['id'], 'id')).map((r) => r.pk);
 
     assert.deepEqual(result.map((r) => r.id), ['a', 'b', 'c']);
   });
@@ -151,8 +151,8 @@ describe('QueryClient.bulkInsertOrUpdate - records with different fields', () =>
       { id: 2, name: 'b', email: 'b@test.it', organization_id: 7 },
     ];
 
-    await new QueryClient(mock).bulkInsertOrUpdate(
-      'customer', records, ['id'], 'id', undefined, ['organization_id']
+    await new QueryClient(mock).bulkUpsert(
+      'customer', records, ['id'], 'id', { immutableCols: ['organization_id'] }
     );
 
     assert.equal(mock.calls.length, 2);
@@ -181,7 +181,7 @@ describe('QueryClient upsert - records holding only the conflict keys', () => {
     const mock = doNothingSkipsExisting();
     const records = [{ id: 1, name: 'a' }, { id: 2 }, { id: 3, name: 'c' }];
 
-    const result = await new QueryClient(mock).bulkInsertOrUpdate('product', records, ['id'], 'id');
+    const result = (await new QueryClient(mock).bulkUpsert('product', records, ['id'], 'id')).map((r) => r.pk);
 
     assert.deepEqual(result, [{ id: 1 }, { id: 2 }, { id: 3 }]);
   });
@@ -191,7 +191,7 @@ describe('QueryClient upsert - records holding only the conflict keys', () => {
     const mock = doNothingSkipsExisting((call) => answerPkLookup(call, (k) => ({ id: ids[k.code] })));
     const records = [{ code: 'x-code' }, { code: 'y-code' }];
 
-    const result = await new QueryClient(mock).bulkInsertOrUpdate('tag', records, ['code'], 'id');
+    const result = (await new QueryClient(mock).bulkUpsert('tag', records, ['code'], 'id')).map((r) => r.pk);
 
     assert.deepEqual(result, [{ id: 42 }, { id: 43 }]);
     const lookups = mock.calls.filter((c) => c.text.startsWith('SELECT'));
@@ -204,9 +204,9 @@ describe('QueryClient upsert - records holding only the conflict keys', () => {
     const mock = doNothingSkipsExisting((call) => answerPkLookup(call, (k) =>
       (k.code === 'k' && k.lang === 'it' ? { a_id: 1, b_id: 2 } : undefined)));
 
-    const result = await new QueryClient(mock).bulkInsertOrUpdate(
+    const result = (await new QueryClient(mock).bulkUpsert(
       'link', [{ code: 'k', lang: 'it' }], ['code', 'lang'], ['a_id', 'b_id']
-    );
+    )).map((r) => r.pk);
 
     assert.deepEqual(result, [{ a_id: 1, b_id: 2 }]);
     const lookup = mock.calls.find((c) => c.text.startsWith('SELECT'));
@@ -217,17 +217,17 @@ describe('QueryClient upsert - records holding only the conflict keys', () => {
   it('treats a record holding only conflict keys and immutable columns as untouched', async () => {
     const mock = doNothingSkipsExisting();
 
-    const result = await new QueryClient(mock).bulkInsertOrUpdate(
-      'customer', [{ id: 7, organization_id: 3 }], ['id'], 'id', undefined, ['organization_id']
-    );
+    const result = (await new QueryClient(mock).bulkUpsert(
+      'customer', [{ id: 7, organization_id: 3 }], ['id'], 'id', { immutableCols: ['organization_id'] }
+    )).map((r) => r.pk);
 
     assert.deepEqual(result, [{ id: 7 }]);
   });
 
-  it('single insertOrUpdate returns the PK of an untouched row', async () => {
+  it('single upsert returns the PK of an untouched row', async () => {
     const mock = doNothingSkipsExisting();
 
-    const result = await new QueryClient(mock).insertOrUpdate('product', { id: 5 }, ['id'], 'id');
+    const result = (await new QueryClient(mock).upsert('product', { id: 5 }, ['id'], 'id')).pk;
 
     assert.deepEqual(result, { id: 5 });
   });
@@ -237,8 +237,8 @@ describe('QueryClient upsert - records holding only the conflict keys', () => {
       ? answerPkLookup(call, () => ({ id: 42 }))
       : { rows: [], affectedRows: 0, insertId: 0 }));
 
-    const result = await createQueryClient(mock, 'mysql')
-      .bulkInsertOrUpdate('tag', [{ code: 'x-code' }], ['code'], 'id');
+    const result = (await createQueryClient(mock, 'mysql')
+      .bulkUpsert('tag', [{ code: 'x-code' }], ['code'], 'id')).map((r) => r.pk);
 
     assert.deepEqual(result, [{ id: 42 }]);
   });
@@ -263,21 +263,21 @@ describe('QueryClient upsert on mysql - conflict key that is not the PK', () => 
     });
     const records = [{ code: 'new', label: 'New' }, { code: 'old', label: 'Renamed' }];
 
-    const result = await createQueryClient(mock, 'mysql')
-      .bulkInsertOrUpdate('tag', records, ['code'], 'id');
+    const result = (await createQueryClient(mock, 'mysql')
+      .bulkUpsert('tag', records, ['code'], 'id')).map((r) => r.pk);
 
     assert.deepEqual(result, [{ id: 14 }, { id: 13 }]);
   });
 
-  it('single insertOrUpdate looks up the PK of a row updated through the conflict key', async () => {
+  it('single upsert looks up the PK of a row updated through the conflict key', async () => {
     const mock = createMockPg((call) => {
       if (call.text.startsWith('SELECT')) return answerPkLookup(call, () => ({ id: 13 }));
       if (call.text.startsWith('UPDATE')) return updateMatchesAll(call);
       return { rows: [], affectedRows: 2, insertId: 99 };
     });
 
-    const result = await createQueryClient(mock, 'mysql')
-      .insertOrUpdate('tag', { code: 'old', label: 'Renamed' }, ['code'], 'id');
+    const result = (await createQueryClient(mock, 'mysql')
+      .upsert('tag', { code: 'old', label: 'Renamed' }, ['code'], 'id')).pk;
 
     assert.deepEqual(result, { id: 13 });
   });
@@ -289,8 +289,8 @@ describe('QueryClient upsert on mysql - conflict key that is not the PK', () => 
       : { rows: [], affectedRows: 1, insertId: 0 }));
     const record = { id: 5, code: 'x', label: 'X' };
 
-    const result = await createQueryClient(mock, 'mysql')
-      .bulkInsertOrUpdate('tag', [record], ['code'], 'id');
+    const result = (await createQueryClient(mock, 'mysql')
+      .bulkUpsert('tag', [record], ['code'], 'id')).map((r) => r.pk);
 
     assert.deepEqual(result, [{ id: 5 }]);
     assert.deepEqual(mock.calls.filter((c) => c.text.startsWith('INSERT')).flatMap(insertedRows), [record]);
@@ -300,7 +300,7 @@ describe('QueryClient upsert on mysql - conflict key that is not the PK', () => 
     const mock = createMockPg(() => ({ rows: [{ id: 14 }, { id: 13 }], affectedRows: 2 }));
     const records = [{ code: 'new', label: 'New' }, { code: 'old', label: 'Renamed' }];
 
-    const result = await new QueryClient(mock).bulkInsertOrUpdate('tag', records, ['code'], 'id');
+    const result = (await new QueryClient(mock).bulkUpsert('tag', records, ['code'], 'id')).map((r) => r.pk);
 
     assert.deepEqual(result, [{ id: 14 }, { id: 13 }]);
     assert.equal(mock.calls.length, 1);
@@ -313,8 +313,8 @@ describe('QueryClient upsert - records without the conflict keys', () => {
   it('mysql: takes the PKs of plain inserts from insertId', async () => {
     const mock = createMockPg(() => ({ rows: [], affectedRows: 2, insertId: 30 }));
 
-    const result = await createQueryClient(mock, 'mysql')
-      .bulkInsertOrUpdate('tag', [{ label: 'a' }, { label: 'b' }], ['id'], 'id');
+    const result = (await createQueryClient(mock, 'mysql')
+      .bulkUpsert('tag', [{ label: 'a' }, { label: 'b' }], ['id'], 'id')).map((r) => r.pk);
 
     assert.deepEqual(result, [{ id: 30 }, { id: 31 }]);
     assert.equal(mock.calls.length, 1);
@@ -323,9 +323,9 @@ describe('QueryClient upsert - records without the conflict keys', () => {
   it('postgres: takes the PKs from RETURNING even when nothing would be updated', async () => {
     const mock = createMockPg(() => ({ rows: [{ id: 30 }], affectedRows: 1 }));
 
-    const result = await new QueryClient(mock).bulkInsertOrUpdate(
-      'customer', [{ organization_id: 3 }], ['id'], 'id', undefined, ['organization_id']
-    );
+    const result = (await new QueryClient(mock).bulkUpsert(
+      'customer', [{ organization_id: 3 }], ['id'], 'id', { immutableCols: ['organization_id'] }
+    )).map((r) => r.pk);
 
     assert.deepEqual(result, [{ id: 30 }]);
     assert.equal(mock.calls.length, 1);
@@ -349,8 +349,8 @@ describe('QueryClient upsert - PK lookup', () => {
   it('looks up every record of a chunk in one statement', async () => {
     const mock = mysqlWithLookup((k) => ({ id: ids[k.code] }));
 
-    const result = await createQueryClient(mock, 'mysql')
-      .bulkInsertOrUpdate('tag', records, ['code'], 'id', 2);
+    const result = (await createQueryClient(mock, 'mysql')
+      .bulkUpsert('tag', records, ['code'], 'id', { chunkSize: 2 })).map((r) => r.pk);
 
     assert.deepEqual(result, [{ id: 1 }, { id: 2 }, { id: 3 }]);
     // 2 chunks → 2 upserts, each followed by one lookup
@@ -360,8 +360,8 @@ describe('QueryClient upsert - PK lookup', () => {
   it('maps looked-up rows back by position, whatever order the database returns them in', async () => {
     const mock = mysqlWithLookup((k) => ({ id: ids[k.code] }), { reverse: true });
 
-    const result = await createQueryClient(mock, 'mysql')
-      .bulkInsertOrUpdate('tag', records, ['code'], 'id');
+    const result = (await createQueryClient(mock, 'mysql')
+      .bulkUpsert('tag', records, ['code'], 'id')).map((r) => r.pk);
 
     assert.deepEqual(result, [{ id: 1 }, { id: 2 }, { id: 3 }]);
   });
@@ -378,9 +378,9 @@ describe('QueryClient upsert - PK lookup', () => {
   it('looks up only the records that do not carry their PK', async () => {
     const mock = postgresDoNothing((k) => ({ id: ids[k.code] }));
 
-    const result = await new QueryClient(mock).bulkInsertOrUpdate(
-      'tag', [{ id: 9, code: 'z' }, { code: 'b' }], ['code'], 'id', undefined, ['id']
-    );
+    const result = (await new QueryClient(mock).bulkUpsert(
+      'tag', [{ id: 9, code: 'z' }, { code: 'b' }], ['code'], 'id', { immutableCols: ['id'] }
+    )).map((r) => r.pk);
 
     assert.deepEqual(result, [{ id: 9 }, { id: 2 }]);
     const lookup = mock.calls.find((c) => c.text.startsWith('SELECT'));
@@ -391,7 +391,7 @@ describe('QueryClient upsert - PK lookup', () => {
     const mock = postgresDoNothing(() => undefined);
 
     await assert.rejects(
-      new QueryClient(mock).bulkInsertOrUpdate('tag', [{ code: 'a' }], ['code'], 'id'),
+      new QueryClient(mock).bulkUpsert('tag', [{ code: 'a' }], ['code'], 'id'),
       /Cannot resolve the primary key of an upserted "tag" row/,
     );
   });

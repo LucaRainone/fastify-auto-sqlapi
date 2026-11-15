@@ -284,10 +284,10 @@ export function processSecondaries(
       await assertTenantOwnsConflicts(
         db, childTenant, joinSchema.tableName, conflictCols, preparedRecords
       );
-      pkRows = await db.bulkInsertOrUpdate(
+      pkRows = (await db.bulkUpsert(
         joinSchema.tableName, preparedRecords as DbRecord[], conflictCols, childPkCol,
-        undefined, tenantImmutableColumns(childTenant)
-      );
+        { immutableCols: tenantImmutableColumns(childTenant) }
+      )).map((r) => r.pk);
     } else {
       pkRows = await db.bulkInsert(
         joinSchema.tableName, preparedRecords as DbRecord[], childPkCol

@@ -4,7 +4,6 @@ import { createQueryClient, QueryClient } from './db.js';
 import type { DialectName } from './dialect.js';
 import { resolveTenant } from './tenant.js';
 import { validateDbTables } from './table-helpers.js';
-import { httpError } from './errors.js';
 import { searchEngine } from './engine/search/search.js';
 import { rejectRetiredSearchKeys } from './engine/search/fields.js';
 import { getEngine } from './engine/rest/get.js';
@@ -15,6 +14,7 @@ import { bulkUpsertEngine } from './engine/bulk/bulk-upsert.js';
 import { bulkDeleteEngine } from './engine/bulk/bulk-delete.js';
 import type {
   DbTables,
+  TableConfig,
   Queryable,
   FilterRecord,
   SearchCondition,
@@ -116,12 +116,20 @@ export interface SqlApiOptions {
   getTenantId?: GetTenantId;
 }
 
-export class SqlApi {
+/** A table name of `T`: a literal key when `createSqlApi` was given a typed map, otherwise any string. */
+type TableKey<T extends DbTables> = keyof T & string;
+
+/**
+ * The programmatic API over one `dbTables` map. `T` is that map's type, inferred by
+ * `createSqlApi`, so a misspelled table name fails at compile time; `app.sqlApi` is typed
+ * over plain `DbTables` and takes any string.
+ */
+export class SqlApi<T extends DbTables = DbTables> {
   private db: QueryClient;
 
   constructor(
     dbOrPool: QueryClient | Queryable,
-    private dbTables: DbTables,
+    private dbTables: T,
     private options: SqlApiOptions = {}
   ) {
     // One source for the dialect: the QueryClient's own, or the option for a raw pool.
@@ -146,10 +154,17 @@ export class SqlApi {
     ConditionBuilder.DIALECT = this.db.cbDialect;
   }
 
-  private getTableConf(tableName: string) {
-    const conf = this.dbTables[tableName];
-    if (!conf) throw httpError(400, `Table "${tableName}" not found in dbTables`, { code: 'unknown_table' });
-    return conf;
+  /**
+   * The config of `tableName`. An unknown name is the caller's bug — the routes only ever pass
+   * the keys they were built from — so it is a plain Error (500), not a client 400.
+   */
+  private getTableConf(tableName: string): TableConfig {
+    if (!Object.hasOwn(this.dbTables, tableName)) {
+      throw new Error(
+        `sqlApi: table '${tableName}' is not a key of dbTables. Known: ${Object.keys(this.dbTables).join(', ')}`
+      );
+    }
+    return this.dbTables[tableName];
   }
 
   private async getTenant(tableName: string, request?: ApiRequest): Promise<TenantContext | undefined> {
@@ -162,7 +177,7 @@ export class SqlApi {
     );
   }
 
-  async search(tableName: string, params: SqlApiSearchParams = {}, request?: ApiRequest): Promise<SearchResult> {
+  async search(tableName: TableKey<T>, params: SqlApiSearchParams = {}, request?: ApiRequest): Promise<SearchResult> {
     rejectRetiredSearchKeys(params);
     const tableConf = this.getTableConf(tableName);
     const tenant = await this.getTenant(tableName, request);
@@ -185,13 +200,13 @@ export class SqlApi {
     });
   }
 
-  async get(tableName: string, id: string | number, request?: ApiRequest): Promise<GetResult> {
+  async get(tableName: TableKey<T>, id: string | number, request?: ApiRequest): Promise<GetResult> {
     const tableConf = this.getTableConf(tableName);
     const tenant = await this.getTenant(tableName, request);
     return getEngine({ db: this.db, tableConf, id, tenant, request });
   }
 
-  async insert(tableName: string, params: SqlApiInsertParams, request?: ApiRequest): Promise<InsertResult> {
+  async insert(tableName: TableKey<T>, params: SqlApiInsertParams, request?: ApiRequest): Promise<InsertResult> {
     const tableConf = this.getTableConf(tableName);
     const tenant = await this.getTenant(tableName, request);
     return insertEngine({
@@ -205,7 +220,7 @@ export class SqlApi {
     });
   }
 
-  async update(tableName: string, params: SqlApiUpdateParams, request?: ApiRequest): Promise<UpdateResult> {
+  async update(tableName: TableKey<T>, params: SqlApiUpdateParams, request?: ApiRequest): Promise<UpdateResult> {
     const tableConf = this.getTableConf(tableName);
     const tenant = await this.getTenant(tableName, request);
     return updateEngine({
@@ -220,13 +235,13 @@ export class SqlApi {
     });
   }
 
-  async delete(tableName: string, id: string | number, request?: ApiRequest): Promise<DeleteResult> {
+  async delete(tableName: TableKey<T>, id: string | number, request?: ApiRequest): Promise<DeleteResult> {
     const tableConf = this.getTableConf(tableName);
     const tenant = await this.getTenant(tableName, request);
     return deleteEngine({ db: this.db, tableConf, id, tenant, request });
   }
 
-  async bulkUpsert(tableName: string, items: BulkUpsertItem[], request?: ApiRequest): Promise<BulkUpsertResult[]> {
+  async bulkUpsert(tableName: TableKey<T>, items: BulkUpsertItem[], request?: ApiRequest): Promise<BulkUpsertResult[]> {
     const tableConf = this.getTableConf(tableName);
     const tenant = await this.getTenant(tableName, request);
     return bulkUpsertEngine({
@@ -239,7 +254,7 @@ export class SqlApi {
     });
   }
 
-  async bulkDelete(tableName: string, params: SqlApiBulkDeleteParams, request?: ApiRequest): Promise<BulkDeleteResult[]> {
+  async bulkDelete(tableName: TableKey<T>, params: SqlApiBulkDeleteParams, request?: ApiRequest): Promise<BulkDeleteResult[]> {
     const ids = idsOf(tableName, params);
     const tableConf = this.getTableConf(tableName);
     const tenant = await this.getTenant(tableName, request);
@@ -247,6 +262,10 @@ export class SqlApi {
   }
 }
 
-export function createSqlApi(dbOrPool: QueryClient | Queryable, dbTables: DbTables, options?: SqlApiOptions): SqlApi {
+export function createSqlApi<T extends DbTables>(
+  dbOrPool: QueryClient | Queryable,
+  dbTables: T,
+  options?: SqlApiOptions
+): SqlApi<T> {
   return new SqlApi(dbOrPool, dbTables, options);
 }

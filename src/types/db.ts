@@ -26,11 +26,17 @@ export interface Queryable {
   connect?(): Promise<TransactionQueryable>;
 }
 
+/**
+ * A value the QueryClient binds. `Date` is handed to the driver as is (pg and mysql2 both
+ * convert it). A JSON object or array is not: pg sends an array as a Postgres array literal
+ * and mysql2 expands an object into `key = value` pairs — `JSON.stringify` it first.
+ */
 export type DbRecordValue =
   | string
   | number
   | boolean
   | null
+  | Date
   | Expression;
 
 export type DbRecord = Record<string, DbRecordValue>;

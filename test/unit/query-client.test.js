@@ -76,12 +76,12 @@ describe('QueryClient.insert - composite PK', () => {
   });
 });
 
-describe('QueryClient.insertOrUpdate', () => {
+describe('QueryClient.upsert', () => {
   it('uses EXCLUDED for SET clause', async () => {
     const mock = createMockClient();
     const db = new QueryClient(mock);
 
-    await db.insertOrUpdate('customer', { id: 1, name: 'Mario' }, ['id'], 'id');
+    await db.upsert('customer', { id: 1, name: 'Mario' }, ['id'], 'id');
 
     assert.ok(mock.calls[0].text.includes('ON CONFLICT ("id")'));
     assert.ok(mock.calls[0].text.includes('"name" = EXCLUDED."name"'));
@@ -92,7 +92,7 @@ describe('QueryClient.insertOrUpdate', () => {
     const mock = createMockClient();
     const db = new QueryClient(mock);
 
-    await db.insertOrUpdate('customer', { id: 1 }, ['id'], 'id');
+    await db.upsert('customer', { id: 1 }, ['id'], 'id');
 
     assert.ok(mock.calls[0].text.includes('DO NOTHING'));
   });
@@ -143,12 +143,12 @@ describe('QueryClient.bulkInsert - composite PK', () => {
   });
 });
 
-describe('QueryClient.bulkInsertOrUpdate', () => {
+describe('QueryClient.bulkUpsert', () => {
   it('builds multi-row UPSERT with EXCLUDED', async () => {
     const mock = createMockClient();
     const db = new QueryClient(mock);
 
-    await db.bulkInsertOrUpdate(
+    await db.bulkUpsert(
       'product',
       [
         { id: 1, name: 'A', price: 10 },

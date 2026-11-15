@@ -22,6 +22,12 @@ interface UpsertTarget {
   keepAsIs: string[];
 }
 
+/** The options of {@link QueryClient.bulkUpsert}. */
+export interface BulkUpsertOptions {
+  chunkSize?: number;
+  immutableCols?: string[];
+}
+
 export class QueryClient {
   private client: Queryable;
   private dialect: SqlDialect;
@@ -243,17 +249,12 @@ export class QueryClient {
     return this.#extractPkRows(result, pkCol, [record])[0];
   }
 
-  async insertOrUpdate(
-    table: string,
-    record: DbRecord,
-    conflictKeys: string[],
-    pkCol: string | string[]
-  ): Promise<Record<string, unknown>> {
-    return (await this.insertOrUpdateWithAction(table, record, conflictKeys, pkCol)).pk;
-  }
-
-  /** `insertOrUpdate`, also telling whether the row was inserted or updated. */
-  async insertOrUpdateWithAction(
+  /**
+   * Insert `record`, or update the row its `conflictKeys` already name: `{ pk, action }`, the
+   * row's primary key and whether it was inserted or updated. The conflict keys are never in
+   * the update set. They must be a unique key the database enforces (ADR 0021).
+   */
+  async upsert(
     table: string,
     record: DbRecord,
     conflictKeys: string[],
@@ -526,33 +527,32 @@ export class QueryClient {
   }
 
   /**
-   * `immutableCols` are written when the row is inserted but left untouched when the statement
-   * lands on an existing row — like the conflict keys, which are never in the update set either.
-   * Used by tenant isolation to keep an upsert from re-assigning a row's owner.
+   * `upsert` for every record, in chunks: `{ pk, action }` per record, in input order. Each
+   * record writes only its own fields (ADR 0003).
+   *
+   * - `chunkSize`: records per statement (default {@link DEFAULT_CHUNK_SIZE}).
+   * - `immutableCols`: written when the row is inserted, left untouched when the statement
+   *   lands on an existing row — like the conflict keys. Tenant isolation uses it to keep an
+   *   upsert from re-assigning a row's owner.
    */
-  async bulkInsertOrUpdate(
+  async bulkUpsert(
     table: string,
     records: DbRecord[],
     conflictKeys: string[],
     pkCol: string | string[],
-    chunkSize = DEFAULT_CHUNK_SIZE,
-    immutableCols: string[] = []
-  ): Promise<Record<string, unknown>[]> {
-    const written = await this.bulkInsertOrUpdateWithAction(
-      table, records, conflictKeys, pkCol, chunkSize, immutableCols
-    );
-    return written.map((r) => r.pk);
-  }
-
-  /** `bulkInsertOrUpdate`, also telling for each row whether it was inserted or updated. */
-  async bulkInsertOrUpdateWithAction(
-    table: string,
-    records: DbRecord[],
-    conflictKeys: string[],
-    pkCol: string | string[],
-    chunkSize = DEFAULT_CHUNK_SIZE,
-    immutableCols: string[] = []
+    options: BulkUpsertOptions = {}
   ): Promise<WrittenRow[]> {
+    // The pre-1.0 `bulkInsertOrUpdate(…, chunkSize, immutableCols)` passed both positionally:
+    // refused, so an immutable column is never dropped in silence and written on update. The
+    // signature stays strict for TypeScript; the count is the JS caller's check.
+    // eslint-disable-next-line prefer-rest-params
+    if (arguments.length > 5 || options === null || typeof options !== 'object') {
+      throw new TypeError(
+        'bulkUpsert: the 5th argument is an options object, { chunkSize, immutableCols }, ' +
+        'not a positional chunkSize'
+      );
+    }
+    const { chunkSize = DEFAULT_CHUNK_SIZE, immutableCols = [] } = options;
     if (!records.length) return [];
 
     const keepAsIs = immutableCols.length ? [...conflictKeys, ...immutableCols] : conflictKeys;

@@ -259,13 +259,13 @@ describe('SqlApi.bulkDelete', () => {
 });
 
 describe('SqlApi - error handling', () => {
-  it('throws 400 for unknown table name', async () => {
+  it('an unknown table name is a programming error, not a 400', async () => {
     const mockPg = createMockPg([]);
     const { sqlApi } = createTestFixture(mockPg);
 
     await assert.rejects(
       () => sqlApi.search('nonexistent'),
-      (err) => err.statusCode === 400 && err.message.includes('not found')
+      (err) => err.statusCode === undefined && err.message.includes("'nonexistent' is not a key of dbTables")
     );
   });
 });

@@ -121,7 +121,7 @@ describe('bulkUpsertEngine - bulk insert (no upsertKey)', () => {
 });
 
 describe('bulkUpsertEngine - bulk upsert with upsertKey', () => {
-  it('uses bulkInsertOrUpdate with ON CONFLICT', async () => {
+  it('uses bulkUpsert with ON CONFLICT', async () => {
     const mockPg = createMockPg([
       { rows: [
         { id: 1 },

@@ -53,6 +53,14 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **BREAKING: the QueryClient has one method per upsert, `upsert` and `bulkUpsert`.** Both
+  answer `{ pk, action }` (per record, in input order, for the bulk one); `bulkUpsert` takes
+  `{ chunkSize, immutableCols }` as an options object, and a positional chunk size or immutable
+  column list throws a TypeError rather than being dropped. `insertOrUpdate`,
+  `insertOrUpdateWithAction`, `bulkInsertOrUpdate` and `bulkInsertOrUpdateWithAction` are gone.
+  `DbRecordValue` accepts `Date`. `sqlApi` given a table it does not know throws a plain Error
+  naming the known ones (it was a 400 `unknown_table`), and `createSqlApi` infers the table
+  names, so a misspelled one fails at compile time. See BREAKING_CHANGES.md.
 - **BREAKING: `validate` and `validateBulk` return `{ path, code }` objects.** The same shape
   as the `fields` of the 400, with `message` mirroring the code: a hook writes no prose, the
   client translates the code. The pre-1.0 tuples (`[path, code, message?]`), an object with a
