@@ -12,7 +12,6 @@ import {
   createTestApp,
   cleanTables,
   seedRows,
-  exportTableInfo,
   toUnderscore,
   Type,
   TENANT_ADMIN,
@@ -35,10 +34,10 @@ const customerSchema = createSchema('customer', {
   organizationId: Type.Optional(Type.Integer()),
 });
 
-const DbTables = {
+const dbTables = {
   customer: {
     primary: 'id',
-    ...exportTableInfo(customerSchema),
+    schema: customerSchema,
     defaultOrder: 'id',
     tenantScope: { column: 'organization_id' },
     // Conflict on the primary key: it has a real UNIQUE index, so a colliding insert reaches
@@ -70,7 +69,7 @@ describe(`[${DIALECT}] tenantScope direct — upsert cannot claim a NULL-owner r
   let db;
 
   before(async () => {
-    ({ app, db } = await createTestApp(DbTables, pluginOpts));
+    ({ app, db } = await createTestApp(dbTables, pluginOpts));
     // customer_order FKs to customer, so the child must be cleared first.
     await cleanTables(db, ['customer_order', 'customer']);
     // An orphan row: it belongs to no tenant (organization_id IS NULL) and is therefore

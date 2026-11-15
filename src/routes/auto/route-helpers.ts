@@ -5,7 +5,7 @@ import {
   type RegistrationOptions,
 } from '../sql-api-decorator.js';
 import { sanitizeRouteError, assertDbErrors } from '../../lib/errors.js';
-import { validateJoinTargets } from '../../lib/table-helpers.js';
+import { validateDbTables } from '../../lib/table-helpers.js';
 import type { SqlApi } from '../../lib/sql-api.js';
 import { isCompositePrimary } from '../../types.js';
 import type { TableConfig, SqlApiPluginOptions, DbTables, TableOperation } from '../../types.js';
@@ -49,7 +49,7 @@ export interface AutoRouteSpec {
   singlePkOnly?: boolean;
   method: 'GET' | 'POST' | 'PUT' | 'DELETE';
   /**
-   * URL builder receiving the `DbTables` key — never `Schema.tableName`: several table
+   * URL builder receiving the `dbTables` key — never `Schema.tableName`: several table
    * configs may expose the same physical table, and each key needs its own route.
    */
   url: (tableName: string) => string;
@@ -70,7 +70,7 @@ export interface AutoRouteSpec {
 }
 
 /**
- * Iterates over every table in `options.DbTables` and registers one Fastify route for it
+ * Iterates over every table in `options.dbTables` and registers one Fastify route for it
  * following `spec`. Centralizes onRequest hook merging, tags, schema response wrapping,
  * default reply when handler returns a value.
  */
@@ -142,15 +142,15 @@ export async function registerForAllTables(
 
   assertDbErrors(options.dbErrors);
 
-  const { DbTables } = options;
+  const { dbTables } = options;
   // The decorator is lazy, so this is the first place the configuration is seen as a whole:
   // a relation whose target is ambiguous must fail registration, not the first request.
-  validateJoinTargets(DbTables);
+  validateDbTables(dbTables);
 
-  for (const [tableName, tableConf] of Object.entries(DbTables)) {
+  for (const [tableName, tableConf] of Object.entries(dbTables)) {
     if (!isTableRoutable(tableName, tableConf, spec)) continue;
 
-    const schemas = spec.schemas(DbTables, tableName, tableConf);
+    const schemas = spec.schemas(dbTables, tableName, tableConf);
 
     fastify.route({
       method: spec.method,

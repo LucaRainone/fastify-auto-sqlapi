@@ -104,7 +104,7 @@ export function validateOrderBy(
       err400('invalid_order_by', 'orderBy', `Invalid orderBy: ${trimmed}`);
     }
     const [, field, dir] = plain;
-    const ref = resolveFieldRef(field, tableConf.Schema, tableConf, db, undefined, 'orderBy');
+    const ref = resolveFieldRef(field, tableConf.schema, tableConf, db, undefined, 'orderBy');
     // A computed field binds its own values here: ORDER BY is emitted after the WHERE, so
     // its placeholders continue from `currentIdx`.
     const refVals = refValues(ref.expr);
@@ -136,13 +136,13 @@ export function convertConfiguredOrder(
       if (match) {
         const [, field, dir] = match;
         const suffix = dir ? ` ${dir.toUpperCase()}` : '';
-        if (hasOwnField(tableConf.Schema.fields, field)) {
-          return `${db.qi(tableConf.Schema.tableName)}.${db.qi(tableConf.Schema.col(field))}${suffix}`;
+        if (hasOwnField(tableConf.schema.fields, field)) {
+          return `${db.qi(tableConf.schema.tableName)}.${db.qi(tableConf.schema.col(field))}${suffix}`;
         }
         const computed = ownField(tableConf.computedFields, field);
         if (computed) {
           const ev = evaluateComputedField(
-            field, computed, tableConf.Schema, db, undefined,
+            field, computed, tableConf.schema, db, undefined,
             `Computed field '${field}' with bound values cannot be used in defaultOrder`,
           );
           return `${ev.value}${suffix}`;

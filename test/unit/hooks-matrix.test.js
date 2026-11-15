@@ -10,7 +10,7 @@ const ROOT = path.resolve(__dirname, '../..');
 const { updateEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/update.js'));
 const { deleteEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/delete.js'));
 const { bulkDeleteEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk/bulk-delete.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
@@ -65,7 +65,7 @@ function createTestDbTables() {
   return {
     customer: {
       primary: 'id',
-      ...exportTableInfo(customerSchema),
+      schema: customerSchema,
       defaultOrder: 'id',
       allowedWriteJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
@@ -73,7 +73,7 @@ function createTestDbTables() {
     },
     customer_order: {
       primary: 'id',
-      ...exportTableInfo(orderSchema),
+      schema: orderSchema,
       defaultOrder: 'id',
     },
   };
@@ -89,16 +89,16 @@ describe('afterUpdate hook', () => {
       { rows: [], affectedRows: 1 },           // deletions
     ]);
     const db = new QueryClient(mockPg);
-    const DbTables = createTestDbTables();
+    const dbTables = createTestDbTables();
     let hookArgs = null;
-    DbTables.customer.afterUpdate = async ({ db: hookDb, req, record, secondaries, deletions }) => {
+    dbTables.customer.afterUpdate = async ({ db: hookDb, req, record, secondaries, deletions }) => {
       hookArgs = { req, record, secondaries, deletions };
     };
 
     await updateEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
       secondaries: { customer_order: [{ total: 100 }] },
@@ -118,15 +118,15 @@ describe('afterUpdate hook', () => {
       { rows: [], affectedRows: 0 }, // UPDATE matches nothing
     ]);
     const db = new QueryClient(mockPg);
-    const DbTables = createTestDbTables();
+    const dbTables = createTestDbTables();
     let called = false;
-    DbTables.customer.afterUpdate = async () => { called = true; };
+    dbTables.customer.afterUpdate = async () => { called = true; };
 
     await assert.rejects(
       updateEngine({
         db,
-        tableConf: DbTables.customer,
-        dbTables: DbTables,
+        tableConf: dbTables.customer,
+        dbTables: dbTables,
         request: mockRequest,
         record: { id: 1, name: 'Mario' },
       }),
@@ -140,16 +140,16 @@ describe('afterUpdate hook', () => {
       { rows: [], affectedRows: 1 }, // UPDATE ok
     ]);
     const db = new QueryClient(pool);
-    const DbTables = createTestDbTables();
-    DbTables.customer.afterUpdate = async () => {
+    const dbTables = createTestDbTables();
+    dbTables.customer.afterUpdate = async () => {
       throw new Error('afterUpdate failed');
     };
 
     await assert.rejects(
       updateEngine({
         db,
-        tableConf: DbTables.customer,
-        dbTables: DbTables,
+        tableConf: dbTables.customer,
+        dbTables: dbTables,
         request: mockRequest,
         record: { id: 1, name: 'Mario' },
       }),
@@ -168,15 +168,15 @@ describe('afterDelete hook', () => {
       { rows: [], affectedRows: 1 },
     ]);
     const db = new QueryClient(mockPg);
-    const DbTables = createTestDbTables();
+    const dbTables = createTestDbTables();
     let hookArgs = null;
-    DbTables.customer.afterDelete = async ({ db: hookDb, req, id }) => {
+    dbTables.customer.afterDelete = async ({ db: hookDb, req, id }) => {
       hookArgs = { req, id };
     };
 
     await deleteEngine({
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       id: 7,
       request: mockRequest,
     });
@@ -191,12 +191,12 @@ describe('afterDelete hook', () => {
       { rows: [], affectedRows: 0 },
     ]);
     const db = new QueryClient(mockPg);
-    const DbTables = createTestDbTables();
+    const dbTables = createTestDbTables();
     let called = false;
-    DbTables.customer.afterDelete = async () => { called = true; };
+    dbTables.customer.afterDelete = async () => { called = true; };
 
     await assert.rejects(
-      deleteEngine({ db, tableConf: DbTables.customer, id: 7, request: mockRequest }),
+      deleteEngine({ db, tableConf: dbTables.customer, id: 7, request: mockRequest }),
       (err) => err.statusCode === 404
     );
     assert.equal(called, false);
@@ -210,15 +210,15 @@ describe('afterBulkDelete hook', () => {
       { rows: [{ id: 1 }, { id: 3 }], affectedRows: 2 },
     ]);
     const db = new QueryClient(mockPg);
-    const DbTables = createTestDbTables();
+    const dbTables = createTestDbTables();
     const invocations = [];
-    DbTables.customer.afterBulkDelete = async ({ db: hookDb, req, ids: deletedIds }) => {
+    dbTables.customer.afterBulkDelete = async ({ db: hookDb, req, ids: deletedIds }) => {
       invocations.push({ req, deletedIds });
     };
 
     await bulkDeleteEngine({
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       ids: [1, 2, 3],
       request: mockRequest,
     });
@@ -233,13 +233,13 @@ describe('afterBulkDelete hook', () => {
       { rows: [], affectedRows: 0 },
     ]);
     const db = new QueryClient(mockPg);
-    const DbTables = createTestDbTables();
+    const dbTables = createTestDbTables();
     let called = false;
-    DbTables.customer.afterBulkDelete = async () => { called = true; };
+    dbTables.customer.afterBulkDelete = async () => { called = true; };
 
     await bulkDeleteEngine({
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       ids: [99],
       request: mockRequest,
     });

@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
-import { fastifyAutoSqlApi, searchRoutes, exportTableInfo, toUnderscore, Type } from '../../dist/index.js';
+import { fastifyAutoSqlApi, searchRoutes, toUnderscore, Type } from '../../dist/index.js';
 
 // A driver error carries schema details — table, column and constraint names — in its
 // message. ADR 0013: those never reach the client, while the consumer keeps the original
@@ -18,10 +18,10 @@ const schema = {
   partialValidation: Type.Partial(Type.Object({ id: Type.Number(), name: Type.String() })),
 };
 
-const DbTables = {
+const dbTables = {
   test_table: {
     primary: 'id',
-    ...exportTableInfo(schema),
+    schema,
   },
 };
 
@@ -88,7 +88,7 @@ function assertNoLeak(res) {
 describe('database errors are sanitized before reaching the client', () => {
   it('a driver error surfaces as a bare 500 (main plugin)', async () => {
     const app = await buildApp(createFailingPool(), (app) =>
-      app.register(fastifyAutoSqlApi, { DbTables })
+      app.register(fastifyAutoSqlApi, { dbTables })
     );
 
     const res = await app.inject({ method: 'POST', url: '/search/test_table', payload: {} });
@@ -99,7 +99,7 @@ describe('database errors are sanitized before reaching the client', () => {
 
   it('a driver error surfaces as a bare 500 (route plugin registered standalone)', async () => {
     const app = await buildApp(createFailingPool(), (app) =>
-      app.register(searchRoutes, { DbTables })
+      app.register(searchRoutes, { dbTables })
     );
 
     const res = await app.inject({ method: 'POST', url: '/search/test_table', payload: {} });
@@ -110,7 +110,7 @@ describe('database errors are sanitized before reaching the client', () => {
 
   it('4xx raised by the plugin keeps its message', async () => {
     const app = await buildApp(createMockPool(), (app) =>
-      app.register(fastifyAutoSqlApi, { DbTables })
+      app.register(fastifyAutoSqlApi, { dbTables })
     );
 
     const res = await app.inject({ method: 'GET', url: '/rest/test_table/7' });
@@ -127,7 +127,7 @@ describe('database errors are sanitized before reaching the client', () => {
         seen = err;
         reply.status(500).send({ statusCode: 500, message: err.message });
       });
-      return app.register(searchRoutes, { DbTables });
+      return app.register(searchRoutes, { dbTables });
     });
 
     await app.inject({ method: 'POST', url: '/search/test_table', payload: {} });
@@ -146,7 +146,7 @@ describe('database errors are sanitized before reaching the client', () => {
     const logger = createFakeLogger(logged);
     const app = await buildApp(
       createFailingPool(),
-      (app) => app.register(fastifyAutoSqlApi, { DbTables }),
+      (app) => app.register(fastifyAutoSqlApi, { dbTables }),
       { loggerInstance: logger }
     );
 
@@ -169,7 +169,7 @@ describe('database errors are sanitized before reaching the client', () => {
     const logger = createFakeLogger([], bindings);
     const app = await buildApp(
       createFailingPool(),
-      (app) => app.register(fastifyAutoSqlApi, { DbTables }),
+      (app) => app.register(fastifyAutoSqlApi, { dbTables }),
       { loggerInstance: logger }
     );
 
@@ -184,7 +184,7 @@ describe('database errors are sanitized before reaching the client', () => {
 
   it('exposeDebugInfo attaches the driver error without changing the contract', async () => {
     const app = await buildApp(createFailingPool(), (app) =>
-      app.register(fastifyAutoSqlApi, { DbTables, exposeDebugInfo: true })
+      app.register(fastifyAutoSqlApi, { dbTables, exposeDebugInfo: true })
     );
 
     const res = await app.inject({ method: 'POST', url: '/search/test_table', payload: {} });
@@ -205,7 +205,7 @@ describe('database errors are sanitized before reaching the client', () => {
 
   it('exposeDebugInfo does not touch the 4xx the plugin raises itself', async () => {
     const app = await buildApp(createMockPool(), (app) =>
-      app.register(fastifyAutoSqlApi, { DbTables, exposeDebugInfo: true })
+      app.register(fastifyAutoSqlApi, { dbTables, exposeDebugInfo: true })
     );
 
     const res = await app.inject({ method: 'GET', url: '/rest/test_table/7' });
@@ -222,7 +222,7 @@ describe('database errors are sanitized before reaching the client', () => {
     // wired: constant in a config file for some, an env var flipped during an incident for
     // others. Only `exposeDebugInfo` opens the wire. ADR 0013.
     const app = await buildApp(createFailingPool(), (app) =>
-      app.register(fastifyAutoSqlApi, { DbTables, debug: true })
+      app.register(fastifyAutoSqlApi, { dbTables, debug: true })
     );
 
     const res = await app.inject({ method: 'POST', url: '/search/test_table', payload: {} });
@@ -236,7 +236,7 @@ describe('database errors are sanitized before reaching the client', () => {
     process.env.NODE_ENV = 'development';
     try {
       const app = await buildApp(createFailingPool(), (app) =>
-        app.register(fastifyAutoSqlApi, { DbTables })
+        app.register(fastifyAutoSqlApi, { dbTables })
       );
 
       const res = await app.inject({ method: 'POST', url: '/search/test_table', payload: {} });
@@ -252,7 +252,7 @@ describe('database errors are sanitized before reaching the client', () => {
   it('errors thrown by consumer onRequests hooks pass through untouched', async () => {
     const app = await buildApp(createMockPool(), (app) =>
       app.register(fastifyAutoSqlApi, {
-        DbTables,
+        dbTables,
         onRequests: [async () => { throw new Error('hook exploded'); }],
       })
     );

@@ -8,7 +8,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
-const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { getDialect } = await import(path.join(ROOT, 'dist/lib/dialect.js'));
@@ -22,7 +21,7 @@ function createMockSchema(tableName, fields) {
 
 
 const schema = createMockSchema('customer', { id: Type.Number(), name: Type.String() });
-const tableConf = { primary: 'id', ...exportTableInfo(schema), defaultOrder: 'id' };
+const tableConf = { primary: 'id', schema, defaultOrder: 'id' };
 const dbTables = { customer: tableConf };
 
 for (const dialect of DIALECTS) {

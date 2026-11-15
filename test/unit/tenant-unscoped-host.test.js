@@ -14,7 +14,7 @@ import path from 'node:path';
 import { createMockPg, createMockSchema, ROOT } from './_harness.js';
 
 const { createSqlApi } = await import(path.join(ROOT, 'dist/lib/sql-api.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { Type, TENANT_ADMIN } = await import(path.join(ROOT, 'dist/index.js'));
 
 const shiftSchema = createMockSchema('shift', {
@@ -41,7 +41,7 @@ function createDbTables({ scopedChild = true } = {}) {
   return {
     shift: {
       primary: 'id',
-      ...exportTableInfo(shiftSchema),
+      schema: shiftSchema,
       defaultOrder: 'id',
       allowedReadJoins: [
         buildRelation(shiftSchema, 'id', swapSchema, 'shiftId', { alias: 'swap' }),
@@ -53,13 +53,13 @@ function createDbTables({ scopedChild = true } = {}) {
     },
     shift_swap_request: {
       primary: 'id',
-      ...exportTableInfo(swapSchema),
+      schema: swapSchema,
       defaultOrder: 'id',
       ...(scopedChild ? { tenantScope: { column: 'agent_id' } } : {}),
     },
     roster_note: {
       primary: 'id',
-      ...exportTableInfo(noteSchema),
+      schema: noteSchema,
       defaultOrder: 'id',
     },
   };
@@ -70,13 +70,13 @@ function createUnscopedOnlyTables() {
   return {
     roster_note: {
       primary: 'id',
-      ...exportTableInfo(noteSchema),
+      schema: noteSchema,
       defaultOrder: 'id',
       allowedReadJoins: [
         buildRelation(noteSchema, 'shiftId', shiftSchema, 'id', { alias: 'shift', unique: true }),
       ],
     },
-    shift: { primary: 'id', ...exportTableInfo(shiftSchema), defaultOrder: 'id' },
+    shift: { primary: 'id', schema: shiftSchema, defaultOrder: 'id' },
   };
 }
 

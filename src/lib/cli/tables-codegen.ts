@@ -335,7 +335,7 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
   const lines: string[] = [];
 
   // Imports
-  lines.push(`import {defineTable, exportTableInfo, Type} from 'fastify-auto-sqlapi';`);
+  lines.push(`import {defineTable, Type} from 'fastify-auto-sqlapi';`);
   lines.push(`import type {ValidationError} from 'fastify-auto-sqlapi';`);
   lines.push(`import {${schema.schemaName} as Schema} from '../schemas/${schema.schemaName}.js';`);
 
@@ -347,28 +347,21 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
   lines.push(``);
 
   // Extra filters placeholder
-  lines.push(`// const extraFiltersValidation = Type.Object({`);
-  lines.push(`//   q: Type.String(),`);
-  lines.push(`// });`);
-
   // Table definition
   lines.push(``);
   lines.push(...viewNotice(schema, source));
   lines.push(`// Fields: ${schema.fields.join(', ')}`);
   lines.push(`export const ${tableVarName} = defineTable({`);
   lines.push(`  primary: ${formatPrimary(pk)},`);
-  lines.push(`  ...exportTableInfo(Schema),`);
+  lines.push(`  schema: Schema,`);
 
   // Commented example with extraFilters + extendedCondition
-  lines.push(`  // ...exportTableInfo(`);
-  lines.push(`  //   Schema,`);
-  lines.push(`  //   extraFiltersValidation,`);
-  lines.push(`  //   (condition, filters) => {`);
-  lines.push(`  //     // Prefix columns with the table name: the query may carry joins, and a`);
-  lines.push(`  //     // bare column shared with a joined table would be ambiguous.`);
-  lines.push(`  //     if (filters.q) condition.isILike(\`\${Schema.tableName}.\${Schema.col('${schema.fields.includes('name') ? 'name' : schema.fields[0]}')}\`, \`%\${filters.q}%\`);`);
-  lines.push(`  //   }`);
-  lines.push(`  // ),`);
+  lines.push(`  // extraFilters: { q: Type.String() },`);
+  lines.push(`  // extendedCondition: (condition, filters) => {`);
+  lines.push(`  //   // Prefix columns with the table name: the query may carry joins, and a`);
+  lines.push(`  //   // bare column shared with a joined table would be ambiguous.`);
+  lines.push(`  //   if (filters.q) condition.isILike(\`\${Schema.tableName}.\${Schema.col('${schema.fields.includes('name') ? 'name' : schema.fields[0]}')}\`, \`%\${filters.q}%\`);`);
+  lines.push(`  // },`);
 
   lines.push(`  defaultOrder: '${defaultOrderField(schema, pk, source)}',`);
   lines.push(...viewOperationsLine(schema, source));

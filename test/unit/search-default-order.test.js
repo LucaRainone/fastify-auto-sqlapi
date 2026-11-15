@@ -8,7 +8,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
-const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
@@ -36,7 +35,7 @@ function createDbTables(tableOverrides = {}) {
   return {
     article: {
       primary: 'id',
-      ...exportTableInfo(schema),
+      schema,
       ...tableOverrides,
     },
   };
@@ -45,11 +44,11 @@ function createDbTables(tableOverrides = {}) {
 describe('searchEngine - defaultOrder camelCase mapping', () => {
   it('maps a camelCase defaultOrder field to its DB column', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const DbTables = createDbTables({ defaultOrder: 'squadIndex' });
+    const dbTables = createDbTables({ defaultOrder: 'squadIndex' });
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db: new QueryClient(mockPg),
-      tableConf: DbTables.article,
+      tableConf: dbTables.article,
     });
 
     const sql = mockPg.calls[0].text;
@@ -58,11 +57,11 @@ describe('searchEngine - defaultOrder camelCase mapping', () => {
 
   it('maps multi-field defaultOrder with directions', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const DbTables = createDbTables({ defaultOrder: 'createdAt DESC, id ASC' });
+    const dbTables = createDbTables({ defaultOrder: 'createdAt DESC, id ASC' });
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db: new QueryClient(mockPg),
-      tableConf: DbTables.article,
+      tableConf: dbTables.article,
     });
 
     const sql = mockPg.calls[0].text;
@@ -74,11 +73,11 @@ describe('searchEngine - defaultOrder camelCase mapping', () => {
 
   it('passes raw SQL fragments through unchanged (backward compatibility)', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const DbTables = createDbTables({ defaultOrder: 'created_at DESC' });
+    const dbTables = createDbTables({ defaultOrder: 'created_at DESC' });
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db: new QueryClient(mockPg),
-      tableConf: DbTables.article,
+      tableConf: dbTables.article,
     });
 
     const sql = mockPg.calls[0].text;
@@ -91,16 +90,16 @@ describe('searchEngine - defaultOrder camelCase mapping', () => {
       squadIndex: Type.Number(),
       name: Type.String(),
     });
-    const DbTables = {
+    const dbTables = {
       squad_member: {
         primary: 'squadIndex',
-        ...exportTableInfo(schema),
+        schema,
       },
     };
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db: new QueryClient(mockPg),
-      tableConf: DbTables.squad_member,
+      tableConf: dbTables.squad_member,
     });
 
     const sql = mockPg.calls[0].text;
@@ -109,7 +108,7 @@ describe('searchEngine - defaultOrder camelCase mapping', () => {
 
   it('supports computed fields (without bound values) in defaultOrder', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const DbTables = createDbTables({
+    const dbTables = createDbTables({
       defaultOrder: 'upperTitle DESC',
       computedFields: {
         upperTitle: ({ qiCol }) => ({
@@ -120,9 +119,9 @@ describe('searchEngine - defaultOrder camelCase mapping', () => {
       },
     });
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db: new QueryClient(mockPg),
-      tableConf: DbTables.article,
+      tableConf: dbTables.article,
     });
 
     const sql = mockPg.calls[0].text;
@@ -131,11 +130,11 @@ describe('searchEngine - defaultOrder camelCase mapping', () => {
 
   it('request orderBy still takes precedence over defaultOrder', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const DbTables = createDbTables({ defaultOrder: 'squadIndex' });
+    const dbTables = createDbTables({ defaultOrder: 'squadIndex' });
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db: new QueryClient(mockPg),
-      tableConf: DbTables.article,
+      tableConf: dbTables.article,
       orderBy: 'title DESC',
     });
 

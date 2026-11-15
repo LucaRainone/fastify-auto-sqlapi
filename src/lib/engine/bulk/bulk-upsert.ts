@@ -27,7 +27,7 @@ async function upsertMains(
   pkCol: string | string[]
 ): Promise<WrittenRow[]> {
   const { db, tableConf, tenant } = params;
-  const schema = tableConf.Schema;
+  const schema = tableConf.schema;
   const upsertKeys = tableConf.upsertMap?.get(schema);
 
   if (!upsertKeys) {
@@ -56,7 +56,7 @@ async function finalizeUpsertedItem(
 
   // The PK row comes from SQL RETURNING or mysql insertId synthesis — keys are DB column names;
   // camelcaseObject maps them back to schema fields (full composite PK).
-  const mainPkCamel = camelcaseObject(written.pk, tableConf.Schema);
+  const mainPkCamel = camelcaseObject(written.pk, tableConf.schema);
   const result: BulkUpsertResult = { main: mainPkCamel, action: written.action };
 
   // FK auto-fill: input camelCase + generated PK
@@ -87,7 +87,7 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
   const { db, tableConf, request, items, tenant } = params;
   if (!items.length) return [];
 
-  const schema = tableConf.Schema;
+  const schema = tableConf.schema;
   // Full primary key columns — composite PKs need every column (see insertEngine).
   const pkCol = primaryAsCols(tableConf.primary, (f) => schema.col(f));
 

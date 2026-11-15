@@ -46,7 +46,7 @@ import { dbTables } from './src/db/tables/dbTables.js';
 const app = Fastify();
 await app.register(fastifyPostgres, { connectionString: process.env.DATABASE_URL }); // → fastify.pg
 await app.register(fastifyAutoSqlApi, {
-  DbTables: dbTables, // required. Record key = route name: { customer } → /search/customer
+  dbTables, // required. Record key = route name: { customer } → /search/customer
   dialect: 'postgres', // 'postgres' (default) | 'mysql' | 'mariadb'
   prefix: '/auto', // standard Fastify prefix, applied once. None → /search/customer
   swagger: true, // or { title, description, version, routePrefix }. Needs @fastify/swagger + @fastify/swagger-ui, else warns and continues
@@ -66,14 +66,14 @@ await app.register(fastifyAutoSqlApi, {
 const pool = mysql.createPool({ host, user, password, database });
 app.decorate('mysql', pool);
 app.addHook('onClose', () => pool.end());
-await app.register(fastifyAutoSqlApi, { DbTables: dbTables, dialect: 'mysql' });
+await app.register(fastifyAutoSqlApi, { dbTables, dialect: 'mysql' });
 
 // Several surfaces: register the plugin again under another prefix with `decorate: false` (app.sqlApi belongs to one registration; a second one without it fails at startup). Each registration's routes run with its own options.
 // Register only specific routes: each route plugin works standalone and decorates nothing; register the main plugin if your own routes need app.sqlApi.
 import { searchRoutes, getRoutes, insertRoutes, updateRoutes, deleteRoutes, bulkUpsertRoutes, bulkDeleteRoutes, agentManifestRoutes, setupSwagger } from 'fastify-auto-sqlapi';
 await app.register(async (instance) => {
   await setupSwagger(instance, { swagger: true });
-  const opts = { DbTables: publicTables, dialect: 'postgres' };
+  const opts = { dbTables: publicTables, dialect: 'postgres' };
   await instance.register(searchRoutes, opts); // read-only: no insert/update/delete/bulk
   await instance.register(getRoutes, opts);
 }, { prefix: '/public' });
@@ -92,28 +92,30 @@ HTTP responses coerce `"42"` to a number anyway. The parsers matter for `sqlApi.
 
 ## defineTable
 
-Every key except `primary` and `exportTableInfo` is optional. There is no `tableName` key: the SQL table is `Schema.tableName`, and the route/manifest name is the `dbTables` key. One physical table can therefore be exposed under several keys, each with its own `operations`, `onRequests`, `tenantScope`, `readExclude` and joins.
+Every key except `primary` and `schema` is optional. There is no `tableName` key: the SQL table is `schema.tableName`, and the route/manifest name is the `dbTables` key. One physical table can therefore be exposed under several keys, each with its own `operations`, `onRequests`, `tenantScope`, `readExclude` and joins.
 
 ```ts
-import { defineTable, exportTableInfo, buildRelation, buildUpsertRules, buildUpsertRule, ConditionBuilder, Type } from 'fastify-auto-sqlapi';
+import { defineTable, buildRelation, buildUpsertRules, buildUpsertRule, ConditionBuilder, Type } from 'fastify-auto-sqlapi';
 import type { ValidationError } from 'fastify-auto-sqlapi';
 import { SchemaCustomer as Schema } from '../schemas/SchemaCustomer';
 
 export const TableCustomer = defineTable({
   primary: 'id', // or ['agentId', 'teamId']. Composite PK: no get/delete/bulkDelete routes (listing them in `operations` throws, sqlApi.* → 400); use search, update (matches all PK columns), or a custom route.
 
-  // Extra filters: non-column search filters. Not applied as `col = value`, only via the callback. `filters` is typed with schema + extra keys. Not usable under joinLeft (400); use joinMustExist.
-  ...exportTableInfo(Schema, Type.Object({ q: Type.String(), dateFrom: Type.String(), dateTo: Type.String() }),
-    (condition, filters) => {
-      if (filters.q) {
-        const or = new ConditionBuilder('OR');
-        or.isILike(Schema.col('name'), `%${filters.q}%`);
-        or.isILike(Schema.col('email'), `%${filters.q}%`);
-        condition.append(or);
-      }
-      // undefined values are skipped; a missing bound turns isBetween into >= / <=
-      condition.isBetween(Schema.col('orderDate'), filters.dateFrom, filters.dateTo);
-    }),
+  schema: Schema, // required: the generated Schema. Column filters (`col = value`, null → IS NULL) come from it.
+
+  // Extra filters: non-column search filters (a record of fields or a Type.Object). Not applied as `col = value`, only via extendedCondition. Not usable under joinLeft (400); use joinMustExist.
+  extraFilters: { q: Type.String(), dateFrom: Type.String(), dateTo: Type.String() },
+  extendedCondition: (condition, filters) => { // `filters` is typed with schema + extra keys
+    if (filters.q) {
+      const or = new ConditionBuilder('OR');
+      or.isILike(Schema.col('name'), `%${filters.q}%`);
+      or.isILike(Schema.col('email'), `%${filters.q}%`);
+      condition.append(or);
+    }
+    // undefined values are skipped; a missing bound turns isBetween into >= / <=
+    condition.isBetween(Schema.col('orderDate'), filters.dateFrom, filters.dateTo);
+  },
   // Unknown filter keys (not a field, extra filter or computed) are 400, on main and every join, over HTTP and sqlApi alike.
 
   defaultOrder: 'name ASC, id DESC', // fields mapped to columns; computed allowed; unknown tokens pass as raw SQL
@@ -394,7 +396,7 @@ A read-only surface for LLM agents, with the plugin as the enforcement layer:
 
 ```ts
 await app.register(async (instance) => {
-  const opts = { DbTables: dbTables, onRequests: [agentAuth] };
+  const opts = { dbTables, onRequests: [agentAuth] };
   await instance.register(searchRoutes, opts);
   await instance.register(getRoutes, opts);
   await instance.register(agentManifestRoutes, opts); // GET /agent/manifest(.md)
@@ -409,10 +411,10 @@ await app.register(async (instance) => {
 Everything is imported from `fastify-auto-sqlapi`, so there is nothing else to install:
 
 - `Type`, `Static`, `ConditionBuilder`, `Expression`, `Nullable`
-- `defineTable`, `exportTableInfo`, `buildRelation`, `buildUpsertRule(s)`
+- `defineTable`, `buildRelation`, `buildUpsertRule(s)`
 - `fastifyAutoSqlApi`, `*Routes`, `agentManifestRoutes`, `setupSwagger`
 - `SqlApi`, `createSqlApi`, `QueryClient`, `createQueryClient`, `pgQueryable`, `mysqlQueryable`
 - `agentToolSchemas`
-- Types: `ValidationError`, `ValidatorFn`, `BulkValidatorFn`, `JoinDefinition`, `SearchCondition`, `ConditionMethod`, `DbTables`
+- Types: `ValidationError`, `ValidatorFn`, `BulkValidatorFn`, `JoinDefinition`, `SearchCondition`, `ConditionMethod`, `DbTables`, `TableDefinition`
 
 Dialects: PG uses `"id"`, `$1` and `RETURNING`. MySQL uses backticks, `?` and `insertId`. MariaDB is like MySQL but has `RETURNING` (10.5+). The CLI uses `pg` / `mysql2`.

@@ -2,6 +2,7 @@ import { Type, type TObject, type TSchema } from 'typebox';
 import { ALLOWED_METHODS, MAX_CONDITIONS, MAX_ORDER_BY_LENGTH } from '../condition-methods.js';
 import { readableFields } from './helpers.js';
 import { resolveJoinTableConf } from '../table-helpers.js';
+import { extraFilterFields } from '../read-access.js';
 import { DEFAULT_MAX_ITEMS_PER_PAGE, COMPUTE_FNS } from '../../types.js';
 import type { DbTables, TableConfig } from '../../types.js';
 
@@ -95,7 +96,7 @@ function buildJoinBodyProps(
     // own `filters()` — buildJoinRefCondition, i.e. the unique:false paths. joinLeft
     // builds its condition inline (buildLeftJoinClauses) and handles schema and computed
     // fields only, so advertising extraFilters there would promise a silent no-op.
-    const joinFilterFields = { ...joinSchemaFields, ...(joinTableConf?.extraFilters ?? {}) };
+    const joinFilterFields = { ...joinSchemaFields, ...extraFilterFields(joinTableConf) };
 
     const joinRefShape = {
       filters: Type.Optional(filtersObject(joinFilterFields)),
@@ -181,7 +182,7 @@ export function SearchTableBodyPost(
   maxItemsPerPage: number = DEFAULT_MAX_ITEMS_PER_PAGE
 ): TObject {
   const tableConf = dbTables[tableName];
-  const schema = tableConf.Schema;
+  const schema = tableConf.schema;
 
   const methodEnum = Type.Union(ALLOWED_METHODS.map((m) => Type.Literal(m)));
   const conditionItemSchema = Type.Object({
@@ -194,7 +195,7 @@ export function SearchTableBodyPost(
 
   const filterFields = {
     ...readableFields(schema, tableConf),
-    ...tableConf.extraFilters,
+    ...extraFilterFields(tableConf),
     ...computedTypes,
   };
   const filtersSchema = Type.Optional(filtersObject(filterFields));
@@ -238,7 +239,7 @@ export function SearchTableResponse(dbTables: DbTables, tableName: string): TObj
 
   // Not narrowed by schemaOverrides: an override rules what this API accepts from now on,
   // while the rows already stored predate it (see applySchemaOverrides).
-  const mainReadable = readableFields(tableConf.Schema, tableConf);
+  const mainReadable = readableFields(tableConf.schema, tableConf);
   const mainItem = Object.keys(computedTypes).length > 0
     ? Type.Partial(Type.Object({ ...mainReadable, ...computedTypes }))
     : Type.Partial(Type.Object(mainReadable));

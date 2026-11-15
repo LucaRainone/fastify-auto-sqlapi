@@ -11,7 +11,6 @@ import {
   createTestApp,
   cleanTables,
   seedRows,
-  exportTableInfo,
   Type,
 } from './_helpers.js';
 
@@ -52,16 +51,16 @@ const productSchema = {
   partialValidation: Type.Partial(Type.Object(productFields)),
 };
 
-const DbTables = {
+const dbTables = {
   product: {
     primary: 'id',
-    ...exportTableInfo(productSchema),
+    schema: productSchema,
     defaultOrder: 'id',
     insertExclude: ['id'],
   },
   product_translation: {
     primary: ['productId', 'lang'],
-    ...exportTableInfo(translationSchema),
+    schema: translationSchema,
     defaultOrder: 'productId',
   },
 };
@@ -72,7 +71,7 @@ describe(`[${DIALECT}] composite primary key — end-to-end`, () => {
   let productId;
 
   before(async () => {
-    ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
+    ({ app, db } = await createTestApp(dbTables, { prefix: '/auto' }));
     await cleanTables(db, ['product_translation', 'product']);
     const [row] = await seedRows(db, 'product', [{ name: 'Bike', price: 100 }], 'id');
     productId = row.id;

@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
-import { searchRoutes, getRoutes, exportTableInfo, toUnderscore, Type } from '../../dist/index.js';
+import { searchRoutes, getRoutes, toUnderscore, Type } from '../../dist/index.js';
 
 // Granular composition: route plugins registered WITHOUT the main plugin
 // (AGENTS_BACKEND.md "Register only specific routes") must create the sqlApi
@@ -15,10 +15,10 @@ const schema = {
   partialValidation: Type.Partial(Type.Object({ id: Type.Number(), name: Type.String() })),
 };
 
-const DbTables = {
+const dbTables = {
   test_table: {
     primary: 'id',
-    ...exportTableInfo(schema),
+    schema,
   },
 };
 
@@ -51,7 +51,7 @@ describe('granular route plugins registered standalone', () => {
       { rows: [{ id: 1, name: 'Mario' }], rowCount: 1 }, // main (no paginator: no COUNT)
     ]);
     const app = await buildApp(pool, (app) =>
-      app.register(searchRoutes, { DbTables })
+      app.register(searchRoutes, { dbTables })
     );
 
     const res = await app.inject({
@@ -75,8 +75,8 @@ describe('granular route plugins registered standalone', () => {
       { rows: [{ id: 7, name: 'Luigi' }], rowCount: 1 }, // get
     ]);
     const app = await buildApp(pool, async (app) => {
-      await app.register(searchRoutes, { DbTables });
-      await app.register(getRoutes, { DbTables });
+      await app.register(searchRoutes, { dbTables });
+      await app.register(getRoutes, { dbTables });
     });
 
     const search = await app.inject({
@@ -99,7 +99,7 @@ describe('granular route plugins registered standalone', () => {
     ]);
     const app = await buildApp(pool, (app) =>
       app.register(async (instance) => {
-        await instance.register(searchRoutes, { DbTables });
+        await instance.register(searchRoutes, { dbTables });
       }, { prefix: '/public' })
     );
 

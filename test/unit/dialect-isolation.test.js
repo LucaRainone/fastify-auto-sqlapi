@@ -7,7 +7,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
 const { createSqlApi } = await import(path.join(ROOT, 'dist/lib/sql-api.js'));
-const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
@@ -43,7 +42,7 @@ function createDbTables() {
   return {
     customer: {
       primary: 'id',
-      ...exportTableInfo(customerSchema),
+      schema: customerSchema,
       defaultOrder: 'id',
     },
   };

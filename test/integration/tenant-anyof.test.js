@@ -9,7 +9,6 @@ import {
   createTestApp,
   cleanTables,
   seedRows,
-  exportTableInfo,
   toUnderscore,
   Type,
   TENANT_ADMIN,
@@ -33,10 +32,10 @@ const swapSchema = createSchema('shift_swap_request', {
   message: Type.Optional(Type.String()),
 });
 
-const DbTables = {
+const dbTables = {
   shift_swap_request: {
     primary: 'id',
-    ...exportTableInfo(swapSchema),
+    schema: swapSchema,
     defaultOrder: 'id',
     tenantScope: { anyOf: ['requester_agent_id', 'target_agent_id'] },
     upsertMap: new Map([[swapSchema, ['id']]]),
@@ -65,7 +64,7 @@ describe(`[${DIALECT}] tenantScope anyOf integration`, () => {
   let rows;
 
   before(async () => {
-    ({ app, db } = await createTestApp(DbTables, pluginOpts));
+    ({ app, db } = await createTestApp(dbTables, pluginOpts));
     await cleanTables(db, ['shift_swap_request']);
 
     rows = await seedRows(db, 'shift_swap_request', [

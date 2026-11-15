@@ -5,7 +5,6 @@ import {
   createTestApp,
   cleanTables,
   seedRows,
-  exportTableInfo,
   buildRelation,
   toUnderscore,
   Type,
@@ -53,11 +52,11 @@ const orderSchema = createSchema('customer_order', {
   status: Type.Optional(Type.String()),
 });
 
-const DbTables = {
-  organization: { primary: 'id', ...exportTableInfo(orgSchema), defaultOrder: 'id' },
+const dbTables = {
+  organization: { primary: 'id', schema: orgSchema, defaultOrder: 'id' },
   customer: {
     primary: 'id',
-    ...exportTableInfo(customerSchema),
+    schema: customerSchema,
     defaultOrder: 'id',
     allowedReadJoins: [
       // Multiple children: enables joinGroup and the 3-part aggregation orderBy.
@@ -66,7 +65,7 @@ const DbTables = {
       buildRelation(customerSchema, 'organizationId', orgSchema, 'id', { alias: 'org', unique: true }),
     ],
   },
-  customer_order: { primary: 'id', ...exportTableInfo(orderSchema), defaultOrder: 'id' },
+  customer_order: { primary: 'id', schema: orderSchema, defaultOrder: 'id' },
 };
 
 // Every request combines the two bound fragments; orderBy varies per test.
@@ -81,7 +80,7 @@ describe(`[${DIALECT}] aggregation orderBy + filtered joinLeft (misbinding regre
   let annaId;
 
   before(async () => {
-    ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
+    ({ app, db } = await createTestApp(dbTables, { prefix: '/auto' }));
 
     try {
       await db.query(`SELECT 1 FROM ${db.qi('organization')} LIMIT 1`);

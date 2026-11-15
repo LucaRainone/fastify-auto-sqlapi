@@ -9,7 +9,7 @@ import { ROOT, createMockPg, createMockSchema, insertedRows, upsertUpdatedColumn
 
 const { bulkUpsertEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk/bulk-upsert.js'));
 const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/insert.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
@@ -39,14 +39,14 @@ function createDbTables(opts = {}) {
   return {
     customer: {
       primary: 'id',
-      ...exportTableInfo(customerSchema),
+      schema: customerSchema,
       defaultOrder: 'id',
       allowedWriteJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
       ],
       ...(opts.upsertMap ? { upsertMap: opts.upsertMap } : {}),
     },
-    customer_order: { primary: 'id', ...exportTableInfo(orderSchema), defaultOrder: 'id' },
+    customer_order: { primary: 'id', schema: orderSchema, defaultOrder: 'id' },
   };
 }
 
@@ -66,10 +66,10 @@ function createDb() {
 describe('bulkUpsertEngine - items with different fields', () => {
   it('writes a field present only on a later item', async () => {
     const { mockPg, db } = createDb();
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
     await bulkUpsertEngine({
-      db, tableConf: DbTables.customer, dbTables: DbTables, request: {},
+      db, tableConf: dbTables.customer, dbTables: dbTables, request: {},
       items: [
         { main: { name: 'Mario' } },
         { main: { name: 'Luigi', email: 'luigi@test.it' } },
@@ -84,10 +84,10 @@ describe('bulkUpsertEngine - items with different fields', () => {
 
   it('does not overwrite on upsert a column an item omits', async () => {
     const { mockPg, db } = createDb();
-    const DbTables = createDbTables({ upsertMap: new Map([[customerSchema, ['id']]]) });
+    const dbTables = createDbTables({ upsertMap: new Map([[customerSchema, ['id']]]) });
 
     await bulkUpsertEngine({
-      db, tableConf: DbTables.customer, dbTables: DbTables, request: {},
+      db, tableConf: dbTables.customer, dbTables: dbTables, request: {},
       items: [
         { main: { id: 1, name: 'Mario', email: 'mario@test.it' } },
         { main: { id: 2, name: 'Luigi' } },
@@ -104,10 +104,10 @@ describe('bulkUpsertEngine - items with different fields', () => {
 
   it('returns results in input order', async () => {
     const { db } = createDb();
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
     const results = await bulkUpsertEngine({
-      db, tableConf: DbTables.customer, dbTables: DbTables, request: {},
+      db, tableConf: dbTables.customer, dbTables: dbTables, request: {},
       items: [
         { main: { name: 'a' } },
         { main: { name: 'b', email: 'b@test.it' } },
@@ -120,10 +120,10 @@ describe('bulkUpsertEngine - items with different fields', () => {
 
   it('writes secondaries with different fields each with its own fields', async () => {
     const { mockPg, db } = createDb();
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
     await bulkUpsertEngine({
-      db, tableConf: DbTables.customer, dbTables: DbTables, request: {},
+      db, tableConf: dbTables.customer, dbTables: dbTables, request: {},
       items: [{
         main: { name: 'Mario' },
         secondaries: { customer_order: [{ total: 50 }, { total: 75, status: 'shipped' }] },
@@ -143,10 +143,10 @@ describe('bulkUpsertEngine - items with different fields', () => {
 describe('insertEngine - secondaries with different fields', () => {
   it('writes each secondary with its own fields', async () => {
     const { mockPg, db } = createDb();
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
     await insertEngine({
-      db, tableConf: DbTables.customer, dbTables: DbTables, request: {},
+      db, tableConf: dbTables.customer, dbTables: dbTables, request: {},
       record: { name: 'Mario' },
       secondaries: { customer_order: [{ total: 50, status: 'shipped' }, { total: 75 }] },
     });

@@ -9,7 +9,6 @@ const ROOT = path.resolve(__dirname, '../..');
 const { InsertTableBody } = await import(path.join(ROOT, 'dist/lib/schema/insert.js'));
 const { UpdateTableBody } = await import(path.join(ROOT, 'dist/lib/schema/update.js'));
 const { BulkUpsertTableBody } = await import(path.join(ROOT, 'dist/lib/schema/bulk-upsert.js'));
-const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
@@ -31,7 +30,7 @@ const customerFields = {
 
 function createDbTables(overrides) {
   const schema = createMockSchema('customer', customerFields);
-  const info = exportTableInfo(schema);
+  const info = { schema };
   return {
     customer: {
       primary: 'id',
@@ -86,7 +85,7 @@ describe('schemaOverrides - InsertTableBody', () => {
     InsertTableBody(dbTables, 'customer');
 
     // Original schema should be untouched
-    const originalEmail = dbTables.customer.Schema.fields.email;
+    const originalEmail = dbTables.customer.schema.fields.email;
     assert.equal(originalEmail.format, undefined);
   });
 
@@ -180,7 +179,7 @@ function createNullableDbTables(overrides) {
   return {
     customer: {
       primary: 'id',
-      ...exportTableInfo(schema),
+      schema,
       defaultOrder: 'id',
       insertExclude: ['id'],
       ...(overrides ? { schemaOverrides: overrides } : {}),
@@ -221,7 +220,7 @@ describe('schemaOverrides - responses keep the generated type', () => {
     const dbTables = {
       customer: {
         primary: 'id',
-        ...exportTableInfo(customerSchema),
+        schema: customerSchema,
         defaultOrder: 'id',
         allowedReadJoins: [
           buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
@@ -229,7 +228,7 @@ describe('schemaOverrides - responses keep the generated type', () => {
       },
       customer_order: {
         primary: 'id',
-        ...exportTableInfo(orderSchema),
+        schema: orderSchema,
         defaultOrder: 'id',
         schemaOverrides: { reference: Type.String({ format: 'uuid' }) },
       },

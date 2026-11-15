@@ -4,7 +4,6 @@ import Fastify from 'fastify';
 import {
   fastifyAutoSqlApi,
   agentToolSchemas,
-  exportTableInfo,
   toUnderscore,
   Type,
 } from '../../dist/index.js';
@@ -20,7 +19,7 @@ const SchemaAgent = {
   tableName: 'agent',
   partialValidation: Type.Partial(Type.Object(fields)),
 };
-const DbTables = { agent: { primary: 'agentId', ...exportTableInfo(SchemaAgent) } };
+const dbTables = { agent: { primary: 'agentId', schema: SchemaAgent } };
 
 // pg-shaped pool: { rows, rowCount } responses consumed in order, statements recorded
 function createMockPool(responses = []) {
@@ -40,7 +39,7 @@ function createMockPool(responses = []) {
 async function buildApp(pool, pluginOptions = {}) {
   const app = Fastify();
   app.decorate('pg', pool);
-  await app.register(fastifyAutoSqlApi, { DbTables, ...pluginOptions });
+  await app.register(fastifyAutoSqlApi, { dbTables, ...pluginOptions });
   await app.ready();
   return app;
 }
@@ -102,7 +101,7 @@ describe('POST /bulk/:table/delete takes { ids }', () => {
   });
 
   it('the agent tool schema for bulk delete is the same { ids } body', () => {
-    const schemas = agentToolSchemas(DbTables, 'agent', { maxBulkItems: 5 });
+    const schemas = agentToolSchemas(dbTables, 'agent', { maxBulkItems: 5 });
     const body = schemas.bulkDelete.body;
     assert.equal(body.type, 'object');
     assert.deepEqual(body.required, ['ids']);

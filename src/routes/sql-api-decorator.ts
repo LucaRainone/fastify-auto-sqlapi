@@ -26,7 +26,7 @@ export type RegistrationOptions = SqlApiPluginOptions & { [REGISTRATION_SQL_API]
 
 /**
  * The SqlApi of ONE registration, built lazily from that registration's options: its
- * `DbTables`, `getTenantId`, `dialect` and `debug`. The routes of a registration always run
+ * `dbTables`, `getTenantId`, `dialect` and `debug`. The routes of a registration always run
  * through it, never through whatever `fastify.sqlApi` resolves to in their scope — with the
  * plugin registered under two prefixes, that decorator belongs to the first registration, and
  * the second one's tables, tenant scopes and rules would silently be ignored.
@@ -54,7 +54,7 @@ export function createRegistrationSqlApi(
           'and will fail. Decorate a pool (fastify.pg from @fastify/postgres, a mysql2/promise pool).'
         );
       }
-      cachedSqlApi = createSqlApi(db, options.DbTables, { getTenantId: options.getTenantId });
+      cachedSqlApi = createSqlApi(db, options.dbTables, { getTenantId: options.getTenantId });
     }
     return cachedSqlApi;
   };

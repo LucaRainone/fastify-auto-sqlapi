@@ -13,7 +13,7 @@ import {
 
 export function BulkUpsertTableBody(dbTables: DbTables, tableName: string, maxItems?: number) {
   const tableConf = dbTables[tableName];
-  const schema = tableConf.Schema;
+  const schema = tableConf.schema;
 
   // additionalProperties:false makes the schema the real write whitelist (no mass assignment).
   // It goes on Partial itself: Partial rebuilds the object and drops the source's options.
@@ -39,7 +39,7 @@ export function BulkUpsertTableResponse(dbTables: DbTables, tableName: string) {
   const tableConf = dbTables[tableName];
 
   const responseProperties: Record<string, TSchema> = {
-    main: Type.Object(pkSchema(tableConf, tableConf.Schema, primaryAsString(tableConf.primary))),
+    main: Type.Object(pkSchema(tableConf, tableConf.schema, primaryAsString(tableConf.primary))),
     action: WriteActionSchema,
   };
 

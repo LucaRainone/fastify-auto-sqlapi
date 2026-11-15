@@ -12,7 +12,6 @@ import {
   DIALECT,
   createTestApp,
   cleanTables,
-  exportTableInfo,
   Type,
 } from './_helpers.js';
 
@@ -42,10 +41,10 @@ const userAccountSchema = {
 
 let idCounter = 0;
 
-const DbTables = {
+const dbTables = {
   userAccount: {
     primary: 'id',
-    ...exportTableInfo(userAccountSchema),
+    schema: userAccountSchema,
     defaultOrder: 'id',
     insertExclude: ['id'],
     beforeInsert: async ({ record }) => {
@@ -61,7 +60,7 @@ describe(`[${DIALECT}] insertExclude + beforeInsert-generated PK`, () => {
   let db;
 
   before(async () => {
-    ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
+    ({ app, db } = await createTestApp(dbTables, { prefix: '/auto' }));
     await cleanTables(db, ['userAccount']);
   });
 

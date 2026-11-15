@@ -186,8 +186,8 @@ export async function prepareInsertRecord(
   if (ctx.tableConf.beforeInsert) {
     await ctx.tableConf.beforeInsert({ db: ctx.db, req: ctx.request, record: camel });
   }
-  removeWriteExcluded(camel, ctx.tableConf, ctx.tableConf.Schema);
-  const snake = snakecaseRecord(camel, ctx.tableConf.Schema);
+  removeWriteExcluded(camel, ctx.tableConf, ctx.tableConf.schema);
+  const snake = snakecaseRecord(camel, ctx.tableConf.schema);
   return { camel, snake };
 }
 

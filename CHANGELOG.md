@@ -53,6 +53,14 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **BREAKING: a table config is one flat object, and the plugin option is `dbTables`.**
+  `defineTable({ primary, schema, extraFilters, extendedCondition, ... })` replaces the spread
+  of `exportTableInfo(Schema, extraFilters, extendedCondition)`, which is no longer exported;
+  the table config carries `schema` (was `Schema`) and no `filters` function. The plugin, the
+  route plugins and `createSqlApi` check every `dbTables` entry at startup: the pre-1.0 shape
+  (`Schema`, `filters`) or a missing `schema` throws, naming the new key. The plugin option
+  `DbTables` is `dbTables`, and passing `DbTables` throws. The `TableFilterFn` type is gone;
+  `TableDefinition` types what `defineTable` takes. See BREAKING_CHANGES.md.
 - **BREAKING: the search request travels in the body only.** The querystring keys `orderBy`,
   `page`, `itemsPerPage` and `computeMin|Max|Sum|Avg` are a 400 `retired_key` at that key
   (`orderBy`, `paginator`, `compute` go in the body); any other querystring key is left alone.

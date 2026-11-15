@@ -11,7 +11,7 @@ import Fastify from 'fastify';
 import path from 'node:path';
 import { ROOT, createMockSchema } from './_harness.js';
 
-const { fastifyAutoSqlApi, buildRelation, defineTable, exportTableInfo, Type } =
+const { fastifyAutoSqlApi, buildRelation, defineTable, Type } =
   await import(path.join(ROOT, 'dist/index.js'));
 
 const SchemaConversation = createMockSchema('conversation', {
@@ -43,10 +43,10 @@ function createMockPool(responses = []) {
 }
 
 async function buildApp({ conversation = {}, messageSelect } = {}, pool = createMockPool()) {
-  const DbTables = {
+  const dbTables = {
     chat: defineTable({
       primary: 'id',
-      ...exportTableInfo(SchemaConversation),
+      schema: SchemaConversation,
       readExclude: ['secret'],
       allowedReadJoins: [
         buildRelation(SchemaConversation, 'creatorId', SchemaUser, 'id', { alias: 'creator', unique: true }),
@@ -57,12 +57,12 @@ async function buildApp({ conversation = {}, messageSelect } = {}, pool = create
       ],
       ...conversation,
     }),
-    user: defineTable({ primary: 'id', ...exportTableInfo(SchemaUser) }),
-    message: defineTable({ primary: 'id', ...exportTableInfo(SchemaMessage) }),
+    user: defineTable({ primary: 'id', schema: SchemaUser }),
+    message: defineTable({ primary: 'id', schema: SchemaMessage }),
   };
   const app = Fastify();
   app.decorate('pg', pool);
-  await app.register(fastifyAutoSqlApi, { DbTables });
+  await app.register(fastifyAutoSqlApi, { dbTables });
   return app;
 }
 
@@ -144,8 +144,8 @@ describe('search select — main projection', () => {
     const { SearchTableBodyPost } = await import(path.join(ROOT, 'dist/lib/schema/search.js'));
     const app = await buildApp();
     await app.close();
-    const DbTables = { chat: defineTable({ primary: 'id', ...exportTableInfo(SchemaConversation) }) };
-    const body = SearchTableBodyPost(DbTables, 'chat');
+    const dbTables = { chat: defineTable({ primary: 'id', schema: SchemaConversation }) };
+    const body = SearchTableBodyPost(dbTables, 'chat');
     assert.equal(body.properties.select?.type, 'array', JSON.stringify(body.properties.select));
   });
 });

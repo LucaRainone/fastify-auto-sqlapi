@@ -70,7 +70,7 @@ export async function resolveTenant(
   request: ApiRequest
 ): Promise<TenantContext | undefined> {
   if (!options.getTenantId) return undefined;
-  if (!scopeInReach(tableConf, options.DbTables)) return undefined;
+  if (!scopeInReach(tableConf, options.dbTables)) return undefined;
 
   const raw = await options.getTenantId(request);
   // Admin is declared with the sentinel. An absent tenant is NOT an admin: it is the signature

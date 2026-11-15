@@ -125,7 +125,7 @@ describe('generateSingleTableFile', () => {
     assert.ok(output.includes('// readExclude: []'));
     assert.ok(output.includes("export const TableCustomer = defineTable({"));
     assert.ok(output.includes("primary: 'id'"));
-    assert.ok(output.includes("...exportTableInfo(Schema)"));
+    assert.ok(output.includes("schema: Schema"));
   });
 
   it('includes insertExclude for auto-increment PK', () => {
@@ -142,12 +142,12 @@ describe('generateSingleTableFile', () => {
     assert.ok(output.includes('// Fields: id, name, email'));
   });
 
-  it('includes commented extraFiltersValidation example', () => {
+  it('includes commented extraFilters and extendedCondition example', () => {
     const customer = parseSchemaFile(customerSchemaContent);
     const output = generateSingleTableFile(customer, [customer]);
 
-    assert.ok(output.includes('extraFiltersValidation'));
-    assert.ok(output.includes('Type.Object'));
+    assert.ok(output.includes('// extraFilters: { q: Type.String() },'));
+    assert.ok(output.includes('// extendedCondition: (condition, filters) => {'));
   });
 
   it('includes commented relation imports for parent table', () => {

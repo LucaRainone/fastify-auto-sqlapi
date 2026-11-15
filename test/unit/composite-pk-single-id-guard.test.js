@@ -23,14 +23,13 @@ function createCompositeTable(operations) {
   const fields = { agentId: Type.Number(), teamId: Type.Number(), role: Type.String() };
   return {
     primary: ['agentId', 'teamId'],
-    Schema: {
+    schema: {
       col: (f) => f,
       fields,
       validation: Type.Object(fields),
       tableName: 'agent_team',
       partialValidation: Type.Partial(Type.Object(fields)),
     },
-    filters: () => ({ build: () => ({ where: '1=1', values: [] }) }),
     extraFilters: {},
     ...(operations ? { operations } : {}),
   };
@@ -50,7 +49,7 @@ describe('composite PK - route registration', () => {
   it('skips get/delete/bulkDelete by default, keeps the other operations', async () => {
     const app = Fastify();
     await app.register(fastifyAutoSqlApi, {
-      DbTables: { agent_team: createCompositeTable(undefined) },
+      dbTables: { agent_team: createCompositeTable(undefined) },
     });
     await app.ready();
 
@@ -71,7 +70,7 @@ describe('composite PK - route registration', () => {
     await assert.rejects(
       async () => {
         await app.register(fastifyAutoSqlApi, {
-          DbTables: { agent_team: createCompositeTable(['search', 'delete']) },
+          dbTables: { agent_team: createCompositeTable(['search', 'delete']) },
         });
         await app.ready();
       },

@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
@@ -43,10 +43,10 @@ function createTestDbTables(mockPg) {
   const customerSchema = createMockSchema('customer', customerFields);
   const orderSchema = createMockSchema('customer_order', orderFields);
 
-  const customerInfo = exportTableInfo(customerSchema);
-  const orderInfo = exportTableInfo(orderSchema);
+  const customerInfo = { schema: customerSchema };
+  const orderInfo = { schema: orderSchema };
 
-  const DbTables = {
+  const dbTables = {
     customer: {
       primary: 'id',
       ...customerInfo,
@@ -62,7 +62,7 @@ function createTestDbTables(mockPg) {
     },
   };
 
-  return { DbTables, db: new QueryClient(mockPg) };
+  return { dbTables, db: new QueryClient(mockPg) };
 }
 
 describe('searchEngine - main query', () => {
@@ -70,11 +70,11 @@ describe('searchEngine - main query', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, name: 'Mario', email: 'mario@test.it' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    const result = await searchEngine(DbTables, {
+    const result = await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
     });
 
     assert.equal(result.main.length, 1);
@@ -88,11 +88,11 @@ describe('searchEngine - main query', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       filters: { name: 'Mario' },
     });
 
@@ -104,11 +104,11 @@ describe('searchEngine - main query', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       orderBy: 'name DESC',
     });
 
@@ -119,11 +119,11 @@ describe('searchEngine - main query', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       orderBy: 'id DESC, name ASC',
     });
 
@@ -132,12 +132,12 @@ describe('searchEngine - main query', () => {
 
   it('rejects invalid orderBy field', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db,
-        tableConf: DbTables.customer,
+        tableConf: dbTables.customer,
         orderBy: 'nonExistent DESC',
       }),
       (err) => err.statusCode === 400 && err.message.includes('Unknown field')
@@ -146,12 +146,12 @@ describe('searchEngine - main query', () => {
 
   it('rejects SQL injection in orderBy', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db,
-        tableConf: DbTables.customer,
+        tableConf: dbTables.customer,
         orderBy: 'id; DROP TABLE customer; --',
       }),
       (err) => err.statusCode === 400
@@ -162,11 +162,11 @@ describe('searchEngine - main query', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    const result = await searchEngine(DbTables, {
+    const result = await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
     });
 
     assert.equal(result.joinMultiple, undefined);
@@ -183,11 +183,11 @@ describe('searchEngine - pagination', () => {
       // COUNT
       { rows: [{ total: '25' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    const result = await searchEngine(DbTables, {
+    const result = await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       paginator: { page: 2, itemsPerPage: 10 },
     });
 
@@ -214,11 +214,11 @@ describe('searchEngine - pagination', () => {
       // MAX
       { rows: [{ value: 100 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    const result = await searchEngine(DbTables, {
+    const result = await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       paginator: { page: 1, itemsPerPage: 10 },
       compute: { min: ['id'], max: ['id'] },
     });
@@ -236,11 +236,11 @@ describe('searchEngine - no pagination', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
     });
 
     assert.ok(!mockPg.calls[0].text.includes('LIMIT'));
@@ -256,11 +256,11 @@ describe('searchEngine - virtual joins', () => {
       // Join query: orders
       { rows: [{ id: 10, customer_id: 1, total: 50, status: 'pending' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    const result = await searchEngine(DbTables, {
+    const result = await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinMultiple: { customer_order: {} },
     });
 
@@ -277,11 +277,11 @@ describe('searchEngine - virtual joins', () => {
       // Main query: empty
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    const result = await searchEngine(DbTables, {
+    const result = await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinMultiple: { customer_order: {} },
     });
 
@@ -294,11 +294,11 @@ describe('searchEngine - virtual joins', () => {
       { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinMultiple: { customer_order: { filters: { status: 'pending' } } },
     });
 
@@ -312,11 +312,11 @@ describe('searchEngine - joinMustExist (EXISTS)', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinMustExist: {
         customer_order: { filters: { status: 'pending' } },
       },
@@ -333,11 +333,11 @@ describe('searchEngine - joinMustExist (EXISTS)', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       filters: { name: 'Mario' },
       joinMustExist: {
         customer_order: { filters: { status: 'pending' } },
@@ -355,11 +355,11 @@ describe('searchEngine - joinMustExist (EXISTS)', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       filters: { name: 'Mario', email: 'test@test.it' },
       joinMustExist: {
         customer_order: { filters: { status: 'pending', total: 100 } },
@@ -379,12 +379,12 @@ describe('searchEngine - joinMustExist (EXISTS)', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db,
-        tableConf: DbTables.customer,
+        tableConf: dbTables.customer,
         joinMustExist: {
           nonexistent_table: { filters: { foo: 'bar' } },
         },
@@ -400,11 +400,11 @@ describe('searchEngine - joinMustExist (EXISTS)', () => {
       // COUNT query
       { rows: [{ total: '1' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    const result = await searchEngine(DbTables, {
+    const result = await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinMustExist: {
         customer_order: { filters: { status: 'pending' } },
       },
@@ -424,11 +424,11 @@ describe('searchEngine - conditions (advanced filters)', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       conditions: [
         { field: 'id', method: 'isGreater', params: [5] },
       ],
@@ -443,11 +443,11 @@ describe('searchEngine - conditions (advanced filters)', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       conditions: [
         { field: 'id', method: 'isGreater', params: [1] },
         { field: 'id', method: 'isLess', params: [100] },
@@ -462,11 +462,11 @@ describe('searchEngine - conditions (advanced filters)', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       conditions: [
         { field: 'name', method: 'isILike', params: ['%mario%'] },
       ],
@@ -479,11 +479,11 @@ describe('searchEngine - conditions (advanced filters)', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       conditions: [
         { field: 'email', method: 'isNull', params: [] },
       ],
@@ -497,11 +497,11 @@ describe('searchEngine - conditions (advanced filters)', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       conditions: [
         { field: 'id', method: 'isIn', params: [[1, 2, 3]] },
       ],
@@ -515,11 +515,11 @@ describe('searchEngine - conditions (advanced filters)', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       conditions: [
         { field: 'id', method: 'isBetween', params: [10, 50] },
       ],
@@ -533,11 +533,11 @@ describe('searchEngine - conditions (advanced filters)', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       filters: { name: 'Mario' },
       conditions: [
         { field: 'id', method: 'isGreater', params: [5] },
@@ -550,12 +550,12 @@ describe('searchEngine - conditions (advanced filters)', () => {
 
   it('rejects unknown method (prototype poisoning)', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db,
-        tableConf: DbTables.customer,
+        tableConf: dbTables.customer,
         conditions: [
           { field: 'id', method: 'constructor', params: [] },
         ],
@@ -566,12 +566,12 @@ describe('searchEngine - conditions (advanced filters)', () => {
 
   it('rejects raw method', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db,
-        tableConf: DbTables.customer,
+        tableConf: dbTables.customer,
         conditions: [
           { field: 'id', method: 'raw', params: ['1=1; DROP TABLE--', []] },
         ],
@@ -582,12 +582,12 @@ describe('searchEngine - conditions (advanced filters)', () => {
 
   it('rejects unknown field', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db,
-        tableConf: DbTables.customer,
+        tableConf: dbTables.customer,
         conditions: [
           { field: 'nonExistent', method: 'isEqual', params: [1] },
         ],
@@ -600,11 +600,11 @@ describe('searchEngine - conditions (advanced filters)', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       conditions: [
         { field: 'id', method: 'isBetween', params: [undefined, 100] },
       ],
@@ -620,11 +620,11 @@ describe('searchEngine - conditions (advanced filters)', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       conditions: [
         { field: 'id', method: 'isBetween', params: [50, undefined] },
       ],
@@ -639,11 +639,11 @@ describe('searchEngine - conditions (advanced filters)', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       conditions: [
         { field: 'id', method: 'isBetween', params: [undefined, undefined] },
       ],
@@ -657,11 +657,11 @@ describe('searchEngine - conditions (advanced filters)', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       conditions: [
         { field: 'name', method: 'isEqual', params: [undefined] },
       ],
@@ -674,11 +674,11 @@ describe('searchEngine - conditions (advanced filters)', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       conditions: [
         { field: 'id', method: 'isIn', params: [undefined] },
       ],
@@ -696,11 +696,11 @@ describe('searchEngine - joinGroup', () => {
       // JoinGroup aggregation
       { rows: [{ sum_total: 150 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    const result = await searchEngine(DbTables, {
+    const result = await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinGroup: {
         customer_order: {
           sum: ['total'],
@@ -719,11 +719,11 @@ describe('searchEngine - joinGroup', () => {
       { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
       { rows: [{ by: 'pending', sum_total: 100 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinGroup: {
         customer_order: {
           by: 'status', sum: ['total'],
@@ -743,10 +743,10 @@ describe('searchEngine - joinGroup', () => {
       { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
       { rows: [{ by: '2026-04-01', sum_total: 100 }], affectedRows: 1 },
     ]);
-    const DbTables = {
+    const dbTables = {
       customer: {
         primary: 'id',
-        ...exportTableInfo(customerSchema),
+        schema: customerSchema,
         defaultOrder: 'id',
         allowedReadJoins: [
           buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
@@ -754,7 +754,7 @@ describe('searchEngine - joinGroup', () => {
       },
       customer_order: {
         primary: 'id',
-        ...exportTableInfo(orderSchema),
+        schema: orderSchema,
         defaultOrder: 'id',
         computedFields: {
           monthBucket: ({ db, qiCol }) => ({
@@ -767,9 +767,9 @@ describe('searchEngine - joinGroup', () => {
     };
     const db = new QueryClient(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinGroup: {
         customer_order: {
           by: 'monthBucket', sum: ['total'],
@@ -788,12 +788,12 @@ describe('searchEngine - joinGroup', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, name: 'Mario', email: 'm@t.it' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db,
-        tableConf: DbTables.customer,
+        tableConf: dbTables.customer,
         joinGroup: {
           customer_order: {
             by: 'bogus', sum: ['total'],
@@ -822,10 +822,10 @@ const sessionFields = {
 function createSessionDbTables(mockPg) {
   const userSchema = createMockSchema('user', userFields);
   const sessionSchema = createMockSchema('session', sessionFields);
-  const userInfo = exportTableInfo(userSchema);
-  const sessionInfo = exportTableInfo(sessionSchema);
+  const userInfo = { schema: userSchema };
+  const sessionInfo = { schema: sessionSchema };
 
-  const DbTables = {
+  const dbTables = {
     session: {
       primary: 'id',
       ...sessionInfo,
@@ -845,7 +845,7 @@ function createSessionDbTables(mockPg) {
     user: { primary: 'id', ...userInfo, defaultOrder: 'id' },
   };
 
-  return { DbTables, db: new QueryClient(mockPg) };
+  return { dbTables, db: new QueryClient(mockPg) };
 }
 
 describe('searchEngine - joinLeft (N:1 parent)', () => {
@@ -854,11 +854,11 @@ describe('searchEngine - joinLeft (N:1 parent)', () => {
       { rows: [{ id: 1, user_id: 7, active: true }], affectedRows: 1 },
       { rows: [{ id: 7, name: 'Alice', role: 'admin' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createSessionDbTables(mockPg);
+    const { dbTables, db } = createSessionDbTables(mockPg);
 
-    const result = await searchEngine(DbTables, {
+    const result = await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.session,
+      tableConf: dbTables.session,
       joinLeft: { creator: {} },
     });
 
@@ -874,11 +874,11 @@ describe('searchEngine - joinLeft (N:1 parent)', () => {
       { rows: [{ id: 1, user_id: 7, active: true }], affectedRows: 1 },
       { rows: [{ id: 7, name: 'Alice', role: 'admin' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createSessionDbTables(mockPg);
+    const { dbTables, db } = createSessionDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.session,
+      tableConf: dbTables.session,
       joinLeft: { creator: { filters: { role: 'admin' } } },
     });
 
@@ -893,11 +893,11 @@ describe('searchEngine - joinLeft (N:1 parent)', () => {
       { rows: [{ id: 1, user_id: 7, active: true }], affectedRows: 1 },
       { rows: [{ id: 7, name: 'Alice', role: 'admin' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createSessionDbTables(mockPg);
+    const { dbTables, db } = createSessionDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.session,
+      tableConf: dbTables.session,
       joinLeft: { creator: {} },
       orderBy: 'creator.name ASC',
     });
@@ -909,12 +909,12 @@ describe('searchEngine - joinLeft (N:1 parent)', () => {
 
   it('rejects joinLeft on non-unique alias with 400', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db,
-        tableConf: DbTables.customer,
+        tableConf: dbTables.customer,
         joinLeft: { customer_order: {} },
       }),
       (err) => err.statusCode === 400 && /unique:true/.test(err.message)
@@ -923,12 +923,12 @@ describe('searchEngine - joinLeft (N:1 parent)', () => {
 
   it('rejects joinMultiple on unique alias with 400', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createSessionDbTables(mockPg);
+    const { dbTables, db } = createSessionDbTables(mockPg);
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db,
-        tableConf: DbTables.session,
+        tableConf: dbTables.session,
         joinMultiple: { creator: {} },
       }),
       (err) => err.statusCode === 400 && /joinLeft/.test(err.message)
@@ -943,11 +943,11 @@ describe('searchEngine - joinLeft (N:1 parent)', () => {
       // updater side query
       { rows: [{ id: 7, name: 'Alice' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createSessionDbTables(mockPg);
+    const { dbTables, db } = createSessionDbTables(mockPg);
 
-    const result = await searchEngine(DbTables, {
+    const result = await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.session,
+      tableConf: dbTables.session,
       joinLeft: {
         creator: {},
         updater: {},
@@ -963,11 +963,11 @@ describe('searchEngine - joinLeft (N:1 parent)', () => {
       { rows: [{ id: 1, user_id: 7, active: true }], affectedRows: 1 },
       { rows: [{ id: 7, name: 'Alice' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createSessionDbTables(mockPg);
+    const { dbTables, db } = createSessionDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.session,
+      tableConf: dbTables.session,
       joinLeft: { creator: { select: ['id', 'name'] } },
     });
 
@@ -987,9 +987,9 @@ function createComputedDbTables(mockPg) {
     lastName: Type.String(),
     metadata: Type.Any(),
   });
-  const customerInfo = exportTableInfo(customerSchema);
+  const customerInfo = { schema: customerSchema };
 
-  const DbTables = {
+  const dbTables = {
     customer: {
       primary: 'id',
       ...customerInfo,
@@ -1011,17 +1011,17 @@ function createComputedDbTables(mockPg) {
     },
   };
 
-  return { DbTables, db: new QueryClient(mockPg) };
+  return { dbTables, db: new QueryClient(mockPg) };
 }
 
 describe('searchEngine - computed fields', () => {
   it('filters by computed (equality) via side-channel WHERE', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createComputedDbTables(mockPg);
+    const { dbTables, db } = createComputedDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       filters: { statusFromMeta: 'active' },
     });
 
@@ -1033,11 +1033,11 @@ describe('searchEngine - computed fields', () => {
 
   it('orderBy by computed (1-part) emits the expr in ORDER BY', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createComputedDbTables(mockPg);
+    const { dbTables, db } = createComputedDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       orderBy: 'fullName ASC',
     });
 
@@ -1049,11 +1049,11 @@ describe('searchEngine - computed fields', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, first_name: 'Mario', last_name: 'Rossi', fullName: 'Mario Rossi' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createComputedDbTables(mockPg);
+    const { dbTables, db } = createComputedDbTables(mockPg);
 
-    const result = await searchEngine(DbTables, {
+    const result = await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       select: ['fullName'],
     });
 
@@ -1064,12 +1064,12 @@ describe('searchEngine - computed fields', () => {
 
   it('rejects an unknown name in select (400)', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createComputedDbTables(mockPg);
+    const { dbTables, db } = createComputedDbTables(mockPg);
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db,
-        tableConf: DbTables.customer,
+        tableConf: dbTables.customer,
         select: ['bogus'],
       }),
       (err) => err.statusCode === 400 && /Unknown field: bogus/.test(err.message)
@@ -1078,11 +1078,11 @@ describe('searchEngine - computed fields', () => {
 
   it('conditions with operator on computed field uses side-channel', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createComputedDbTables(mockPg);
+    const { dbTables, db } = createComputedDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       conditions: [
         { field: 'fullName', method: 'isILike', params: ['%mario%'] },
       ],
@@ -1100,11 +1100,11 @@ describe('searchEngine - computed fields', () => {
       { rows: [{ total: '1' }], affectedRows: 1 },    // count
       { rows: [{ value: 'M Rossi' }], affectedRows: 1 }, // compute.min
     ]);
-    const { DbTables, db } = createComputedDbTables(mockPg);
+    const { dbTables, db } = createComputedDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       paginator: { page: 1, itemsPerPage: 10 },
       compute: { min: ['fullName'] },
     });

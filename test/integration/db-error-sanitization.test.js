@@ -11,7 +11,6 @@ import {
   createTestApp,
   cleanTables,
   seedRows,
-  exportTableInfo,
   Type,
 } from './_helpers.js';
 
@@ -32,10 +31,10 @@ const productSchema = {
 
 // `id` is deliberately NOT in insertExclude: the client sends it, so an existing
 // value hits the primary key and the database raises a unique violation.
-const DbTables = {
+const dbTables = {
   product: {
     primary: 'id',
-    ...exportTableInfo(productSchema),
+    schema: productSchema,
     defaultOrder: 'id',
   },
 };
@@ -47,8 +46,8 @@ describe(`[${DIALECT}] a real constraint violation does not describe the schema`
   let takenId;
 
   before(async () => {
-    ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
-    ({ app: debugApp } = await createTestApp(DbTables, {
+    ({ app, db } = await createTestApp(dbTables, { prefix: '/auto' }));
+    ({ app: debugApp } = await createTestApp(dbTables, {
       prefix: '/auto',
       exposeDebugInfo: true,
     }));
@@ -102,7 +101,7 @@ describe(`[${DIALECT}] a real constraint violation mapped through dbErrors`, () 
   const uniqueViolation = DIALECT === 'postgres' ? '23505' : 'ER_DUP_ENTRY';
 
   before(async () => {
-    ({ app, db } = await createTestApp(DbTables, {
+    ({ app, db } = await createTestApp(dbTables, {
       prefix: '/auto',
       dbErrors: { [uniqueViolation]: { status: 409, code: 'product_exists' } },
     }));

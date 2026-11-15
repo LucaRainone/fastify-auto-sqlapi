@@ -13,7 +13,7 @@ import type {
 export async function insertEngine(params: InsertParams): Promise<InsertResult> {
   const { db, tableConf, dbTables, request, record, secondaries, tenant } = params;
 
-  const schema = tableConf.Schema;
+  const schema = tableConf.schema;
   // Full primary key columns (composite PKs need every column for RETURNING /
   // mysql synthesis, otherwise the response is missing PK fields).
   const pkCol = primaryAsCols(tableConf.primary, (f) => schema.col(f));

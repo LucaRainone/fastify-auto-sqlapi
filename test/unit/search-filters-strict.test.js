@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
 const { SearchTableBodyPost } = await import(path.join(ROOT, 'dist/lib/schema/search.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { searchRoutes, Type } = await import(path.join(ROOT, 'dist/index.js'));
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
@@ -43,14 +43,14 @@ function createDbTables() {
   // `customer` carries an extraFilter; `customer_order` joins it both ways:
   //  - alias 'orders'   (unique:false) → joinMustExist / joinMultiple / joinGroup
   //  - alias 'customer' (unique:true)  → joinLeft
-  const customerInfo = exportTableInfo(
-    customerSchema,
-    { nameLike: Type.String() },
-    (condition, filters) => {
+  const customerInfo = {
+    schema: customerSchema,
+    extraFilters: { nameLike: Type.String() },
+    extendedCondition: (condition, filters) => {
       if (filters.nameLike !== undefined) condition.isLike('"customer"."name"', filters.nameLike);
-    }
-  );
-  const orderInfo = exportTableInfo(orderSchema);
+    },
+  };
+  const orderInfo = { schema: orderSchema };
 
   return {
     customer: {
@@ -152,7 +152,7 @@ function createMockPool() {
 async function buildApp(pool) {
   const app = Fastify();
   app.decorate('pg', pool);
-  await app.register(searchRoutes, { DbTables: createDbTables() });
+  await app.register(searchRoutes, { dbTables: createDbTables() });
   await app.ready();
   return app;
 }
@@ -243,12 +243,12 @@ describe('search filters reject unknown keys (over HTTP)', () => {
     // The check lives in the engine precisely so sqlApi.search() is covered: a route-schema
     // guard would leave consumer code calling the engine directly on the old behaviour.
     const db = new QueryClient(createMockPool());
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db,
-        tableConf: DbTables.customer,
+        tableConf: dbTables.customer,
         filters: { nosuchfield: 'x' },
       }),
       (err) => {
@@ -263,11 +263,11 @@ describe('search filters reject unknown keys (over HTTP)', () => {
     // `undefined` means "not supplied" everywhere else in the engine; spreading an optional
     // value into a filters object must not become a 400.
     const db = new QueryClient(createMockPool());
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
-    const result = await searchEngine(DbTables, {
+    const result = await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       filters: { name: 'Mario', nosuchfield: undefined },
     });
 

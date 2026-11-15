@@ -1,5 +1,5 @@
 import type {DbTables} from 'fastify-auto-sqlapi';
-import {buildRelation, ConditionBuilder, defineTable, exportTableInfo, Type,} from 'fastify-auto-sqlapi';
+import {buildRelation, ConditionBuilder, defineTable, Type,} from 'fastify-auto-sqlapi';
 
 import {SchemaCustomer} from './output/SchemaCustomer.js';
 import {SchemaCustomerOrder} from './output/SchemaCustomerOrder.js';
@@ -13,7 +13,9 @@ const customerExtraFilters = {
 
 const TableCustomer = defineTable({
   primary: 'id',
-  ...exportTableInfo(SchemaCustomer, customerExtraFilters, (condition, opts) => {
+  schema: SchemaCustomer,
+  extraFilters: customerExtraFilters,
+  extendedCondition: (condition, opts) => {
     if (opts.q) {
       const orCond = new ConditionBuilder('OR');
       orCond.isILike('name', `%${opts.q}%`);
@@ -21,7 +23,7 @@ const TableCustomer = defineTable({
       orCond.isILike('phone_number', `%${opts.q}%`);
       condition.append(orCond);
     }
-  }),
+  },
   defaultOrder: 'name',
   allowedReadJoins: [
     buildRelation(SchemaCustomer, 'id', SchemaCustomerOrder, 'customerId'),
@@ -35,7 +37,7 @@ const TableCustomer = defineTable({
 
 const TableCustomerOrder = defineTable({
   primary: 'id',
-  ...exportTableInfo(SchemaCustomerOrder),
+  schema: SchemaCustomerOrder,
   defaultOrder: 'order_date DESC',
   insertExclude: ['id'],
   tenantScope: {
@@ -46,11 +48,11 @@ const TableCustomerOrder = defineTable({
 
 const TableProduct = defineTable({
   primary: 'id',
-  ...exportTableInfo(SchemaProduct),
+  schema: SchemaProduct,
   defaultOrder: 'name',
 });
 
-// ─── DbTables export ────────────────────────────────────────
+// ─── dbTables export ────────────────────────────────────────
 
 export const dbTables: DbTables = {
   customer: TableCustomer,

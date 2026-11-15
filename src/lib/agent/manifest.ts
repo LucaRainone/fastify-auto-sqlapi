@@ -1,6 +1,7 @@
 import type { TSchema } from 'typebox';
 import { isCompositePrimary } from '../../types.js';
 import type { DbTables, TableConfig, JoinDefinition, TableOperation } from '../../types.js';
+import { extraFilterFields } from '../read-access.js';
 import { writeExcludedFields, insertExcludedFields } from '../write-access.js';
 
 const ALL_OPERATIONS: TableOperation[] = [
@@ -90,7 +91,7 @@ export function tableOperations(tableConf: TableConfig): TableOperation[] {
 
 /** Field descriptors: type, plus the flags an agent needs to build a valid payload. */
 function manifestFields(tableConf: TableConfig): Record<string, ManifestField> {
-  const schema = tableConf.Schema;
+  const schema = tableConf.schema;
   const required = new Set(((schema.validation as { required?: string[] }).required) ?? []);
   const readExcluded = new Set(tableConf.readExclude ?? []);
   const writeExcluded = writeExcludedFields(tableConf, schema);
@@ -116,7 +117,7 @@ function manifestJoins(joins: JoinDefinition[] | undefined): ManifestJoin[] {
 }
 
 function manifestExtraFilters(tableConf: TableConfig): Record<string, string> | undefined {
-  const entries = Object.entries(tableConf.extraFilters ?? {});
+  const entries = Object.entries(extraFilterFields(tableConf));
   if (entries.length === 0) return undefined;
   return Object.fromEntries(entries.map(([n, s]) => [n, shortType(s)]));
 }
@@ -124,7 +125,7 @@ function manifestExtraFilters(tableConf: TableConfig): Record<string, string> | 
 /** One table's entry. Optional keys are omitted entirely when empty, to keep the prompt small. */
 function manifestTable(tableConf: TableConfig): ManifestTable {
   const entry: ManifestTable = {
-    table: tableConf.Schema.tableName,
+    table: tableConf.schema.tableName,
     primary: tableConf.primary,
     operations: tableOperations(tableConf),
     fields: manifestFields(tableConf),
@@ -150,7 +151,7 @@ function manifestTable(tableConf: TableConfig): ManifestTable {
 /**
  * Build the machine-readable description of every table exposed by this deployment:
  * fields (type/required/nullable), enabled operations, join aliases, computed fields,
- * extra filters, tenant scoping. Derived entirely from `DbTables`, so it is always in
+ * extra filters, tenant scoping. Derived entirely from `dbTables`, so it is always in
  * sync with the running configuration. Pairs with AGENTS_FRONTEND.md (the request grammar)
  * to give an LLM client everything it needs to drive the API.
  */

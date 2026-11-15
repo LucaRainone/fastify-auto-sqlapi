@@ -1,4 +1,5 @@
 import type { QueryClient } from '../../db.js';
+import { buildTableFilters } from '../../table-helpers.js';
 import { ConditionBuilder } from 'node-condition-builder';
 import { QueryParams } from '../query-params.js';
 import { buildTenantCondition, buildTenantJoin } from '../../tenant.js';
@@ -86,7 +87,7 @@ async function executeMainQuery(
   projection?: MainProjection,
   maxRows?: number
 ): Promise<Record<string, unknown>[]> {
-  const tableName = tableConf.Schema.tableName;
+  const tableName = tableConf.schema.tableName;
   // Request orderBy arrives already validated and mapped by validateOrderBy;
   // configured fallbacks (defaultOrder / primary key) are converted leniently here.
   const order = orderBy || convertConfiguredOrder(
@@ -105,7 +106,7 @@ async function executeMainQuery(
   // and a bare `*` would hand the joined table's columns to the row.
   const readableColumns = projection
     ? buildMainSelectColumns(projection.select, projection.required, tableConf, db)
-    : readableSelectColumns(tableConf, tableConf.Schema, db);
+    : readableSelectColumns(tableConf, tableConf.schema, db);
 
   // Computed fields listed in `select` — bound values, if any, are NOT yet supported
   // here (would require placeholder-aware composition with WHERE values).
@@ -115,7 +116,7 @@ async function executeMainQuery(
     const fn = ownField(tableConf.computedFields, name);
     if (!fn || computedNames.includes(name)) continue;
     const out = evaluateComputedField(
-      name, fn, tableConf.Schema, db, undefined,
+      name, fn, tableConf.schema, db, undefined,
       `Computed field '${name}' with bound values cannot be used in select`,
       false, `select.${i}`,
     );
@@ -135,7 +136,7 @@ async function executeMainQuery(
     joins: extraJoins.length > 0 ? extraJoins : undefined,
   });
 
-  return mapRowsToCamelCase(rows, tableConf.Schema, computedNames);
+  return mapRowsToCamelCase(rows, tableConf.schema, computedNames);
 }
 
 /** A request `select`, with the fields the query itself needs projected alongside. */
@@ -172,7 +173,7 @@ function requiredProjection(params: SearchParams): string[] {
     const order = orderBy || tableConf.defaultOrder || primaryAsString(tableConf.primary);
     for (const part of order.split(',')) {
       const plain = /^(\w+)(?:\s+(?:ASC|DESC))?$/i.exec(part.trim());
-      if (plain && hasOwnField(tableConf.Schema.fields, plain[1])) required.push(plain[1]);
+      if (plain && hasOwnField(tableConf.schema.fields, plain[1])) required.push(plain[1]);
     }
   }
 
@@ -187,7 +188,7 @@ async function buildPagination(
   paginator: { page: number; itemsPerPage: number },
   extraJoins: string[] = []
 ): Promise<PaginationResult> {
-  const tableName = tableConf.Schema.tableName;
+  const tableName = tableConf.schema.tableName;
   const joinClause = extraJoins.length > 0 ? ' ' + extraJoins.join(' ') : '';
 
   const countResult = await db.query<{ total: string }>(
@@ -214,14 +215,14 @@ async function buildComputed(
   extraJoins: string[],
   compute: ComputeRequest
 ): Promise<ComputedResult | undefined> {
-  const tableName = tableConf.Schema.tableName;
+  const tableName = tableConf.schema.tableName;
   const joinClause = extraJoins.length > 0 ? ' ' + extraJoins.join(' ') : '';
 
   const computed: ComputedResult = {};
   for (const fn of COMPUTE_FNS) {
     for (const [i, field] of (compute[fn] ?? []).entries()) {
       const at = `compute.${fn}.${i}`;
-      const ref = resolveFieldRef(field, tableConf.Schema, tableConf, db, undefined, at);
+      const ref = resolveFieldRef(field, tableConf.schema, tableConf, db, undefined, at);
       // The aggregate sits in the SELECT list, before the WHERE values: a computed that
       // binds parameters cannot be placed here.
       if (refValues(ref.expr).length > 0) {
@@ -278,22 +279,22 @@ function buildMainCondition(params: SearchParams): {
   const { db, tableConf, filters, conditions, tenant } = params;
 
   assertFiltersReadable(filters, tableConf);
-  assertKnownFilterKeys(filters, tableConf.Schema, tableConf);
-  const condition = tableConf.filters(filters || {}, db.cbDialect);
+  assertKnownFilterKeys(filters, tableConf.schema, tableConf);
+  const condition = buildTableFilters(tableConf, filters || {}, db.cbDialect);
 
   if (filters && tableConf.computedFields) {
     applyComputedFilters(condition, filters, tableConf, db);
   }
   if (conditions?.length) {
-    applyConditions(condition, conditions, tableConf.Schema, tableConf, db);
+    applyConditions(condition, conditions, tableConf.schema, tableConf, db);
   }
 
   const tenantJoins: string[] = [];
   if (tenant?.scope) {
     const scope = tenant.scope;
-    condition.append(buildTenantCondition(db, scope, tenant.ids, tableConf.Schema.tableName));
+    condition.append(buildTenantCondition(db, scope, tenant.ids, tableConf.schema.tableName));
     if ('through' in scope) {
-      tenantJoins.push(buildTenantJoin(db, scope, tableConf.Schema.tableName));
+      tenantJoins.push(buildTenantJoin(db, scope, tableConf.schema.tableName));
     }
   }
 

@@ -9,7 +9,6 @@ const ROOT = path.resolve(__dirname, '../..');
 
 const { enforceTenantFKOnUpdate } = await import(path.join(ROOT, 'dist/lib/tenant.js'));
 const { updateEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/update.js'));
-const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { getDialect } = await import(path.join(ROOT, 'dist/lib/dialect.js'));
@@ -26,7 +25,7 @@ const orderSchema = createMockSchema('customer_order', { id: Type.Number(), cust
 const customerSchema = createMockSchema('customer', { id: Type.Number(), organizationId: Type.Number() });
 const indirectScope = { column: 'organization_id', through: { schema: customerSchema, localField: 'customer_id', foreignField: 'id' } };
 const indirectTenant = { ids: [42], scope: indirectScope };
-const tableConf = { primary: 'id', ...exportTableInfo(orderSchema), defaultOrder: 'id', tenantScope: indirectScope };
+const tableConf = { primary: 'id', schema: orderSchema, defaultOrder: 'id', tenantScope: indirectScope };
 
 for (const dialect of DIALECTS) {
   const client = (mockPg) => new QueryClient(mockPg, getDialect(dialect));

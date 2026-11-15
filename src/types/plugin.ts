@@ -17,7 +17,7 @@ export interface DbErrorMapping {
 }
 
 export interface SqlApiPluginOptions {
-  DbTables: DbTables;
+  dbTables: DbTables;
   onRequests?: ((request: ApiRequest, reply: ApiReply) => Promise<void | ApiReply>)[];
   prefix?: string;
   swagger?: boolean | SwaggerOptions;

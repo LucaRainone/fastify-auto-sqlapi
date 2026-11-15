@@ -11,7 +11,7 @@ import Fastify from 'fastify';
 import path from 'node:path';
 import { ROOT, createMockSchema } from './_harness.js';
 
-const { fastifyAutoSqlApi, defineTable, exportTableInfo, QueryClient, Type } =
+const { fastifyAutoSqlApi, defineTable, QueryClient, Type } =
   await import(path.join(ROOT, 'dist/index.js'));
 
 const norm = (t) => t.replace(/\s+/g, ' ').trim();
@@ -66,10 +66,10 @@ describe('plugin with a database client that has no connect()', () => {
   const SchemaItem = createMockSchema('item', { id: Type.Optional(Type.Integer()), name: Type.String() });
 
   async function createApp(pg) {
-    const DbTables = { item: defineTable({ primary: 'id', ...exportTableInfo(SchemaItem), insertExclude: ['id'] }) };
+    const dbTables = { item: defineTable({ primary: 'id', schema: SchemaItem, insertExclude: ['id'] }) };
     const app = Fastify();
     app.decorate('pg', pg);
-    await app.register(fastifyAutoSqlApi, { DbTables });
+    await app.register(fastifyAutoSqlApi, { dbTables });
     return app;
   }
 

@@ -17,7 +17,7 @@ export default async function deleteRoutes(
     successStatus: 200,
     schemas: (_db, _table, tc) => ({
       params: pkParams(tc),
-      response: Type.Object({ main: Type.Object(pkSchema(tc, tc.Schema, primaryAsString(tc.primary))) }),
+      response: Type.Object({ main: Type.Object(pkSchema(tc, tc.schema, primaryAsString(tc.primary))) }),
     }),
     summary: 'Delete',
     description: (name) => `Delete a record from ${name} by primary key`,

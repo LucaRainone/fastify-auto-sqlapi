@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
@@ -41,10 +41,10 @@ function createTestDbTables(mockPg, opts = {}) {
   const userSchema = createMockSchema('user', userFields);
   const sessionSchema = createMockSchema('session', sessionFields);
 
-  const userInfo = exportTableInfo(userSchema);
-  const sessionInfo = exportTableInfo(sessionSchema);
+  const userInfo = { schema: userSchema };
+  const sessionInfo = { schema: sessionSchema };
 
-  const DbTables = {
+  const dbTables = {
     user: {
       primary: 'id',
       ...userInfo,
@@ -61,7 +61,7 @@ function createTestDbTables(mockPg, opts = {}) {
     },
   };
 
-  return { DbTables, db: new QueryClient(mockPg) };
+  return { dbTables, db: new QueryClient(mockPg) };
 }
 
 describe('orderBy - aggregation on joinGroup', () => {
@@ -70,11 +70,11 @@ describe('orderBy - aggregation on joinGroup', () => {
       { rows: [], affectedRows: 0 }, // main query
       { rows: [{ sum_duration: 300 }], affectedRows: 0 }, // joinGroup
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.user,
+      tableConf: dbTables.user,
       orderBy: 'session.sum.duration DESC',
       joinGroup: {
         session: { sum: ['duration'] },
@@ -91,11 +91,11 @@ describe('orderBy - aggregation on joinGroup', () => {
 
   it('preserves plain field orderBy (regression)', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.user,
+      tableConf: dbTables.user,
       orderBy: 'name ASC',
     });
 
@@ -108,11 +108,11 @@ describe('orderBy - aggregation on joinGroup', () => {
       { rows: [], affectedRows: 0 },
       { rows: [{ sum_duration: 0 }], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.user,
+      tableConf: dbTables.user,
       orderBy: 'session.sum.duration DESC, name ASC',
       joinGroup: {
         session: { sum: ['duration'] },
@@ -133,11 +133,11 @@ describe('orderBy - aggregation on joinGroup', () => {
       { rows: [], affectedRows: 0 },
       { rows: [{ sum_duration: 0 }], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.user,
+      tableConf: dbTables.user,
       filters: { active: true }, // takes $1
       orderBy: 'session.sum.duration DESC',
       joinGroup: {
@@ -161,11 +161,11 @@ describe('orderBy - aggregation on joinGroup', () => {
       { rows: [], affectedRows: 0 },
       { rows: [{ avg_duration: 150 }], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.user,
+      tableConf: dbTables.user,
       orderBy: 'session.avg.duration DESC',
       joinGroup: { session: { avg: ['duration'] } },
     });
@@ -178,11 +178,11 @@ describe('orderBy - aggregation on joinGroup', () => {
       { rows: [], affectedRows: 0 },
       { rows: [{ count_id: 3 }], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.user,
+      tableConf: dbTables.user,
       orderBy: 'session.count.id DESC',
       joinGroup: { session: { count: ['id'] } },
     });
@@ -195,11 +195,11 @@ describe('orderBy - aggregation on joinGroup', () => {
       { rows: [], affectedRows: 0 },
       { rows: [{ distinctCount_status: 2 }], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.user,
+      tableConf: dbTables.user,
       orderBy: 'session.distinctCount.status DESC',
       joinGroup: { session: { distinctCount: ['status'] } },
     });
@@ -209,12 +209,12 @@ describe('orderBy - aggregation on joinGroup', () => {
 
   it('rejects orderBy when joinGroup not declared', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db,
-        tableConf: DbTables.user,
+        tableConf: dbTables.user,
         orderBy: 'session.sum.duration DESC',
         // no joinGroup
       }),
@@ -228,12 +228,12 @@ describe('orderBy - aggregation on joinGroup', () => {
 
   it('rejects orderBy when aggregation fn/field not declared', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db,
-        tableConf: DbTables.user,
+        tableConf: dbTables.user,
         orderBy: 'session.sum.duration DESC',
         joinGroup: {
           session: { sum: ['id'] }, // duration not listed
@@ -249,12 +249,12 @@ describe('orderBy - aggregation on joinGroup', () => {
 
   it('rejects orderBy when joinGroup has by on a non-FK column', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db,
-        tableConf: DbTables.user,
+        tableConf: dbTables.user,
         orderBy: 'session.sum.duration DESC',
         joinGroup: {
           session: { sum: ['duration'], by: 'status' },
@@ -275,11 +275,11 @@ describe('orderBy - aggregation on joinGroup', () => {
       { rows: [{ id: 1 }, { id: 2 }], affectedRows: 0 }, // main query (non-empty so joinGroup runs)
       { rows: [{ count_id: 3, by: 1 }], affectedRows: 0 }, // joinGroup with by
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.user,
+      tableConf: dbTables.user,
       orderBy: 'session.count.id DESC',
       joinGroup: {
         session: { count: ['id'], by: 'userId' },
@@ -297,12 +297,12 @@ describe('orderBy - aggregation on joinGroup', () => {
 
   it('rejects unknown join table in orderBy', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db,
-        tableConf: DbTables.user,
+        tableConf: dbTables.user,
         orderBy: 'unknown_table.sum.foo DESC',
         joinGroup: { unknown_table: { sum: ['foo'] } },
       }),
@@ -316,12 +316,12 @@ describe('orderBy - aggregation on joinGroup', () => {
 
   it('rejects invalid aggregation function', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db,
-        tableConf: DbTables.user,
+        tableConf: dbTables.user,
         orderBy: 'session.bogus.duration DESC',
         joinGroup: { session: { sum: ['duration'] } },
       }),
@@ -335,15 +335,15 @@ describe('orderBy - aggregation on joinGroup', () => {
 
   it('rejects unknown field on join schema', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     // The error is thrown when validateSchemaField runs on the join schema.
     // However since we also validate that 'bogus' is declared in aggregations.sum first,
     // we must declare it to reach the schema validation.
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db,
-        tableConf: DbTables.user,
+        tableConf: dbTables.user,
         orderBy: 'session.sum.bogus DESC',
         joinGroup: { session: { sum: ['bogus'] } },
       }),
@@ -357,12 +357,12 @@ describe('orderBy - aggregation on joinGroup', () => {
 
   it('rejects when distinctResults is true', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg, { distinctResults: true });
+    const { dbTables, db } = createTestDbTables(mockPg, { distinctResults: true });
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db,
-        tableConf: DbTables.user,
+        tableConf: dbTables.user,
         orderBy: 'session.sum.duration DESC',
         joinGroup: { session: { sum: ['duration'] } },
       }),
@@ -379,11 +379,11 @@ describe('orderBy - aggregation on joinGroup', () => {
       { rows: [{ id: 1 }, { id: 2 }], affectedRows: 0 }, // main
       { rows: [{ sum_duration: 450 }], affectedRows: 0 }, // joinGroup
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    const result = await searchEngine(DbTables, {
+    const result = await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.user,
+      tableConf: dbTables.user,
       orderBy: 'session.sum.duration DESC',
       joinGroup: { session: { sum: ['duration'] } },
     });
@@ -401,11 +401,11 @@ describe('conditions - aggregation on joinGroup (HAVING-style)', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.user,
+      tableConf: dbTables.user,
       conditions: [
         { field: 'session.count.id', method: 'isEqual', params: [4] },
       ],
@@ -424,11 +424,11 @@ describe('conditions - aggregation on joinGroup (HAVING-style)', () => {
 
   it('combines plain conditions and aggregation conditions', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.user,
+      tableConf: dbTables.user,
       conditions: [
         { field: 'name', method: 'isILike', params: ['%mario%'] },
         { field: 'session.count.id', method: 'isGreater', params: [2] },
@@ -449,11 +449,11 @@ describe('conditions - aggregation on joinGroup (HAVING-style)', () => {
 
   it('respects joinGroup filters in subquery when conditions reference them', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.user,
+      tableConf: dbTables.user,
       conditions: [
         { field: 'session.count.id', method: 'isGreaterOrEqual', params: [4] },
       ],
@@ -474,11 +474,11 @@ describe('conditions - aggregation on joinGroup (HAVING-style)', () => {
 
   it('supports isBetween on aggregation', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.user,
+      tableConf: dbTables.user,
       conditions: [
         { field: 'session.sum.duration', method: 'isBetween', params: [100, 500] },
       ],
@@ -494,11 +494,11 @@ describe('conditions - aggregation on joinGroup (HAVING-style)', () => {
 
   it('supports isIn on aggregation', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.user,
+      tableConf: dbTables.user,
       conditions: [
         { field: 'session.count.id', method: 'isIn', params: [[1, 3, 5]] },
       ],
@@ -514,12 +514,12 @@ describe('conditions - aggregation on joinGroup (HAVING-style)', () => {
 
   it('rejects aggregation condition when joinGroup not declared', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db,
-        tableConf: DbTables.user,
+        tableConf: dbTables.user,
         conditions: [
           { field: 'session.count.id', method: 'isEqual', params: [4] },
         ],
@@ -534,12 +534,12 @@ describe('conditions - aggregation on joinGroup (HAVING-style)', () => {
 
   it('rejects invalid method on aggregation condition', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db,
-        tableConf: DbTables.user,
+        tableConf: dbTables.user,
         conditions: [
           { field: 'session.count.id', method: 'raw', params: [] },
         ],
@@ -562,11 +562,11 @@ describe('executeJoinGroups - avg and count', () => {
       { rows: [{ id: 1 }], affectedRows: 0 }, // main
       { rows: [{ avg_duration: 150 }], affectedRows: 0 }, // joinGroup
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    const result = await searchEngine(DbTables, {
+    const result = await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.user,
+      tableConf: dbTables.user,
       joinGroup: { session: { avg: ['duration'] } },
     });
 
@@ -581,11 +581,11 @@ describe('executeJoinGroups - avg and count', () => {
       { rows: [{ id: 1 }], affectedRows: 0 },
       { rows: [{ count_id: 5 }], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    const result = await searchEngine(DbTables, {
+    const result = await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.user,
+      tableConf: dbTables.user,
       joinGroup: { session: { count: ['id'] } },
     });
 

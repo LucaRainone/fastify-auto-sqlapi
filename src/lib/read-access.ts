@@ -1,3 +1,4 @@
+import type { TSchema, TObject } from 'typebox';
 import type { QueryClient } from './db.js';
 import type { TableConfig, SchemaDefinition } from '../types.js';
 import { httpError } from './errors.js';
@@ -11,6 +12,20 @@ import { httpError } from './errors.js';
  * by bisection. Write paths (insert/update/upsert) are deliberately unaffected —
  * a field can be writable but never readable (e.g. a password hash).
  */
+
+/**
+ * A table's `extraFilters` as a record of fields, whichever form the config used: a record
+ * of TypeBox schemas or a `Type.Object` (its `properties`). Told apart by the object's own
+ * `type: 'object'`, which a record of fields — whose values are schemas — never carries.
+ */
+export function extraFilterFields(tableConf: TableConfig | undefined): Record<string, TSchema> {
+  const ef = tableConf?.extraFilters;
+  if (!ef) return {};
+  if ((ef as { type?: unknown }).type === 'object' && typeof (ef as TObject).properties === 'object') {
+    return (ef as TObject).properties;
+  }
+  return ef as Record<string, TSchema>;
+}
 
 /**
  * Own-property membership for a field map.
@@ -98,7 +113,7 @@ export function assertKnownFilterKeys(
     if (value === undefined) continue;
     if (hasOwnField(schema.fields, key)) continue;
     if (ownField(tableConf?.computedFields, key)) continue;
-    if (hasOwnField(tableConf?.extraFilters, key)) {
+    if (hasOwnField(extraFilterFields(tableConf), key)) {
       if (allowExtraFilters) continue;
       throw httpError(
         400,

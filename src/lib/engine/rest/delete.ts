@@ -8,12 +8,12 @@ export async function deleteEngine(params: DeleteParams): Promise<DeleteResult> 
   if (isCompositePrimary(tableConf.primary)) {
     throw httpError(
       400,
-      `Table "${tableConf.Schema.tableName}" has a composite primary key: delete-by-id would match on "${primaryAsString(tableConf.primary)}" alone and could remove multiple rows. Use a custom query.`
+      `Table "${tableConf.schema.tableName}" has a composite primary key: delete-by-id would match on "${primaryAsString(tableConf.primary)}" alone and could remove multiple rows. Use a custom query.`
     );
   }
   const pk = primaryAsString(tableConf.primary);
-  const pkCol = tableConf.Schema.col(pk);
-  const tableName = tableConf.Schema.tableName;
+  const pkCol = tableConf.schema.col(pk);
+  const tableName = tableConf.schema.tableName;
 
   if (tableConf.beforeDelete) {
     // Enforce tenant ownership before the hook so it never runs for rows the tenant

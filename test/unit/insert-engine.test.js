@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
 const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/insert.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
@@ -45,10 +45,10 @@ function createTestDbTables(mockPg, opts = {}) {
   const customerSchema = createMockSchema('customer', customerFields);
   const orderSchema = createMockSchema('customer_order', orderFields);
 
-  const customerInfo = exportTableInfo(customerSchema);
-  const orderInfo = exportTableInfo(orderSchema);
+  const customerInfo = { schema: customerSchema };
+  const orderInfo = { schema: orderSchema };
 
-  const DbTables = {
+  const dbTables = {
     customer: {
       primary: 'id',
       ...customerInfo,
@@ -70,7 +70,7 @@ function createTestDbTables(mockPg, opts = {}) {
     },
   };
 
-  return { DbTables, db: new QueryClient(mockPg), customerSchema, orderSchema };
+  return { dbTables, db: new QueryClient(mockPg), customerSchema, orderSchema };
 }
 
 describe('insertEngine - main insert', () => {
@@ -78,12 +78,12 @@ describe('insertEngine - main insert', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     const result = await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario', email: 'mario@test.it' },
     });
@@ -98,12 +98,12 @@ describe('insertEngine - main insert', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     const result = await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario', email: 'mario@test.it' },
     });
@@ -117,14 +117,14 @@ describe('insertEngine - main insert', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       insertExclude: ['createdAt'],
     });
 
     await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario', email: 'mario@test.it', createdAt: '2024-01-01' },
     });
@@ -137,7 +137,7 @@ describe('insertEngine - main insert', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 42 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       insertExclude: ['id'],
       beforeInsert: async ({ record }) => {
         // The client-supplied id must already be stripped when the hook runs
@@ -148,8 +148,8 @@ describe('insertEngine - main insert', () => {
 
     await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 999, name: 'Mario', email: 'mario@test.it' },
     });
@@ -165,7 +165,7 @@ describe('insertEngine - main insert', () => {
       { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
     let idSeenByValidate;
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       insertExclude: ['id'],
       validate: async ({ main }) => {
         idSeenByValidate = main.id;
@@ -178,8 +178,8 @@ describe('insertEngine - main insert', () => {
 
     await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 999, name: 'Mario', email: 'mario@test.it' },
     });
@@ -192,12 +192,12 @@ describe('insertEngine - main insert', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     const result = await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario', email: 'mario@test.it' },
     });
@@ -213,9 +213,9 @@ describe('insertEngine - composite PK', () => {
       teamId: Type.Number(),
     };
     const linkSchema = createMockSchema('agent_team_link', linkFields);
-    const linkInfo = exportTableInfo(linkSchema);
+    const linkInfo = { schema: linkSchema };
 
-    const DbTables = {
+    const dbTables = {
       agent_team_link: {
         primary: ['agentId', 'teamId'],
         ...linkInfo,
@@ -230,8 +230,8 @@ describe('insertEngine - composite PK', () => {
 
     const result = await insertEngine({
       db,
-      tableConf: DbTables.agent_team_link,
-      dbTables: DbTables,
+      tableConf: dbTables.agent_team_link,
+      dbTables: dbTables,
       request: mockRequest,
       record: { agentId: 1, teamId: 2 },
     });
@@ -247,9 +247,9 @@ describe('insertEngine - composite PK', () => {
       teamId: Type.Number(),
     };
     const linkSchema = createMockSchema('agent_team_link', linkFields);
-    const linkInfo = exportTableInfo(linkSchema);
+    const linkInfo = { schema: linkSchema };
 
-    const DbTables = {
+    const dbTables = {
       agent_team_link: {
         primary: ['agentId', 'teamId'],
         ...linkInfo,
@@ -264,8 +264,8 @@ describe('insertEngine - composite PK', () => {
 
     await insertEngine({
       db,
-      tableConf: DbTables.agent_team_link,
-      dbTables: DbTables,
+      tableConf: dbTables.agent_team_link,
+      dbTables: dbTables,
       request: mockRequest,
       record: { agentId: 1, teamId: 2 },
     });
@@ -282,7 +282,7 @@ describe('insertEngine - hooks', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       beforeInsert: async ({ record }) => {
         hookCalled = true;
         assert.ok(record.name, 'record should have name');
@@ -291,8 +291,8 @@ describe('insertEngine - hooks', () => {
 
     await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario', email: 'mario@test.it' },
     });
@@ -308,7 +308,7 @@ describe('insertEngine - hooks', () => {
       // Bulk insert secondaries (PK-only)
       { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       afterInsert: async ({ record, secondaries: secondaryRecords }) => {
         hookArgs = { record, secondaryRecords };
       },
@@ -316,8 +316,8 @@ describe('insertEngine - hooks', () => {
 
     await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario', email: 'mario@test.it' },
       secondaries: {
@@ -338,7 +338,7 @@ describe('insertEngine - hooks', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       insertExclude: ['createdAt'],
       afterInsert: async ({ record }) => {
         recordSeen = record;
@@ -347,8 +347,8 @@ describe('insertEngine - hooks', () => {
 
     await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario', email: 'mario@test.it', createdAt: '2024-01-01' },
     });
@@ -371,12 +371,12 @@ describe('insertEngine - secondaries', () => {
         { id: 11 },
       ], affectedRows: 2 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     const result = await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario', email: 'mario@test.it' },
       secondaries: {
@@ -406,14 +406,14 @@ describe('insertEngine - secondaries', () => {
       // Bulk insert orders (PK-only)
       { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       secondaryExclude: ['customerId'],
     });
 
     await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario', email: 'mario@test.it' },
       secondaries: {
@@ -431,14 +431,14 @@ describe('insertEngine - secondaries', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       allowedWriteJoins: [], // no write joins allowed
     });
 
     const result = await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario', email: 'mario@test.it' },
       secondaries: {
@@ -456,14 +456,14 @@ describe('insertEngine - secondaries', () => {
       { rows: [{ id: 1 }], affectedRows: 1 },
       { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       secondaryExclude: ['id'],
     });
 
     await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario', email: 'mario@test.it' },
       secondaries: {
@@ -483,15 +483,15 @@ describe('insertEngine - upsert', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
-    const { DbTables, db, customerSchema } = createTestDbTables(mockPg);
+    const { dbTables, db, customerSchema } = createTestDbTables(mockPg);
 
     // Set upsertMap using the same schema instance
-    DbTables.customer.upsertMap = new Map([[customerSchema, ['email']]]);
+    dbTables.customer.upsertMap = new Map([[customerSchema, ['email']]]);
 
     await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario', email: 'mario@test.it' },
     });
@@ -504,15 +504,15 @@ describe('insertEngine - upsert', () => {
       { rows: [{ id: 1 }], affectedRows: 1 },
       { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
-    const { DbTables, db, orderSchema } = createTestDbTables(mockPg);
+    const { dbTables, db, orderSchema } = createTestDbTables(mockPg);
 
     // Set upsertMap using the same schema instance from the join definition
-    DbTables.customer.upsertMap = new Map([[orderSchema, ['customerId', 'status']]]);
+    dbTables.customer.upsertMap = new Map([[orderSchema, ['customerId', 'status']]]);
 
     await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario', email: 'mario@test.it' },
       secondaries: {
@@ -528,19 +528,19 @@ describe('insertEngine - upsert', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 42 }], affectedRows: 1 },
     ]);
-    const { DbTables, db, customerSchema } = createTestDbTables(mockPg, {
+    const { dbTables, db, customerSchema } = createTestDbTables(mockPg, {
       insertExclude: ['id'],
       beforeInsert: async ({ record }) => {
         assert.equal(record.id, undefined);
         record.id = 42;
       },
     });
-    DbTables.customer.upsertMap = new Map([[customerSchema, ['email']]]);
+    dbTables.customer.upsertMap = new Map([[customerSchema, ['email']]]);
 
     await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 999, name: 'Mario', email: 'mario@test.it' },
     });
@@ -562,15 +562,15 @@ describe('insertEngine - secondaries run the child table\'s beforeInsert', () =>
       { rows: [{ id: 42 }], affectedRows: 1 },
       { rows: [{ id: 10 }, { id: 11 }], affectedRows: 2 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
-    DbTables.customer_order.beforeInsert = async ({ db: hookDb, req, record }) => {
+    const { dbTables, db } = createTestDbTables(mockPg);
+    dbTables.customer_order.beforeInsert = async ({ db: hookDb, req, record }) => {
       record.status = `ENC(${record.status})`;
     };
 
     await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario' },
       secondaries: {
@@ -592,16 +592,16 @@ describe('insertEngine - secondaries run the child table\'s beforeInsert', () =>
       { rows: [{ id: 42 }], affectedRows: 1 },
       { rows: [{ id: 10 }, { id: 11 }], affectedRows: 2 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
     const seen = [];
-    DbTables.customer_order.beforeInsert = async ({ db: hookDb, req, record }) => {
+    dbTables.customer_order.beforeInsert = async ({ db: hookDb, req, record }) => {
       seen.push({ req, record: { ...record } });
     };
 
     await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario' },
       secondaries: {
@@ -620,15 +620,15 @@ describe('insertEngine - secondaries run the child table\'s beforeInsert', () =>
       { rows: [{ id: 42 }], affectedRows: 1 },
       { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg, { secondaryExclude: ['status'] });
-    DbTables.customer_order.beforeInsert = async ({ db: hookDb, req, record }) => {
+    const { dbTables, db } = createTestDbTables(mockPg, { secondaryExclude: ['status'] });
+    dbTables.customer_order.beforeInsert = async ({ db: hookDb, req, record }) => {
       record.status = 'server-assigned';
     };
 
     await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario' },
       secondaries: { customer_order: [{ total: 100, status: 'client-sent' }] },
@@ -644,15 +644,15 @@ describe('insertEngine - secondaries run the child table\'s beforeInsert', () =>
       { rows: [{ id: 42 }], affectedRows: 1 },
       { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
-    DbTables.customer_order.beforeInsert = async ({ db: hookDb, req, record }) => {
+    const { dbTables, db } = createTestDbTables(mockPg);
+    dbTables.customer_order.beforeInsert = async ({ db: hookDb, req, record }) => {
       record.customerId = 999;
     };
 
     await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario' },
       secondaries: { customer_order: [{ total: 100, status: 'pending' }] },

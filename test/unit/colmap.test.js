@@ -10,7 +10,6 @@ const ROOT = path.resolve(__dirname, '../..');
 const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/insert.js'));
 const { updateEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/update.js'));
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
-const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { snakecaseRecord, camelcaseObject } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
@@ -48,9 +47,9 @@ const userColMap = {
 
 function createTestDbTables(mockPg) {
   const schema = createCamelCaseSchema('user', userFields, userColMap);
-  const info = exportTableInfo(schema);
+  const info = { schema };
 
-  const DbTables = {
+  const dbTables = {
     user: {
       primary: 'id',
       ...info,
@@ -58,7 +57,7 @@ function createTestDbTables(mockPg) {
     },
   };
 
-  return { DbTables, db: new QueryClient(mockPg), schema };
+  return { dbTables, db: new QueryClient(mockPg), schema };
 }
 
 describe('colMap - snakecaseRecord with camelCase DB columns', () => {
@@ -113,12 +112,12 @@ describe('colMap - insertEngine with camelCase DB columns', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 'abc-123' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await insertEngine({
       db,
-      tableConf: DbTables.user,
-      dbTables: DbTables,
+      tableConf: dbTables.user,
+      dbTables: dbTables,
       request: mockRequest,
       record: { email: 'test@test.it', createdAt: '2024-01-01' },
     });
@@ -135,12 +134,12 @@ describe('colMap - updateEngine with camelCase DB columns', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await updateEngine({
       db,
-      tableConf: DbTables.user,
-      dbTables: DbTables,
+      tableConf: dbTables.user,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 'abc-123', updatedAt: '2024-06-01' },
     });

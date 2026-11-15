@@ -10,7 +10,7 @@ import Fastify from 'fastify';
 import path from 'node:path';
 import { ROOT } from './_harness.js';
 
-const { fastifyAutoSqlApi, Type, exportTableInfo } = await import(path.join(ROOT, 'dist/index.js'));
+const { fastifyAutoSqlApi, Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 async function createTestApp(maxItemsPerPage) {
   const fields = { id: Type.Number(), name: Type.String() };
@@ -21,8 +21,8 @@ async function createTestApp(maxItemsPerPage) {
     tableName: 'test_table',
     partialValidation: Type.Partial(Type.Object(fields)),
   };
-  const DbTables = {
-    test_table: { primary: 'id', ...exportTableInfo(schema), defaultOrder: 'id' },
+  const dbTables = {
+    test_table: { primary: 'id', schema, defaultOrder: 'id' },
   };
 
   const app = Fastify();
@@ -35,7 +35,7 @@ async function createTestApp(maxItemsPerPage) {
         : { rows: [], rowCount: 0 };
     },
   });
-  await app.register(fastifyAutoSqlApi, { DbTables, maxItemsPerPage });
+  await app.register(fastifyAutoSqlApi, { dbTables, maxItemsPerPage });
   return { app, sql };
 }
 

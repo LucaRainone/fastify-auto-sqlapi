@@ -19,7 +19,7 @@ const { introspectTables } = await import(path.join(ROOT, 'dist/lib/cli/pg-intro
 const { introspectMysqlTables } = await import(path.join(ROOT, 'dist/lib/cli/mysql-introspect.js'));
 const { buildTableMap } = await import(path.join(ROOT, 'dist/lib/cli/schema-codegen.js'));
 const { generateSingleTableFile } = await import(path.join(ROOT, 'dist/lib/cli/tables-codegen.js'));
-const { defineTable, exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { Type, Nullable } = await import(path.join(ROOT, 'dist/index.js'));
 
 function introspect() {
@@ -142,10 +142,10 @@ const SchemaCustomerSummary = {
   isView: true,
 };
 
-const DbTables = {
+const dbTables = {
   customer_summary: defineTable({
     primary: 'id',
-    ...exportTableInfo(SchemaCustomerSummary),
+    schema: SchemaCustomerSummary,
     defaultOrder: 'id',
     operations: ['search', 'get'],
   }),
@@ -156,7 +156,7 @@ describe(`[${DIALECT}] serving a view over HTTP`, () => {
   let db;
 
   before(async () => {
-    ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
+    ({ app, db } = await createTestApp(dbTables, { prefix: '/auto' }));
     await cleanTables(db, ['customer_order', 'customer']);
     const ids = await seedRows(db, 'customer', [
       { name: 'Mario', email: 'mario@test.it', is_active: true },
@@ -266,7 +266,7 @@ describe(`[${DIALECT}] writing through an updatable view`, () => {
     ({ app, db } = await createTestApp({
       customer_active: defineTable({
         primary: 'id',
-        ...exportTableInfo(SchemaCustomerActive),
+        schema: SchemaCustomerActive,
         defaultOrder: 'id',
         insertExclude: ['id'],
       }),
@@ -340,7 +340,7 @@ describe(`[${DIALECT}] a view whose primary key could not be inferred`, () => {
     ({ app, db } = await createTestApp({
       order_status_count: defineTable({
         primary: 'TODO_pick_a_unique_column',
-        ...exportTableInfo(SchemaOrderStatusCount),
+        schema: SchemaOrderStatusCount,
         defaultOrder: 'status',
         operations: ['search'],
       }),

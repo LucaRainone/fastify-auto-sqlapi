@@ -5,7 +5,6 @@ import {
   createTestApp,
   cleanTables,
   seedRows,
-  exportTableInfo,
   buildRelation,
   toUnderscore,
   Type,
@@ -50,11 +49,11 @@ const customerComputed = {
   }),
 };
 
-const DbTables = {
-  organization: { primary: 'id', ...exportTableInfo(orgSchema), defaultOrder: 'id' },
+const dbTables = {
+  organization: { primary: 'id', schema: orgSchema, defaultOrder: 'id' },
   customer: {
     primary: 'id',
-    ...exportTableInfo(customerSchema),
+    schema: customerSchema,
     defaultOrder: 'id',
     computedFields: customerComputed,
     allowedReadJoins: [
@@ -72,7 +71,7 @@ describe(`[${DIALECT}] joinLeft with shared column names (ambiguity regression)`
   let marioId;
 
   before(async () => {
-    ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
+    ({ app, db } = await createTestApp(dbTables, { prefix: '/auto' }));
 
     await cleanTables(db, ['customer_order', 'customer', 'organization']);
 

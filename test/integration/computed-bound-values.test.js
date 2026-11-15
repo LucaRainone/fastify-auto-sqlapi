@@ -5,7 +5,6 @@ import {
   createTestApp,
   cleanTables,
   seedRows,
-  exportTableInfo,
   toUnderscore,
   Type,
 } from './_helpers.js';
@@ -31,10 +30,10 @@ const customerSchema = createSchema('customer', {
   isActive: Type.Optional(Type.Boolean()),
 });
 
-const DbTables = {
+const dbTables = {
   customer: {
     primary: 'id',
-    ...exportTableInfo(customerSchema),
+    schema: customerSchema,
     defaultOrder: 'id',
     computedFields: {
       // Bound value: the '%vip%' pattern. Its placeholder must resolve to '%vip%',
@@ -53,7 +52,7 @@ describe(`[${DIALECT}] computed fields with bound values`, () => {
   let db;
 
   before(async () => {
-    ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
+    ({ app, db } = await createTestApp(dbTables, { prefix: '/auto' }));
 
     await cleanTables(db, ['customer_order', 'customer']);
     await seedRows(db, 'customer', [

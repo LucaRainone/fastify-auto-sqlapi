@@ -8,7 +8,7 @@ const ROOT = path.resolve(__dirname, '../..');
 
 const { SearchTableBodyPost, SearchTableResponse } =
   await import(path.join(ROOT, 'dist/lib/schema/search.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
@@ -34,8 +34,8 @@ function createDbTables() {
     total: Type.Number(),
   });
 
-  const customerInfo = exportTableInfo(customerSchema, { isActive: Type.Boolean() });
-  const orderInfo = exportTableInfo(orderSchema);
+  const customerInfo = { schema: customerSchema, extraFilters: { isActive: Type.Boolean() } };
+  const orderInfo = { schema: orderSchema };
 
   return {
     customer: {

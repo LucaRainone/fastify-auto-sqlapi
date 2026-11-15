@@ -6,7 +6,7 @@ import { createMockPg, createMockSchema, ROOT } from './_harness.js';
 const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/insert.js'));
 const { updateEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/update.js'));
 const { bulkUpsertEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk/bulk-upsert.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
@@ -32,10 +32,10 @@ function createTenantDbTables(mockPg, opts = {}) {
   const customerSchema = createMockSchema('customer', customerFields);
   const orderSchema = createMockSchema('customer_order', orderFields);
 
-  const DbTables = {
+  const dbTables = {
     customer: {
       primary: 'id',
-      ...exportTableInfo(customerSchema),
+      schema: customerSchema,
       defaultOrder: 'id',
       tenantScope: { column: 'organization_id' },
       allowedWriteJoins: [
@@ -45,13 +45,13 @@ function createTenantDbTables(mockPg, opts = {}) {
     },
     customer_order: {
       primary: 'id',
-      ...exportTableInfo(orderSchema),
+      schema: orderSchema,
       defaultOrder: 'id',
       ...(opts.secondaryScope === null ? {} : { tenantScope: opts.secondaryScope || { column: 'organization_id' } }),
     },
   };
 
-  return { DbTables, db: new QueryClient(mockPg), customerSchema, orderSchema };
+  return { dbTables, db: new QueryClient(mockPg), customerSchema, orderSchema };
 }
 
 const TENANT = { ids: [7], scope: { column: 'organization_id' } };
@@ -62,13 +62,13 @@ describe('tenant enforcement on secondaries (write joins)', () => {
       { rows: [{ id: 1 }], affectedRows: 1 }, // main insert
       { rows: [{ id: 10 }], affectedRows: 1 }, // secondary insert
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
     await assert.rejects(
       () => insertEngine({
         db,
-        tableConf: DbTables.customer,
-        dbTables: DbTables,
+        tableConf: dbTables.customer,
+        dbTables: dbTables,
         request: mockRequest,
         record: { name: 'Mario' },
         secondaries: { customer_order: [{ total: 5, organizationId: 999 }] },
@@ -84,12 +84,12 @@ describe('tenant enforcement on secondaries (write joins)', () => {
       { rows: [{ id: 1 }], affectedRows: 1 },
       { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
     await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario' },
       secondaries: { customer_order: [{ total: 5 }] },
@@ -112,12 +112,12 @@ describe('tenant enforcement on secondaries (write joins)', () => {
       { rows: [{ id: 1 }], affectedRows: 1 },
       { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
     const result = await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario' },
       secondaries: { customer_order: [{ total: 5, organizationId: 7 }] },
@@ -132,12 +132,12 @@ describe('tenant enforcement on secondaries (write joins)', () => {
       { rows: [{ id: 1 }], affectedRows: 1 },
       { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg, { secondaryScope: null });
+    const { dbTables, db } = createTenantDbTables(mockPg, { secondaryScope: null });
 
     await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario' },
       secondaries: { customer_order: [{ total: 5 }] },
@@ -155,12 +155,12 @@ describe('tenant enforcement on secondaries (write joins)', () => {
       { rows: [{ id: 1 }], affectedRows: 1 },
       { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
     await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario' },
       secondaries: { customer_order: [{ total: 5, organizationId: 999 }] },
@@ -175,15 +175,15 @@ describe('tenant enforcement on secondaries (write joins)', () => {
       { rows: [{ id: 1 }], affectedRows: 1 },  // main insert
       { rows: [{ x: 1 }], affectedRows: 1 },   // conflict probe finds a foreign-owned row
     ]);
-    const { DbTables, db, orderSchema } = createTenantDbTables(mockPg);
+    const { dbTables, db, orderSchema } = createTenantDbTables(mockPg);
     orderSchemaHolder.schema = orderSchema;
-    DbTables.customer.upsertMap = new Map([[orderSchema, ['total']]]);
+    dbTables.customer.upsertMap = new Map([[orderSchema, ['total']]]);
 
     await assert.rejects(
       () => insertEngine({
         db,
-        tableConf: DbTables.customer,
-        dbTables: DbTables,
+        tableConf: dbTables.customer,
+        dbTables: dbTables,
         request: mockRequest,
         record: { name: 'Mario' },
         secondaries: { customer_order: [{ total: 5 }] },
@@ -199,13 +199,13 @@ describe('tenant enforcement on secondaries (write joins)', () => {
       { rows: [], affectedRows: 1 },           // main update
       { rows: [{ id: 10 }], affectedRows: 1 }, // secondary insert
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
     await assert.rejects(
       () => updateEngine({
         db,
-        tableConf: DbTables.customer,
-        dbTables: DbTables,
+        tableConf: dbTables.customer,
+        dbTables: dbTables,
         request: mockRequest,
         record: { id: 1, name: 'Mario' },
         secondaries: { customer_order: [{ total: 5, organizationId: 999 }] },
@@ -220,13 +220,13 @@ describe('tenant enforcement on secondaries (write joins)', () => {
       { rows: [{ id: 1 }], affectedRows: 1 },  // bulk main insert
       { rows: [{ id: 10 }], affectedRows: 1 }, // secondary insert
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
     await assert.rejects(
       () => bulkUpsertEngine({
         db,
-        tableConf: DbTables.customer,
-        dbTables: DbTables,
+        tableConf: dbTables.customer,
+        dbTables: dbTables,
         request: mockRequest,
         items: [{
           main: { name: 'Mario' },
@@ -244,7 +244,7 @@ describe('tenant enforcement on secondaries (write joins)', () => {
       { rows: [{ id: 1 }], affectedRows: 1 },  // main insert
       { rows: [{ id: 4 }], affectedRows: 1 },  // FK probe finds a foreign-owned parent
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg, {
+    const { dbTables, db } = createTenantDbTables(mockPg, {
       secondaryScope: {
         column: 'organization_id',
         through: { schema: customerSchema, localField: 'customer_id', foreignField: 'id' },
@@ -254,8 +254,8 @@ describe('tenant enforcement on secondaries (write joins)', () => {
     await assert.rejects(
       () => insertEngine({
         db,
-        tableConf: DbTables.customer,
-        dbTables: DbTables,
+        tableConf: dbTables.customer,
+        dbTables: dbTables,
         request: mockRequest,
         record: { name: 'Mario' },
         secondaries: { customer_order: [{ total: 5 }] },
@@ -272,12 +272,12 @@ describe('tenant enforcement on deletions (write joins)', () => {
       { rows: [], affectedRows: 1 }, // main update
       { rows: [], affectedRows: 1 }, // child delete
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
     await updateEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
       deletions: { customer_order: [{ id: 10 }] },
@@ -298,12 +298,12 @@ describe('tenant enforcement on deletions (write joins)', () => {
       { rows: [], affectedRows: 1 },
       { rows: [], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
     await updateEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
       deletions: { customer_order: [{ id: 10 }] },
@@ -325,12 +325,12 @@ describe('deletions are bound to the main row, not just to the child id', () => 
       { rows: [], affectedRows: 1 }, // main update
       { rows: [], affectedRows: 1 }, // child delete
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg, { secondaryScope: null });
+    const { dbTables, db } = createTenantDbTables(mockPg, { secondaryScope: null });
 
     await updateEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
       deletions: { customer_order: [{ id: 10 }] },
@@ -347,12 +347,12 @@ describe('deletions are bound to the main row, not just to the child id', () => 
       { rows: [], affectedRows: 1 },
       { rows: [], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
     await updateEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
       deletions: { customer_order: [{ id: 10 }] },
@@ -369,12 +369,12 @@ describe('deletions are bound to the main row, not just to the child id', () => 
       { rows: [{ id: 1 }], affectedRows: 1 }, // bulk main insert
       { rows: [], affectedRows: 1 },          // child delete
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
     await bulkUpsertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       items: [{ main: { name: 'Mario' }, deletions: { customer_order: [{ id: 10 }] } }],
       tenant: TENANT,
@@ -392,7 +392,7 @@ describe('deletions are bound to the main row, not just to the child id', () => 
       { rows: [], affectedRows: 1 }, // main update
       { rows: [], affectedRows: 1 }, // child delete
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg, {
+    const { dbTables, db } = createTenantDbTables(mockPg, {
       secondaryScope: {
         column: 'organization_id',
         through: { schema: customerSchema, localField: 'customer_id', foreignField: 'id' },
@@ -401,8 +401,8 @@ describe('deletions are bound to the main row, not just to the child id', () => 
 
     await updateEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
       deletions: { customer_order: [{ id: 10 }] },
@@ -422,14 +422,14 @@ describe('deletions are bound to the main row, not just to the child id', () => 
       { rows: [], affectedRows: 1 },
       { rows: [], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg, {
+    const { dbTables, db } = createTenantDbTables(mockPg, {
       secondaryScope: { anyOf: ['organization_id', 'customer_id'] },
     });
 
     await updateEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
       deletions: { customer_order: [{ id: 10 }] },
@@ -453,12 +453,12 @@ describe('a secondary cannot be re-parented by the payload FK', () => {
       { rows: [{ id: 1 }], affectedRows: 1 },
       { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg, { secondaryScope: null });
+    const { dbTables, db } = createTenantDbTables(mockPg, { secondaryScope: null });
 
     await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario' },
       secondaries: { customer_order: [{ customerId: 999, total: 5 }] },
@@ -475,12 +475,12 @@ describe('a secondary cannot be re-parented by the payload FK', () => {
       { rows: [], affectedRows: 1 },
       { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg, { secondaryScope: null });
+    const { dbTables, db } = createTenantDbTables(mockPg, { secondaryScope: null });
 
     await updateEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
       secondaries: { customer_order: [{ customerId: 999, total: 5 }] },
@@ -499,14 +499,14 @@ describe('upserted secondaries are conflict-guarded on every write path', () => 
       { rows: [], affectedRows: 1 },        // main update
       { rows: [{ x: 1 }], affectedRows: 1 }, // conflict probe finds a foreign-owned row
     ]);
-    const { DbTables, db, orderSchema } = createTenantDbTables(mockPg);
-    DbTables.customer.upsertMap = new Map([[orderSchema, ['total']]]);
+    const { dbTables, db, orderSchema } = createTenantDbTables(mockPg);
+    dbTables.customer.upsertMap = new Map([[orderSchema, ['total']]]);
 
     await assert.rejects(
       () => updateEngine({
         db,
-        tableConf: DbTables.customer,
-        dbTables: DbTables,
+        tableConf: dbTables.customer,
+        dbTables: dbTables,
         request: mockRequest,
         record: { id: 1, name: 'Mario' },
         secondaries: { customer_order: [{ total: 5 }] },
@@ -522,14 +522,14 @@ describe('upserted secondaries are conflict-guarded on every write path', () => 
       { rows: [{ id: 1 }], affectedRows: 1 }, // bulk main insert
       { rows: [{ x: 1 }], affectedRows: 1 },  // conflict probe finds a foreign-owned row
     ]);
-    const { DbTables, db, orderSchema } = createTenantDbTables(mockPg);
-    DbTables.customer.upsertMap = new Map([[orderSchema, ['total']]]);
+    const { dbTables, db, orderSchema } = createTenantDbTables(mockPg);
+    dbTables.customer.upsertMap = new Map([[orderSchema, ['total']]]);
 
     await assert.rejects(
       () => bulkUpsertEngine({
         db,
-        tableConf: DbTables.customer,
-        dbTables: DbTables,
+        tableConf: dbTables.customer,
+        dbTables: dbTables,
         request: mockRequest,
         items: [{ main: { name: 'Mario' }, secondaries: { customer_order: [{ total: 5 }] } }],
         tenant: TENANT,
@@ -546,13 +546,13 @@ describe('a multi-tenant caller writing secondaries', () => {
       { rows: [{ id: 1 }], affectedRows: 1 },
       { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
     await assert.rejects(
       () => insertEngine({
         db,
-        tableConf: DbTables.customer,
-        dbTables: DbTables,
+        tableConf: dbTables.customer,
+        dbTables: dbTables,
         request: mockRequest,
         record: { name: 'Mario', organizationId: 7 },
         secondaries: { customer_order: [{ total: 5 }] },

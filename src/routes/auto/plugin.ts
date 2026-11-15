@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyError } from 'fastify';
 import fp from 'fastify-plugin';
 import { ConditionBuilder } from 'node-condition-builder';
 import { getDialect } from '../../lib/dialect.js';
+import { validateDbTables } from '../../lib/table-helpers.js';
 import {
   createRegistrationSqlApi,
   decorateSqlApi,
@@ -78,6 +79,12 @@ export default fp(async function fastifyAutoSqlApi(
   fastify: FastifyInstance,
   options: SqlApiPluginOptions
 ): Promise<void> {
+  // Refused, not ignored: without it the registration would run with no tables at all.
+  if (Object.hasOwn(options, 'DbTables')) {
+    throw new TypeError("the plugin option 'DbTables' is now 'dbTables' (camelCase, like every other option)");
+  }
+  validateDbTables(options.dbTables);
+
   // Set ConditionBuilder dialect globally
   const dialect = getDialect(options.dialect || 'postgres');
   ConditionBuilder.DIALECT = dialect.cbDialect;

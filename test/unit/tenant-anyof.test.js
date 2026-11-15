@@ -11,7 +11,7 @@ import { createMockPg, createMockSchema, ROOT } from './_harness.js';
 const { buildTenantCondition, buildTenantRowGuard, stripTenantColumn, assertTenantOwnsConflicts } =
   await import(path.join(ROOT, 'dist/lib/tenant.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
-const { exportTableInfo, defineTable, buildRelation } =
+const { defineTable, buildRelation } =
   await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { getEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/get.js'));
 const { deleteEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/delete.js'));
@@ -30,7 +30,7 @@ const swapFields = {
 
 const SCOPE = { anyOf: ['requester_agent_id', 'target_agent_id'] };
 const swapSchema = createMockSchema('shift_swap_request', swapFields);
-const swapConf = { primary: 'id', ...exportTableInfo(swapSchema), defaultOrder: 'id' };
+const swapConf = { primary: 'id', schema: swapSchema, defaultOrder: 'id' };
 const dbTables = { shift_swap_request: swapConf };
 
 // ─── the predicate itself ───────────────────────────────────
@@ -324,7 +324,7 @@ describe('upsert conflict guard on an anyOf-scoped table', () => {
 // ─── declaration-time validation ────────────────────────────
 
 describe('defineTable validation of an anyOf scope', () => {
-  const base = { primary: 'id', ...exportTableInfo(swapSchema), defaultOrder: 'id' };
+  const base = { primary: 'id', schema: swapSchema, defaultOrder: 'id' };
 
   it('accepts a well-formed anyOf', () => {
     assert.doesNotThrow(() => defineTable({ ...base, tenantScope: SCOPE }));
@@ -391,10 +391,10 @@ describe('an anyOf-scoped table written as a secondary', () => {
   function createDbTables(mockPg) {
     return {
       db: new QueryClient(mockPg),
-      DbTables: {
+      dbTables: {
         shift: {
           primary: 'id',
-          ...exportTableInfo(shiftSchema),
+          schema: shiftSchema,
           defaultOrder: 'id',
           tenantScope: { column: 'agent_id' },
           allowedWriteJoins: [
@@ -403,7 +403,7 @@ describe('an anyOf-scoped table written as a secondary', () => {
         },
         shift_swap_request: {
           primary: 'id',
-          ...exportTableInfo(childSchema),
+          schema: childSchema,
           defaultOrder: 'id',
           tenantScope: SCOPE,
         },
@@ -416,12 +416,12 @@ describe('an anyOf-scoped table written as a secondary', () => {
       { rows: [{ id: 1 }], affectedRows: 1 },   // main
       { rows: [{ id: 10 }], affectedRows: 1 },  // secondary
     ]);
-    const { db, DbTables } = createDbTables(mockPg);
+    const { db, dbTables } = createDbTables(mockPg);
 
     await insertEngine({
       db,
-      tableConf: DbTables.shift,
-      dbTables: DbTables,
+      tableConf: dbTables.shift,
+      dbTables: dbTables,
       request: {},
       record: { day: '2026-09-01' },
       secondaries: { swap: [{ requesterAgentId: 7, targetAgentId: 9 }] },
@@ -433,13 +433,13 @@ describe('an anyOf-scoped table written as a secondary', () => {
 
   it('rejects with 403 a child whose parties are both foreign', async () => {
     const mockPg = createMockPg([{ rows: [{ id: 1 }], affectedRows: 1 }]);
-    const { db, DbTables } = createDbTables(mockPg);
+    const { db, dbTables } = createDbTables(mockPg);
 
     await assert.rejects(
       () => insertEngine({
         db,
-        tableConf: DbTables.shift,
-        dbTables: DbTables,
+        tableConf: dbTables.shift,
+        dbTables: dbTables,
         request: {},
         record: { day: '2026-09-01' },
         secondaries: { swap: [{ requesterAgentId: 9, targetAgentId: 12 }] },
@@ -451,13 +451,13 @@ describe('an anyOf-scoped table written as a secondary', () => {
 
   it('rejects with 400 a child the FK alone would anchor', async () => {
     const mockPg = createMockPg([{ rows: [{ id: 1 }], affectedRows: 1 }]);
-    const { db, DbTables } = createDbTables(mockPg);
+    const { db, dbTables } = createDbTables(mockPg);
 
     await assert.rejects(
       () => insertEngine({
         db,
-        tableConf: DbTables.shift,
-        dbTables: DbTables,
+        tableConf: dbTables.shift,
+        dbTables: dbTables,
         request: {},
         record: { day: '2026-09-01' },
         secondaries: { swap: [{ message: 'no party named' }] },

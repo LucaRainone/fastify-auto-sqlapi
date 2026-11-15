@@ -16,7 +16,7 @@ import Fastify from 'fastify';
 import path from 'node:path';
 import { ROOT, createMockSchema } from './_harness.js';
 
-const { fastifyAutoSqlApi, defineTable, exportTableInfo, Type } = await import(path.join(ROOT, 'dist/index.js'));
+const { fastifyAutoSqlApi, defineTable, Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 const SchemaItem = createMockSchema('item', {
   id: Type.Optional(Type.Integer()),
@@ -25,10 +25,10 @@ const SchemaItem = createMockSchema('item', {
 });
 
 async function createApp({ tableOverrides = {}, pluginOverrides = {}, query } = {}) {
-  const DbTables = {
+  const dbTables = {
     item: defineTable({
       primary: 'id',
-      ...exportTableInfo(SchemaItem),
+      schema: SchemaItem,
       insertExclude: ['id'],
       validate: async ({ main }) => (main.name === 'bad' ? [['main.name', 'custom', 'nope']] : []),
       ...tableOverrides,
@@ -36,7 +36,7 @@ async function createApp({ tableOverrides = {}, pluginOverrides = {}, query } = 
   };
   const app = Fastify();
   app.decorate('pg', { query: query ?? (async () => ({ rows: [], rowCount: 0 })) });
-  await app.register(fastifyAutoSqlApi, { DbTables, ...pluginOverrides });
+  await app.register(fastifyAutoSqlApi, { dbTables, ...pluginOverrides });
   return app;
 }
 

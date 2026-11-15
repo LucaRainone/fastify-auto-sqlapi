@@ -12,7 +12,7 @@ import path from 'node:path';
 import { createMockPg, createMockSchema, ROOT } from './_harness.js';
 
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
@@ -23,7 +23,7 @@ function createDbTables() {
   return {
     hour: {
       primary: 'id',
-      ...exportTableInfo(hourSchema),
+      schema: hourSchema,
       defaultOrder: 'id',
       computedFields: {
         upperNote: ({ qiCol }) => ({ expr: `UPPER(${qiCol('note')})`, values: [], type: Type.String() }),
@@ -34,14 +34,14 @@ function createDbTables() {
     },
     hourScoped: {
       primary: 'id',
-      ...exportTableInfo(hourSchema),
+      schema: hourSchema,
       defaultOrder: 'id',
       computedFields: {
         upperNote: ({ qiCol }) => ({ expr: `UPPER(${qiCol('note')})`, values: [], type: Type.String() }),
       },
       tenantScope: { column: 'org_id', through: { schema: customerSchema, localField: 'customer_id', foreignField: 'id' } },
     },
-    customer: { primary: 'id', ...exportTableInfo(customerSchema), defaultOrder: 'id' },
+    customer: { primary: 'id', schema: customerSchema, defaultOrder: 'id' },
   };
 }
 

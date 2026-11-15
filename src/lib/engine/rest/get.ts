@@ -12,22 +12,22 @@ export async function getEngine(params: GetParams): Promise<GetResult> {
   if (isCompositePrimary(tableConf.primary)) {
     throw httpError(
       400,
-      `Table "${tableConf.Schema.tableName}" has a composite primary key: get-by-id would match on "${primaryAsString(tableConf.primary)}" alone. Use search with all PK fields.`
+      `Table "${tableConf.schema.tableName}" has a composite primary key: get-by-id would match on "${primaryAsString(tableConf.primary)}" alone. Use search with all PK fields.`
     );
   }
-  const pkCol = tableConf.Schema.col(primaryAsString(tableConf.primary));
+  const pkCol = tableConf.schema.col(primaryAsString(tableConf.primary));
 
   const cb = new ConditionBuilder('AND', db.cbDialect);
   // Table-qualified: the tenant scope may add a through-join, and a bare PK column
   // shared with the through table would be ambiguous.
-  cb.isEqual(`${db.qi(tableConf.Schema.tableName)}.${db.qi(pkCol)}`, id);
+  cb.isEqual(`${db.qi(tableConf.schema.tableName)}.${db.qi(pkCol)}`, id);
   const joins: string[] = [];
 
   if (tenant?.scope) {
     const scope = tenant.scope;
-    cb.append(buildTenantCondition(db, scope, tenant.ids, tableConf.Schema.tableName));
+    cb.append(buildTenantCondition(db, scope, tenant.ids, tableConf.schema.tableName));
     if ('through' in scope) {
-      joins.push(buildTenantJoin(db, scope, tableConf.Schema.tableName));
+      joins.push(buildTenantJoin(db, scope, tableConf.schema.tableName));
     }
   }
 
@@ -35,8 +35,8 @@ export async function getEngine(params: GetParams): Promise<GetResult> {
   const values = cb.getValues();
 
   const rows = await db.select({
-    tableName: tableConf.Schema.tableName,
-    columns: readableSelectColumns(tableConf, tableConf.Schema, db),
+    tableName: tableConf.schema.tableName,
+    columns: readableSelectColumns(tableConf, tableConf.schema, db),
     where,
     values,
     limit: '1',
@@ -45,7 +45,7 @@ export async function getEngine(params: GetParams): Promise<GetResult> {
 
   if (rows.length === 0) throw httpError(404, `Record not found: ${id}`);
 
-  const main = camelcaseObject(rows[0], tableConf.Schema);
+  const main = camelcaseObject(rows[0], tableConf.schema);
   await runAfterRead(db, request, [main], tableConf, 'get');
 
   return { main };

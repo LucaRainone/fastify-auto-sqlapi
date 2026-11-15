@@ -11,7 +11,6 @@ import { createMockPg, createMockSchema, ROOT } from './_harness.js';
 
 const { fastifyAutoSqlApi, Type } = await import(path.join(ROOT, 'dist/index.js'));
 const { createSqlApi } = await import(path.join(ROOT, 'dist/lib/sql-api.js'));
-const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 
 // `id` is optional so the same schema validates an insert body (no id yet) and an update body.
 const customerSchema = createMockSchema('customer', {
@@ -24,7 +23,7 @@ function createDbTables() {
   return {
     customer: {
       primary: 'id',
-      ...exportTableInfo(customerSchema),
+      schema: customerSchema,
       defaultOrder: 'id',
       tenantScope: { column: 'organization_id' },
     },
@@ -56,7 +55,7 @@ describe('every HTTP route forwards the caller tenant to its engine', () => {
       const mockPg = createMockPg(responses);
       const app = Fastify();
       app.decorate('pg', mockPg);
-      await app.register(fastifyAutoSqlApi, { DbTables: createDbTables(), getTenantId: () => TENANT_ID });
+      await app.register(fastifyAutoSqlApi, { dbTables: createDbTables(), getTenantId: () => TENANT_ID });
       await app.ready();
 
       const res = await app.inject(request);

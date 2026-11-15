@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
 const { createSqlApi } = await import(path.join(ROOT, 'dist/lib/sql-api.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
@@ -41,10 +41,10 @@ function createTestFixture(mockPg) {
   const customerSchema = createMockSchema('customer', customerFields);
   const orderSchema = createMockSchema('customer_order', orderFields);
 
-  const DbTables = {
+  const dbTables = {
     customer: {
       primary: 'id',
-      ...exportTableInfo(customerSchema),
+      schema: customerSchema,
       defaultOrder: 'id',
       insertExclude: ['id'],
       allowedReadJoins: [
@@ -56,15 +56,15 @@ function createTestFixture(mockPg) {
     },
     customer_order: {
       primary: 'id',
-      ...exportTableInfo(orderSchema),
+      schema: orderSchema,
       defaultOrder: 'id',
       insertExclude: ['id'],
     },
   };
 
   const db = new QueryClient(mockPg);
-  const sqlApi = createSqlApi(db, DbTables);
-  return { sqlApi, mockPg, DbTables };
+  const sqlApi = createSqlApi(db, dbTables);
+  return { sqlApi, mockPg, dbTables };
 }
 
 describe('SqlApi.search', () => {

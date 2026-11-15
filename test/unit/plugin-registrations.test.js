@@ -4,7 +4,6 @@ import Fastify from 'fastify';
 import {
   fastifyAutoSqlApi,
   searchRoutes,
-  exportTableInfo,
   toUnderscore,
   Type,
 } from '../../dist/index.js';
@@ -29,7 +28,7 @@ const SchemaConv = {
 };
 
 function conf(overrides = {}) {
-  return { primary: 'id', ...exportTableInfo(SchemaConv), ...overrides };
+  return { primary: 'id', schema: SchemaConv, ...overrides };
 }
 
 // pg-shaped pool recording every statement
@@ -56,8 +55,8 @@ describe('every plugin registration runs with its own configuration', () => {
   it('a second registration serves a table only its own dbTables declares', async () => {
     const pool = createMockPool();
     const app = await buildApp(pool, async (app) => {
-      await app.register(fastifyAutoSqlApi, { DbTables: { conv: conf() }, prefix: '/admin' });
-      await app.register(fastifyAutoSqlApi, { DbTables: { onlyPublic: conf() }, prefix: '/public', decorate: false });
+      await app.register(fastifyAutoSqlApi, { dbTables: { conv: conf() }, prefix: '/admin' });
+      await app.register(fastifyAutoSqlApi, { dbTables: { onlyPublic: conf() }, prefix: '/public', decorate: false });
     });
 
     const res = await app.inject({ method: 'POST', url: '/public/search/onlyPublic', payload: {} });
@@ -69,9 +68,9 @@ describe('every plugin registration runs with its own configuration', () => {
   it('a second registration applies its own readExclude to the statement', async () => {
     const pool = createMockPool();
     const app = await buildApp(pool, async (app) => {
-      await app.register(fastifyAutoSqlApi, { DbTables: { conv: conf() }, prefix: '/admin' });
+      await app.register(fastifyAutoSqlApi, { dbTables: { conv: conf() }, prefix: '/admin' });
       await app.register(fastifyAutoSqlApi, {
-        DbTables: { conv: conf({ readExclude: ['secret'] }) },
+        dbTables: { conv: conf({ readExclude: ['secret'] }) },
         prefix: '/public',
         decorate: false,
       });
@@ -88,9 +87,9 @@ describe('every plugin registration runs with its own configuration', () => {
   it('a second registration applies its own tenant scope and getTenantId', async () => {
     const pool = createMockPool();
     const app = await buildApp(pool, async (app) => {
-      await app.register(fastifyAutoSqlApi, { DbTables: { conv: conf() }, prefix: '/admin' });
+      await app.register(fastifyAutoSqlApi, { dbTables: { conv: conf() }, prefix: '/admin' });
       await app.register(fastifyAutoSqlApi, {
-        DbTables: { conv: conf({ tenantScope: { column: 'organization_id' } }) },
+        dbTables: { conv: conf({ tenantScope: { column: 'organization_id' } }) },
         getTenantId: () => 42,
         prefix: '/tenant',
         decorate: false,
@@ -109,9 +108,9 @@ describe('every plugin registration runs with its own configuration', () => {
   it('a granular route plugin next to the main plugin serves its own dbTables', async () => {
     const pool = createMockPool();
     const app = await buildApp(pool, async (app) => {
-      await app.register(fastifyAutoSqlApi, { DbTables: { conv: conf() } });
+      await app.register(fastifyAutoSqlApi, { dbTables: { conv: conf() } });
       await app.register(async (instance) => {
-        await instance.register(searchRoutes, { DbTables: { onlyPublic: conf() } });
+        await instance.register(searchRoutes, { dbTables: { onlyPublic: conf() } });
       }, { prefix: '/public' });
     });
 
@@ -126,8 +125,8 @@ describe('app.sqlApi belongs to exactly one registration', () => {
   it('a second registration that would also decorate sqlApi fails at startup', async () => {
     const app = Fastify();
     app.decorate('pg', createMockPool());
-    app.register(fastifyAutoSqlApi, { DbTables: { conv: conf() }, prefix: '/admin' });
-    app.register(fastifyAutoSqlApi, { DbTables: { onlyPublic: conf() }, prefix: '/public' });
+    app.register(fastifyAutoSqlApi, { dbTables: { conv: conf() }, prefix: '/admin' });
+    app.register(fastifyAutoSqlApi, { dbTables: { onlyPublic: conf() }, prefix: '/public' });
 
     await assert.rejects(app.ready(), /sqlApi.*decorate: false/s);
   });
@@ -135,9 +134,9 @@ describe('app.sqlApi belongs to exactly one registration', () => {
   it('a registration with decorate: false serves its routes and leaves sqlApi to the other one', async () => {
     const pool = createMockPool();
     const app = await buildApp(pool, async (app) => {
-      await app.register(fastifyAutoSqlApi, { DbTables: { conv: conf() }, prefix: '/admin' });
+      await app.register(fastifyAutoSqlApi, { dbTables: { conv: conf() }, prefix: '/admin' });
       await app.register(fastifyAutoSqlApi, {
-        DbTables: { onlyPublic: conf() },
+        dbTables: { onlyPublic: conf() },
         prefix: '/public',
         decorate: false,
       });
@@ -153,7 +152,7 @@ describe('app.sqlApi belongs to exactly one registration', () => {
 
   it('decorate: false registers no sqlApi', async () => {
     const app = await buildApp(createMockPool(), (app) =>
-      app.register(fastifyAutoSqlApi, { DbTables: { conv: conf() }, decorate: false })
+      app.register(fastifyAutoSqlApi, { dbTables: { conv: conf() }, decorate: false })
     );
 
     assert.equal(app.hasDecorator('sqlApi'), false);
@@ -166,16 +165,16 @@ describe('app.sqlApi belongs to exactly one registration', () => {
     const app = Fastify();
     app.decorate('pg', createMockPool());
     app.decorate('sqlApi', { mine: true });
-    app.register(fastifyAutoSqlApi, { DbTables: { conv: conf() } });
+    app.register(fastifyAutoSqlApi, { dbTables: { conv: conf() } });
 
     await assert.rejects(app.ready(), /sqlApi.*decorate: false/s);
   });
 
   it('a granular route plugin next to the main plugin needs no decorate option', async () => {
     const app = await buildApp(createMockPool(), async (app) => {
-      await app.register(fastifyAutoSqlApi, { DbTables: { conv: conf() } });
+      await app.register(fastifyAutoSqlApi, { dbTables: { conv: conf() } });
       await app.register(async (instance) => {
-        await instance.register(searchRoutes, { DbTables: { onlyPublic: conf() } });
+        await instance.register(searchRoutes, { dbTables: { onlyPublic: conf() } });
       }, { prefix: '/public' });
     });
 

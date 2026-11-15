@@ -14,7 +14,7 @@ import Fastify from 'fastify';
 import path from 'node:path';
 import { ROOT, createMockSchema } from './_harness.js';
 
-const { fastifyAutoSqlApi, buildRelation, createSqlApi, exportTableInfo, Type } =
+const { fastifyAutoSqlApi, buildRelation, createSqlApi, Type } =
   await import(path.join(ROOT, 'dist/index.js'));
 
 const SchemaConversation = createMockSchema('conversation', {
@@ -33,13 +33,13 @@ function conversationConf(relationOptions = {}, lists = ['allowedReadJoins']) {
     alias: 'messages',
     ...relationOptions,
   });
-  const conf = { primary: 'id', ...exportTableInfo(SchemaConversation) };
+  const conf = { primary: 'id', schema: SchemaConversation };
   for (const list of lists) conf[list] = [relation];
   return conf;
 }
 
 function messageConf(overrides = {}) {
-  return { primary: 'id', ...exportTableInfo(SchemaMessage), ...overrides };
+  return { primary: 'id', schema: SchemaMessage, ...overrides };
 }
 
 function createMockPool(responses = []) {
@@ -59,10 +59,10 @@ function createMockPool(responses = []) {
 const MAIN_ROWS = { rows: [{ id: 1, title: 'Hello' }], rowCount: 1 };
 const MESSAGE_ROWS = { rows: [{ id: 10, conversation_id: 1, body: 'hi', secret: 's3cr3t' }], rowCount: 1 };
 
-async function buildApp(DbTables, pool = createMockPool()) {
+async function buildApp(dbTables, pool = createMockPool()) {
   const app = Fastify();
   app.decorate('pg', pool);
-  await app.register(fastifyAutoSqlApi, { DbTables });
+  await app.register(fastifyAutoSqlApi, { dbTables });
   await app.ready();
   return app;
 }
@@ -79,14 +79,14 @@ describe('join target resolution — one key over the joined table, named differ
   // `dbTables.msg` is the only config over `message`: it governs the relation even though the
   // key is not the table name. A lookup by `dbTables[joinSchema.tableName]` would miss it and
   // run the join with no config at all, which is how `readExclude` leaks through a join.
-  const DbTables = () => ({
+  const dbTables = () => ({
     chat: conversationConf(),
     msg: messageConf({ readExclude: ['secret'] }),
   });
 
   it("applies the target's readExclude to the joined rows", async () => {
     const pool = createMockPool([MAIN_ROWS, MESSAGE_ROWS]);
-    const app = await buildApp(DbTables(), pool);
+    const app = await buildApp(dbTables(), pool);
     const res = await searchWithMessages(app);
     assert.equal(res.statusCode, 200, res.payload);
     const [message] = res.json().joinMultiple.messages;
@@ -97,7 +97,7 @@ describe('join target resolution — one key over the joined table, named differ
   });
 
   it("rejects a filter on the target's excluded field with 400", async () => {
-    const app = await buildApp(DbTables(), createMockPool([MAIN_ROWS]));
+    const app = await buildApp(dbTables(), createMockPool([MAIN_ROWS]));
     const res = await searchWithMessages(app, { filters: { secret: 'x' } });
     assert.equal(res.statusCode, 400, res.payload);
     await app.close();
@@ -110,7 +110,7 @@ describe('join target resolution — several keys over the joined table', () => 
     app.decorate('pg', createMockPool());
     await assert.rejects(
       async () => app.register(fastifyAutoSqlApi, {
-        DbTables: {
+        dbTables: {
           chat: conversationConf(),
           msgAdmin: messageConf(),
           msgPublic: messageConf({ readExclude: ['secret'] }),
@@ -130,7 +130,7 @@ describe('join target resolution — several keys over the joined table', () => 
     app.decorate('pg', createMockPool());
     await assert.rejects(
       async () => app.register(fastifyAutoSqlApi, {
-        DbTables: {
+        dbTables: {
           chat: conversationConf({}, ['allowedWriteJoins']),
           msgAdmin: messageConf(),
           msgPublic: messageConf(),
@@ -171,7 +171,7 @@ describe('join target resolution — several keys over the joined table', () => 
     app.decorate('pg', createMockPool());
     await assert.rejects(
       async () => app.register(fastifyAutoSqlApi, {
-        DbTables: { chat: conversationConf({ target: 'nope' }), msg: messageConf() },
+        dbTables: { chat: conversationConf({ target: 'nope' }), msg: messageConf() },
       }),
       /nope/,
     );
@@ -183,7 +183,7 @@ describe('join target resolution — several keys over the joined table', () => 
     app.decorate('pg', createMockPool());
     await assert.rejects(
       async () => app.register(fastifyAutoSqlApi, {
-        DbTables: { chat: conversationConf({ target: 'chat' }), msg: messageConf() },
+        dbTables: { chat: conversationConf({ target: 'chat' }), msg: messageConf() },
       }),
       (err) => /chat/.test(err.message) && /conversation/.test(err.message) && /message/.test(err.message),
     );

@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import {
   fastifyAutoSqlApi,
-  exportTableInfo,
   buildRelation,
   toUnderscore,
   Type,
@@ -26,13 +25,13 @@ const schema = (tableName, fields) => ({
 const SchemaCustomer = schema('customer', customerFields);
 const SchemaOrder = schema('customer_order', orderFields);
 
-const DbTables = {
+const dbTables = {
   customer: {
     primary: 'id',
-    ...exportTableInfo(SchemaCustomer),
+    schema: SchemaCustomer,
     allowedReadJoins: [buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
   },
-  customer_order: { primary: 'id', ...exportTableInfo(SchemaOrder) },
+  customer_order: { primary: 'id', schema: SchemaOrder },
 };
 
 // pg-shaped pool: { rows, rowCount } responses consumed in order, statements recorded
@@ -53,7 +52,7 @@ function createMockPool(responses = []) {
 async function search(pool, joinGroup) {
   const app = Fastify();
   app.decorate('pg', pool);
-  await app.register(fastifyAutoSqlApi, { DbTables });
+  await app.register(fastifyAutoSqlApi, { dbTables });
   await app.ready();
   const res = await app.inject({ method: 'POST', url: '/search/customer', payload: { joinGroup } });
   await app.close();

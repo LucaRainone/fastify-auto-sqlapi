@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { getDialect } = await import(path.join(ROOT, 'dist/lib/dialect.js'));
@@ -30,20 +30,20 @@ function createTestDbTables(mockPg, dialect) {
   const sessionSchema = createMockSchema('session', sessionFields);
   const orgSchema = createMockSchema('org', orgFields);
 
-  const DbTables = {
+  const dbTables = {
     user: {
       primary: 'id',
-      ...exportTableInfo(userSchema),
+      schema: userSchema,
       defaultOrder: 'id',
       allowedReadJoins: [
         buildRelation(userSchema, 'id', sessionSchema, 'userId', { alias: 'session' }),             // unique:false → joinGroup
         buildRelation(userSchema, 'orgId', orgSchema, 'id', { alias: 'org', unique: true }),         // unique:true → joinLeft
       ],
     },
-    session: { primary: 'id', ...exportTableInfo(sessionSchema), defaultOrder: 'id' },
-    org: { primary: 'id', ...exportTableInfo(orgSchema), defaultOrder: 'id' },
+    session: { primary: 'id', schema: sessionSchema, defaultOrder: 'id' },
+    org: { primary: 'id', schema: orgSchema, defaultOrder: 'id' },
   };
-  return { DbTables, db: new QueryClient(mockPg, getDialect(dialect)) };
+  return { dbTables, db: new QueryClient(mockPg, getDialect(dialect)) };
 }
 
 for (const dialect of DIALECTS) {
@@ -51,11 +51,11 @@ for (const dialect of DIALECTS) {
     it('binds joinLeft filter and orderBy subquery filter to distinct params (no overlap)', async () => {
       // main returns empty → no joinLeft/joinGroup side queries run; assert on the main SQL only.
       const mockPg = createMockPg([{ rows: [] }]);
-      const { DbTables, db } = createTestDbTables(mockPg, dialect);
+      const { dbTables, db } = createTestDbTables(mockPg, dialect);
 
-      await searchEngine(DbTables, {
+      await searchEngine(dbTables, {
         db,
-        tableConf: DbTables.user,
+        tableConf: dbTables.user,
         filters: { active: true },                        // WHERE
         joinLeft: { org: { filters: { name: 'acme' } } }, // LEFT JOIN filter
         orderBy: 'session.sum.duration DESC',
@@ -90,11 +90,11 @@ for (const dialect of DIALECTS) {
 
     it('regression: aggregation orderBy alone still binds right after WHERE values', async () => {
       const mockPg = createMockPg([{ rows: [] }]);
-      const { DbTables, db } = createTestDbTables(mockPg, dialect);
+      const { dbTables, db } = createTestDbTables(mockPg, dialect);
 
-      await searchEngine(DbTables, {
+      await searchEngine(dbTables, {
         db,
-        tableConf: DbTables.user,
+        tableConf: dbTables.user,
         filters: { active: true },
         orderBy: 'session.sum.duration DESC',
         joinGroup: { session: { sum: ['duration'], filters: { status: 'done' } } },

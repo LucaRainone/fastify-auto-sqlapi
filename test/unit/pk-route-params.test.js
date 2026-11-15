@@ -9,7 +9,7 @@ import Fastify from 'fastify';
 import path from 'node:path';
 import { ROOT } from './_harness.js';
 
-const { fastifyAutoSqlApi, Type, exportTableInfo } = await import(path.join(ROOT, 'dist/index.js'));
+const { fastifyAutoSqlApi, Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 function mockSchema(tableName, fields) {
   return {
@@ -22,16 +22,16 @@ function mockSchema(tableName, fields) {
 }
 
 async function createTestApp() {
-  const DbTables = {
+  const dbTables = {
     // Serial PK as the generator emits it: Optional, because an insert may omit it.
     item: {
       primary: 'id',
-      ...exportTableInfo(mockSchema('item', { id: Type.Optional(Type.Integer()), name: Type.String() })),
+      schema: mockSchema('item', { id: Type.Optional(Type.Integer()), name: Type.String() }),
     },
     // Natural string PK, under a field that is not called `id`.
     doc: {
       primary: 'code',
-      ...exportTableInfo(mockSchema('doc', { code: Type.String(), title: Type.String() })),
+      schema: mockSchema('doc', { code: Type.String(), title: Type.String() }),
     },
   };
 
@@ -45,7 +45,7 @@ async function createTestApp() {
         : { rows: [{ id: 7, name: 'seven', code: 'abc', title: 'Doc' }], rowCount: 1 };
     },
   });
-  await app.register(fastifyAutoSqlApi, { DbTables });
+  await app.register(fastifyAutoSqlApi, { dbTables });
   return { app, calls };
 }
 

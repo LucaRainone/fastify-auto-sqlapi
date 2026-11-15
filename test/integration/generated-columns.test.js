@@ -19,7 +19,7 @@ const { introspectMysqlTables } = await import(path.join(ROOT, 'dist/lib/cli/mys
 const { buildTableMap, generateSchemaFile } = await import(
   path.join(ROOT, 'dist/lib/cli/schema-codegen.js')
 );
-const { defineTable, exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { Type, Nullable } = await import(path.join(ROOT, 'dist/index.js'));
 
 function introspect() {
@@ -124,10 +124,10 @@ const SchemaComputedLine = {
   generatedFields: ['subtotal', 'statusCode'],
 };
 
-const DbTables = {
+const dbTables = {
   computed_line: defineTable({
     primary: 'id',
-    ...exportTableInfo(SchemaComputedLine),
+    schema: SchemaComputedLine,
     defaultOrder: 'id',
     insertExclude: ['id'],
   }),
@@ -141,9 +141,9 @@ describe(`[${DIALECT}] writes against real computed columns`, () => {
   let strictApp;
 
   before(async () => {
-    ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
+    ({ app, db } = await createTestApp(dbTables, { prefix: '/auto' }));
     ({ app: strictApp } = await createTestApp(
-      DbTables,
+      dbTables,
       { prefix: '/auto' },
       { ajv: { customOptions: { removeAdditional: false } } }
     ));

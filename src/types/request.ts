@@ -14,7 +14,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
  * under `src/lib/` or `src/types/` but here.
  *
  * It is a plain alias rather than a generic parameter on `TableConfig`: that type appears bare in
- * over a hundred places, and threading `<Req>` through all of them — plus `DbTables`, plus
+ * over a hundred places, and threading `<Req>` through all of them — plus `dbTables`, plus
  * every `*Params` — would change the public type surface today for a benefit that only
  * materialises once the core ships as its own package. See
  * [ADR 0018](../../docs/adr/0018-one-seam-to-the-http-framework.md).

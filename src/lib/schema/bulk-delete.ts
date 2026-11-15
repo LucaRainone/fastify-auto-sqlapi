@@ -10,7 +10,7 @@ import { asRequired } from './helpers.js';
 export function BulkDeleteTableBody(dbTables: DbTables, tableName: string, maxItems?: number) {
   const tableConf = dbTables[tableName];
   const pkField = primaryAsString(tableConf.primary);
-  const pkType = asRequired(tableConf.Schema.fields[pkField] ?? Type.String());
+  const pkType = asRequired(tableConf.schema.fields[pkField] ?? Type.String());
 
   return Type.Object({
     ids: Type.Array(pkType, maxItems != null ? { maxItems } : {}),
@@ -20,7 +20,7 @@ export function BulkDeleteTableBody(dbTables: DbTables, tableName: string, maxIt
 export function BulkDeleteTableResponse(dbTables: DbTables, tableName: string) {
   const tableConf = dbTables[tableName];
   const pkField = primaryAsString(tableConf.primary);
-  const pkType = tableConf.Schema.fields[pkField];
+  const pkType = tableConf.schema.fields[pkField];
 
   return Type.Array(
     Type.Object({

@@ -4,14 +4,13 @@ import path from 'node:path';
 import { createMockPg, createMockSchema, ROOT } from './_harness.js';
 
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
-const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { SearchTableBodyPost } = await import(path.join(ROOT, 'dist/lib/schema/search.js'));
 const { MAX_CONDITIONS, MAX_ORDER_BY_LENGTH } = await import(path.join(ROOT, 'dist/lib/condition-methods.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 const schema = createMockSchema('customer', { id: Type.Number(), name: Type.String() });
-const tableConf = { primary: 'id', ...exportTableInfo(schema), defaultOrder: 'id' };
+const tableConf = { primary: 'id', schema, defaultOrder: 'id' };
 const dbTables = { customer: tableConf };
 
 /**

@@ -3,7 +3,7 @@ import { ConditionBuilder } from 'node-condition-builder';
 import { createQueryClient, QueryClient } from './db.js';
 import { getDialect, type DialectName } from './dialect.js';
 import { resolveTenant } from './tenant.js';
-import { validateJoinTargets } from './table-helpers.js';
+import { validateDbTables } from './table-helpers.js';
 import { httpError } from './errors.js';
 import { searchEngine } from './engine/search/search.js';
 import { rejectRetiredSearchKeys } from './engine/search/fields.js';
@@ -127,11 +127,11 @@ export class SqlApi {
       this.db = createQueryClient(dbOrPool, options.dialect);
     }
 
-    // A relation whose target cannot be resolved is a configuration error: fail here, with
-    // the table's name, rather than on the first request that uses the join.
-    validateJoinTargets(dbTables);
+    // A config in the pre-1.0 shape, or a relation whose target cannot be resolved, is a
+    // configuration error: fail here, with the table's name, rather than on the first request.
+    validateDbTables(dbTables);
 
-    // Set ConditionBuilder dialect (used by filters built via exportTableInfo)
+    // Set ConditionBuilder dialect (the default of the filter builders)
     if (options.dialect) {
       const dialect = getDialect(options.dialect);
       ConditionBuilder.DIALECT = dialect.cbDialect;
@@ -140,7 +140,7 @@ export class SqlApi {
 
   private getTableConf(tableName: string) {
     const conf = this.dbTables[tableName];
-    if (!conf) throw httpError(400, `Table "${tableName}" not found in DbTables`, { code: 'unknown_table' });
+    if (!conf) throw httpError(400, `Table "${tableName}" not found in dbTables`, { code: 'unknown_table' });
     return conf;
   }
 
@@ -148,7 +148,7 @@ export class SqlApi {
     if (!request || !this.options.getTenantId) return undefined;
     const tableConf = this.getTableConf(tableName);
     return resolveTenant(
-      { DbTables: this.dbTables, getTenantId: this.options.getTenantId },
+      { dbTables: this.dbTables, getTenantId: this.options.getTenantId },
       tableConf,
       request
     );

@@ -9,7 +9,6 @@ import {
   createTestApp,
   cleanTables,
   seedRows,
-  exportTableInfo,
   Type,
 } from './_helpers.js';
 
@@ -45,10 +44,10 @@ const userAccountSchema = {
   partialValidation: Type.Object(userAccountFields),
 };
 
-const DbTables = {
+const dbTables = {
   userAccount: {
     primary: 'id',
-    ...exportTableInfo(userAccountSchema),
+    schema: userAccountSchema,
     defaultOrder: 'id',
   },
 };
@@ -58,7 +57,7 @@ describe(`[${DIALECT}] camelCase DB columns — end-to-end`, () => {
   let db;
 
   before(async () => {
-    ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
+    ({ app, db } = await createTestApp(dbTables, { prefix: '/auto' }));
     await cleanTables(db, ['userAccount']);
 
     await seedRows(db, 'userAccount', [
@@ -214,7 +213,7 @@ describe(`[${DIALECT}] camelCase DB columns — end-to-end`, () => {
     let hookReceived = null;
     const hookedDbTables = {
       userAccount: {
-        ...DbTables.userAccount,
+        ...dbTables.userAccount,
         beforeInsert: async ({ record }) => {
           hookReceived = { ...record };
           record.accessToken = 'injected_by_hook';
@@ -259,7 +258,7 @@ describe(`[${DIALECT}] camelCase DB columns — end-to-end`, () => {
     let validatedMain = null;
     const validatedDbTables = {
       userAccount: {
-        ...DbTables.userAccount,
+        ...dbTables.userAccount,
         validate: async ({ main }) => {
           validatedMain = { ...main };
           return [];
@@ -296,7 +295,7 @@ describe(`[${DIALECT}] camelCase tenant column — direct scope on "userId"`, ()
   // unquoted, Postgres folds it to `userid` and the statement fails.
   const scopedDbTables = {
     userAccount: {
-      ...DbTables.userAccount,
+      ...dbTables.userAccount,
       tenantScope: { column: 'userId' },
     },
   };

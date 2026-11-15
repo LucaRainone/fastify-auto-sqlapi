@@ -1,5 +1,5 @@
-import type { ConditionBuilder, ConditionValueOrUndefined, DialectName as CbDialect } from 'node-condition-builder';
-import type { TSchema } from 'typebox';
+import type { ConditionBuilder, ConditionValueOrUndefined } from 'node-condition-builder';
+import type { TSchema, TObject } from 'typebox';
 import type { ApiRequest, ApiReply } from './request.js';
 import type { SchemaDefinition } from './schema.js';
 import type { ComputedFieldFn } from './computed.js';
@@ -27,24 +27,23 @@ export type TableOperation =
 
 export type FilterRecord = Record<string, ConditionValueOrUndefined>;
 export type ExtendedConditionFn = (condition: ConditionBuilder, filters: FilterRecord) => void;
-/**
- * Builds the WHERE ConditionBuilder for a table from filter values. The optional
- * `dialect` selects identifier quoting and builder behavior per call (the engines pass
- * the dialect of the QueryClient that runs the query); when omitted, the global
- * `ConditionBuilder.DIALECT` is used.
- *
- * `qualifier` is the raw (unquoted) table name or alias to prefix columns with; it
- * defaults to the table's own name. The engines pass an alias when the condition lands
- * inside a correlated subquery whose FROM is aliased — there the bare table name would
- * resolve against the OUTER query.
- */
-export type TableFilterFn = (filters: FilterRecord, dialect?: CbDialect, qualifier?: string) => ConditionBuilder;
 
 export interface TableConfig<F extends Record<string, TSchema> = Record<string, TSchema>> {
   primary: (string & keyof F) | (string & keyof F)[];
-  Schema: SchemaDefinition<F>;
-  filters: TableFilterFn;
-  extraFilters: Record<string, TSchema>;
+  /** The table's generated Schema: columns, their types, the table name. */
+  schema: SchemaDefinition<F>;
+  /**
+   * Search filters that are not columns, as a record of fields or a `Type.Object`. They are
+   * validated like column filters and reach `extendedCondition`, which alone gives them a
+   * meaning: nothing else turns them into SQL.
+   */
+  extraFilters?: Record<string, TSchema> | TObject;
+  /**
+   * Add to the search WHERE: receives the ConditionBuilder already holding the column
+   * equality filters, and every filter value — columns and `extraFilters` alike. Column names
+   * go straight to SQL: prefix them with the table name, the query may carry joins.
+   */
+  extendedCondition?: ExtendedConditionFn;
   /**
    * Virtual fields produced by a SQL expression. Usable like schema fields in
    * `filters`, `conditions` (non-dotted), `orderBy` (1-part),

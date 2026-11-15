@@ -18,9 +18,9 @@ export interface JoinDefinition {
   select?: string[];
   unique: boolean;
   /**
-   * The `DbTables` key whose config governs the joined table: its `readExclude`, `tenantScope`,
+   * The `dbTables` key whose config governs the joined table: its `readExclude`, `tenantScope`,
    * `afterRead`, computed fields and write-side rules apply to the rows this relation reaches.
-   * Required only when `DbTables` exposes the joined table under several keys; with one key,
+   * Required only when `dbTables` exposes the joined table under several keys; with one key,
    * that config is used whatever the key is called. Resolved by `resolveJoinTableConf`.
    */
   target?: string;

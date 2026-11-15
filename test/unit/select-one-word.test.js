@@ -10,7 +10,7 @@ import Fastify from 'fastify';
 import path from 'node:path';
 import { ROOT, createMockSchema } from './_harness.js';
 
-const { fastifyAutoSqlApi, buildRelation, defineTable, exportTableInfo, createSqlApi, SearchTableBodyPost, Type } =
+const { fastifyAutoSqlApi, buildRelation, defineTable, createSqlApi, SearchTableBodyPost, Type } =
   await import(path.join(ROOT, 'dist/index.js'));
 
 const SchemaConversation = createMockSchema('conversation', {
@@ -43,7 +43,7 @@ function dbTables(messageOptions = {}) {
   return {
     chat: defineTable({
       primary: 'id',
-      ...exportTableInfo(SchemaConversation),
+      schema: SchemaConversation,
       computedFields: {
         loudTitle: ({ qiCol }) => ({ expr: `UPPER(${qiCol('title')})`, values: [], type: Type.String() }),
         titleLike: ({ qiCol }) => ({ expr: `${qiCol('title')} LIKE ?`, values: ['a%'], type: Type.Boolean() }),
@@ -53,15 +53,15 @@ function dbTables(messageOptions = {}) {
         buildRelation(SchemaConversation, 'id', SchemaMessage, 'conversationId', { alias: 'messages', ...messageOptions }),
       ],
     }),
-    user: defineTable({ primary: 'id', ...exportTableInfo(SchemaUser) }),
-    message: defineTable({ primary: 'id', ...exportTableInfo(SchemaMessage) }),
+    user: defineTable({ primary: 'id', schema: SchemaUser }),
+    message: defineTable({ primary: 'id', schema: SchemaMessage }),
   };
 }
 
 async function search(payload, pool = createMockPool(), tables = dbTables()) {
   const app = Fastify();
   app.decorate('pg', pool);
-  await app.register(fastifyAutoSqlApi, { DbTables: tables });
+  await app.register(fastifyAutoSqlApi, { dbTables: tables });
   await app.ready();
   const res = await app.inject({ method: 'POST', url: '/search/chat', payload });
   await app.close();

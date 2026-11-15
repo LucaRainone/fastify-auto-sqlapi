@@ -37,7 +37,7 @@ export const WriteActionSchema = Type.Union([Type.Literal('inserted'), Type.Lite
  */
 export function pkParams(tableConf: TableConfig): TObject {
   const pkField = primaryAsString(tableConf.primary);
-  return Type.Object({ id: asRequired(tableConf.Schema.fields[pkField] ?? Type.String()) });
+  return Type.Object({ id: asRequired(tableConf.schema.fields[pkField] ?? Type.String()) });
 }
 
 /**

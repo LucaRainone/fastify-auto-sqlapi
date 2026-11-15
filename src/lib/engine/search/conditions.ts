@@ -8,6 +8,7 @@
 import { ConditionBuilder, Expression } from 'node-condition-builder';
 import type { QueryClient } from '../../db.js';
 import { assertFiltersReadable, ownField } from '../../read-access.js';
+import { buildTableFilters } from '../../table-helpers.js';
 import {
   ALLOWED_SET, SINGLE_VALUE_SET, BETWEEN_SET, IN_SET, NULL_SET,
 } from '../../condition-methods.js';
@@ -152,7 +153,7 @@ export function buildJoinRefCondition(
   const colQualifier = qualifier ?? joinSchema.tableName;
 
   const cb = (ref.filters && joinTableConf)
-    ? joinTableConf.filters(ref.filters, db.cbDialect, colQualifier)
+    ? buildTableFilters(joinTableConf, ref.filters, db.cbDialect, colQualifier)
     : new ConditionBuilder('AND', db.cbDialect);
 
   if (ref.filters) {
@@ -204,6 +205,6 @@ export function applyComputedFilters(
   db: QueryClient
 ): void {
   applyComputedEqualityFilters(
-    condition, filters, tableConf.computedFields, tableConf.Schema, db
+    condition, filters, tableConf.computedFields, tableConf.schema, db
   );
 }

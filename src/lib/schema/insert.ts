@@ -14,7 +14,7 @@ import {
 
 export function InsertTableBody(dbTables: DbTables, tableName: string): TObject {
   const tableConf = dbTables[tableName];
-  const schema = tableConf.Schema;
+  const schema = tableConf.schema;
 
   // Main: full validation, but insertExclude fields become Optional. Fields the
   // database computes are not offered at all — sending one is rejected here (400) rather
@@ -49,7 +49,7 @@ export function InsertTableResponse(dbTables: DbTables, tableName: string): TObj
   const tableConf = dbTables[tableName];
 
   const responseProperties: Record<string, TSchema> = {
-    main: Type.Object(pkSchema(tableConf, tableConf.Schema, primaryAsString(tableConf.primary))),
+    main: Type.Object(pkSchema(tableConf, tableConf.schema, primaryAsString(tableConf.primary))),
     action: WriteActionSchema,
   };
 

@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
-const { exportTableInfo, buildRelation, defineTable } =
+const { buildRelation, defineTable } =
   await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { SearchTableBodyPost, SearchTableResponse } =
   await import(path.join(ROOT, 'dist/lib/schema/search.js'));
@@ -39,7 +39,7 @@ function createDbTables() {
   return {
     agent: {
       primary: 'id',
-      ...exportTableInfo(agentSchema),
+      schema: agentSchema,
       defaultOrder: 'id',
       allowedReadJoins: [
         buildRelation(agentSchema, 'userId', userSchema, 'id', {
@@ -51,7 +51,7 @@ function createDbTables() {
     },
     user: {
       primary: 'id',
-      ...exportTableInfo(userSchema),
+      schema: userSchema,
       defaultOrder: 'id',
       allowedReadJoins: [
         buildRelation(userSchema, 'id', agentSchema, 'userId', {
@@ -77,12 +77,12 @@ function createDbTablesWithComputed() {
 
 function run(tableName, params) {
   const mockPg = createMockPg();
-  const DbTables = createDbTables();
+  const dbTables = createDbTables();
   return {
     mockPg,
-    promise: searchEngine(DbTables, {
+    promise: searchEngine(dbTables, {
       db: new QueryClient(mockPg),
-      tableConf: DbTables[tableName],
+      tableConf: dbTables[tableName],
       ...params,
     }),
   };
@@ -130,7 +130,7 @@ describe('buildRelation fields — declaration-time checks', () => {
     assert.throws(
       () => defineTable({
         primary: 'id',
-        ...exportTableInfo(userSchema),
+        schema: userSchema,
         allowedWriteJoins: [rel],
       }),
       /fields/
@@ -249,11 +249,11 @@ describe('buildRelation fields — the default projection is not SELECT *', () =
       { rows: [{ total: '1' }], rowCount: 1 },
       { rows: [{ id: 7, name: 'Account', email: 'leak@x.it' }], rowCount: 1 },
     ]);
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
-    const result = await searchEngine(DbTables, {
+    const result = await searchEngine(dbTables, {
       db: new QueryClient(mockPg),
-      tableConf: DbTables.agent,
+      tableConf: dbTables.agent,
       joinLeft: { user: {} },
     });
 

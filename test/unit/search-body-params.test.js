@@ -10,7 +10,7 @@ import path from 'node:path';
 import { ROOT, createMockSchema } from './_harness.js';
 
 const lib = await import(path.join(ROOT, 'dist/index.js'));
-const { fastifyAutoSqlApi, defineTable, exportTableInfo, createSqlApi, agentToolSchemas, Type } = lib;
+const { fastifyAutoSqlApi, defineTable, createSqlApi, agentToolSchemas, Type } = lib;
 
 const SchemaOrder = createMockSchema('customer_order', {
   id: Type.Integer(),
@@ -33,11 +33,11 @@ function createMockPool() {
 }
 
 async function createApp(pluginOverrides = {}) {
-  const DbTables = { order: defineTable({ primary: 'id', ...exportTableInfo(SchemaOrder) }) };
+  const dbTables = { order: defineTable({ primary: 'id', schema: SchemaOrder }) };
   const app = Fastify();
   const pool = createMockPool();
   app.decorate('pg', pool);
-  await app.register(fastifyAutoSqlApi, { DbTables, ...pluginOverrides });
+  await app.register(fastifyAutoSqlApi, { dbTables, ...pluginOverrides });
   return { app, pool };
 }
 
@@ -149,9 +149,9 @@ describe('the pre-1.0 querystring form is rejected, not ignored', () => {
 
   for (const key of ['computeMin', 'computeMax', 'computeSum', 'computeAvg']) {
     it(`${key} in sqlApi.search is a 400 retired_key`, async () => {
-      const DbTables = { order: defineTable({ primary: 'id', ...exportTableInfo(SchemaOrder) }) };
+      const dbTables = { order: defineTable({ primary: 'id', schema: SchemaOrder }) };
       const pool = createMockPool();
-      const sqlApi = createSqlApi(pool, DbTables, { dialect: 'postgres' });
+      const sqlApi = createSqlApi(pool, dbTables, { dialect: 'postgres' });
       await assert.rejects(
         () => sqlApi.search('order', { [key]: 'total' }),
         (err) => err.statusCode === 400 &&
@@ -162,8 +162,8 @@ describe('the pre-1.0 querystring form is rejected, not ignored', () => {
   }
 
   it('the search route and its agent tool schema declare no querystring', () => {
-    const DbTables = { order: defineTable({ primary: 'id', ...exportTableInfo(SchemaOrder) }) };
-    const schemas = agentToolSchemas(DbTables, 'order');
+    const dbTables = { order: defineTable({ primary: 'id', schema: SchemaOrder }) };
+    const schemas = agentToolSchemas(dbTables, 'order');
     assert.deepEqual(Object.keys(schemas.search), ['body']);
     assert.equal(lib.SearchTableQuery, undefined);
   });
@@ -172,8 +172,8 @@ describe('the pre-1.0 querystring form is rejected, not ignored', () => {
 describe('search body schema', () => {
   it('advertises orderBy, paginator and compute, with the paginator cap', async () => {
     const { SearchTableBodyPost } = await import(path.join(ROOT, 'dist/lib/schema/search.js'));
-    const DbTables = { order: defineTable({ primary: 'id', ...exportTableInfo(SchemaOrder) }) };
-    const body = SearchTableBodyPost(DbTables, 'order', 100);
+    const dbTables = { order: defineTable({ primary: 'id', schema: SchemaOrder }) };
+    const body = SearchTableBodyPost(dbTables, 'order', 100);
     assert.equal(body.properties.orderBy?.type, 'string');
     assert.equal(body.properties.paginator?.properties?.itemsPerPage?.maximum, 100);
     assert.deepEqual(Object.keys(body.properties.compute?.properties ?? {}).sort(), ['avg', 'count', 'distinctCount', 'max', 'min', 'sum']);

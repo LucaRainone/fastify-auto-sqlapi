@@ -4,7 +4,7 @@ import path from 'node:path';
 import { createMockPg, createMockSchema, ROOT } from './_harness.js';
 
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
@@ -28,16 +28,16 @@ function createTenantDbTables(mockPg, opts = {}) {
   const customerSchema = createMockSchema('customer', customerFields);
   const orderSchema = createMockSchema('customer_order', orderFields);
 
-  const DbTables = {
+  const dbTables = {
     customer: {
       primary: 'id',
-      ...exportTableInfo(customerSchema),
+      schema: customerSchema,
       defaultOrder: 'id',
       ...(opts.parentScope === null ? {} : { tenantScope: opts.parentScope || { column: 'organization_id' } }),
     },
     customer_order: {
       primary: 'id',
-      ...exportTableInfo(orderSchema),
+      schema: orderSchema,
       defaultOrder: 'id',
       tenantScope: { column: 'organization_id' },
       allowedReadJoins: [
@@ -46,7 +46,7 @@ function createTenantDbTables(mockPg, opts = {}) {
     },
   };
 
-  return { DbTables, db: new QueryClient(mockPg), customerSchema, orderSchema };
+  return { dbTables, db: new QueryClient(mockPg), customerSchema, orderSchema };
 }
 
 const TENANT = { ids: [9], scope: { column: 'organization_id' } };
@@ -73,11 +73,11 @@ describe('tenant scoping on the joinLeft LEFT JOIN', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 }, // main query with the LEFT JOIN
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer_order,
+      tableConf: dbTables.customer_order,
       joinLeft: { parent: { filters: { name: 'acme' } } },
       tenant: TENANT,
     });
@@ -92,11 +92,11 @@ describe('tenant scoping on the joinLeft LEFT JOIN', () => {
 
   it('keeps the tenant predicate out of the WHERE, so LEFT semantics survive', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer_order,
+      tableConf: dbTables.customer_order,
       joinLeft: { parent: { filters: { name: 'acme' } } },
       tenant: TENANT,
     });
@@ -111,11 +111,11 @@ describe('tenant scoping on the joinLeft LEFT JOIN', () => {
 
   it('scopes the LEFT JOIN forced by a 2-part orderBy', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer_order,
+      tableConf: dbTables.customer_order,
       orderBy: 'parent.name',
       tenant: TENANT,
     });
@@ -129,11 +129,11 @@ describe('tenant scoping on the joinLeft LEFT JOIN', () => {
 
   it('scopes the LEFT JOIN when the request puts conditions on the parent', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer_order,
+      tableConf: dbTables.customer_order,
       joinLeft: { parent: { conditions: [{ field: 'name', method: 'isLike', params: ['A%'] }] } },
       tenant: TENANT,
     });
@@ -145,16 +145,16 @@ describe('tenant scoping on the joinLeft LEFT JOIN', () => {
   it('joins the through table with EXISTS when the parent has an indirect scope', async () => {
     const customerSchema = createMockSchema('customer', customerFields);
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createTenantDbTables(mockPg, {
+    const { dbTables, db } = createTenantDbTables(mockPg, {
       parentScope: {
         column: 'organization_id',
         through: { schema: customerSchema, localField: 'id', foreignField: 'id' },
       },
     });
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer_order,
+      tableConf: dbTables.customer_order,
       joinLeft: { parent: { filters: { name: 'acme' } } },
       tenant: TENANT,
     });
@@ -166,11 +166,11 @@ describe('tenant scoping on the joinLeft LEFT JOIN', () => {
 
   it('does not scope a parent table that declares no tenantScope', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createTenantDbTables(mockPg, { parentScope: null });
+    const { dbTables, db } = createTenantDbTables(mockPg, { parentScope: null });
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer_order,
+      tableConf: dbTables.customer_order,
       joinLeft: { parent: { filters: { name: 'acme' } } },
       tenant: TENANT,
     });
@@ -181,11 +181,11 @@ describe('tenant scoping on the joinLeft LEFT JOIN', () => {
 
   it('does not scope the LEFT JOIN without a tenant context (admin)', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer_order,
+      tableConf: dbTables.customer_order,
       joinLeft: { parent: { filters: { name: 'acme' } } },
     });
 
@@ -200,10 +200,10 @@ describe('tenant scoping on correlated aggregation subqueries', () => {
     const orderSchema = createMockSchema('customer_order', orderFields);
 
     return {
-      DbTables: {
+      dbTables: {
         customer: {
           primary: 'id',
-          ...exportTableInfo(customerSchema),
+          schema: customerSchema,
           defaultOrder: 'id',
           tenantScope: { column: 'organization_id' },
           allowedReadJoins: [
@@ -212,7 +212,7 @@ describe('tenant scoping on correlated aggregation subqueries', () => {
         },
         customer_order: {
           primary: 'id',
-          ...exportTableInfo(orderSchema),
+          schema: orderSchema,
           defaultOrder: 'id',
           tenantScope: { column: 'organization_id' },
         },
@@ -230,11 +230,11 @@ describe('tenant scoping on correlated aggregation subqueries', () => {
 
   it('scopes the subquery of a HAVING-style dotted condition', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createAggDbTables(mockPg);
+    const { dbTables, db } = createAggDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinGroup: { customer_order: { count: ['id'] } },
       conditions: [{ field: 'customer_order.count.id', method: 'isGreater', params: [0] }],
       tenant: TENANT,
@@ -249,11 +249,11 @@ describe('tenant scoping on correlated aggregation subqueries', () => {
 
   it('scopes the subquery of a 3-part orderBy', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createAggDbTables(mockPg);
+    const { dbTables, db } = createAggDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinGroup: { customer_order: { sum: ['total'] } },
       orderBy: 'customer_order.sum.total',
       tenant: TENANT,
@@ -268,11 +268,11 @@ describe('tenant scoping on correlated aggregation subqueries', () => {
 
   it('does not scope the aggregation subquery without a tenant context (admin)', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createAggDbTables(mockPg);
+    const { dbTables, db } = createAggDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinGroup: { customer_order: { count: ['id'] } },
       conditions: [{ field: 'customer_order.count.id', method: 'isGreater', params: [0] }],
     });

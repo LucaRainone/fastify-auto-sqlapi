@@ -9,7 +9,7 @@ import { createMockPg, createMockSchema, insertedRows, ROOT } from './_harness.j
 
 const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/insert.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
-const { Type, defineTable, exportTableInfo, buildRelation, InsertTableBody, buildAgentManifest } =
+const { Type, defineTable, buildRelation, InsertTableBody, buildAgentManifest } =
   await import(path.join(ROOT, 'dist/index.js'));
 
 const customerSchema = createMockSchema('customer', {
@@ -27,13 +27,13 @@ function createDbTables({ customer = {}, order = {} } = {}) {
   return {
     customer: {
       primary: 'id',
-      ...exportTableInfo(customerSchema),
+      schema: customerSchema,
       allowedWriteJoins: [buildRelation(customerSchema, 'id', orderSchema, 'customerId')],
       ...customer,
     },
     customer_order: {
       primary: 'id',
-      ...exportTableInfo(orderSchema),
+      schema: orderSchema,
       ...order,
     },
   };
@@ -113,7 +113,7 @@ describe('excludeFromCreation, the name insertExclude had before 0.6.0', () => {
     assert.throws(
       () => defineTable({
         primary: 'id',
-        ...exportTableInfo(customerSchema),
+        schema: customerSchema,
         excludeFromCreation: ['id'],
       }),
       /excludeFromCreation.*insertExclude/,

@@ -5,7 +5,6 @@ import {
   createTestApp,
   cleanTables,
   seedRows,
-  exportTableInfo,
   toUnderscore,
   Type,
 } from './_helpers.js';
@@ -28,9 +27,9 @@ const productSchema = createSchema('product', {
   metadata: Type.Optional(Type.Any()),
 });
 
-const productInfo = exportTableInfo(productSchema);
+const productInfo = { schema: productSchema };
 
-const DbTables = {
+const dbTables = {
   product: {
     primary: 'id',
     ...productInfo,
@@ -61,7 +60,7 @@ describe(`[${DIALECT}] computed fields integration`, () => {
   let db;
 
   before(async () => {
-    ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
+    ({ app, db } = await createTestApp(dbTables, { prefix: '/auto' }));
     await cleanTables(db, ['product']);
 
     await seedRows(db, 'product', [

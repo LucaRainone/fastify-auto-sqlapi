@@ -10,7 +10,6 @@ import {
   createTestApp,
   cleanTables,
   seedRows,
-  exportTableInfo,
   buildRelation,
   toUnderscore,
   Type,
@@ -42,10 +41,10 @@ const orderSchema = createSchema('customer_order', {
   status: Type.Optional(Type.String()),
 });
 
-const DbTables = {
+const dbTables = {
   customer: {
     primary: 'id',
-    ...exportTableInfo(customerSchema),
+    schema: customerSchema,
     defaultOrder: 'id',
     upsertMap: new Map([[customerSchema, ['id']]]),
     allowedWriteJoins: [
@@ -54,7 +53,7 @@ const DbTables = {
   },
   customer_order: {
     primary: 'id',
-    ...exportTableInfo(orderSchema),
+    schema: orderSchema,
     defaultOrder: 'id',
   },
 };
@@ -64,7 +63,7 @@ describe(`[${DIALECT}] bulk upsert — each item writes its own fields`, () => {
   let db;
 
   before(async () => {
-    ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
+    ({ app, db } = await createTestApp(dbTables, { prefix: '/auto' }));
   });
 
   beforeEach(async () => {
@@ -222,10 +221,10 @@ describe(`[${DIALECT}] upsert — an item holding only the conflict keys`, () =>
 
   before(async () => {
     ({ app, db } = await createTestApp({
-      ...DbTables,
+      ...dbTables,
       tag: {
         primary: 'id',
-        ...exportTableInfo(tagSchema),
+        schema: tagSchema,
         defaultOrder: 'id',
         upsertMap: new Map([[tagSchema, ['code']]]),
       },
@@ -308,7 +307,7 @@ describe(`[${DIALECT}] upsert by a natural key — re-sending the payload`, () =
     ({ app, db } = await createTestApp({
       tag: {
         primary: 'id',
-        ...exportTableInfo(tagSchema),
+        schema: tagSchema,
         defaultOrder: 'id',
         upsertMap: new Map([[tagSchema, ['code']]]),
       },

@@ -11,7 +11,7 @@ import path from 'node:path';
 import { createMockPg, createMockSchema, ROOT } from './_harness.js';
 
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
@@ -33,10 +33,10 @@ function createDbTables(mockPg) {
 
   return {
     db: new QueryClient(mockPg),
-    DbTables: {
+    dbTables: {
       shift: {
         primary: 'id',
-        ...exportTableInfo(shiftSchema),
+        schema: shiftSchema,
         defaultOrder: 'id',
         allowedReadJoins: [
           buildRelation(shiftSchema, 'id', swapSchema, 'shiftId', { alias: 'swap' }),
@@ -45,7 +45,7 @@ function createDbTables(mockPg) {
       },
       shift_swap_request: {
         primary: 'id',
-        ...exportTableInfo(swapSchema),
+        schema: swapSchema,
         defaultOrder: 'id',
         tenantScope: SCOPE,
       },
@@ -73,11 +73,11 @@ describe('anyOf scope across a joinMultiple side query', () => {
       { rows: [{ id: 1 }], affectedRows: 1 },  // main
       { rows: [], affectedRows: 0 },           // side query
     ]);
-    const { db, DbTables } = createDbTables(mockPg);
+    const { db, dbTables } = createDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.shift,
+      tableConf: dbTables.shift,
       joinMultiple: { swap: {} },
       tenant: TENANT,
     });
@@ -92,11 +92,11 @@ describe('anyOf scope across a joinMultiple side query', () => {
 describe('anyOf scope across a joinLeft', () => {
   it('scopes the joined table in the ON clause, alias-qualified', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { db, DbTables } = createDbTables(mockPg);
+    const { db, dbTables } = createDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.shift,
+      tableConf: dbTables.shift,
       joinLeft: { one_swap: { filters: { message: 'dentist' } } },
       tenant: TENANT,
     });
@@ -108,11 +108,11 @@ describe('anyOf scope across a joinLeft', () => {
 
   it('keeps the predicate out of the WHERE, so LEFT semantics survive', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { db, DbTables } = createDbTables(mockPg);
+    const { db, dbTables } = createDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.shift,
+      tableConf: dbTables.shift,
       joinLeft: { one_swap: { filters: { message: 'dentist' } } },
       tenant: TENANT,
     });
@@ -124,11 +124,11 @@ describe('anyOf scope across a joinLeft', () => {
 
   it('scopes the LEFT JOIN forced by a 2-part orderBy', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { db, DbTables } = createDbTables(mockPg);
+    const { db, dbTables } = createDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.shift,
+      tableConf: dbTables.shift,
       orderBy: 'one_swap.message',
       tenant: TENANT,
     });
@@ -142,11 +142,11 @@ describe('anyOf scope across a joinLeft', () => {
 describe('anyOf scope across joinMustExist', () => {
   it('scopes the EXISTS subquery on both columns', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { db, DbTables } = createDbTables(mockPg);
+    const { db, dbTables } = createDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.shift,
+      tableConf: dbTables.shift,
       joinMustExist: { swap: { filters: { message: 'dentist' } } },
       tenant: TENANT,
     });
@@ -161,11 +161,11 @@ describe('anyOf scope across joinMustExist', () => {
 describe('anyOf scope across an aggregation subquery', () => {
   it('scopes the correlated subquery of a dotted condition', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { db, DbTables } = createDbTables(mockPg);
+    const { db, dbTables } = createDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.shift,
+      tableConf: dbTables.shift,
       joinGroup: { swap: { count: ['id'] } },
       conditions: [{ field: 'swap.count.id', method: 'isGreater', params: [0] }],
       tenant: TENANT,
@@ -182,11 +182,11 @@ describe('anyOf scope across an aggregation subquery', () => {
       { rows: [{ id: 1 }], affectedRows: 1 },
       { rows: [], affectedRows: 0 },
     ]);
-    const { db, DbTables } = createDbTables(mockPg);
+    const { db, dbTables } = createDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.shift,
+      tableConf: dbTables.shift,
       joinGroup: { swap: { count: ['id'] } },
       tenant: TENANT,
     });

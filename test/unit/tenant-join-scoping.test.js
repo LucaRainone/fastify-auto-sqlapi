@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
@@ -45,10 +45,10 @@ function createTenantDbTables(mockPg) {
   const customerSchema = createMockSchema('customer', customerFields);
   const orderSchema = createMockSchema('customer_order', orderFields);
 
-  const DbTables = {
+  const dbTables = {
     customer: {
       primary: 'id',
-      ...exportTableInfo(customerSchema),
+      schema: customerSchema,
       defaultOrder: 'id',
       tenantScope: { column: 'organization_id' },
       allowedReadJoins: [
@@ -57,7 +57,7 @@ function createTenantDbTables(mockPg) {
     },
     customer_order: {
       primary: 'id',
-      ...exportTableInfo(orderSchema),
+      schema: orderSchema,
       defaultOrder: 'id',
       tenantScope: { column: 'organization_id' },
       allowedReadJoins: [
@@ -66,7 +66,7 @@ function createTenantDbTables(mockPg) {
     },
   };
 
-  return { DbTables, db: new QueryClient(mockPg) };
+  return { dbTables, db: new QueryClient(mockPg) };
 }
 
 const TENANT = { ids: [9], scope: { column: 'organization_id' } };
@@ -77,11 +77,11 @@ describe('tenant scoping on join side-queries', () => {
       { rows: [{ id: 1, name: 'Mario', organization_id: 9 }], affectedRows: 1 }, // main
       { rows: [], affectedRows: 0 },                                             // join side query
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinMultiple: { customer_order: {} },
       tenant: TENANT,
     });
@@ -99,11 +99,11 @@ describe('tenant scoping on join side-queries', () => {
       { rows: [{ id: 5, customer_id: 1, total: 10, organization_id: 9 }], affectedRows: 1 }, // main
       { rows: [], affectedRows: 0 },                                                         // parent fetch
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer_order,
+      tableConf: dbTables.customer_order,
       joinLeft: { customer: {} },
       tenant: TENANT,
     });
@@ -121,11 +121,11 @@ describe('tenant scoping on join side-queries', () => {
       { rows: [{ id: 1, name: 'Mario', organization_id: 9 }], affectedRows: 1 }, // main
       { rows: [{ count_id: 3 }], affectedRows: 1 },                              // aggregation
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinGroup: { customer_order: { count: ['id'] } },
       tenant: TENANT,
     });
@@ -142,11 +142,11 @@ describe('tenant scoping on join side-queries', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 }, // main with EXISTS
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinMustExist: { customer_order: { filters: { total: 10 } } },
       tenant: TENANT,
     });
@@ -164,12 +164,12 @@ describe('tenant scoping on join side-queries', () => {
       { rows: [{ id: 1, name: 'Mario', organization_id: 9 }], affectedRows: 1 },
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
-    delete DbTables.customer_order.tenantScope;
+    const { dbTables, db } = createTenantDbTables(mockPg);
+    delete dbTables.customer_order.tenantScope;
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinMultiple: { customer_order: {} },
       tenant: TENANT,
     });
@@ -186,11 +186,11 @@ describe('tenant scoping on join side-queries', () => {
       { rows: [{ id: 1, name: 'Mario', organization_id: 9 }], affectedRows: 1 },
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
+    const { dbTables, db } = createTenantDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinMultiple: { customer_order: {} },
     });
 
@@ -203,16 +203,16 @@ describe('tenant scoping on join side-queries', () => {
       { rows: [{ id: 1, name: 'Mario', organization_id: 9 }], affectedRows: 1 },
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTenantDbTables(mockPg);
-    const customerSchema = DbTables.customer.Schema;
-    DbTables.customer_order.tenantScope = {
+    const { dbTables, db } = createTenantDbTables(mockPg);
+    const customerSchema = dbTables.customer.schema;
+    dbTables.customer_order.tenantScope = {
       column: 'organization_id',
       through: { schema: customerSchema, localField: 'customer_id', foreignField: 'id' },
     };
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinMultiple: { customer_order: {} },
       tenant: TENANT,
     });
@@ -243,10 +243,10 @@ describe('indirect join-table scope through a third table', () => {
     const orderSchema = createMockSchema('customer_order', orderWithAccountFields);
     const accountSchema = createMockSchema('account', accountFields);
 
-    const DbTables = {
+    const dbTables = {
       customer: {
         primary: 'id',
-        ...exportTableInfo(customerSchema),
+        schema: customerSchema,
         defaultOrder: 'id',
         tenantScope: { column: 'organization_id' },
         allowedReadJoins: [
@@ -255,7 +255,7 @@ describe('indirect join-table scope through a third table', () => {
       },
       customer_order: {
         primary: 'id',
-        ...exportTableInfo(orderSchema),
+        schema: orderSchema,
         defaultOrder: 'id',
         tenantScope: {
           column: 'organization_id',
@@ -264,12 +264,12 @@ describe('indirect join-table scope through a third table', () => {
       },
       account: {
         primary: 'id',
-        ...exportTableInfo(accountSchema),
+        schema: accountSchema,
         defaultOrder: 'id',
         tenantScope: { column: 'organization_id' },
       },
     };
-    return { DbTables, db: new QueryClient(mockPg) };
+    return { dbTables, db: new QueryClient(mockPg) };
   }
 
   /** The scope reaches `account` and filters on its tenant column, in the given fragment. */
@@ -283,11 +283,11 @@ describe('indirect join-table scope through a third table', () => {
 
   it('joinMustExist: the EXISTS subquery reaches the through table', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createThirdTableDbTables(mockPg);
+    const { dbTables, db } = createThirdTableDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinMustExist: { customer_order: { filters: { total: 10 } } },
       tenant: TENANT,
     });
@@ -302,11 +302,11 @@ describe('indirect join-table scope through a third table', () => {
       { rows: [{ id: 1, name: 'Mario', organization_id: 9 }], affectedRows: 1 },
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createThirdTableDbTables(mockPg);
+    const { dbTables, db } = createThirdTableDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinGroup: { customer_order: { count: ['id'] } },
       tenant: TENANT,
     });
@@ -317,11 +317,11 @@ describe('indirect join-table scope through a third table', () => {
 
   it('dotted aggregation condition: the correlated subquery reaches the through table', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createThirdTableDbTables(mockPg);
+    const { dbTables, db } = createThirdTableDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinGroup: { customer_order: { count: ['id'] } },
       conditions: [{ field: 'customer_order.count.id', method: 'isGreater', params: [0] }],
       tenant: TENANT,
@@ -333,11 +333,11 @@ describe('indirect join-table scope through a third table', () => {
 
   it('3-part orderBy: the correlated subquery reaches the through table', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createThirdTableDbTables(mockPg);
+    const { dbTables, db } = createThirdTableDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinGroup: { customer_order: { sum: ['total'] } },
       orderBy: 'customer_order.sum.total',
       tenant: TENANT,

@@ -13,7 +13,7 @@ import {
 
 export function UpdateTableBody(dbTables: DbTables, tableName: string): TObject {
   const tableConf = dbTables[tableName];
-  const schema = tableConf.Schema;
+  const schema = tableConf.schema;
 
   // Main: PK required, all other fields optional (overrides applied before Optional wrap)
   const baseFields = writableFields(
@@ -48,7 +48,7 @@ export function UpdateTableResponse(dbTables: DbTables, tableName: string): TObj
   const tableConf = dbTables[tableName];
 
   const responseProperties: Record<string, TSchema> = {
-    main: Type.Object(pkSchema(tableConf, tableConf.Schema, primaryAsString(tableConf.primary))),
+    main: Type.Object(pkSchema(tableConf, tableConf.schema, primaryAsString(tableConf.primary))),
   };
 
   attachWriteJoinSections(responseProperties, tableConf, dbTables, {

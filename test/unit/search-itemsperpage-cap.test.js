@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
-const { fastifyAutoSqlApi, SearchTableBodyPost, Type, exportTableInfo } =
+const { fastifyAutoSqlApi, SearchTableBodyPost, Type } =
   await import(path.join(ROOT, 'dist/index.js'));
 
 function testDbTables() {
@@ -26,7 +26,7 @@ function testDbTables() {
     tableName: 'test_table',
     partialValidation: Type.Partial(Type.Object(fields)),
   };
-  return { test_table: { primary: 'id', ...exportTableInfo(schema), defaultOrder: 'id' } };
+  return { test_table: { primary: 'id', schema, defaultOrder: 'id' } };
 }
 
 /** The body schema's `paginator.itemsPerPage`, built with the given cap (or the default). */
@@ -49,7 +49,7 @@ describe('search body schema — paginator.itemsPerPage', () => {
 });
 
 function createTestApp(maxItemsPerPage) {
-  const DbTables = testDbTables();
+  const dbTables = testDbTables();
 
   const app = Fastify();
   // Minimal pg stand-in: empty result set, count 0 for the paginator query.
@@ -58,7 +58,7 @@ function createTestApp(maxItemsPerPage) {
       ? { rows: [{ total: 0 }], rowCount: 1 }
       : { rows: [], rowCount: 0 },
   });
-  return app.register(fastifyAutoSqlApi, { DbTables, maxItemsPerPage }).then(() => app);
+  return app.register(fastifyAutoSqlApi, { dbTables, maxItemsPerPage }).then(() => app);
 }
 
 describe('maxItemsPerPage below 500 — route behavior', () => {

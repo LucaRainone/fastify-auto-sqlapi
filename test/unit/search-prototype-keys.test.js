@@ -4,7 +4,7 @@ import path from 'node:path';
 import { createMockPg, createMockSchema, ROOT } from './_harness.js';
 
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
@@ -15,10 +15,10 @@ function createTestDbTables(mockPg) {
   const customerSchema = createMockSchema('customer', customerFields);
   const orderSchema = createMockSchema('customer_order', orderFields);
 
-  const DbTables = {
+  const dbTables = {
     customer: {
       primary: 'id',
-      ...exportTableInfo(customerSchema),
+      schema: customerSchema,
       defaultOrder: 'id',
       computedFields: {
         upperName: ({ qiCol }) => ({ expr: `UPPER(${qiCol('name')})`, values: [], type: Type.String() }),
@@ -29,12 +29,12 @@ function createTestDbTables(mockPg) {
     },
     customer_order: {
       primary: 'id',
-      ...exportTableInfo(orderSchema),
+      schema: orderSchema,
       defaultOrder: 'id',
     },
   };
 
-  return { DbTables, db: new QueryClient(mockPg) };
+  return { dbTables, db: new QueryClient(mockPg) };
 }
 
 /**
@@ -51,10 +51,10 @@ describe('search rejects prototype-chain keys like any unknown field', () => {
   for (const key of PROTOTYPE_KEYS) {
     it(`rejects '${key}' as a filter key`, async () => {
       const mockPg = createMockPg([{ rows: [] }]);
-      const { DbTables, db } = createTestDbTables(mockPg);
+      const { dbTables, db } = createTestDbTables(mockPg);
 
       await assert.rejects(
-        () => searchEngine(DbTables, { db, tableConf: DbTables.customer, filters: { [key]: 1 } }),
+        () => searchEngine(dbTables, { db, tableConf: dbTables.customer, filters: { [key]: 1 } }),
         (err) => err.statusCode === 400,
         `'${key}' must be reported as an unknown filter field`
       );
@@ -62,12 +62,12 @@ describe('search rejects prototype-chain keys like any unknown field', () => {
 
     it(`rejects '${key}' as a condition field`, async () => {
       const mockPg = createMockPg([{ rows: [] }]);
-      const { DbTables, db } = createTestDbTables(mockPg);
+      const { dbTables, db } = createTestDbTables(mockPg);
 
       await assert.rejects(
-        () => searchEngine(DbTables, {
+        () => searchEngine(dbTables, {
           db,
-          tableConf: DbTables.customer,
+          tableConf: dbTables.customer,
           conditions: [{ field: key, method: 'isEqual', params: [1] }],
         }),
         (err) => err.statusCode === 400
@@ -76,20 +76,20 @@ describe('search rejects prototype-chain keys like any unknown field', () => {
 
     it(`rejects '${key}' in orderBy`, async () => {
       const mockPg = createMockPg([{ rows: [] }]);
-      const { DbTables, db } = createTestDbTables(mockPg);
+      const { dbTables, db } = createTestDbTables(mockPg);
 
       await assert.rejects(
-        () => searchEngine(DbTables, { db, tableConf: DbTables.customer, orderBy: key }),
+        () => searchEngine(dbTables, { db, tableConf: dbTables.customer, orderBy: key }),
         (err) => err.statusCode === 400
       );
     });
 
     it(`rejects '${key}' in select`, async () => {
       const mockPg = createMockPg([{ rows: [] }]);
-      const { DbTables, db } = createTestDbTables(mockPg);
+      const { dbTables, db } = createTestDbTables(mockPg);
 
       await assert.rejects(
-        () => searchEngine(DbTables, { db, tableConf: DbTables.customer, select: [key] }),
+        () => searchEngine(dbTables, { db, tableConf: dbTables.customer, select: [key] }),
         (err) => err.statusCode === 400
       );
     });
@@ -97,11 +97,11 @@ describe('search rejects prototype-chain keys like any unknown field', () => {
 
   it('still accepts a real schema field', async () => {
     const mockPg = createMockPg([{ rows: [] }]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       filters: { name: 'Mario' },
       orderBy: 'name',
     });
@@ -110,11 +110,11 @@ describe('search rejects prototype-chain keys like any unknown field', () => {
 
   it('still accepts a declared computed field', async () => {
     const mockPg = createMockPg([{ rows: [] }]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       select: ['upperName'],
     });
     assert.ok(mockPg.calls[0].text.includes('UPPER'), mockPg.calls[0].text);

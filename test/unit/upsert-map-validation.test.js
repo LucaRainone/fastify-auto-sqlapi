@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { ROOT, createMockSchema } from './_harness.js';
 
-const { defineTable, exportTableInfo, buildRelation, buildUpsertRules, buildUpsertRule } =
+const { defineTable, buildRelation, buildUpsertRules, buildUpsertRule } =
   await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
@@ -34,7 +34,7 @@ const contentInfoSchema = generatedSchema(
 function tagTable(...rules) {
   return {
     primary: 'id',
-    ...exportTableInfo(tagSchema),
+    schema: tagSchema,
     defaultOrder: 'id',
     upsertMap: buildUpsertRules(...rules.map((keys) => buildUpsertRule(tagSchema, keys))),
   };
@@ -53,7 +53,7 @@ describe('defineTable - upsertMap names a verified unique key', () => {
   it('accepts a write-join child keyed on its composite primary key, with no defineTable of its own', () => {
     assert.doesNotThrow(() => defineTable({
       primary: 'id',
-      ...exportTableInfo(contentSchema),
+      schema: contentSchema,
       defaultOrder: 'id',
       allowedWriteJoins: [
         buildRelation(contentSchema, 'id', contentInfoSchema, 'contentId', { alias: 'info' }),
@@ -87,7 +87,7 @@ describe('defineTable - upsertMap names a verified unique key', () => {
     assert.throws(
       () => defineTable({
         primary: 'id',
-        ...exportTableInfo(legacy),
+        schema: legacy,
         defaultOrder: 'id',
         upsertMap: buildUpsertRules(buildUpsertRule(legacy, ['code'])),
       }),
@@ -99,7 +99,7 @@ describe('defineTable - upsertMap names a verified unique key', () => {
     const legacy = generatedSchema('tag', tagSchema.fields, { primaryKey: ['id'] });
     assert.doesNotThrow(() => defineTable({
       primary: 'id',
-      ...exportTableInfo(legacy),
+      schema: legacy,
       defaultOrder: 'id',
       upsertMap: buildUpsertRules(buildUpsertRule(legacy, ['id'])),
     }));
@@ -110,7 +110,7 @@ describe('defineTable - upsertMap names a verified unique key', () => {
     assert.throws(
       () => defineTable({
         primary: 'id',
-        ...exportTableInfo(handWritten),
+        schema: handWritten,
         defaultOrder: 'id',
         upsertMap: buildUpsertRules(buildUpsertRule(handWritten, ['id'])),
       }),
@@ -125,7 +125,7 @@ describe('defineTable - upsertMap names a verified unique key', () => {
     assert.throws(
       () => defineTable({
         primary: 'id',
-        ...exportTableInfo(view),
+        schema: view,
         defaultOrder: 'id',
         upsertMap: buildUpsertRules(buildUpsertRule(view, ['id'])),
       }),

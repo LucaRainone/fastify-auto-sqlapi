@@ -5,7 +5,6 @@ import {
   createTestApp,
   cleanTables,
   seedRows,
-  exportTableInfo,
   buildRelation,
   toUnderscore,
   Type,
@@ -37,10 +36,10 @@ const customerSchema = createSchema('customer', {
   updatedBy: Type.Optional(Type.Integer()),
 });
 
-const DbTables = {
+const dbTables = {
   customer: {
     primary: 'id',
-    ...exportTableInfo(customerSchema),
+    schema: customerSchema,
     defaultOrder: 'id',
     allowedReadJoins: [
       // Rows edited by this customer: join.updated_by = main.id
@@ -54,7 +53,7 @@ describe(`[${DIALECT}] self-referencing relation (correlation shadowing regressi
   let db;
 
   before(async () => {
-    ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
+    ({ app, db } = await createTestApp(dbTables, { prefix: '/auto' }));
 
     await cleanTables(db, ['customer_order', 'customer']);
 

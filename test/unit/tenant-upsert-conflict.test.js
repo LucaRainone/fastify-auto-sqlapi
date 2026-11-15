@@ -10,7 +10,6 @@ const ROOT = path.resolve(__dirname, '../..');
 const { assertTenantOwnsConflicts } = await import(path.join(ROOT, 'dist/lib/tenant.js'));
 const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/insert.js'));
 const { bulkUpsertEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk/bulk-upsert.js'));
-const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { getDialect } = await import(path.join(ROOT, 'dist/lib/dialect.js'));
@@ -30,7 +29,7 @@ function makeTable(upsertKeys) {
   const schema = createMockSchema('customer', customerFields);
   const tableConf = {
     primary: 'id',
-    ...exportTableInfo(schema),
+    schema,
     defaultOrder: 'id',
     tenantScope: { column: 'organization_id' },
     upsertMap: new Map([[schema, upsertKeys]]),
@@ -171,7 +170,7 @@ for (const dialect of DIALECTS) {
 
     it('does not probe when there is no upsertMap (plain insert)', async () => {
       const schema = createMockSchema('customer', customerFields);
-      const tableConf = { primary: 'id', ...exportTableInfo(schema), defaultOrder: 'id', tenantScope: { column: 'organization_id' } };
+      const tableConf = { primary: 'id', schema, defaultOrder: 'id', tenantScope: { column: 'organization_id' } };
       const mockPg = createMockPg([{ rows: [{ id: 1 }] }]);
       await insertEngine({ db: client(mockPg), tableConf, dbTables: {}, request: {}, record: { name: 'Mario' }, tenant: directTenant });
       assert.equal(mockPg.calls.length, 1);

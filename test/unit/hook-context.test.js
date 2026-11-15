@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { ROOT, createMockPg, createMockSchema } from './_harness.js';
 
-const { createSqlApi, defineTable, exportTableInfo, buildRelation, QueryClient, Type } =
+const { createSqlApi, defineTable, buildRelation, QueryClient, Type } =
   await import(path.join(ROOT, 'dist/index.js'));
 
 const SchemaCustomer = createMockSchema('customer', { id: Type.Optional(Type.Integer()), name: Type.String() });
@@ -26,13 +26,13 @@ function createDbTables(hooks = {}, orderHooks = {}) {
   return {
     customer: defineTable({
       primary: 'id',
-      ...exportTableInfo(SchemaCustomer),
+      schema: SchemaCustomer,
       insertExclude: ['id'],
       allowedWriteJoins: [buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
       allowedReadJoins: [buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
       ...hooks,
     }),
-    order: defineTable({ primary: 'id', ...exportTableInfo(SchemaOrder), insertExclude: ['id'], ...orderHooks }),
+    order: defineTable({ primary: 'id', schema: SchemaOrder, insertExclude: ['id'], ...orderHooks }),
   };
 }
 

@@ -5,7 +5,6 @@ import {
   createTestApp,
   cleanTables,
   seedRows,
-  exportTableInfo,
   buildRelation,
   toUnderscore,
   Type,
@@ -45,10 +44,10 @@ const accountSchema = createSchema('userAccount', {
   accessToken: Type.Optional(Type.String()),
 }, (f) => f);
 
-const DbTables = {
+const dbTables = {
   customer: {
     primary: 'id',
-    ...exportTableInfo(customerSchema),
+    schema: customerSchema,
     defaultOrder: 'id',
     readExclude: ['taxNumber'],
     allowedReadJoins: [
@@ -57,13 +56,13 @@ const DbTables = {
   },
   customer_order: {
     primary: 'id',
-    ...exportTableInfo(orderSchema),
+    schema: orderSchema,
     defaultOrder: 'id',
     readExclude: ['notes'],
   },
   userAccount: {
     primary: 'id',
-    ...exportTableInfo(accountSchema),
+    schema: accountSchema,
     defaultOrder: 'id',
     readExclude: ['accessToken'],
   },
@@ -75,7 +74,7 @@ describe(`[${DIALECT}] readExclude integration`, () => {
   let customerIds;
 
   before(async () => {
-    ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
+    ({ app, db } = await createTestApp(dbTables, { prefix: '/auto' }));
 
     await cleanTables(db, ['customer_order', 'customer', 'userAccount']);
 

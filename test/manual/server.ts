@@ -13,7 +13,7 @@ const app = Fastify({
 await app.register(fastifyPostgres, { connectionString });
 
 await app.register(fastifyAutoSqlApi, {
-  DbTables: dbTables,
+  dbTables,
   swagger: true,
   prefix: '/auto',
   // Tenant: reads X-Tenant-Id header

@@ -9,7 +9,7 @@ const ROOT = path.resolve(__dirname, '../..');
 const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/insert.js'));
 const { updateEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/update.js'));
 const { bulkUpsertEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk/bulk-upsert.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
@@ -94,10 +94,10 @@ function createTestDbTables() {
   const customerSchema = createMockSchema('customer', customerFields);
   const orderSchema = createMockSchema('customer_order', orderFields);
 
-  const DbTables = {
+  const dbTables = {
     customer: {
       primary: 'id',
-      ...exportTableInfo(customerSchema),
+      schema: customerSchema,
       defaultOrder: 'id',
       allowedWriteJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
@@ -105,12 +105,12 @@ function createTestDbTables() {
     },
     customer_order: {
       primary: 'id',
-      ...exportTableInfo(orderSchema),
+      schema: orderSchema,
       defaultOrder: 'id',
     },
   };
 
-  return DbTables;
+  return dbTables;
 }
 
 const mockRequest = {};
@@ -175,13 +175,13 @@ describe('insertEngine - transactional atomicity', () => {
       new Error('secondary insert failed'),    // secondaries INSERT fails
     ]);
     const db = new QueryClient(pool);
-    const DbTables = createTestDbTables();
+    const dbTables = createTestDbTables();
 
     await assert.rejects(
       insertEngine({
         db,
-        tableConf: DbTables.customer,
-        dbTables: DbTables,
+        tableConf: dbTables.customer,
+        dbTables: dbTables,
         request: mockRequest,
         record: { name: 'Mario' },
         secondaries: { customer_order: [{ total: 100 }] },
@@ -202,12 +202,12 @@ describe('insertEngine - transactional atomicity', () => {
       { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
     const db = new QueryClient(pool);
-    const DbTables = createTestDbTables();
+    const dbTables = createTestDbTables();
 
     const result = await insertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario' },
       secondaries: { customer_order: [{ total: 100 }] },
@@ -226,16 +226,16 @@ describe('insertEngine - transactional atomicity', () => {
       { rows: [{ id: 42 }], affectedRows: 1 },
     ]);
     const db = new QueryClient(pool);
-    const DbTables = createTestDbTables();
-    DbTables.customer.afterInsert = async () => {
+    const dbTables = createTestDbTables();
+    dbTables.customer.afterInsert = async () => {
       throw new Error('afterInsert failed');
     };
 
     await assert.rejects(
       insertEngine({
         db,
-        tableConf: DbTables.customer,
-        dbTables: DbTables,
+        tableConf: dbTables.customer,
+        dbTables: dbTables,
         request: mockRequest,
         record: { name: 'Mario' },
       }),
@@ -252,13 +252,13 @@ describe('insertEngine - transactional atomicity', () => {
       { rows: [{ id: 42 }], affectedRows: 1 },
     ]);
     const db = new QueryClient(pool);
-    const DbTables = createTestDbTables();
+    const dbTables = createTestDbTables();
 
     await assert.rejects(
       insertEngine({
         db,
-        tableConf: DbTables.customer,
-        dbTables: DbTables,
+        tableConf: dbTables.customer,
+        dbTables: dbTables,
         request: mockRequest,
         record: { name: 'Mario' },
       }),
@@ -277,13 +277,13 @@ describe('updateEngine - transactional atomicity', () => {
       new Error('deletion failed'),            // DELETE fails
     ]);
     const db = new QueryClient(pool);
-    const DbTables = createTestDbTables();
+    const dbTables = createTestDbTables();
 
     await assert.rejects(
       updateEngine({
         db,
-        tableConf: DbTables.customer,
-        dbTables: DbTables,
+        tableConf: dbTables.customer,
+        dbTables: dbTables,
         request: mockRequest,
         record: { id: 1, name: 'Mario' },
         secondaries: { customer_order: [{ total: 100 }] },
@@ -305,12 +305,12 @@ describe('updateEngine - transactional atomicity', () => {
       { rows: [], affectedRows: 1 },
     ]);
     const db = new QueryClient(pool);
-    const DbTables = createTestDbTables();
+    const dbTables = createTestDbTables();
 
     const result = await updateEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
       secondaries: { customer_order: [{ total: 100 }] },
@@ -333,12 +333,12 @@ describe('bulk engines - intentionally NOT transactional', () => {
       return Promise.resolve({ rows: [{ id: 1 }], affectedRows: 1 });
     };
     const db = new QueryClient(pool);
-    const DbTables = createTestDbTables();
+    const dbTables = createTestDbTables();
 
     await bulkUpsertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       items: [{ main: { name: 'Mario' } }],
     });

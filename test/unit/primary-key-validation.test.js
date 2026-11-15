@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
-const { defineTable, exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
@@ -35,25 +35,25 @@ const schema = {
 
 describe('defineTable validates the primary key', () => {
   it('accepts a primary key that names a schema field', () => {
-    assert.doesNotThrow(() => defineTable({ primary: 'id', ...exportTableInfo(schema) }));
+    assert.doesNotThrow(() => defineTable({ primary: 'id', schema }));
   });
 
   it('accepts every field of a composite primary key', () => {
     assert.doesNotThrow(
-      () => defineTable({ primary: ['id', 'name'], ...exportTableInfo(schema) })
+      () => defineTable({ primary: ['id', 'name'], schema })
     );
   });
 
   it('rejects a primary key that is not a schema field', () => {
     assert.throws(
-      () => defineTable({ primary: 'nope', ...exportTableInfo(schema) }),
+      () => defineTable({ primary: 'nope', schema }),
       /primary key field 'nope' is not a schema field/
     );
   });
 
   it('rejects one bad field inside a composite primary key', () => {
     assert.throws(
-      () => defineTable({ primary: ['id', 'nope'], ...exportTableInfo(schema) }),
+      () => defineTable({ primary: ['id', 'nope'], schema }),
       /primary key field 'nope' is not a schema field/
     );
   });
@@ -61,7 +61,7 @@ describe('defineTable validates the primary key', () => {
   it('allows an unresolved primary key on a search-only table with an explicit order', () => {
     assert.doesNotThrow(() => defineTable({
       primary: 'TODO_pick_a_unique_column',
-      ...exportTableInfo(schema),
+      schema,
       operations: ['search'],
       defaultOrder: 'name',
     }));
@@ -72,7 +72,7 @@ describe('defineTable validates the primary key', () => {
     assert.throws(
       () => defineTable({
         primary: 'TODO_pick_a_unique_column',
-        ...exportTableInfo(schema),
+        schema,
         operations: ['search'],
       }),
       /defaultOrder/
@@ -83,7 +83,7 @@ describe('defineTable validates the primary key', () => {
     assert.throws(
       () => defineTable({
         primary: 'TODO_pick_a_unique_column',
-        ...exportTableInfo(schema),
+        schema,
         operations: ['search', 'get'],
         defaultOrder: 'name',
       }),
@@ -95,7 +95,7 @@ describe('defineTable validates the primary key', () => {
     assert.throws(
       () => defineTable({
         primary: 'TODO_pick_a_unique_column',
-        ...exportTableInfo(schema),
+        schema,
         defaultOrder: 'name',
       }),
       /primary key field/

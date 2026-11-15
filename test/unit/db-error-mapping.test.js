@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
-import { fastifyAutoSqlApi, searchRoutes, exportTableInfo, toUnderscore, Type } from '../../dist/index.js';
+import { fastifyAutoSqlApi, searchRoutes, toUnderscore, Type } from '../../dist/index.js';
 
 // `dbErrors`: the consumer maps the driver error codes it cares about to an HTTP status and a
 // code of its own, which the client translates. The mapping is partial by nature — codes
@@ -19,7 +19,7 @@ const schema = {
   partialValidation: Type.Partial(Type.Object({ id: Type.Number(), name: Type.String() })),
 };
 
-const DbTables = { test_table: { primary: 'id', ...exportTableInfo(schema) } };
+const dbTables = { test_table: { primary: 'id', schema } };
 
 /** pg-shaped pool whose every query rejects with the given driver code. */
 function createFailingPool(code = '23505') {
@@ -52,7 +52,7 @@ function assertNoDriverDetail(res) {
 describe('dbErrors maps driver error codes to an HTTP status and a code', () => {
   it('a mapped driver code answers its status and the consumer code, without driver detail', async () => {
     const app = await buildApp(createFailingPool('23505'), (app) =>
-      app.register(fastifyAutoSqlApi, { DbTables, dbErrors: { '23505': { status: 409, code: 'duplicate' } } })
+      app.register(fastifyAutoSqlApi, { dbTables, dbErrors: { '23505': { status: 409, code: 'duplicate' } } })
     );
 
     const res = await search(app);
@@ -69,7 +69,7 @@ describe('dbErrors maps driver error codes to an HTTP status and a code', () => 
 
   it('a driver code mapped to 400 carries the consumer code in fields', async () => {
     const app = await buildApp(createFailingPool('23514'), (app) =>
-      app.register(fastifyAutoSqlApi, { DbTables, dbErrors: { '23514': { status: 400, code: 'check_failed' } } })
+      app.register(fastifyAutoSqlApi, { dbTables, dbErrors: { '23514': { status: 400, code: 'check_failed' } } })
     );
 
     const res = await search(app);
@@ -80,7 +80,7 @@ describe('dbErrors maps driver error codes to an HTTP status and a code', () => 
 
   it('an unmapped driver code stays the sanitized 500, without fields', async () => {
     const app = await buildApp(createFailingPool('23503'), (app) =>
-      app.register(fastifyAutoSqlApi, { DbTables, dbErrors: { '23505': { status: 409, code: 'duplicate' } } })
+      app.register(fastifyAutoSqlApi, { dbTables, dbErrors: { '23505': { status: 409, code: 'duplicate' } } })
     );
 
     const res = await search(app);
@@ -94,7 +94,7 @@ describe('dbErrors maps driver error codes to an HTTP status and a code', () => 
   it('exposeDebugInfo stays additive on a mapped driver code', async () => {
     const app = await buildApp(createFailingPool('23505'), (app) =>
       app.register(fastifyAutoSqlApi, {
-        DbTables,
+        dbTables,
         dbErrors: { '23505': { status: 409, code: 'duplicate' } },
         exposeDebugInfo: true,
       })
@@ -114,7 +114,7 @@ describe('dbErrors maps driver error codes to an HTTP status and a code', () => 
         seen = err;
         reply.status(err.statusCode).send({ message: err.message });
       });
-      return app.register(searchRoutes, { DbTables, dbErrors: { '23505': { status: 409, code: 'duplicate' } } });
+      return app.register(searchRoutes, { dbTables, dbErrors: { '23505': { status: 409, code: 'duplicate' } } });
     });
 
     const res = await search(app);
@@ -136,7 +136,7 @@ describe('dbErrors maps driver error codes to an HTTP status and a code', () => 
     it(`registration fails on ${label}`, async () => {
       const app = Fastify();
       app.decorate('pg', createFailingPool());
-      app.register(fastifyAutoSqlApi, { DbTables, dbErrors });
+      app.register(fastifyAutoSqlApi, { dbTables, dbErrors });
       await assert.rejects(app.ready(), /dbErrors\["23505"\]/);
     });
   }

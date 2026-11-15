@@ -13,7 +13,7 @@ import { ROOT, createMockPg, createMockSchema, insertedRows } from './_harness.j
 
 const { bulkUpsertEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk/bulk-upsert.js'));
 const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/insert.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
@@ -35,7 +35,7 @@ const contentInfoSchema = createMockSchema('content_info', {
 function tagTable(keys) {
   return {
     primary: 'id',
-    ...exportTableInfo(tagSchema),
+    schema: tagSchema,
     defaultOrder: 'id',
     upsertMap: new Map([[tagSchema, keys]]),
   };
@@ -44,7 +44,7 @@ function tagTable(keys) {
 const contentTables = {
   content: {
     primary: 'id',
-    ...exportTableInfo(contentSchema),
+    schema: contentSchema,
     defaultOrder: 'id',
     allowedWriteJoins: [
       buildRelation(contentSchema, 'id', contentInfoSchema, 'contentId', { alias: 'info' }),

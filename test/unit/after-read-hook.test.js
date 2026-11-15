@@ -18,7 +18,7 @@ const ROOT = path.resolve(__dirname, '../..');
 
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
 const { getEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/get.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
@@ -54,10 +54,10 @@ function createTestDbTables(mockPg) {
   const customerSchema = createMockSchema('customer', customerFields);
   const orderSchema = createMockSchema('customer_order', orderFields);
 
-  const DbTables = {
+  const dbTables = {
     customer: {
       primary: 'id',
-      ...exportTableInfo(customerSchema),
+      schema: customerSchema,
       defaultOrder: 'id',
       allowedReadJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
@@ -66,12 +66,12 @@ function createTestDbTables(mockPg) {
     },
     customer_order: {
       primary: 'id',
-      ...exportTableInfo(orderSchema),
+      schema: orderSchema,
       defaultOrder: 'id',
     },
   };
 
-  return { DbTables, db: new QueryClient(mockPg) };
+  return { dbTables, db: new QueryClient(mockPg) };
 }
 
 /** Records every invocation so a test can assert both the payload and the call count. */
@@ -88,13 +88,13 @@ describe('afterRead on the main table', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, name: 'Mario', secret: 'ENC(a)' }, { id: 2, name: 'Luigi', secret: 'ENC(b)' }], affectedRows: 2 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
     const calls = [];
-    DbTables.customer.afterRead = recordingHook(calls, (row) => {
+    dbTables.customer.afterRead = recordingHook(calls, (row) => {
       row.secret = row.secret.replace(/^ENC\((.*)\)$/, '$1');
     });
 
-    const result = await searchEngine(DbTables, { db, tableConf: DbTables.customer });
+    const result = await searchEngine(dbTables, { db, tableConf: dbTables.customer });
 
     assert.equal(result.main[0].secret, 'a');
     assert.equal(result.main[1].secret, 'b');
@@ -107,13 +107,13 @@ describe('afterRead on the main table', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, name: 'Mario', secret: 'ENC(a)' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
     const calls = [];
-    DbTables.customer.afterRead = recordingHook(calls, (row) => {
+    dbTables.customer.afterRead = recordingHook(calls, (row) => {
       row.secret = 'plain';
     });
 
-    const result = await getEngine({ db, tableConf: DbTables.customer, id: '1' });
+    const result = await getEngine({ db, tableConf: dbTables.customer, id: '1' });
 
     assert.equal(result.main.secret, 'plain');
     assert.equal(calls.length, 1);
@@ -123,11 +123,11 @@ describe('afterRead on the main table', () => {
   it('receives the camelCase record, never the raw column names', async () => {
     const orderRows = [{ id: 10, customer_id: 1, total: 50, secret: 'x' }];
     const mockPg = createMockPg([{ rows: orderRows, affectedRows: 1 }]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
     const calls = [];
-    DbTables.customer_order.afterRead = recordingHook(calls);
+    dbTables.customer_order.afterRead = recordingHook(calls);
 
-    await searchEngine(DbTables, { db, tableConf: DbTables.customer_order });
+    await searchEngine(dbTables, { db, tableConf: dbTables.customer_order });
 
     assert.equal(calls[0].rows[0].customerId, 1);
     assert.equal(calls[0].rows[0].customer_id, undefined);
@@ -137,24 +137,24 @@ describe('afterRead on the main table', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, name: 'Mario', secret: 'ENC(a)' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
-    DbTables.customer.afterRead = async ({ db: hookDb, req, rows }) => {
+    const { dbTables, db } = createTestDbTables(mockPg);
+    dbTables.customer.afterRead = async ({ db: hookDb, req, rows }) => {
       await delay(0);
       for (const row of rows) row.secret = 'decrypted';
     };
 
-    const result = await searchEngine(DbTables, { db, tableConf: DbTables.customer });
+    const result = await searchEngine(dbTables, { db, tableConf: dbTables.customer });
 
     assert.equal(result.main[0].secret, 'decrypted');
   });
 
   it('is not called when the read returned no rows', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
     const calls = [];
-    DbTables.customer.afterRead = recordingHook(calls);
+    dbTables.customer.afterRead = recordingHook(calls);
 
-    await searchEngine(DbTables, { db, tableConf: DbTables.customer });
+    await searchEngine(dbTables, { db, tableConf: dbTables.customer });
 
     assert.equal(calls.length, 0);
   });
@@ -163,12 +163,12 @@ describe('afterRead on the main table', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, name: 'Mario', secret: 'ENC(a)' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
     const request = { url: '/search/customer' };
     const calls = [];
-    DbTables.customer.afterRead = recordingHook(calls);
+    dbTables.customer.afterRead = recordingHook(calls);
 
-    await searchEngine(DbTables, { db, tableConf: DbTables.customer, request });
+    await searchEngine(dbTables, { db, tableConf: dbTables.customer, request });
 
     assert.equal(calls[0].req, request);
     assert.equal(calls[0].db, db);
@@ -181,16 +181,16 @@ describe('afterRead follows a join', () => {
       { rows: [{ id: 1, name: 'Mario', secret: 'ENC(a)' }], affectedRows: 1 },
       { rows: [{ id: 10, customer_id: 1, total: 50, secret: 'ENC(child)' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
     const calls = [];
     // Declared on the CHILD table only — the host `customer` knows nothing about it.
-    DbTables.customer_order.afterRead = recordingHook(calls, (row) => {
+    dbTables.customer_order.afterRead = recordingHook(calls, (row) => {
       row.secret = row.secret.replace(/^ENC\((.*)\)$/, '$1');
     });
 
-    const result = await searchEngine(DbTables, {
+    const result = await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinMultiple: { customer_order: {} },
     });
 
@@ -205,15 +205,15 @@ describe('afterRead follows a join', () => {
       { rows: [{ id: 1, name: 'Mario', secret: 'ENC(a)' }], affectedRows: 1 },
       { rows: [{ id: 1, customer_id: 1, total: 50, secret: 'ENC(parent)' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
     const calls = [];
-    DbTables.customer_order.afterRead = recordingHook(calls, (row) => {
+    dbTables.customer_order.afterRead = recordingHook(calls, (row) => {
       row.secret = row.secret.replace(/^ENC\((.*)\)$/, '$1');
     });
 
-    const result = await searchEngine(DbTables, {
+    const result = await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinLeft: { main_order: {} },
     });
 
@@ -227,14 +227,14 @@ describe('afterRead follows a join', () => {
       { rows: [{ id: 1, name: 'Mario', secret: 'ENC(host)' }], affectedRows: 1 },
       { rows: [{ id: 10, customer_id: 1, total: 50, secret: 'ENC(child)' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
     const seen = [];
-    DbTables.customer.afterRead = (ctx) => seen.push(['customer', ctx.source]);
-    DbTables.customer_order.afterRead = (ctx) => seen.push(['customer_order', ctx.source]);
+    dbTables.customer.afterRead = (ctx) => seen.push(['customer', ctx.source]);
+    dbTables.customer_order.afterRead = (ctx) => seen.push(['customer_order', ctx.source]);
 
-    const result = await searchEngine(DbTables, {
+    const result = await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinMultiple: { customer_order: {} },
     });
 
@@ -251,16 +251,16 @@ describe('afterRead follows a join', () => {
       { rows: [{ id: 1, name: 'Mario', secret: 'ENC(a)' }], affectedRows: 1 },
       { rows: [{ id: 10, customer_id: 1, total: 50, secret: 'x' }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
     // A hook that rewrites the very column the relation joins on: the side query must still
     // be correlated to the value the database returned.
-    DbTables.customer.afterRead = ({ db: hookDb, req, rows }) => {
+    dbTables.customer.afterRead = ({ db: hookDb, req, rows }) => {
       for (const row of rows) row.id = `masked-${row.id}`;
     };
 
-    const result = await searchEngine(DbTables, {
+    const result = await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinMultiple: { customer_order: {} },
     });
 
@@ -276,13 +276,13 @@ describe('afterRead follows a join', () => {
       { rows: [{ id: 1, name: 'Mario', secret: 'ENC(a)' }], affectedRows: 1 },
       { rows: [{ sum_total: 150 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
     const calls = [];
-    DbTables.customer_order.afterRead = recordingHook(calls);
+    dbTables.customer_order.afterRead = recordingHook(calls);
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db,
-      tableConf: DbTables.customer,
+      tableConf: dbTables.customer,
       joinGroup: { customer_order: { sum: ['total'] } },
     });
 

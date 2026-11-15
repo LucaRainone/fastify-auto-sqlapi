@@ -3,13 +3,13 @@ import { Type, type TSchema, type TObject } from 'typebox';
 import type {
   SchemaDefinition,
   JoinDefinition,
-  TableFilterFn,
+  FilterRecord,
   TableConfig,
   DbTables,
   TenantScopeIndirect,
 } from '../types.js';
 import { getDialect } from './dialect.js';
-import { hasOwnField } from './read-access.js';
+import { hasOwnField, extraFilterFields } from './read-access.js';
 
 // Quote an identifier using the given ConditionBuilder dialect (or the global
 // default when not provided). Needed so that DB columns with uppercase letters
@@ -23,59 +23,69 @@ function qi(field: string, dialect?: CbDialect): string {
 // Extract properties from TObject or use the Record directly
 type ExtraProps<EF> = EF extends TObject<infer P> ? P : EF extends Record<string, TSchema> ? EF : Record<string, never>;
 
-export function exportTableInfo<
+/**
+ * What `defineTable` takes: a {@link TableConfig} whose `extendedCondition` sees the filter
+ * values typed by the schema fields and the `extraFilters`.
+ */
+export type TableDefinition<
   F extends Record<string, TSchema>,
   EF extends TObject | Record<string, TSchema> = Record<never, TSchema>,
->(
-  Schema: SchemaDefinition<F>,
-  extraFilters: EF = {} as EF,
+> = Omit<TableConfig<F>, 'extraFilters' | 'extendedCondition'> & {
+  extraFilters?: EF;
   extendedCondition?: (
     condition: ConditionBuilder,
     filters: { [K in keyof F | keyof ExtraProps<EF>]?: ConditionValueOrUndefined }
-  ) => void
-): { Schema: SchemaDefinition<F>; filters: TableFilterFn; extraFilters: Record<string, TSchema> } {
-  const filters: TableFilterFn = (filterValues, dialect, qualifier) => {
-    const condition = new ConditionBuilder('AND', dialect);
+  ) => void;
+};
 
-    // Only auto-match real schema fields (DB columns). Columns are table-qualified:
-    // the statement may carry joins (LEFT JOIN parents, tenant through-joins), and a
-    // bare column shared with a joined table would be ambiguous. A caller-provided
-    // qualifier (a subquery alias) takes precedence over the table name.
-    const table = qi(qualifier ?? Schema.tableName, dialect);
-    for (const field of Object.keys(Schema.fields)) {
-      if (!(field in filterValues) || filterValues[field] === undefined) continue;
-      const col = `${table}.${qi(Schema.col(field), dialect)}`;
-      // An explicit null filters by IS NULL: equality with NULL never matches, and
-      // silently dropping the filter would return unfiltered results for a request
-      // that asked for "field is null".
-      if (filterValues[field] === null) {
-        // Second arg is CB's enable-guard: without `true` the call is a no-op.
-        condition.isNull(col, true);
-      } else {
-        condition.isEqual(col, filterValues[field]);
-      }
+/**
+ * The WHERE ConditionBuilder for a table's `filters`: equality on every schema field the
+ * values carry (an explicit `null` is `IS NULL`), then the table's `extendedCondition`, which
+ * alone gives `extraFilters` a meaning.
+ *
+ * `dialect` selects identifier quoting (the engines pass the one of the QueryClient running
+ * the query). `qualifier` is the raw table name or alias the columns are prefixed with; it
+ * defaults to the table's own name, and the engines pass an alias when the condition lands
+ * inside a correlated subquery whose FROM is aliased — there the bare table name would
+ * resolve against the OUTER query.
+ */
+export function buildTableFilters(
+  tableConf: TableConfig,
+  filterValues: FilterRecord,
+  dialect?: CbDialect,
+  qualifier?: string
+): ConditionBuilder {
+  const { schema, extendedCondition } = tableConf;
+  const condition = new ConditionBuilder('AND', dialect);
+
+  // Only auto-match real schema fields (DB columns). Columns are table-qualified: the
+  // statement may carry joins (LEFT JOIN parents, tenant through-joins), and a bare column
+  // shared with a joined table would be ambiguous.
+  const table = qi(qualifier ?? schema.tableName, dialect);
+  for (const field of Object.keys(schema.fields)) {
+    if (!(field in filterValues) || filterValues[field] === undefined) continue;
+    const col = `${table}.${qi(schema.col(field), dialect)}`;
+    // An explicit null filters by IS NULL: equality with NULL never matches, and silently
+    // dropping the filter would return unfiltered results for a request that asked for
+    // "field is null".
+    if (filterValues[field] === null) {
+      // Second arg is CB's enable-guard: without `true` the call is a no-op.
+      condition.isNull(col, true);
+    } else {
+      condition.isEqual(col, filterValues[field]);
     }
+  }
 
-    // extraFilters are handled exclusively by extendedCondition
-    if (extendedCondition) {
-      extendedCondition(condition, filterValues);
-    }
-
-    return condition;
-  };
-
-  // Extract properties from TObject or use as-is
-  const efRecord: Record<string, TSchema> =
-    (extraFilters && typeof extraFilters === 'object' && 'properties' in extraFilters)
-      ? (extraFilters as TObject).properties
-      : extraFilters;
-
-  return { Schema, filters, extraFilters: efRecord };
+  if (extendedCondition) extendedCondition(condition, filterValues);
+  return condition;
 }
 
-export function defineTable<F extends Record<string, TSchema>>(
-  config: TableConfig<F>
-): TableConfig<F> {
+export function defineTable<
+  F extends Record<string, TSchema>,
+  EF extends TObject | Record<string, TSchema> = Record<never, TSchema>,
+>(definition: TableDefinition<F, EF>): TableConfig<F> {
+  const config = definition as unknown as TableConfig<F>;
+  assertTableShape(config as unknown as TableConfig, 'defineTable');
   validateAliasUniqueness(config.allowedReadJoins, 'allowedReadJoins');
   validateAliasUniqueness(config.allowedWriteJoins, 'allowedWriteJoins');
   validateWriteJoinsUnrestricted(config.allowedWriteJoins);
@@ -88,6 +98,35 @@ export function defineTable<F extends Record<string, TSchema>>(
   validateTenantColumnNames(config as unknown as TableConfig);
   validateUpsertMap(config as unknown as TableConfig);
   return config;
+}
+
+/**
+ * The keys of the pre-1.0 config shape — the spread of `exportTableInfo()` — each with the
+ * one that replaced it. Refused rather than ignored: a config still carrying them would run
+ * without its schema, or with its `extendedCondition` silently dropped.
+ */
+const RETIRED_CONFIG_KEYS: Record<string, string> = {
+  Schema: "'schema'",
+  filters: "'extendedCondition' (column filters are built from 'schema')",
+};
+
+/** Throw when a table config is in the pre-1.0 shape or has no schema. `where` names the caller. */
+function assertTableShape(config: TableConfig, where: string): void {
+  if (!config || typeof config !== 'object') {
+    throw new TypeError(`${where}: a table config must be an object`);
+  }
+  for (const [key, instead] of Object.entries(RETIRED_CONFIG_KEYS)) {
+    if (Object.hasOwn(config, key)) {
+      throw new TypeError(
+        `${where}: '${key}' is the pre-1.0 config shape (the spread of exportTableInfo()), ` +
+        `use ${instead}: defineTable({ primary, schema, extraFilters, extendedCondition })`
+      );
+    }
+  }
+  const schema = config.schema as SchemaDefinition | undefined;
+  if (!schema || typeof schema !== 'object' || !schema.fields || typeof schema.tableName !== 'string') {
+    throw new TypeError(`${where}: 'schema' is required — the table's generated Schema`);
+  }
 }
 
 /**
@@ -136,7 +175,7 @@ function validateTenantScope(config: TableConfig): void {
   const scope = config.tenantScope;
   if (!scope) return;
 
-  const table = config.Schema.tableName;
+  const table = config.schema.tableName;
   const hasAnyOf = 'anyOf' in scope;
   const hasColumn = 'column' in scope;
 
@@ -193,24 +232,24 @@ function validateTenantScope(config: TableConfig): void {
 function validateTenantColumnNames(config: TableConfig): void {
   const scope = config.tenantScope;
   if (!scope) return;
-  const table = config.Schema.tableName;
+  const table = config.schema.tableName;
 
   if ('anyOf' in scope) {
     for (const entry of scope.anyOf) {
-      assertNamesColumn(config.Schema, entry, "'anyOf'", table);
+      assertNamesColumn(config.schema, entry, "'anyOf'", table);
     }
     return;
   }
 
   const direct = scope as TenantScopeIndirect;
-  assertNamesColumn(config.Schema, direct.column, "'column'", table);
+  assertNamesColumn(config.schema, direct.column, "'column'", table);
 
   // `through.localField` is a column of THIS table; `through.foreignField` one of the parent's,
   // which is why the parent schema travels in the scope.
   const through = direct.through;
   if (!through || typeof through !== 'object') return;
   if (typeof through.localField === 'string') {
-    assertNamesColumn(config.Schema, through.localField, "'through.localField'", table);
+    assertNamesColumn(config.schema, through.localField, "'through.localField'", table);
   }
   if (typeof through.foreignField === 'string' && typeof through.schema?.col === 'function') {
     assertNamesColumn(through.schema, through.foreignField, "'through.foreignField'", table);
@@ -240,20 +279,20 @@ function validateReadExclude(config: TableConfig): void {
   const excluded = config.readExclude;
   if (!excluded?.length) return;
 
-  const schemaFields = Object.keys(config.Schema.fields);
+  const schemaFields = Object.keys(config.schema.fields);
   const pkFields = Array.isArray(config.primary) ? config.primary : [config.primary];
 
   for (const field of excluded) {
     if (!schemaFields.includes(field)) {
       throw new Error(
         `defineTable: readExclude field '${field}' is not a schema field on ` +
-        `table '${config.Schema.tableName}'.`
+        `table '${config.schema.tableName}'.`
       );
     }
     if (pkFields.includes(field)) {
       throw new Error(
         `defineTable: readExclude cannot hide the primary key field '${field}' on ` +
-        `table '${config.Schema.tableName}' — reads and joins rely on it.`
+        `table '${config.schema.tableName}' — reads and joins rely on it.`
       );
     }
   }
@@ -272,9 +311,9 @@ function validateReadExclude(config: TableConfig): void {
  * a working config — not a broken one waiting to be fixed.
  */
 function validatePrimary(config: TableConfig): void {
-  const schemaFields = Object.keys(config.Schema.fields);
+  const schemaFields = Object.keys(config.schema.fields);
   const pkFields = Array.isArray(config.primary) ? config.primary : [config.primary];
-  const table = config.Schema.tableName;
+  const table = config.schema.tableName;
 
   const missing = pkFields.filter((f) => !schemaFields.includes(f));
   if (missing.length === 0) return;
@@ -308,7 +347,7 @@ function validatePrimary(config: TableConfig): void {
 function rejectExcludeFromCreation(config: TableConfig): void {
   if (!('excludeFromCreation' in config)) return;
   throw new Error(
-    `defineTable: table '${config.Schema.tableName}' sets excludeFromCreation, which was ` +
+    `defineTable: table '${config.schema.tableName}' sets excludeFromCreation, which was ` +
     `renamed to insertExclude in 0.6.0 with the same behaviour. Rename the key.`
   );
 }
@@ -323,9 +362,9 @@ function validateWriteExclude(config: TableConfig): void {
   const excluded = config.writeExclude;
   if (!excluded?.length) return;
 
-  const schemaFields = Object.keys(config.Schema.fields);
+  const schemaFields = Object.keys(config.schema.fields);
   const pkFields = Array.isArray(config.primary) ? config.primary : [config.primary];
-  const table = config.Schema.tableName;
+  const table = config.schema.tableName;
 
   for (const field of excluded) {
     if (!schemaFields.includes(field)) {
@@ -403,20 +442,20 @@ function validateComputedFields(config: TableConfig): void {
   const computed = config.computedFields;
   if (!computed) return;
 
-  const schemaFields = Object.keys(config.Schema.fields);
-  const extraKeys = Object.keys(config.extraFilters || {});
+  const schemaFields = Object.keys(config.schema.fields);
+  const extraKeys = Object.keys(extraFilterFields(config));
 
   for (const name of Object.keys(computed)) {
     if (schemaFields.includes(name)) {
       throw new Error(
         `defineTable: computedFields name '${name}' collides with a schema field on ` +
-        `table '${config.Schema.tableName}'. Choose a different name.`
+        `table '${config.schema.tableName}'. Choose a different name.`
       );
     }
     if (extraKeys.includes(name)) {
       throw new Error(
         `defineTable: computedFields name '${name}' collides with an extraFilters key on ` +
-        `table '${config.Schema.tableName}'. Choose a different name.`
+        `table '${config.schema.tableName}'. Choose a different name.`
       );
     }
   }
@@ -449,7 +488,7 @@ export interface BuildRelationOptions {
   select?: string[];
   unique?: boolean;
   /**
-   * The `DbTables` key whose config governs the joined table. Needed only when the joined
+   * The `dbTables` key whose config governs the joined table. Needed only when the joined
    * table sits under several keys, each with its own `readExclude`, `tenantScope` or hooks:
    * then the relation must say which one applies, and startup fails until it does. With a
    * single key over the table, that config is used whatever the key is called.
@@ -571,7 +610,7 @@ export function buildRelation<
 /**
  * The `TableConfig` that governs the target of a relation.
  *
- * A relation is declared against a Schema, while `DbTables` is keyed by route name and may
+ * A relation is declared against a Schema, while `dbTables` is keyed by route name and may
  * expose one physical table under several keys, each with its own `readExclude`, `tenantScope`,
  * `afterRead` and write-side rules (ADR 0010 makes those follow a join). Which key governs a
  * join must therefore be one rule, shared by the generated body schemas and the engines — a
@@ -593,21 +632,21 @@ export function resolveJoinTableConf(dbTables: DbTables, joinDef: JoinDefinition
   if (joinDef.target !== undefined) {
     const conf = Object.hasOwn(dbTables, joinDef.target) ? dbTables[joinDef.target] : undefined;
     if (!conf) {
-      throw new Error(`relation "${joinDef.alias}" names target "${joinDef.target}", which is not a key of DbTables`);
+      throw new Error(`relation "${joinDef.alias}" names target "${joinDef.target}", which is not a key of dbTables`);
     }
-    if (conf.Schema.tableName !== joinedTable) {
+    if (conf.schema.tableName !== joinedTable) {
       throw new Error(
-        `relation "${joinDef.alias}" names target "${joinDef.target}", a config over "${conf.Schema.tableName}", ` +
+        `relation "${joinDef.alias}" names target "${joinDef.target}", a config over "${conf.schema.tableName}", ` +
         `but the relation joins "${joinedTable}"`
       );
     }
     return conf;
   }
 
-  const keys = Object.keys(dbTables).filter((key) => dbTables[key].Schema.tableName === joinedTable);
+  const keys = Object.keys(dbTables).filter((key) => dbTables[key].schema.tableName === joinedTable);
   if (keys.length > 1) {
     throw new Error(
-      `relation "${joinDef.alias}" joins "${joinedTable}", which DbTables exposes under several keys ` +
+      `relation "${joinDef.alias}" joins "${joinedTable}", which dbTables exposes under several keys ` +
       `(${keys.join(', ')}): name the one that governs the join with buildRelation(…, { target: '<key>' })`
     );
   }
@@ -615,11 +654,17 @@ export function resolveJoinTableConf(dbTables: DbTables, joinDef: JoinDefinition
 }
 
 /**
- * Resolve the target of every read and write relation in `dbTables`, so a relation that
- * cannot be resolved fails at startup with the host table's name rather than on the first
- * request that uses it.
+ * Startup check of a whole `dbTables` map, run by the plugin and by `createSqlApi`: every
+ * entry has the 1.0 config shape — an entry written by hand, not through `defineTable`, would
+ * otherwise reach the engines in the pre-1.0 shape — and the target of every read and write
+ * relation resolves, so a broken one fails with the host table's name rather than on the
+ * first request that uses it.
  */
-export function validateJoinTargets(dbTables: DbTables): void {
+export function validateDbTables(dbTables: DbTables): void {
+  if (!dbTables || typeof dbTables !== 'object') {
+    throw new TypeError("'dbTables' is required: { <route name>: defineTable({ ... }) }");
+  }
+  for (const [key, conf] of Object.entries(dbTables)) assertTableShape(conf, `dbTables.${key}`);
   for (const [key, conf] of Object.entries(dbTables)) {
     for (const join of [...(conf.allowedReadJoins ?? []), ...(conf.allowedWriteJoins ?? [])]) {
       try {

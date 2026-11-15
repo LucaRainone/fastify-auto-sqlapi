@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
 const { updateEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/update.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
@@ -43,10 +43,10 @@ function createTestDbTables(mockPg, opts = {}) {
   const customerSchema = createMockSchema('customer', customerFields);
   const orderSchema = createMockSchema('customer_order', orderFields);
 
-  const customerInfo = exportTableInfo(customerSchema);
-  const orderInfo = exportTableInfo(orderSchema);
+  const customerInfo = { schema: customerSchema };
+  const orderInfo = { schema: orderSchema };
 
-  const DbTables = {
+  const dbTables = {
     customer: {
       primary: 'id',
       ...customerInfo,
@@ -64,7 +64,7 @@ function createTestDbTables(mockPg, opts = {}) {
     },
   };
 
-  return { DbTables, db: new QueryClient(mockPg), customerSchema, orderSchema };
+  return { dbTables, db: new QueryClient(mockPg), customerSchema, orderSchema };
 }
 
 describe('updateEngine - main update', () => {
@@ -72,12 +72,12 @@ describe('updateEngine - main update', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     const result = await updateEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario Updated' },
     });
@@ -93,12 +93,12 @@ describe('updateEngine - main update', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await updateEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Updated' },
     });
@@ -111,13 +111,13 @@ describe('updateEngine - main update', () => {
 
   it('throws 400 when PK is missing', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await assert.rejects(
       () => updateEngine({
         db,
-        tableConf: DbTables.customer,
-        dbTables: DbTables,
+        tableConf: dbTables.customer,
+        dbTables: dbTables,
         request: mockRequest,
         record: { name: 'No PK' },
       }),
@@ -129,13 +129,13 @@ describe('updateEngine - main update', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await assert.rejects(
       () => updateEngine({
         db,
-        tableConf: DbTables.customer,
-        dbTables: DbTables,
+        tableConf: dbTables.customer,
+        dbTables: dbTables,
         request: mockRequest,
         record: { id: 999, name: 'Not found' },
       }),
@@ -147,12 +147,12 @@ describe('updateEngine - main update', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     const result = await updateEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
     });
@@ -175,10 +175,10 @@ describe('updateEngine - composite PK secondaries', () => {
     };
     const agentSchema = createMockSchema('agent', agentFields);
     const linkSchema = createMockSchema('agent_team_link', linkFields);
-    const agentInfo = exportTableInfo(agentSchema);
-    const linkInfo = exportTableInfo(linkSchema);
+    const agentInfo = { schema: agentSchema };
+    const linkInfo = { schema: linkSchema };
 
-    const DbTables = {
+    const dbTables = {
       agent: {
         primary: 'id',
         ...agentInfo,
@@ -204,8 +204,8 @@ describe('updateEngine - composite PK secondaries', () => {
 
     const result = await updateEngine({
       db,
-      tableConf: DbTables.agent,
-      dbTables: DbTables,
+      tableConf: dbTables.agent,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 14, name: 'Updated' },
       secondaries: {
@@ -235,7 +235,7 @@ describe('updateEngine - beforeUpdate hook', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       beforeUpdate: async ({ record: fields }) => {
         hookFields = fields;
       },
@@ -243,8 +243,8 @@ describe('updateEngine - beforeUpdate hook', () => {
 
     await updateEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Updated' },
     });
@@ -259,12 +259,12 @@ describe('updateEngine - beforeUpdate hook', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     await updateEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Updated' },
     });
@@ -285,12 +285,12 @@ describe('updateEngine - secondaries', () => {
       // Bulk insert orders (PK-only)
       { rows: [{ id: 10 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     const result = await updateEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 42, name: 'Mario' },
       secondaries: {
@@ -314,12 +314,12 @@ describe('updateEngine - deletions', () => {
       // Delete order (affectedRows)
       { rows: [], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     const result = await updateEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
       deletions: {
@@ -338,14 +338,14 @@ describe('updateEngine - deletions', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       allowedWriteJoins: [],
     });
 
     const result = await updateEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
       deletions: {
@@ -366,12 +366,12 @@ describe('updateEngine - deletions', () => {
       // Delete (affectedRows)
       { rows: [], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     const result = await updateEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
       secondaries: {

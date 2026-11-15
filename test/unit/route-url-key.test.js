@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import {
   fastifyAutoSqlApi,
-  exportTableInfo,
   toUnderscore,
   buildAgentManifest,
   Type,
@@ -23,7 +22,7 @@ const SchemaConversation = {
 };
 
 function tableConf(overrides = {}) {
-  return { primary: 'id', ...exportTableInfo(SchemaConversation), ...overrides };
+  return { primary: 'id', schema: SchemaConversation, ...overrides };
 }
 
 // pg-shaped pool: { rows, rowCount } responses, consumed in order
@@ -41,10 +40,10 @@ function createMockPool(responses = []) {
   };
 }
 
-async function buildApp(DbTables, pool = createMockPool()) {
+async function buildApp(dbTables, pool = createMockPool()) {
   const app = Fastify();
   app.decorate('pg', pool);
-  await app.register(fastifyAutoSqlApi, { DbTables });
+  await app.register(fastifyAutoSqlApi, { dbTables });
   await app.ready();
   return app;
 }
@@ -124,13 +123,13 @@ describe('route URL is the dbTables key', () => {
   });
 
   it('every manifest key has its routes under that key', async () => {
-    const DbTables = {
+    const dbTables = {
       chat: tableConf({ operations: ['search', 'get'] }),
       sharedChat: tableConf({ operations: ['search'] }),
     };
-    const app = await buildApp(DbTables);
+    const app = await buildApp(dbTables);
 
-    for (const [key, entry] of Object.entries(buildAgentManifest(DbTables).tables)) {
+    for (const [key, entry] of Object.entries(buildAgentManifest(dbTables).tables)) {
       if (entry.operations.includes('search')) {
         assert.equal(app.hasRoute({ method: 'POST', url: `/search/${key}` }), true, `search for ${key}`);
       }

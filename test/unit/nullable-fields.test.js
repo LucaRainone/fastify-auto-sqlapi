@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
-const { fastifyAutoSqlApi, Type, Nullable, exportTableInfo } =
+const { fastifyAutoSqlApi, Type, Nullable } =
   await import(path.join(ROOT, 'dist/index.js'));
 
 describe('Nullable() helper', () => {
@@ -63,10 +63,10 @@ function createTestApp(rows) {
     tableName: 'test_table',
     partialValidation: Type.Partial(Type.Object(fields)),
   };
-  const DbTables = {
+  const dbTables = {
     test_table: {
       primary: 'id',
-      ...exportTableInfo(schema),
+      schema,
       defaultOrder: 'id',
     },
   };
@@ -89,7 +89,7 @@ function createTestApp(rows) {
     }),
   };
   app.decorate('pg', pg);
-  return app.register(fastifyAutoSqlApi, { DbTables }).then(() => ({ app, calls }));
+  return app.register(fastifyAutoSqlApi, { dbTables }).then(() => ({ app, calls }));
 }
 
 describe('nullable fields — response serialization', () => {

@@ -3,7 +3,7 @@
 **Your database already knows its tables, columns and relations. This plugin turns that knowledge into a typed, validated REST API inside your [Fastify](https://fastify.dev/) app.**
 
 ```typescript
-await app.register(fastifyAutoSqlApi, { DbTables: dbTables, swagger: true, prefix: '/api' });
+await app.register(fastifyAutoSqlApi, { dbTables, swagger: true, prefix: '/api' });
 ```
 
 ### One `register()` call. Seven endpoints for every table you choose to expose.
@@ -128,7 +128,7 @@ whole database first, no migration tool to take over, no repository layout to co
 which is what makes this different from adding an ORM to a project that already runs.
 
 - **One table is a valid installation.** `sqlapi-generate-schema --tables invoice` and
-  `sqlapi-generate-tables invoice` generate for that table alone; `DbTables` contains only what
+  `sqlapi-generate-tables invoice` generate for that table alone; `dbTables` contains only what
   you put in it, and the rest of your database stays invisible to the plugin.
 - **It never writes to your database.** Not a row, not a column: generation is `SELECT`s
   against `information_schema`, and at runtime the plugin issues no DDL and runs no migrations.
@@ -173,7 +173,7 @@ import { dbTables } from './src/db/tables/dbTables.js';
 
 const app = Fastify();
 await app.register(fastifyPostgres, { connectionString: 'postgres://user:pass@localhost:5432/mydb' });
-await app.register(fastifyAutoSqlApi, { DbTables: dbTables, swagger: true, prefix: '/api' });
+await app.register(fastifyAutoSqlApi, { dbTables, swagger: true, prefix: '/api' });
 await app.listen({ port: 3000 });
 ```
 
@@ -258,7 +258,7 @@ something you remember to avoid.
 ## Before you ship
 
 > ⚠️ **The plugin is open by default.** Registering it with no further configuration exposes
-> **every operation on every table in `DbTables`** — reads *and* writes, bulk delete included —
+> **every operation on every table in `dbTables`** — reads *and* writes, bulk delete included —
 > to anyone who can reach the server. That is intentional: the plugin provides the tools and
 > imposes no auth model ([ADR 0002](./docs/adr/0002-open-by-default.md)). Locking it down is
 > yours to do.

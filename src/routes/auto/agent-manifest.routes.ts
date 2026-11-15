@@ -8,13 +8,13 @@ import type { SqlApiPluginOptions } from '../../types.js';
  *
  * Opt-in via the `agentManifest` plugin option (like `swagger`). Runs behind the same
  * global `onRequests` hooks as the data routes. The manifest is built once at startup —
- * `DbTables` is static configuration.
+ * `dbTables` is static configuration.
  */
 export default async function agentManifestRoutes(
   fastify: FastifyInstance,
   options: SqlApiPluginOptions,
 ): Promise<void> {
-  const manifest = buildAgentManifest(options.DbTables);
+  const manifest = buildAgentManifest(options.dbTables);
   const markdown = renderAgentManifestMd(manifest);
   const onRequest = options.onRequests?.length ? options.onRequests : undefined;
 

@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
 const { bulkUpsertEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk/bulk-upsert.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
@@ -43,10 +43,10 @@ function createTestDbTables(mockPg, opts = {}) {
   const customerSchema = createMockSchema('customer', customerFields);
   const orderSchema = createMockSchema('customer_order', orderFields);
 
-  const customerInfo = exportTableInfo(customerSchema);
-  const orderInfo = exportTableInfo(orderSchema);
+  const customerInfo = { schema: customerSchema };
+  const orderInfo = { schema: orderSchema };
 
-  const DbTables = {
+  const dbTables = {
     customer: {
       primary: 'id',
       ...customerInfo,
@@ -66,7 +66,7 @@ function createTestDbTables(mockPg, opts = {}) {
     },
   };
 
-  return { DbTables, db: new QueryClient(mockPg), customerSchema, orderSchema };
+  return { dbTables, db: new QueryClient(mockPg), customerSchema, orderSchema };
 }
 
 describe('bulkUpsertEngine - bulk insert (no upsertMap)', () => {
@@ -78,12 +78,12 @@ describe('bulkUpsertEngine - bulk insert (no upsertMap)', () => {
         { id: 2 },
       ], affectedRows: 2 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     const results = await bulkUpsertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       items: [
         { main: { name: 'Mario', email: 'mario@test.it' } },
@@ -104,12 +104,12 @@ describe('bulkUpsertEngine - bulk insert (no upsertMap)', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     const results = await bulkUpsertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       items: [{ main: { name: 'Mario', email: 'mario@test.it' } }],
     });
@@ -128,13 +128,13 @@ describe('bulkUpsertEngine - bulk upsert with upsertMap', () => {
         { id: 2 },
       ], affectedRows: 2 },
     ]);
-    const { DbTables, db, customerSchema } = createTestDbTables(mockPg);
-    DbTables.customer.upsertMap = new Map([[customerSchema, ['email']]]);
+    const { dbTables, db, customerSchema } = createTestDbTables(mockPg);
+    dbTables.customer.upsertMap = new Map([[customerSchema, ['email']]]);
 
     const results = await bulkUpsertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       items: [
         { main: { name: 'Mario', email: 'mario@test.it' } },
@@ -161,12 +161,12 @@ describe('bulkUpsertEngine - with secondaries', () => {
       // Item 2: secondary bulk insert (PK-only)
       { rows: [{ id: 101 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     const results = await bulkUpsertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       items: [
         {
@@ -199,12 +199,12 @@ describe('bulkUpsertEngine - with deletions', () => {
       // Deletion (affectedRows)
       { rows: [], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     const results = await bulkUpsertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       items: [
         {
@@ -229,15 +229,15 @@ describe('bulkUpsertEngine - hooks', () => {
         { id: 2 },
       ], affectedRows: 2 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
-    DbTables.customer.beforeInsert = async ({ record }) => {
+    const { dbTables, db } = createTestDbTables(mockPg);
+    dbTables.customer.beforeInsert = async ({ record }) => {
       hookCalls.push({ ...record });
     };
 
     await bulkUpsertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       items: [
         { main: { name: 'Mario', email: 'mario@test.it' } },
@@ -254,15 +254,15 @@ describe('bulkUpsertEngine - hooks', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
-    DbTables.customer.beforeInsert = async ({ record }) => {
+    const { dbTables, db } = createTestDbTables(mockPg);
+    dbTables.customer.beforeInsert = async ({ record }) => {
       record.status = 'active';
     };
 
     await bulkUpsertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       items: [{ main: { name: 'Mario', email: 'mario@test.it' } }],
     });
@@ -282,15 +282,15 @@ describe('bulkUpsertEngine - hooks', () => {
       { rows: [{ id: 100 }], affectedRows: 1 },
       // Item 2: no secondaries
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
-    DbTables.customer.afterInsert = async ({ record, secondaries: secondaryRecords }) => {
+    const { dbTables, db } = createTestDbTables(mockPg);
+    dbTables.customer.afterInsert = async ({ record, secondaries: secondaryRecords }) => {
       hookCalls.push({ record: { ...record }, secondaryRecords });
     };
 
     await bulkUpsertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       items: [
         {
@@ -318,7 +318,7 @@ describe('bulkUpsertEngine - hooks', () => {
       { rows: [{ id: 41 }, { id: 42 }], affectedRows: 2 },
     ]);
     let nextId = 40;
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       insertExclude: ['id'],
       beforeInsert: async ({ record }) => {
         // The client-supplied id must already be stripped when the hook runs
@@ -329,8 +329,8 @@ describe('bulkUpsertEngine - hooks', () => {
 
     await bulkUpsertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       items: [
         { main: { id: 900, name: 'Mario', email: 'mario@test.it' } },
@@ -358,12 +358,12 @@ describe('bulkUpsertEngine - mixed items', () => {
       // Item 2: deletion (affectedRows)
       { rows: [], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     const results = await bulkUpsertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       items: [
         { main: { name: 'Mario', email: 'mario@test.it' } },
@@ -384,12 +384,12 @@ describe('bulkUpsertEngine - mixed items', () => {
 
   it('returns empty array for empty items', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg);
+    const { dbTables, db } = createTestDbTables(mockPg);
 
     const results = await bulkUpsertEngine({
       db,
-      tableConf: DbTables.customer,
-      dbTables: DbTables,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
       request: mockRequest,
       items: [],
     });

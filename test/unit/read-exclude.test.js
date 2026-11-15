@@ -9,7 +9,7 @@ const ROOT = path.resolve(__dirname, '../..');
 
 const { searchEngine } = await import(path.join(ROOT, 'dist/lib/engine/search/search.js'));
 const { getEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/get.js'));
-const { exportTableInfo, buildRelation, defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation, defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { SearchTableBodyPost, SearchTableResponse } = await import(path.join(ROOT, 'dist/lib/schema/search.js'));
 const { InsertTableBody } = await import(path.join(ROOT, 'dist/lib/schema/insert.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
@@ -44,7 +44,7 @@ function createDbTables() {
   return {
     team: {
       primary: 'id',
-      ...exportTableInfo(teamSchema),
+      schema: teamSchema,
       readExclude: ['secretBudget'],
       allowedReadJoins: [
         buildRelation(teamSchema, 'id', playerSchema, 'teamId', { alias: 'player' }),
@@ -52,7 +52,7 @@ function createDbTables() {
     },
     player: {
       primary: 'id',
-      ...exportTableInfo(playerSchema),
+      schema: playerSchema,
       readExclude: ['hiddenPotential'],
       allowedReadJoins: [
         buildRelation(playerSchema, 'teamId', teamSchema, 'id', { alias: 'team', unique: true }),
@@ -64,11 +64,11 @@ function createDbTables() {
 describe('readExclude - main table reads', () => {
   it('search SELECT projects only readable columns', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db: new QueryClient(mockPg),
-      tableConf: DbTables.player,
+      tableConf: dbTables.player,
     });
 
     const sql = mockPg.calls[0].text;
@@ -80,11 +80,11 @@ describe('readExclude - main table reads', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, team_id: 2, name: 'Mario' }], affectedRows: 1 },
     ]);
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
     const result = await getEngine({
       db: new QueryClient(mockPg),
-      tableConf: DbTables.player,
+      tableConf: dbTables.player,
       id: '1',
     });
 
@@ -97,8 +97,8 @@ describe('readExclude - main table reads', () => {
 
   it('a computed field in select keeps working alongside readExclude', async () => {
     const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
-    const DbTables = createDbTables();
-    DbTables.player.computedFields = {
+    const dbTables = createDbTables();
+    dbTables.player.computedFields = {
       upperName: ({ qiCol }) => ({
         expr: `UPPER(${qiCol('name')})`,
         values: [],
@@ -106,9 +106,9 @@ describe('readExclude - main table reads', () => {
       }),
     };
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db: new QueryClient(mockPg),
-      tableConf: DbTables.player,
+      tableConf: dbTables.player,
       select: ['id', 'teamId', 'name', 'upperName'],
     });
 
@@ -134,12 +134,12 @@ describe('readExclude - excluded fields cannot be referenced (no value probing)'
         { rows: [], affectedRows: 0 },
         { rows: [{ total: '0' }], affectedRows: 1 },
       ]);
-      const DbTables = createDbTables();
+      const dbTables = createDbTables();
 
       await assert.rejects(
-        () => searchEngine(DbTables, {
+        () => searchEngine(dbTables, {
           db: new QueryClient(mockPg),
-          tableConf: DbTables.player,
+          tableConf: dbTables.player,
           ...params,
         }),
         (err) => err.statusCode === 400 && /hiddenPotential/.test(err.message)
@@ -154,11 +154,11 @@ describe('readExclude - joined tables', () => {
       { rows: [{ id: 1, name: 'Alpha' }], affectedRows: 1 }, // main (team)
       { rows: [], affectedRows: 0 },                          // side query (player)
     ]);
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
-    await searchEngine(DbTables, {
+    await searchEngine(dbTables, {
       db: new QueryClient(mockPg),
-      tableConf: DbTables.team,
+      tableConf: dbTables.team,
       joinMultiple: { player: {} },
     });
 
@@ -171,12 +171,12 @@ describe('readExclude - joined tables', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, name: 'Alpha' }], affectedRows: 1 },
     ]);
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db: new QueryClient(mockPg),
-        tableConf: DbTables.team,
+        tableConf: dbTables.team,
         joinMultiple: { player: { select: ['id', 'hiddenPotential'] } },
       }),
       (err) => err.statusCode === 400 && /hiddenPotential/.test(err.message)
@@ -187,12 +187,12 @@ describe('readExclude - joined tables', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, name: 'Alpha' }], affectedRows: 1 },
     ]);
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db: new QueryClient(mockPg),
-        tableConf: DbTables.team,
+        tableConf: dbTables.team,
         joinMultiple: { player: { filters: { hiddenPotential: 9 } } },
       }),
       (err) => err.statusCode === 400 && /hiddenPotential/.test(err.message)
@@ -203,12 +203,12 @@ describe('readExclude - joined tables', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, name: 'Alpha' }], affectedRows: 1 },
     ]);
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db: new QueryClient(mockPg),
-        tableConf: DbTables.team,
+        tableConf: dbTables.team,
         joinGroup: { player: { sum: ['hiddenPotential'] } },
       }),
       (err) => err.statusCode === 400 && /hiddenPotential/.test(err.message)
@@ -219,12 +219,12 @@ describe('readExclude - joined tables', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1, name: 'Alpha' }], affectedRows: 1 },
     ]);
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db: new QueryClient(mockPg),
-        tableConf: DbTables.team,
+        tableConf: dbTables.team,
         joinGroup: { player: { by: 'hiddenPotential', count: ['id'] } },
       }),
       (err) => err.statusCode === 400 && /hiddenPotential/.test(err.message)
@@ -238,12 +238,12 @@ describe('readExclude - joined tables', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 0 },
     ]);
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db: new QueryClient(mockPg),
-        tableConf: DbTables.team,
+        tableConf: dbTables.team,
         conditions: [{ field: 'player.sum.hiddenPotential', method: 'isGreater', params: [100] }],
         joinGroup: { player: { sum: ['hiddenPotential'] } },
       }),
@@ -252,12 +252,12 @@ describe('readExclude - joined tables', () => {
   });
 
   it('rejects 3-part aggregation orderBy on an excluded field with 400', async () => {
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db: new QueryClient(createMockPg([{ rows: [], affectedRows: 0 }])),
-        tableConf: DbTables.team,
+        tableConf: dbTables.team,
         orderBy: 'player.sum.hiddenPotential DESC',
         joinGroup: { player: { sum: ['hiddenPotential'] } },
       }),
@@ -266,21 +266,21 @@ describe('readExclude - joined tables', () => {
   });
 
   it('rejects joinLeft filters and 2-part orderBy on an excluded parent field with 400', async () => {
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db: new QueryClient(createMockPg()),
-        tableConf: DbTables.player,
+        tableConf: dbTables.player,
         joinLeft: { team: { filters: { secretBudget: 1 } } },
       }),
       (err) => err.statusCode === 400 && /secretBudget/.test(err.message)
     );
 
     await assert.rejects(
-      () => searchEngine(DbTables, {
+      () => searchEngine(dbTables, {
         db: new QueryClient(createMockPg()),
-        tableConf: DbTables.player,
+        tableConf: dbTables.player,
         joinLeft: { team: {} },
         orderBy: 'team.secretBudget DESC',
       }),
@@ -291,8 +291,8 @@ describe('readExclude - joined tables', () => {
 
 describe('readExclude - schema builders', () => {
   it('SearchTableResponse omits excluded fields from main and join items', () => {
-    const DbTables = createDbTables();
-    const response = SearchTableResponse(DbTables, 'team');
+    const dbTables = createDbTables();
+    const response = SearchTableResponse(dbTables, 'team');
 
     const mainProps = response.properties.main.items.properties;
     assert.ok(mainProps.name);
@@ -304,8 +304,8 @@ describe('readExclude - schema builders', () => {
   });
 
   it('SearchTableBodyPost omits excluded fields from main and join filters', () => {
-    const DbTables = createDbTables();
-    const body = SearchTableBodyPost(DbTables, 'team');
+    const dbTables = createDbTables();
+    const body = SearchTableBodyPost(dbTables, 'team');
 
     const filterProps = body.properties.filters.properties;
     assert.ok(filterProps.name);
@@ -318,8 +318,8 @@ describe('readExclude - schema builders', () => {
   });
 
   it('InsertTableBody still accepts excluded fields (writes unaffected)', () => {
-    const DbTables = createDbTables();
-    const body = InsertTableBody(DbTables, 'player');
+    const dbTables = createDbTables();
+    const body = InsertTableBody(dbTables, 'player');
 
     assert.ok(body.properties.main.properties.hiddenPotential,
       'readExclude must not affect write schemas');
@@ -331,7 +331,7 @@ describe('readExclude - defineTable validation', () => {
     assert.throws(
       () => defineTable({
         primary: 'id',
-        ...exportTableInfo(playerSchema),
+        schema: playerSchema,
         readExclude: ['nonExistent'],
       }),
       /readExclude|nonExistent/
@@ -342,7 +342,7 @@ describe('readExclude - defineTable validation', () => {
     assert.throws(
       () => defineTable({
         primary: 'id',
-        ...exportTableInfo(playerSchema),
+        schema: playerSchema,
         readExclude: ['id'],
       }),
       /primary/i

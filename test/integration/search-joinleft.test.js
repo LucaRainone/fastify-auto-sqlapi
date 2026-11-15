@@ -5,7 +5,6 @@ import {
   createTestApp,
   cleanTables,
   seedRows,
-  exportTableInfo,
   buildRelation,
   toUnderscore,
   Type,
@@ -35,10 +34,10 @@ const orderSchema = createSchema('customer_order', {
   status: Type.Optional(Type.String()),
 });
 
-const customerInfo = exportTableInfo(customerSchema);
-const orderInfo = exportTableInfo(orderSchema);
+const customerInfo = { schema: customerSchema };
+const orderInfo = { schema: orderSchema };
 
-const DbTables = {
+const dbTables = {
   customer: { primary: 'id', ...customerInfo, defaultOrder: 'id' },
   customer_order: {
     primary: 'id',
@@ -59,7 +58,7 @@ describe(`[${DIALECT}] joinLeft (N:1 parent) integration`, () => {
   let customerIds;
 
   before(async () => {
-    ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
+    ({ app, db } = await createTestApp(dbTables, { prefix: '/auto' }));
     await cleanTables(db, ['customer_order', 'customer']);
 
     const customers = await seedRows(db, 'customer', [

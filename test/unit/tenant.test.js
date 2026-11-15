@@ -12,7 +12,6 @@ const { resolveTenant, buildTenantCondition, buildTenantJoin, injectTenantValue,
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { TENANT_ADMIN } = await import(path.join(ROOT, 'dist/index.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
-const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { getEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/get.js'));
 const { deleteEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/delete.js'));
 const { bulkDeleteEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk/bulk-delete.js'));
@@ -39,21 +38,21 @@ describe('resolveTenant', () => {
   const customerSchema = createMockSchema('customer', { id: Type.Number(), organizationId: Type.Number() });
 
   it('returns undefined when getTenantId is not defined', async () => {
-    const options = { DbTables: {} };
+    const options = { dbTables: {} };
     const tableConf = { Schema: customerSchema, tenantScope: { column: 'organization_id' } };
     const result = await resolveTenant(options, tableConf, {});
     assert.equal(result, undefined);
   });
 
   it('returns undefined when tenantScope is not defined', async () => {
-    const options = { DbTables: {}, getTenantId: () => 1 };
+    const options = { dbTables: {}, getTenantId: () => 1 };
     const tableConf = { Schema: customerSchema };
     const result = await resolveTenant(options, tableConf, {});
     assert.equal(result, undefined);
   });
 
   it('returns undefined (no filter) when getTenantId returns TENANT_ADMIN', async () => {
-    const options = { DbTables: {}, getTenantId: () => TENANT_ADMIN };
+    const options = { dbTables: {}, getTenantId: () => TENANT_ADMIN };
     const tableConf = { Schema: customerSchema, tenantScope: { column: 'organization_id' } };
     const result = await resolveTenant(options, tableConf, {});
     assert.equal(result, undefined);
@@ -61,14 +60,14 @@ describe('resolveTenant', () => {
 
   for (const [label, value] of [['null', null], ['undefined', undefined]]) {
     it(`throws 401 when getTenantId returns ${label}: an absent tenant is not an admin`, async () => {
-      const options = { DbTables: {}, getTenantId: () => value };
+      const options = { dbTables: {}, getTenantId: () => value };
       const tableConf = { Schema: customerSchema, tenantScope: { column: 'organization_id' } };
       await assert.rejects(resolveTenant(options, tableConf, {}), (err) => err.statusCode === 401);
     });
   }
 
   it('normalizes single value to array', async () => {
-    const options = { DbTables: {}, getTenantId: () => 42 };
+    const options = { dbTables: {}, getTenantId: () => 42 };
     const scope = { column: 'organization_id' };
     const tableConf = { Schema: customerSchema, tenantScope: scope };
     const result = await resolveTenant(options, tableConf, {});
@@ -76,7 +75,7 @@ describe('resolveTenant', () => {
   });
 
   it('passes array as-is', async () => {
-    const options = { DbTables: {}, getTenantId: () => [1, 2, 3] };
+    const options = { dbTables: {}, getTenantId: () => [1, 2, 3] };
     const scope = { column: 'organization_id' };
     const tableConf = { Schema: customerSchema, tenantScope: scope };
     const result = await resolveTenant(options, tableConf, {});
@@ -84,7 +83,7 @@ describe('resolveTenant', () => {
   });
 
   it('supports async getTenantId', async () => {
-    const options = { DbTables: {}, getTenantId: async () => 99 };
+    const options = { dbTables: {}, getTenantId: async () => 99 };
     const scope = { column: 'organization_id' };
     const tableConf = { Schema: customerSchema, tenantScope: scope };
     const result = await resolveTenant(options, tableConf, {});
@@ -315,7 +314,7 @@ describe('stripTenantColumn', () => {
 describe('getEngine with direct tenant', () => {
   const customerFields = { id: Type.Number(), name: Type.String(), organizationId: Type.Number() };
   const customerSchema = createMockSchema('customer', customerFields);
-  const customerInfo = exportTableInfo(customerSchema);
+  const customerInfo = { schema: customerSchema };
   const tableConf = { primary: 'id', ...customerInfo, defaultOrder: 'id' };
 
   it('adds tenant WHERE for direct scope', async () => {
@@ -348,7 +347,7 @@ describe('getEngine with direct tenant', () => {
 describe('getEngine with indirect tenant', () => {
   const orderFields = { id: Type.Number(), customerId: Type.Number(), total: Type.Number() };
   const orderSchema = createMockSchema('customer_order', orderFields);
-  const orderInfo = exportTableInfo(orderSchema);
+  const orderInfo = { schema: orderSchema };
   const tableConf = { primary: 'id', ...orderInfo, defaultOrder: 'id' };
   const customerSchema = createMockSchema('customer', { id: Type.Number(), organizationId: Type.Number() });
 
@@ -379,7 +378,7 @@ describe('getEngine with indirect tenant', () => {
 describe('deleteEngine with direct tenant', () => {
   const customerFields = { id: Type.Number(), name: Type.String(), organizationId: Type.Number() };
   const customerSchema = createMockSchema('customer', customerFields);
-  const customerInfo = exportTableInfo(customerSchema);
+  const customerInfo = { schema: customerSchema };
   const tableConf = { primary: 'id', ...customerInfo, defaultOrder: 'id' };
 
   it('adds tenant condition to DELETE', async () => {
@@ -404,7 +403,7 @@ describe('deleteEngine with direct tenant', () => {
 describe('bulkDeleteEngine with direct tenant', () => {
   const customerFields = { id: Type.Number(), name: Type.String(), organizationId: Type.Number() };
   const customerSchema = createMockSchema('customer', customerFields);
-  const customerInfo = exportTableInfo(customerSchema);
+  const customerInfo = { schema: customerSchema };
   const tableConf = { primary: 'id', ...customerInfo, defaultOrder: 'id' };
 
   it('adds tenant condition to bulk DELETE', async () => {
@@ -428,7 +427,7 @@ describe('bulkDeleteEngine with direct tenant', () => {
 describe('insertEngine with direct tenant', () => {
   const customerFields = { id: Type.Number(), name: Type.String(), organizationId: Type.Number() };
   const customerSchema = createMockSchema('customer', customerFields);
-  const customerInfo = exportTableInfo(customerSchema);
+  const customerInfo = { schema: customerSchema };
   const tableConf = { primary: 'id', ...customerInfo, defaultOrder: 'id' };
 
   it('injects tenant value into record on insert', async () => {
@@ -470,7 +469,7 @@ describe('insertEngine with direct tenant', () => {
 describe('searchEngine with direct tenant', () => {
   const customerFields = { id: Type.Number(), name: Type.String(), organizationId: Type.Number() };
   const customerSchema = createMockSchema('customer', customerFields);
-  const customerInfo = exportTableInfo(customerSchema);
+  const customerInfo = { schema: customerSchema };
   const tableConf = { primary: 'id', ...customerInfo, defaultOrder: 'id' };
   const dbTables = { customer: tableConf };
 
@@ -505,7 +504,7 @@ describe('searchEngine with direct tenant', () => {
 describe('updateEngine with direct tenant', () => {
   const customerFields = { id: Type.Number(), name: Type.String(), organizationId: Type.Number() };
   const customerSchema = createMockSchema('customer', customerFields);
-  const tableConf = { primary: 'id', ...exportTableInfo(customerSchema), defaultOrder: 'id' };
+  const tableConf = { primary: 'id', schema: customerSchema, defaultOrder: 'id' };
   const tenant = { ids: [42], scope: { column: 'organization_id' } };
 
   it('scopes the WHERE by tenant and keeps the tenant column out of the SET', async () => {
@@ -542,7 +541,7 @@ describe('updateEngine with direct tenant', () => {
 describe('bulkUpsertEngine with direct tenant', () => {
   const customerFields = { id: Type.Number(), name: Type.String(), organizationId: Type.Number() };
   const customerSchema = createMockSchema('customer', customerFields);
-  const tableConf = { primary: 'id', ...exportTableInfo(customerSchema), defaultOrder: 'id' };
+  const tableConf = { primary: 'id', schema: customerSchema, defaultOrder: 'id' };
   const tenant = { ids: [42], scope: { column: 'organization_id' } };
 
   it('injects the tenant value into every main row', async () => {
@@ -595,7 +594,7 @@ describe('bulkUpsertEngine with direct tenant', () => {
 describe('delete engines with indirect tenant', () => {
   const orderSchema = createMockSchema('customer_order', { id: Type.Number(), customerId: Type.Number(), total: Type.Number() });
   const customerSchema = createMockSchema('customer', { id: Type.Number(), organizationId: Type.Number() });
-  const tableConf = { primary: 'id', ...exportTableInfo(orderSchema), defaultOrder: 'id' };
+  const tableConf = { primary: 'id', schema: orderSchema, defaultOrder: 'id' };
   const tenant = {
     ids: [42],
     scope: { column: 'organization_id', through: { schema: customerSchema, localField: 'customer_id', foreignField: 'id' } },
@@ -639,7 +638,7 @@ describe('delete engines with indirect tenant', () => {
 describe('searchEngine: request predicates on the tenant column stay inside the scope', () => {
   const customerFields = { id: Type.Number(), name: Type.String(), organizationId: Type.Number() };
   const customerSchema = createMockSchema('customer', customerFields);
-  const tableConf = { primary: 'id', ...exportTableInfo(customerSchema), defaultOrder: 'id' };
+  const tableConf = { primary: 'id', schema: customerSchema, defaultOrder: 'id' };
   const dbTables = { customer: tableConf };
   const tenant = { ids: [42], scope: { column: 'organization_id' } };
 

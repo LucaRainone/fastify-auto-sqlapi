@@ -9,7 +9,6 @@ import {
   createTestApp,
   cleanTables,
   seedRows,
-  exportTableInfo,
   toUnderscore,
   Type,
 } from './_helpers.js';
@@ -30,7 +29,7 @@ function tagTable(keys) {
   return {
     tag: {
       primary: 'id',
-      ...exportTableInfo(tagSchema),
+      schema: tagSchema,
       defaultOrder: 'id',
       upsertMap: new Map([[tagSchema, keys]]),
     },

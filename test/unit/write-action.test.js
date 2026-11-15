@@ -9,7 +9,7 @@ import Fastify from 'fastify';
 import path from 'node:path';
 import { ROOT, createMockSchema } from './_harness.js';
 
-const { fastifyAutoSqlApi, defineTable, exportTableInfo, buildUpsertRules, buildUpsertRule, Type } =
+const { fastifyAutoSqlApi, defineTable, buildUpsertRules, buildUpsertRule, Type } =
   await import(path.join(ROOT, 'dist/index.js'));
 
 const SchemaTag = createMockSchema('tag', {
@@ -45,12 +45,12 @@ function createMockPool(responses = []) {
 }
 
 async function createApp(tableOverrides, pool) {
-  const DbTables = {
-    tag: defineTable({ primary: 'id', ...exportTableInfo(SchemaTag), insertExclude: ['id'], ...tableOverrides }),
+  const dbTables = {
+    tag: defineTable({ primary: 'id', schema: SchemaTag, insertExclude: ['id'], ...tableOverrides }),
   };
   const app = Fastify();
   app.decorate('pg', pool);
-  await app.register(fastifyAutoSqlApi, { DbTables });
+  await app.register(fastifyAutoSqlApi, { dbTables });
   return app;
 }
 
@@ -115,10 +115,10 @@ describe('write action — response schemas', () => {
   it('insert and bulk upsert responses declare action as an enum', async () => {
     const { InsertTableResponse } = await import(path.join(ROOT, 'dist/lib/schema/insert.js'));
     const { BulkUpsertTableResponse } = await import(path.join(ROOT, 'dist/lib/schema/bulk-upsert.js'));
-    const DbTables = { tag: defineTable({ primary: 'id', ...exportTableInfo(SchemaTag) }) };
+    const dbTables = { tag: defineTable({ primary: 'id', schema: SchemaTag }) };
     const expected = ['inserted', 'updated'];
-    const insert = InsertTableResponse(DbTables, 'tag').properties.action;
-    const bulk = BulkUpsertTableResponse(DbTables, 'tag').items.properties.action;
+    const insert = InsertTableResponse(dbTables, 'tag').properties.action;
+    const bulk = BulkUpsertTableResponse(dbTables, 'tag').items.properties.action;
     for (const schema of [insert, bulk]) {
       assert.ok(schema, 'action is declared');
       const literals = (schema.anyOf ?? []).map((s) => s.const);

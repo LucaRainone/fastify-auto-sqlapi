@@ -10,7 +10,7 @@ const ROOT = path.resolve(__dirname, '../..');
 const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/insert.js'));
 const { updateEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/update.js'));
 const { bulkUpsertEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk/bulk-upsert.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
@@ -44,10 +44,10 @@ function createTestDbTables(mockPg, opts = {}) {
   const sessionSchema = createMockSchema('session', sessionFields);
   const periodSchema = createMockSchema('session_period', periodFields);
 
-  const sessionInfo = exportTableInfo(sessionSchema);
-  const periodInfo = exportTableInfo(periodSchema);
+  const sessionInfo = { schema: sessionSchema };
+  const periodInfo = { schema: periodSchema };
 
-  const DbTables = {
+  const dbTables = {
     session: {
       primary: 'id',
       ...sessionInfo,
@@ -66,7 +66,7 @@ function createTestDbTables(mockPg, opts = {}) {
     },
   };
 
-  return { DbTables, db: new QueryClient(mockPg), sessionSchema, periodSchema };
+  return { dbTables, db: new QueryClient(mockPg), sessionSchema, periodSchema };
 }
 
 // ─── validate in insertEngine ─────────────────────────────────
@@ -74,7 +74,7 @@ function createTestDbTables(mockPg, opts = {}) {
 describe('validate - insertEngine', () => {
   it('blocks insert when validate returns errors', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       validate: ({ main }) => {
         if (!main.name) {
           return [['name', 'required', 'is required']];
@@ -86,8 +86,8 @@ describe('validate - insertEngine', () => {
     await assert.rejects(
       () => insertEngine({
         db,
-        tableConf: DbTables.session,
-        dbTables: DbTables,
+        tableConf: dbTables.session,
+        dbTables: dbTables,
         request: mockRequest,
         record: {},
       }),
@@ -107,15 +107,15 @@ describe('validate - insertEngine', () => {
 
   it('defaults message to code when message is omitted', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       validate: () => [['name', 'required']],
     });
 
     await assert.rejects(
       () => insertEngine({
         db,
-        tableConf: DbTables.session,
-        dbTables: DbTables,
+        tableConf: dbTables.session,
+        dbTables: dbTables,
         request: mockRequest,
         record: {},
       }),
@@ -132,14 +132,14 @@ describe('validate - insertEngine', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       validate: () => [],
     });
 
     const result = await insertEngine({
       db,
-      tableConf: DbTables.session,
-      dbTables: DbTables,
+      tableConf: dbTables.session,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Session 1' },
     });
@@ -151,7 +151,7 @@ describe('validate - insertEngine', () => {
   it('receives secondaries in validate', async () => {
     let receivedSecondaries = null;
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       validate: ({ secondaries }) => {
         receivedSecondaries = secondaries;
         return [['test', 'stop']];
@@ -167,8 +167,8 @@ describe('validate - insertEngine', () => {
     await assert.rejects(
       () => insertEngine({
         db,
-        tableConf: DbTables.session,
-        dbTables: DbTables,
+        tableConf: dbTables.session,
+        dbTables: dbTables,
         request: mockRequest,
         record: { name: 'S1' },
         secondaries: secs,
@@ -182,7 +182,7 @@ describe('validate - insertEngine', () => {
   it('receives camelCase record in validate (not snake_case)', async () => {
     let receivedMain = null;
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       validate: ({ main }) => {
         receivedMain = main;
         return [['test', 'stop']];
@@ -192,8 +192,8 @@ describe('validate - insertEngine', () => {
     await assert.rejects(
       () => insertEngine({
         db,
-        tableConf: DbTables.session,
-        dbTables: DbTables,
+        tableConf: dbTables.session,
+        dbTables: dbTables,
         request: mockRequest,
         // Pass camelCase field names
         record: { name: 'S1' },
@@ -215,15 +215,15 @@ describe('validate - insertEngine', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       validate: () => { order.push('validate'); return []; },
       beforeInsert: async () => { order.push('beforeInsert'); },
     });
 
     await insertEngine({
       db,
-      tableConf: DbTables.session,
-      dbTables: DbTables,
+      tableConf: dbTables.session,
+      dbTables: dbTables,
       request: mockRequest,
       record: { name: 'S1' },
     });
@@ -233,7 +233,7 @@ describe('validate - insertEngine', () => {
 
   it('supports async validate', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       validate: async () => {
         return [['name', 'async_error', 'async error']];
       },
@@ -242,8 +242,8 @@ describe('validate - insertEngine', () => {
     await assert.rejects(
       () => insertEngine({
         db,
-        tableConf: DbTables.session,
-        dbTables: DbTables,
+        tableConf: dbTables.session,
+        dbTables: dbTables,
         request: mockRequest,
         record: { name: 'S1' },
       }),
@@ -262,7 +262,7 @@ describe('validate - insertEngine', () => {
 describe('validate - updateEngine', () => {
   it('blocks update when validate returns errors', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       validate: ({ main }) => {
         if (main.name === '') {
           return [['name', 'empty', 'cannot be empty']];
@@ -274,8 +274,8 @@ describe('validate - updateEngine', () => {
     await assert.rejects(
       () => updateEngine({
         db,
-        tableConf: DbTables.session,
-        dbTables: DbTables,
+        tableConf: dbTables.session,
+        dbTables: dbTables,
         request: mockRequest,
         record: { id: 1, name: '' },
       }),
@@ -294,14 +294,14 @@ describe('validate - updateEngine', () => {
     const mockPg = createMockPg([
       { rows: [], affectedRows: 1 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       validate: () => [],
     });
 
     const result = await updateEngine({
       db,
-      tableConf: DbTables.session,
-      dbTables: DbTables,
+      tableConf: dbTables.session,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Updated' },
     });
@@ -312,7 +312,7 @@ describe('validate - updateEngine', () => {
   it('receives secondaries in validate during update', async () => {
     let receivedSecondaries = null;
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       validate: ({ secondaries }) => {
         receivedSecondaries = secondaries;
         return [['test', 'stop']];
@@ -329,8 +329,8 @@ describe('validate - updateEngine', () => {
     await assert.rejects(
       () => updateEngine({
         db,
-        tableConf: DbTables.session,
-        dbTables: DbTables,
+        tableConf: dbTables.session,
+        dbTables: dbTables,
         request: mockRequest,
         record: { id: 1, name: 'S1' },
         secondaries: secs,
@@ -347,7 +347,7 @@ describe('validate - updateEngine', () => {
 describe('validate - bulkUpsertEngine', () => {
   it('blocks bulk when per-item validate returns errors', async () => {
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       validate: ({ main }) => {
         if (!main.name) {
           return [['name', 'required']];
@@ -359,8 +359,8 @@ describe('validate - bulkUpsertEngine', () => {
     await assert.rejects(
       () => bulkUpsertEngine({
         db,
-        tableConf: DbTables.session,
-        dbTables: DbTables,
+        tableConf: dbTables.session,
+        dbTables: dbTables,
         request: mockRequest,
         items: [
           { main: { name: 'OK' } },
@@ -380,7 +380,7 @@ describe('validate - bulkUpsertEngine', () => {
   it('calls validateBulk with all items', async () => {
     let receivedItems = null;
     const mockPg = createMockPg([]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       validateBulk: ({ items }) => {
         receivedItems = items;
         return [['periods', 'overlap', 'overlap detected']];
@@ -390,8 +390,8 @@ describe('validate - bulkUpsertEngine', () => {
     await assert.rejects(
       () => bulkUpsertEngine({
         db,
-        tableConf: DbTables.session,
-        dbTables: DbTables,
+        tableConf: dbTables.session,
+        dbTables: dbTables,
         request: mockRequest,
         items: [
           { main: { name: 'S1' }, secondaries: { session_period: [{ startDate: '2024-01-01', endDate: '2024-01-31' }] } },
@@ -418,15 +418,15 @@ describe('validate - bulkUpsertEngine', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }, { id: 2 }], affectedRows: 2 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       validate: () => { order.push('validate'); return []; },
       validateBulk: () => { order.push('validateBulk'); return []; },
     });
 
     await bulkUpsertEngine({
       db,
-      tableConf: DbTables.session,
-      dbTables: DbTables,
+      tableConf: dbTables.session,
+      dbTables: dbTables,
       request: mockRequest,
       items: [
         { main: { name: 'S1' } },
@@ -442,14 +442,14 @@ describe('validate - bulkUpsertEngine', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }, { id: 2 }], affectedRows: 2 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       validate: () => { order.push('validate'); return []; },
     });
 
     await bulkUpsertEngine({
       db,
-      tableConf: DbTables.session,
-      dbTables: DbTables,
+      tableConf: dbTables.session,
+      dbTables: dbTables,
       request: mockRequest,
       items: [
         { main: { name: 'S1' } },
@@ -464,15 +464,15 @@ describe('validate - bulkUpsertEngine', () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }, { id: 2 }], affectedRows: 2 },
     ]);
-    const { DbTables, db } = createTestDbTables(mockPg, {
+    const { dbTables, db } = createTestDbTables(mockPg, {
       validate: () => [],
       validateBulk: () => [],
     });
 
     const results = await bulkUpsertEngine({
       db,
-      tableConf: DbTables.session,
-      dbTables: DbTables,
+      tableConf: dbTables.session,
+      dbTables: dbTables,
       request: mockRequest,
       items: [
         { main: { name: 'S1' } },

@@ -17,7 +17,7 @@ const ROOT = path.resolve(__dirname, '../..');
 
 const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/insert.js'));
 const { updateEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/update.js'));
-const { exportTableInfo, defineTable, buildRelation } = await import(
+const { defineTable, buildRelation } = await import(
   path.join(ROOT, 'dist/lib/table-helpers.js')
 );
 const { InsertTableBody } = await import(path.join(ROOT, 'dist/lib/schema/insert.js'));
@@ -60,10 +60,10 @@ function createDbTables(mockPg, opts = {}) {
   const invoiceSchema = createMockSchema('invoice', invoiceFields, opts.declareGenerated === false ? undefined : ['total']);
   const lineSchema = createMockSchema('invoice_line', lineFields, ['labelUpper']);
 
-  const DbTables = {
+  const dbTables = {
     invoice: defineTable({
       primary: 'id',
-      ...exportTableInfo(invoiceSchema),
+      schema: invoiceSchema,
       defaultOrder: 'id',
       insertExclude: ['id'],
       allowedWriteJoins: [
@@ -75,53 +75,53 @@ function createDbTables(mockPg, opts = {}) {
     }),
     invoice_line: defineTable({
       primary: 'id',
-      ...exportTableInfo(lineSchema),
+      schema: lineSchema,
       defaultOrder: 'id',
       insertExclude: ['id'],
     }),
   };
 
-  return { DbTables, db: new QueryClient(mockPg), invoiceSchema, lineSchema };
+  return { dbTables, db: new QueryClient(mockPg), invoiceSchema, lineSchema };
 }
 
 describe('write body schemas exclude database-computed fields', () => {
   it('drops a generated field from the insert body', () => {
-    const { DbTables } = createDbTables(createMockPg([]));
-    const body = InsertTableBody(DbTables, 'invoice');
+    const { dbTables } = createDbTables(createMockPg([]));
+    const body = InsertTableBody(dbTables, 'invoice');
     assert.equal(body.properties.main.properties.total, undefined);
     assert.ok(body.properties.main.properties.qty, 'ordinary fields stay');
   });
 
   it('drops a generated field from the update body', () => {
-    const { DbTables } = createDbTables(createMockPg([]));
-    const body = UpdateTableBody(DbTables, 'invoice');
+    const { dbTables } = createDbTables(createMockPg([]));
+    const body = UpdateTableBody(dbTables, 'invoice');
     assert.equal(body.properties.main.properties.total, undefined);
     assert.ok(body.properties.main.properties.id, 'the PK still identifies the row');
   });
 
   it('drops a generated field from the bulk-upsert body', () => {
-    const { DbTables } = createDbTables(createMockPg([]));
-    const body = BulkUpsertTableBody(DbTables, 'invoice');
+    const { dbTables } = createDbTables(createMockPg([]));
+    const body = BulkUpsertTableBody(dbTables, 'invoice');
     assert.equal(body.items.properties.main.properties.total, undefined);
   });
 
   it('drops the child table generated field from a secondaries body', () => {
-    const { DbTables } = createDbTables(createMockPg([]));
-    const body = InsertTableBody(DbTables, 'invoice');
+    const { dbTables } = createDbTables(createMockPg([]));
+    const body = InsertTableBody(dbTables, 'invoice');
     const line = body.properties.secondaries.properties.invoice_line.items;
     assert.equal(line.properties.labelUpper, undefined);
     assert.ok(line.properties.label);
   });
 
   it('drops a writeExclude field declared by the table config', () => {
-    const { DbTables } = createDbTables(createMockPg([]), { writeExclude: ['note'] });
-    const body = InsertTableBody(DbTables, 'invoice');
+    const { dbTables } = createDbTables(createMockPg([]), { writeExclude: ['note'] });
+    const body = InsertTableBody(dbTables, 'invoice');
     assert.equal(body.properties.main.properties.note, undefined);
   });
 
   it('keeps every field when nothing is excluded', () => {
-    const { DbTables } = createDbTables(createMockPg([]), { declareGenerated: false });
-    const body = InsertTableBody(DbTables, 'invoice');
+    const { dbTables } = createDbTables(createMockPg([]), { declareGenerated: false });
+    const body = InsertTableBody(dbTables, 'invoice');
     assert.ok(body.properties.main.properties.total);
   });
 });
@@ -130,12 +130,12 @@ describe('engines strip database-computed fields from the SQL', () => {
   it('leaves a generated field out of the INSERT even when the caller sends it', async () => {
     // sqlApi.* bypasses the HTTP body schema, so the engine has to strip it too.
     const mockPg = createMockPg([{ rows: [{ id: 1 }], affectedRows: 1 }]);
-    const { DbTables, db } = createDbTables(mockPg);
+    const { dbTables, db } = createDbTables(mockPg);
 
     await insertEngine({
       db,
-      tableConf: DbTables.invoice,
-      dbTables: DbTables,
+      tableConf: dbTables.invoice,
+      dbTables: dbTables,
       request: mockRequest,
       record: { qty: 2, price: 5, total: 999 },
     });
@@ -146,12 +146,12 @@ describe('engines strip database-computed fields from the SQL', () => {
 
   it('leaves a generated field out of the UPDATE SET', async () => {
     const mockPg = createMockPg([{ rows: [{ id: 1 }], affectedRows: 1 }]);
-    const { DbTables, db } = createDbTables(mockPg);
+    const { dbTables, db } = createDbTables(mockPg);
 
     await updateEngine({
       db,
-      tableConf: DbTables.invoice,
-      dbTables: DbTables,
+      tableConf: dbTables.invoice,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, qty: 4, total: 123 },
     });
@@ -166,7 +166,7 @@ describe('engines strip database-computed fields from the SQL', () => {
     // This is the opposite of insertExclude, which is stripped BEFORE the hook so a
     // hook-assigned value does reach the INSERT (ADR 0005).
     const mockPg = createMockPg([{ rows: [{ id: 1 }], affectedRows: 1 }]);
-    const { DbTables, db } = createDbTables(mockPg, {
+    const { dbTables, db } = createDbTables(mockPg, {
       beforeInsert: async ({ record }) => {
         record.total = 42;
       },
@@ -174,8 +174,8 @@ describe('engines strip database-computed fields from the SQL', () => {
 
     await insertEngine({
       db,
-      tableConf: DbTables.invoice,
-      dbTables: DbTables,
+      tableConf: dbTables.invoice,
+      dbTables: dbTables,
       request: mockRequest,
       record: { qty: 2, price: 5 },
     });
@@ -186,7 +186,7 @@ describe('engines strip database-computed fields from the SQL', () => {
 
   it('strips AFTER beforeUpdate as well', async () => {
     const mockPg = createMockPg([{ rows: [{ id: 1 }], affectedRows: 1 }]);
-    const { DbTables, db } = createDbTables(mockPg, {
+    const { dbTables, db } = createDbTables(mockPg, {
       beforeUpdate: async ({ record: fields }) => {
         fields.total = 42;
       },
@@ -194,8 +194,8 @@ describe('engines strip database-computed fields from the SQL', () => {
 
     await updateEngine({
       db,
-      tableConf: DbTables.invoice,
-      dbTables: DbTables,
+      tableConf: dbTables.invoice,
+      dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, qty: 4 },
     });
@@ -209,14 +209,14 @@ describe('defineTable validates writeExclude', () => {
 
   it('rejects a field that is not in the schema', () => {
     assert.throws(
-      () => defineTable({ primary: 'id', ...exportTableInfo(schema), writeExclude: ['nope'] }),
+      () => defineTable({ primary: 'id', schema, writeExclude: ['nope'] }),
       /writeExclude field 'nope' is not a schema field/
     );
   });
 
   it('rejects the primary key — the update body needs it to identify the row', () => {
     assert.throws(
-      () => defineTable({ primary: 'id', ...exportTableInfo(schema), writeExclude: ['id'] }),
+      () => defineTable({ primary: 'id', schema, writeExclude: ['id'] }),
       /writeExclude cannot cover the primary key/
     );
   });
@@ -225,7 +225,7 @@ describe('defineTable validates writeExclude', () => {
     assert.throws(
       () => defineTable({
         primary: 'id',
-        ...exportTableInfo(schema),
+        schema,
         readExclude: ['note'],
         writeExclude: ['note'],
       }),
@@ -235,15 +235,15 @@ describe('defineTable validates writeExclude', () => {
 
   it('accepts a plain readable-but-not-writable field', () => {
     assert.doesNotThrow(
-      () => defineTable({ primary: 'id', ...exportTableInfo(schema), writeExclude: ['note'] })
+      () => defineTable({ primary: 'id', schema, writeExclude: ['note'] })
     );
   });
 });
 
 describe('agent manifest reports non-writable fields', () => {
   it('marks a generated field readOnly', () => {
-    const { DbTables } = createDbTables(createMockPg([]));
-    const manifest = buildAgentManifest(DbTables);
+    const { dbTables } = createDbTables(createMockPg([]));
+    const manifest = buildAgentManifest(dbTables);
     const invoice = manifest.tables.invoice;
     assert.equal(invoice.fields.total.readOnly, true);
     assert.equal(invoice.fields.qty.readOnly, undefined);

@@ -14,12 +14,11 @@ const mockSchema = {
 
 const mockTable = {
   primary: 'id',
-  Schema: mockSchema,
-  filters: () => ({ build: () => ({ where: '1=1', values: [] }) }),
+  schema: mockSchema,
   extraFilters: {},
 };
 
-const DbTables = { test_table: mockTable };
+const dbTables = { test_table: mockTable };
 
 describe('fastifyAutoSqlApi plugin', () => {
   it('should be a function', () => {
@@ -28,7 +27,7 @@ describe('fastifyAutoSqlApi plugin', () => {
 
   it('should register all routes', async () => {
     const app = Fastify();
-    await app.register(fastifyAutoSqlApi, { DbTables });
+    await app.register(fastifyAutoSqlApi, { dbTables });
     await app.ready();
 
     const routes = app.printRoutes({ commonPrefix: false });
@@ -48,7 +47,7 @@ describe('fastifyAutoSqlApi plugin', () => {
 
   it('should work with prefix option', async () => {
     const app = Fastify();
-    await app.register(fastifyAutoSqlApi, { DbTables, prefix: '/api' });
+    await app.register(fastifyAutoSqlApi, { dbTables, prefix: '/api' });
     await app.ready();
 
     const routes = app.printRoutes({ commonPrefix: false });
@@ -60,7 +59,7 @@ describe('fastifyAutoSqlApi plugin', () => {
 
   it('should skip swagger when not requested', async () => {
     const app = Fastify();
-    await app.register(fastifyAutoSqlApi, { DbTables });
+    await app.register(fastifyAutoSqlApi, { dbTables });
     await app.ready();
 
     assert.equal(app.hasDecorator('swagger'), false);
@@ -74,7 +73,7 @@ describe('fastifyAutoSqlApi plugin', () => {
 describe('fastifyAutoSqlApi swagger documentation', () => {
   it('swagger: true serves the OpenAPI spec of the table routes and the UI at /documentation', async () => {
     const app = Fastify();
-    await app.register(fastifyAutoSqlApi, { DbTables, swagger: true });
+    await app.register(fastifyAutoSqlApi, { dbTables, swagger: true });
     await app.ready();
 
     const spec = await app.inject('/documentation/json');
@@ -92,7 +91,7 @@ describe('fastifyAutoSqlApi swagger documentation', () => {
   it('swagger options set the spec title and the UI route prefix', async () => {
     const app = Fastify();
     await app.register(fastifyAutoSqlApi, {
-      DbTables,
+      dbTables,
       swagger: { title: 'Orders API', version: '2.0.0', routePrefix: '/docs' },
     });
     await app.ready();
@@ -108,7 +107,7 @@ describe('fastifyAutoSqlApi swagger documentation', () => {
 
   it('swagger documentation is served under the plugin prefix', async () => {
     const app = Fastify();
-    await app.register(fastifyAutoSqlApi, { DbTables, prefix: '/api', swagger: true });
+    await app.register(fastifyAutoSqlApi, { dbTables, prefix: '/api', swagger: true });
     await app.ready();
 
     const spec = await app.inject('/api/documentation/json');

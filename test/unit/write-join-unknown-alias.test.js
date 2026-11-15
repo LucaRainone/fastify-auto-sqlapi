@@ -6,7 +6,7 @@ import { createMockPg, createMockSchema, ROOT } from './_harness.js';
 const { InsertTableBody } = await import(path.join(ROOT, 'dist/lib/schema/insert.js'));
 const { UpdateTableBody } = await import(path.join(ROOT, 'dist/lib/schema/update.js'));
 const { BulkUpsertTableBody } = await import(path.join(ROOT, 'dist/lib/schema/bulk-upsert.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 const customerFields = { id: Type.Number(), name: Type.String() };
@@ -19,7 +19,7 @@ function createTestDbTables() {
   return {
     customer: {
       primary: 'id',
-      ...exportTableInfo(customerSchema),
+      schema: customerSchema,
       defaultOrder: 'id',
       allowedWriteJoins: [
         buildRelation(customerSchema, 'id', orderSchema, 'customerId', { alias: 'customer_order' }),
@@ -27,7 +27,7 @@ function createTestDbTables() {
     },
     customer_order: {
       primary: 'id',
-      ...exportTableInfo(orderSchema),
+      schema: orderSchema,
       defaultOrder: 'id',
     },
   };

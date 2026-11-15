@@ -7,14 +7,13 @@ function createMockTable(operations) {
   const fields = { id: Type.Number(), name: Type.String() };
   return {
     primary: 'id',
-    Schema: {
+    schema: {
       col: (f) => f,
       fields,
       validation: Type.Object(fields),
       tableName: 'test_table',
       partialValidation: Type.Partial(Type.Object(fields)),
     },
-    filters: () => ({ build: () => ({ where: '1=1', values: [] }) }),
     extraFilters: {},
     ...(operations ? { operations } : {}),
   };
@@ -34,7 +33,7 @@ describe('TableConfig.operations - route registration whitelist', () => {
   it('registers only the listed operations', async () => {
     const app = Fastify();
     await app.register(fastifyAutoSqlApi, {
-      DbTables: { test_table: createMockTable(['search', 'get']) },
+      dbTables: { test_table: createMockTable(['search', 'get']) },
     });
     await app.ready();
 
@@ -52,7 +51,7 @@ describe('TableConfig.operations - route registration whitelist', () => {
   it('registers everything when operations is omitted (current default)', async () => {
     const app = Fastify();
     await app.register(fastifyAutoSqlApi, {
-      DbTables: { test_table: createMockTable(undefined) },
+      dbTables: { test_table: createMockTable(undefined) },
     });
     await app.ready();
 
@@ -66,7 +65,7 @@ describe('TableConfig.operations - route registration whitelist', () => {
   it('write-only table: registers writes but not reads', async () => {
     const app = Fastify();
     await app.register(fastifyAutoSqlApi, {
-      DbTables: { test_table: createMockTable(['insert', 'update', 'delete']) },
+      dbTables: { test_table: createMockTable(['insert', 'update', 'delete']) },
     });
     await app.ready();
 
@@ -83,7 +82,7 @@ describe('TableConfig.operations - route registration whitelist', () => {
   it('an unregistered operation answers 404 via HTTP', async () => {
     const app = Fastify();
     await app.register(fastifyAutoSqlApi, {
-      DbTables: { test_table: createMockTable(['search']) },
+      dbTables: { test_table: createMockTable(['search']) },
     });
     await app.ready();
 

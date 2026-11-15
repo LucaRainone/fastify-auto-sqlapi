@@ -1,5 +1,5 @@
 // Agent manifest: machine-readable description of the exposed tables for LLM clients.
-// buildAgentManifest derives everything from DbTables; the /agent/manifest routes are
+// buildAgentManifest derives everything from dbTables; the /agent/manifest routes are
 // opt-in via the agentManifest plugin option and run behind global onRequests.
 
 import { describe, it } from 'node:test';
@@ -12,7 +12,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
 const {
-  fastifyAutoSqlApi, Type, Nullable, exportTableInfo, buildRelation,
+  fastifyAutoSqlApi, Type, Nullable, buildRelation,
   buildAgentManifest, renderAgentManifestMd, agentToolSchemas,
 } = await import(path.join(ROOT, 'dist/index.js'));
 
@@ -44,7 +44,8 @@ function makeDbTables() {
   return {
     customer: {
       primary: 'id',
-      ...exportTableInfo(customerSchema, { q: Type.String() }),
+      schema: customerSchema,
+      extraFilters: { q: Type.String() },
       insertExclude: ['id'],
       readExclude: ['secret'],
       writeExclude: ['createdAt'],
@@ -62,12 +63,12 @@ function makeDbTables() {
     },
     link: {
       primary: ['agentId', 'teamId'],
-      ...exportTableInfo(makeSchema('agent_team', { agentId: Type.Number(), teamId: Type.Number() })),
+      schema: makeSchema('agent_team', { agentId: Type.Number(), teamId: Type.Number() }),
       operations: ['search', 'insert', 'update', 'bulkUpsert'],
     },
     readonly: {
       primary: 'id',
-      ...exportTableInfo(userSchema),
+      schema: userSchema,
       operations: ['search', 'get'],
     },
   };
@@ -127,7 +128,7 @@ describe('renderAgentManifestMd', () => {
 describe('agentManifest routes', () => {
   it('not registered by default', async () => {
     const app = Fastify();
-    await app.register(fastifyAutoSqlApi, { DbTables: makeDbTables() });
+    await app.register(fastifyAutoSqlApi, { dbTables: makeDbTables() });
     await app.ready();
     assert.equal(app.hasRoute({ method: 'GET', url: '/agent/manifest' }), false);
     await app.close();
@@ -136,7 +137,7 @@ describe('agentManifest routes', () => {
   it('serves JSON and markdown when enabled (under the prefix)', async () => {
     const app = Fastify();
     await app.register(fastifyAutoSqlApi, {
-      DbTables: makeDbTables(),
+      dbTables: makeDbTables(),
       agentManifest: true,
       prefix: '/api',
     });
@@ -156,7 +157,7 @@ describe('agentManifest routes', () => {
   it('runs behind global onRequests', async () => {
     const app = Fastify();
     await app.register(fastifyAutoSqlApi, {
-      DbTables: makeDbTables(),
+      dbTables: makeDbTables(),
       agentManifest: true,
       onRequests: [async (_req, reply) => reply.status(401).send({ error: 'auth' })],
     });

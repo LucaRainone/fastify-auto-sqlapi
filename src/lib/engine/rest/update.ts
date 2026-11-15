@@ -52,7 +52,7 @@ async function assertRecordExists(
 export async function updateEngine(params: UpdateParams): Promise<UpdateResult> {
   const { db, tableConf, dbTables, request, record, secondaries, deletions, tenant } = params;
 
-  const schema = tableConf.Schema;
+  const schema = tableConf.schema;
   // Every primary key field/column: composite PKs must match on ALL columns, otherwise an
   // UPDATE keyed on the first column alone would hit every row sharing that value.
   const pkFields = Array.isArray(tableConf.primary) ? tableConf.primary : [tableConf.primary];

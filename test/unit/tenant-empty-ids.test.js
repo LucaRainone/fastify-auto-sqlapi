@@ -13,7 +13,7 @@ import path from 'node:path';
 import { createMockPg, createMockSchema, ROOT } from './_harness.js';
 
 const { createSqlApi } = await import(path.join(ROOT, 'dist/lib/sql-api.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { Type, TENANT_ADMIN } = await import(path.join(ROOT, 'dist/index.js'));
 
 const customerSchema = createMockSchema('customer', {
@@ -34,7 +34,7 @@ function createDbTables() {
   return {
     customer: {
       primary: 'id',
-      ...exportTableInfo(customerSchema),
+      schema: customerSchema,
       defaultOrder: 'id',
       tenantScope: { column: 'organization_id' },
       allowedWriteJoins: [
@@ -43,13 +43,13 @@ function createDbTables() {
     },
     customer_order: {
       primary: 'id',
-      ...exportTableInfo(orderSchema),
+      schema: orderSchema,
       defaultOrder: 'id',
       tenantScope: { column: 'organization_id' },
     },
     shift: {
       primary: 'id',
-      ...exportTableInfo(shiftSchema),
+      schema: shiftSchema,
       defaultOrder: 'id',
       allowedReadJoins: [
         buildRelation(shiftSchema, 'id', customerSchema, 'id', { alias: 'customer' }),

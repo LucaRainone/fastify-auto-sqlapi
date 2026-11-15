@@ -51,7 +51,7 @@ export function appendJoinTenantScope(
  * alias is used, suffixed when it would itself collide with the outer table's name.
  */
 export function subqueryAlias(alias: string, tableConf: TableConfig): string {
-  return alias === tableConf.Schema.tableName ? `${alias}_sub` : alias;
+  return alias === tableConf.schema.tableName ? `${alias}_sub` : alias;
 }
 
 function findJoinByAlias(tableConf: TableConfig, alias: string): JoinDefinition | undefined {
@@ -136,8 +136,8 @@ export function extractJoinRefs(
   const mainColName = Array.isArray(mainField) ? mainField[0] : mainField;
   return {
     mainColName,
-    mainCol: db.qi(tableConf.Schema.col(mainColName)),
-    mainTable: db.qi(tableConf.Schema.tableName),
+    mainCol: db.qi(tableConf.schema.col(mainColName)),
+    mainTable: db.qi(tableConf.schema.tableName),
     joinTable: db.qi(joinSchema.tableName),
     fkCol: db.qi(joinSchema.col(joinField)),
   };

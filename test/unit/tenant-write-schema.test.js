@@ -13,7 +13,7 @@ import { createMockPg, createMockSchema, ROOT } from './_harness.js';
 const { InsertTableBody } = await import(path.join(ROOT, 'dist/lib/schema/insert.js'));
 const { UpdateTableBody } = await import(path.join(ROOT, 'dist/lib/schema/update.js'));
 const { BulkUpsertTableBody } = await import(path.join(ROOT, 'dist/lib/schema/bulk-upsert.js'));
-const { exportTableInfo, buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
+const { buildRelation } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { fastifyAutoSqlApi, Type } = await import(path.join(ROOT, 'dist/index.js'));
 
 // TypeBox marks an Optional property with a non-enumerable `~optional` key.
@@ -30,7 +30,7 @@ function createDbTables({ scope, childScope } = {}) {
   return {
     customer: {
       primary: 'id',
-      ...exportTableInfo(customerSchema),
+      schema: customerSchema,
       defaultOrder: 'id',
       insertExclude: ['id'],
       ...(scope ? { tenantScope: scope } : {}),
@@ -40,7 +40,7 @@ function createDbTables({ scope, childScope } = {}) {
     },
     customer_order: {
       primary: 'id',
-      ...exportTableInfo(orderSchema),
+      schema: orderSchema,
       defaultOrder: 'id',
       insertExclude: ['id'],
       ...(childScope ? { tenantScope: childScope } : {}),
@@ -69,7 +69,7 @@ describe('insert body: the tenant column of a scoped table is offered, not requi
     const dbTables = {
       shift_swap_request: {
         primary: 'id',
-        ...exportTableInfo(swapSchema),
+        schema: swapSchema,
         defaultOrder: 'id',
         insertExclude: ['id'],
         tenantScope: { anyOf: ['requester_agent_id', 'target_agent_id'] },
@@ -130,7 +130,7 @@ describe('HTTP insert on a scoped table', () => {
     ]);
     const app = Fastify();
     app.decorate('pg', mockPg);
-    await app.register(fastifyAutoSqlApi, { DbTables: createDbTables({ scope: DIRECT, childScope: DIRECT }), getTenantId });
+    await app.register(fastifyAutoSqlApi, { dbTables: createDbTables({ scope: DIRECT, childScope: DIRECT }), getTenantId });
     await app.ready();
     const res = await app.inject({ method: 'POST', url: '/rest/customer', payload });
     await app.close();

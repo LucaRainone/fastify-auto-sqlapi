@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
-const { exportTableInfo, buildRelation, buildUpsertRule, buildUpsertRules } =
+const { buildTableFilters, buildRelation, buildUpsertRule, buildUpsertRules } =
   await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
@@ -21,28 +21,14 @@ function createMockSchema(tableName, fields) {
   };
 }
 
-describe('exportTableInfo', () => {
-  it('returns Schema, filters function, and extraFilters', () => {
-    const schema = createMockSchema('customer', {
-      id: Type.Number(),
-      name: Type.String(),
-    });
-    const result = exportTableInfo(schema);
-
-    assert.equal(result.Schema, schema);
-    assert.equal(typeof result.filters, 'function');
-    assert.deepEqual(result.extraFilters, {});
-  });
-
-  it('filters() builds condition for present fields', () => {
+describe('buildTableFilters', () => {
+  it('builds condition for present fields', () => {
     const schema = createMockSchema('customer', {
       id: Type.Number(),
       name: Type.String(),
       email: Type.String(),
     });
-    const { filters } = exportTableInfo(schema);
-
-    const condition = filters({ name: 'Mario', email: 'mario@test.it' });
+    const condition = buildTableFilters({ schema }, { name: 'Mario', email: 'mario@test.it' });
     const values = condition.getValues();
     const sql = condition.build(1, (i) => `$${i}`);
 
@@ -53,14 +39,12 @@ describe('exportTableInfo', () => {
     assert.ok(sql.includes('email'));
   });
 
-  it('filters() maps an explicit null to IS NULL and skips undefined', () => {
+  it('maps an explicit null to IS NULL and skips undefined', () => {
     const schema = createMockSchema('customer', {
       id: Type.Number(),
       name: Type.String(),
     });
-    const { filters } = exportTableInfo(schema);
-
-    const condition = filters({ id: null, name: undefined });
+    const condition = buildTableFilters({ schema }, { id: null, name: undefined });
     const sql = condition.build(1, (i) => `$${i}`);
 
     // IS NULL binds no value — assert on the SQL, not only on the values array
@@ -69,52 +53,50 @@ describe('exportTableInfo', () => {
     assert.ok(!sql.includes('name'), 'undefined keys must be ignored');
   });
 
-  it('filters() does not auto-apply extraFilters (they go through extendedCondition)', () => {
+  it('does not auto-apply extraFilters (they go through extendedCondition)', () => {
     const schema = createMockSchema('customer', {
       id: Type.Number(),
       name: Type.String(),
     });
     const extraFilters = { q: Type.String() };
-    const { filters } = exportTableInfo(schema, extraFilters);
-
     // q is an extraFilter, not a real column - should not generate a condition
-    const condition = filters({ q: 'test' });
+    const condition = buildTableFilters({ schema, extraFilters }, { q: 'test' });
     const values = condition.getValues();
     assert.equal(values.length, 0);
   });
 
-  it('filters() extraFilters are available via extendedCondition', () => {
+  it('extraFilters are available via extendedCondition', () => {
     const schema = createMockSchema('customer', {
       id: Type.Number(),
       name: Type.String(),
     });
     const extraFilters = { q: Type.String() };
-    const { filters } = exportTableInfo(schema, extraFilters, (condition, opts) => {
+    const extendedCondition = (condition, opts) => {
       if (opts.q) {
         condition.isILike('name', `%${opts.q}%`);
       }
-    });
+    };
 
-    const condition = filters({ q: 'test' });
+    const condition = buildTableFilters({ schema, extraFilters, extendedCondition }, { q: 'test' });
     const values = condition.getValues();
     assert.equal(values.length, 1);
     assert.ok(values.includes('%test%'));
   });
 
-  it('filters() invokes extendedCondition callback', () => {
+  it('invokes extendedCondition callback', () => {
     const schema = createMockSchema('customer', {
       id: Type.Number(),
       name: Type.String(),
     });
     let called = false;
-    const { filters } = exportTableInfo(schema, {}, (condition, opts) => {
+    const extendedCondition = (condition, opts) => {
       called = true;
       if (opts.q) {
         condition.isLike('name', `%${opts.q}%`);
       }
-    });
+    };
 
-    const condition = filters({ q: 'test' });
+    const condition = buildTableFilters({ schema, extendedCondition }, { q: 'test' });
     assert.ok(called);
     const values = condition.getValues();
     assert.ok(values.includes('%test%'));
@@ -182,7 +164,7 @@ describe('defineTable - computedFields validation', () => {
     assert.throws(
       () => defineTable({
         primary: 'id',
-        ...exportTableInfo(schema),
+        schema,
         computedFields: {
           name: ({ qiCol }) => ({ expr: qiCol('name'), values: [], type: Type.String() }),
         },
@@ -197,7 +179,9 @@ describe('defineTable - computedFields validation', () => {
     assert.throws(
       () => defineTable({
         primary: 'id',
-        ...exportTableInfo(schema, { q: Type.String() }, () => {}),
+        schema,
+        extraFilters: { q: Type.String() },
+        extendedCondition: () => {},
         computedFields: {
           q: ({ qiCol }) => ({ expr: qiCol('id'), values: [], type: Type.String() }),
         },
@@ -215,7 +199,7 @@ describe('defineTable - computedFields validation', () => {
     });
     const conf = defineTable({
       primary: 'id',
-      ...exportTableInfo(schema),
+      schema,
       computedFields: {
         fullName: ({ qiCol }) => ({
           expr: `${qiCol('firstName')} || ' ' || ${qiCol('lastName')}`,
@@ -237,7 +221,7 @@ describe('defineTable - alias uniqueness', () => {
     assert.throws(
       () => defineTable({
         primary: 'id',
-        ...exportTableInfo(mainSchema),
+        schema: mainSchema,
         allowedReadJoins: [
           buildRelation(mainSchema, 'userId', userSchema, 'id', { unique: true }), // alias defaults to 'user'
           buildRelation(mainSchema, 'userId', userSchema, 'id', { unique: true }), // alias defaults to 'user' again
@@ -254,7 +238,7 @@ describe('defineTable - alias uniqueness', () => {
 
     const conf = defineTable({
       primary: 'id',
-      ...exportTableInfo(mainSchema),
+      schema: mainSchema,
       allowedReadJoins: [
         buildRelation(mainSchema, 'createdBy', userSchema, 'id', { alias: 'creator', unique: true }),
         buildRelation(mainSchema, 'updatedBy', userSchema, 'id', { alias: 'updater', unique: true }),
@@ -322,7 +306,7 @@ describe('defineTable - tenantScope names columns, not schema fields', () => {
     assert.throws(
       () => defineTable({
         primary: 'id',
-        ...exportTableInfo(snakeSchema),
+        schema: snakeSchema,
         tenantScope: { column: 'organizationId' },
       }),
       /tenantScope.*'organizationId'.*schema field.*organization_id/s
@@ -333,7 +317,7 @@ describe('defineTable - tenantScope names columns, not schema fields', () => {
     const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
     assert.doesNotThrow(() => defineTable({
       primary: 'id',
-      ...exportTableInfo(snakeSchema),
+      schema: snakeSchema,
       tenantScope: { column: 'organization_id' },
     }));
   });
@@ -344,7 +328,7 @@ describe('defineTable - tenantScope names columns, not schema fields', () => {
     const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
     assert.doesNotThrow(() => defineTable({
       primary: 'id',
-      ...exportTableInfo(camelSchema),
+      schema: camelSchema,
       tenantScope: { column: 'organizationId' },
     }));
   });
@@ -354,7 +338,7 @@ describe('defineTable - tenantScope names columns, not schema fields', () => {
     const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
     assert.doesNotThrow(() => defineTable({
       primary: 'id',
-      ...exportTableInfo(snakeSchema),
+      schema: snakeSchema,
       tenantScope: { column: 'tenant_col' },
     }));
   });
@@ -364,7 +348,7 @@ describe('defineTable - tenantScope names columns, not schema fields', () => {
     assert.throws(
       () => defineTable({
         primary: 'id',
-        ...exportTableInfo(snakeSchema),
+        schema: snakeSchema,
         tenantScope: { anyOf: ['owner_id', 'otherOwnerId'] },
       }),
       /'otherOwnerId'.*other_owner_id/s
@@ -376,7 +360,7 @@ describe('defineTable - tenantScope names columns, not schema fields', () => {
     assert.throws(
       () => defineTable({
         primary: 'id',
-        ...exportTableInfo(snakeSchema),
+        schema: snakeSchema,
         tenantScope: {
           column: 'organization_id',
           through: { schema: snakeSchema, localField: 'customerId', foreignField: 'id' },
@@ -395,7 +379,7 @@ describe('defineTable - tenantScope names columns, not schema fields', () => {
     assert.throws(
       () => defineTable({
         primary: 'id',
-        ...exportTableInfo(snakeSchema),
+        schema: snakeSchema,
         tenantScope: {
           column: 'organization_id',
           through: { schema: parent, localField: 'customer_id', foreignField: 'ownerId' },
@@ -410,7 +394,7 @@ describe('defineTable - tenantScope names columns, not schema fields', () => {
     const parent = createMockSchema('organization', { id: Type.Number() });
     assert.doesNotThrow(() => defineTable({
       primary: 'id',
-      ...exportTableInfo(snakeSchema),
+      schema: snakeSchema,
       tenantScope: {
         column: 'organization_id',
         through: { schema: parent, localField: 'customer_id', foreignField: 'id' },

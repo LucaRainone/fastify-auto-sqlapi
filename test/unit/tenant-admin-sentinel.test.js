@@ -10,7 +10,7 @@ import Fastify from 'fastify';
 import path from 'node:path';
 import { ROOT, createMockSchema } from './_harness.js';
 
-const { fastifyAutoSqlApi, createSqlApi, defineTable, exportTableInfo, TENANT_ADMIN, Type } =
+const { fastifyAutoSqlApi, createSqlApi, defineTable, TENANT_ADMIN, Type } =
   await import(path.join(ROOT, 'dist/index.js'));
 
 const SchemaDoc = createMockSchema('doc', {
@@ -31,17 +31,17 @@ function createMockPool() {
 }
 
 async function createApp(getTenantId, { scoped = true } = {}) {
-  const DbTables = {
+  const dbTables = {
     doc: defineTable({
       primary: 'id',
-      ...exportTableInfo(SchemaDoc),
+      schema: SchemaDoc,
       ...(scoped ? { tenantScope: { column: 'organization_id' } } : {}),
     }),
   };
   const app = Fastify();
   const pool = createMockPool();
   app.decorate('pg', pool);
-  await app.register(fastifyAutoSqlApi, { DbTables, getTenantId });
+  await app.register(fastifyAutoSqlApi, { dbTables, getTenantId });
   return { app, pool };
 }
 
@@ -60,10 +60,10 @@ describe('tenant — an absent tenant on a scoped table is 401', () => {
   }
 
   it('the same holds for sqlApi.* called with a request', async () => {
-    const DbTables = {
-      doc: defineTable({ primary: 'id', ...exportTableInfo(SchemaDoc), tenantScope: { column: 'organization_id' } }),
+    const dbTables = {
+      doc: defineTable({ primary: 'id', schema: SchemaDoc, tenantScope: { column: 'organization_id' } }),
     };
-    const api = createSqlApi(createMockPool(), DbTables, { getTenantId: () => null });
+    const api = createSqlApi(createMockPool(), dbTables, { getTenantId: () => null });
     await assert.rejects(api.search('doc', {}, { id: 'req-1' }), (err) => err.statusCode === 401);
   });
 

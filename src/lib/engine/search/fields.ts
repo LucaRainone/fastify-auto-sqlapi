@@ -268,7 +268,7 @@ export function buildMainSelectColumns(
   tableConf: TableConfig,
   db: QueryClient
 ): string {
-  const schema = tableConf.Schema;
+  const schema = tableConf.schema;
   const table = db.qi(schema.tableName);
   const fields: string[] = [];
   for (const [i, name] of select.entries()) {

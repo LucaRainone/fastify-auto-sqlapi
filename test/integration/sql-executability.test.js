@@ -7,7 +7,6 @@ import {
   createTestApp,
   cleanTables,
   seedRows,
-  exportTableInfo,
   buildRelation,
   toUnderscore,
   Type,
@@ -73,10 +72,10 @@ const orderComputed = {
   }),
 };
 
-const DbTables = {
+const dbTables = {
   customer: {
     primary: 'id',
-    ...exportTableInfo(customerSchema),
+    schema: customerSchema,
     defaultOrder: 'id',
     computedFields: customerComputed,
     allowedReadJoins: [
@@ -85,7 +84,7 @@ const DbTables = {
   },
   customer_order: {
     primary: 'id',
-    ...exportTableInfo(orderSchema),
+    schema: orderSchema,
     defaultOrder: 'id',
     computedFields: orderComputed,
     allowedReadJoins: [
@@ -176,7 +175,7 @@ describe(`[${DIALECT}] generated SQL executes on a real database`, () => {
   let engineDb;
 
   before(async () => {
-    ({ app, db } = await createTestApp(DbTables, { prefix: '/auto' }));
+    ({ app, db } = await createTestApp(dbTables, { prefix: '/auto' }));
     engineDb = db;
 
     await cleanTables(db, ['customer_order', 'customer']);
@@ -196,9 +195,9 @@ describe(`[${DIALECT}] generated SQL executes on a real database`, () => {
 
   for (const [label, table, params] of SHAPES) {
     it(`executes: ${label}`, async () => {
-      const result = await searchEngine(DbTables, {
+      const result = await searchEngine(dbTables, {
         db: engineDb,
-        tableConf: DbTables[table],
+        tableConf: dbTables[table],
         ...params,
       });
       // The database accepted the statement and the engine shaped a result.

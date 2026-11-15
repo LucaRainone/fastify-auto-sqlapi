@@ -9,7 +9,6 @@ const ROOT = path.resolve(__dirname, '../..');
 const { insertEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/insert.js'));
 const { updateEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/update.js'));
 const { bulkUpsertEngine } = await import(path.join(ROOT, 'dist/lib/engine/bulk/bulk-upsert.js'));
-const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { createQueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
@@ -62,7 +61,7 @@ function createDbTables() {
   return {
     bike_type_info: {
       primary: ['bikeTypeId', 'langId'],
-      ...exportTableInfo(schema),
+      schema,
       defaultOrder: 'bikeTypeId',
     },
   };
@@ -77,12 +76,12 @@ describe('composite PK — insert response includes ALL pk fields', () => {
       { rows: [{ bike_type_id: 7, lang_id: 2 }], affectedRows: 1 },
     ]);
     const db = createQueryClient(pool, 'postgres');
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
     const result = await insertEngine({
       db,
-      tableConf: DbTables.bike_type_info,
-      dbTables: DbTables,
+      tableConf: dbTables.bike_type_info,
+      dbTables: dbTables,
       request: mockRequest,
       record: { bikeTypeId: 7, langId: 2, name: 'Mountain' },
     });
@@ -100,12 +99,12 @@ describe('composite PK — insert response includes ALL pk fields', () => {
       { rows: [], affectedRows: 1, insertId: 0 }, // mysql INSERT result
     ]);
     const db = createQueryClient(pool, 'mysql');
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
     const result = await insertEngine({
       db,
-      tableConf: DbTables.bike_type_info,
-      dbTables: DbTables,
+      tableConf: dbTables.bike_type_info,
+      dbTables: dbTables,
       request: mockRequest,
       record: { bikeTypeId: 7, langId: 2, name: 'Mountain' },
     });
@@ -122,12 +121,12 @@ describe('composite PK — bulk upsert response includes ALL pk fields', () => {
       { rows: [], affectedRows: 1, insertId: 0 },
     ]);
     const db = createQueryClient(pool, 'mysql');
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
     const results = await bulkUpsertEngine({
       db,
-      tableConf: DbTables.bike_type_info,
-      dbTables: DbTables,
+      tableConf: dbTables.bike_type_info,
+      dbTables: dbTables,
       request: mockRequest,
       items: [{ main: { bikeTypeId: 7, langId: 2, name: 'Mountain' } }],
     });
@@ -143,12 +142,12 @@ describe('composite PK — update matches on ALL pk columns', () => {
       { rows: [], affectedRows: 1 }, // UPDATE
     ]);
     const db = createQueryClient(pool, 'postgres');
-    const DbTables = createDbTables();
+    const dbTables = createDbTables();
 
     const result = await updateEngine({
       db,
-      tableConf: DbTables.bike_type_info,
-      dbTables: DbTables,
+      tableConf: dbTables.bike_type_info,
+      dbTables: dbTables,
       request: mockRequest,
       record: { bikeTypeId: 7, langId: 2, name: 'Enduro' },
     });

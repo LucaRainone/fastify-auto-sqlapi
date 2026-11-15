@@ -8,7 +8,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 
 const { deleteEngine } = await import(path.join(ROOT, 'dist/lib/engine/rest/delete.js'));
-const { exportTableInfo } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
 const { toUnderscore } = await import(path.join(ROOT, 'dist/lib/naming.js'));
 const { QueryClient } = await import(path.join(ROOT, 'dist/lib/db.js'));
 const { Type } = await import(path.join(ROOT, 'dist/index.js'));
@@ -32,7 +31,7 @@ const customerFields = {
 
 function createTestTableConf(mockPg) {
   const customerSchema = createMockSchema('customer', customerFields);
-  const customerInfo = exportTableInfo(customerSchema);
+  const customerInfo = { schema: customerSchema };
 
   const tableConf = {
     primary: 'id',

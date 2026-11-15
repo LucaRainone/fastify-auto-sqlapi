@@ -9,14 +9,14 @@ export async function bulkDeleteEngine(params: BulkDeleteParams): Promise<BulkDe
   if (isCompositePrimary(tableConf.primary)) {
     throw httpError(
       400,
-      `Table "${tableConf.Schema.tableName}" has a composite primary key: bulk delete matches on "${primaryAsString(tableConf.primary)}" alone and could remove multiple rows per id. Use a custom query.`
+      `Table "${tableConf.schema.tableName}" has a composite primary key: bulk delete matches on "${primaryAsString(tableConf.primary)}" alone and could remove multiple rows per id. Use a custom query.`
     );
   }
   if (!ids.length) return [];
 
   const pk = primaryAsString(tableConf.primary);
-  const pkCol = tableConf.Schema.col(pk);
-  const tableName = tableConf.Schema.tableName;
+  const pkCol = tableConf.schema.col(pk);
+  const tableName = tableConf.schema.tableName;
 
   if (tableConf.beforeBulkDelete) {
     // Enforce tenant ownership of every id before the hook (single batched SELECT), so it

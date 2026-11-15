@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
-import { fastifyAutoSqlApi, exportTableInfo, toUnderscore, Type } from '../../dist/index.js';
+import { fastifyAutoSqlApi, toUnderscore, Type } from '../../dist/index.js';
 
 // `compute` aggregates over ALL rows matching the search, whatever page is returned. It
 // stands on its own: no paginator needed, the result in `computed` at the top level, and the
@@ -15,7 +15,7 @@ const SchemaOrder = {
   tableName: 'customer_order',
   partialValidation: Type.Partial(Type.Object(fields)),
 };
-const DbTables = { customer_order: { primary: 'id', ...exportTableInfo(SchemaOrder) } };
+const dbTables = { customer_order: { primary: 'id', schema: SchemaOrder } };
 
 // pg-shaped pool: every aggregate statement answers 42, COUNT(*) answers 7, the rest no rows
 function createMockPool() {
@@ -35,7 +35,7 @@ function createMockPool() {
 async function search(pool, payload) {
   const app = Fastify();
   app.decorate('pg', pool);
-  await app.register(fastifyAutoSqlApi, { DbTables });
+  await app.register(fastifyAutoSqlApi, { dbTables });
   await app.ready();
   const res = await app.inject({ method: 'POST', url: '/search/customer_order', payload });
   await app.close();

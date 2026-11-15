@@ -32,7 +32,6 @@ export const MYSQL_CONFIG = {
 const dist = await import(path.join(ROOT, 'dist/index.js'));
 export const {
   fastifyAutoSqlApi,
-  exportTableInfo,
   buildRelation,
   toUnderscore,
   Type,
@@ -50,7 +49,7 @@ export const {
  * `fastifyOpts` reaches the Fastify constructor: needed to test what a closed body schema
  * does under `removeAdditional: false`, since Fastify's default silently strips instead.
  */
-export async function createTestApp(DbTables, pluginOpts = {}, fastifyOpts = {}) {
+export async function createTestApp(dbTables, pluginOpts = {}, fastifyOpts = {}) {
   const app = Fastify(fastifyOpts);
 
   let dbQueryable;
@@ -70,7 +69,7 @@ export async function createTestApp(DbTables, pluginOpts = {}, fastifyOpts = {})
   }
 
   await app.register(fastifyAutoSqlApi, {
-    DbTables,
+    dbTables,
     dialect: DIALECT,
     ...pluginOpts,
   });
