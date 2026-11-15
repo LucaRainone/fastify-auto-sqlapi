@@ -36,9 +36,12 @@ not by editing history.
 | [0019](./0019-column-exclusion-is-generation-time-config.md) | Removing a column from the API is generation-time config — `excludeColumns`, never a Schema edit |
 | [0020](./0020-no-conditional-or-mass-update-route.md) | No conditional or mass update route — a predicate write is a custom route |
 | [0021](./0021-upsert-targets-a-verified-unique-key.md) | An upsert targets a unique key verified at startup — MySQL and MariaDB upsert by key, not by `ON DUPLICATE KEY` |
-| [0022](./0022-stay-on-0x-while-every-consumer-is-first-party.md) | Stay on 0.x while every consumer is first-party — a breaking change bumps the minor, never the patch |
+| [0022](./0022-stay-on-0x-while-every-consumer-is-first-party.md) | Stay on 0.x while every consumer is first-party — a breaking change bumps the minor, never the patch (superseded by 0027) |
 | [0023](./0023-a-write-runs-in-a-transaction-or-not-at-all.md) | A write runs in a transaction or not at all — `withTransaction` requires `connect()` (narrows 0003's context) |
 | [0024](./0024-the-consumer-maps-driver-codes-through-dberrors.md) | The consumer maps driver error codes through `dbErrors` — the plugin ships no mapping (narrows 0006, 0013) |
+| [0025](./0025-validatebulk-replaces-validate-in-a-bulk-upsert.md) | `validateBulk` replaces `validate` in a bulk upsert — one call for the batch, not one per item |
+| [0026](./0026-update-carries-its-primary-key-in-main.md) | An update carries its primary key in `main` — `PUT /rest/:table` has no `:id` |
+| [0027](./0027-the-1-0-contract.md) | The 1.0 contract — what is public, how it changes, and the rules the API keeps (supersedes 0022) |
 
 ## When to write one
 

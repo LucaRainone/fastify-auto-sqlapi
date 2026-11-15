@@ -7,7 +7,7 @@ Setting up the plugin and configuring tables. Client request grammar: AGENTS_FRO
 - Everything is a camelCase **schema field name** (request/response bodies, `defineTable` keys, hooks, `validate`, `sqlApi.*`, `buildRelation`). **Real DB column names** only where you talk to the database yourself: `db.*` (QueryClient), `tenantScope`, and any SQL string you write. Get them with `Schema.col('field')` / `qiCol('field')`, never type them: columns may be snake_case or camelCase, the generated Schema knows which.
 - `sqlApi` = high-level (camelCase, validation, hooks, tenant, joins, computed). `db` = the SQL layer under it (real names, none of that). Not interchangeable.
 - Do not read `node_modules/fastify-auto-sqlapi/dist/`: internal, unstable, not documentation. If this file does not answer, say so.
-- Behaviors that look like bugs but are decisions (docs/adr/): default-open `operations`, non-transactional bulk, every field updatable, raw 500 on DB errors, joins not running the target's route guards, no conditional/mass update route. Do not "fix" them.
+- Behaviors that look like bugs but are decisions (docs/adr/): default-open `operations`, non-transactional bulk, every field updatable, raw 500 on DB errors, joins not running the target's route guards, no conditional/mass update route, `validateBulk` replacing `validate` in bulk, `PUT /rest/:table` taking the PK in `main`. Do not "fix" them.
 
 ## CLI: generate Schemas and tables
 
@@ -164,7 +164,7 @@ export const TableCustomer = defineTable({
     });
     return errors;
   },
-  validateBulk: async ({ db, req, items }) => { // bulk upsert: called once with [{ main, secondaries? }]; when defined, per-item validate is skipped in bulk. Paths start with items.<i>
+  validateBulk: async ({ db, req, items }) => { // bulk upsert: called once with [{ main, secondaries? }]; when defined, per-item validate is skipped in bulk, so a rule that must hold in bulk is written here too (ADR 0025). Paths start with items.<i>
     const codes = items.map((i) => i.main.code);
     return new Set(codes).size === codes.length ? [] : [{ path: '', code: 'batch_unique' }];
   },

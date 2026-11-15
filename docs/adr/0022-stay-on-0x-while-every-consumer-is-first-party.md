@@ -1,6 +1,6 @@
 # 0022. Stay on 0.x while every consumer is first-party — a breaking change bumps the minor, never the patch
 
-- **Status**: accepted
+- **Status**: superseded by [0027](./0027-the-1-0-contract.md)
 - **Date**: 2026-11-08
 
 ## Context

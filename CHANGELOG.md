@@ -12,6 +12,10 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Added
 
+- **ADRs 0025–0027.** 0025: `validateBulk` replaces `validate` in a bulk upsert (one query for
+  the batch, not one per item). 0026: an update carries its primary key in `main`, so `PUT
+  /rest/:table` has no `:id`. 0027: the 1.0 contract — what is public, semantic versioning and
+  the deprecation policy, and the rules the API keeps; it supersedes 0022.
 - **`dbErrors`**: driver error codes the consumer answers with an HTTP status and a code of
   its own instead of the sanitized 500, keyed by `err.code` as the driver raises it:
   `dbErrors: { '23505': { status: 409, code: 'duplicate' } }` (`'ER_DUP_ENTRY'` on
