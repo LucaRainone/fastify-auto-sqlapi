@@ -114,6 +114,7 @@ export type {
   Paginator,
   ComputeFn,
   ComputeRequest,
+  ComputedResult,
   PaginationResult,
   TableFilterFn,
   ExtendedConditionFn,

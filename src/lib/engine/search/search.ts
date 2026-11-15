@@ -10,7 +10,7 @@ import {
   ownField,
 } from '../../read-access.js';
 import { MAX_CONDITIONS, MAX_ORDER_BY_PARTS } from '../../condition-methods.js';
-import { primaryAsString, COMPUTE_FNS, type ComputeFn, type ComputeRequest } from '../../../types.js';
+import { primaryAsString, COMPUTE_FNS, type ComputeFn, type ComputeRequest, type ComputedResult } from '../../../types.js';
 import {
   err400,
   resolveFieldRef,
@@ -24,7 +24,7 @@ import { assertJoinFilterKeys, requireJoin } from './joins.js';
 import { runAfterRead } from '../read-hooks.js';
 import { collectOrderByLeftAliases, validateOrderBy, convertConfiguredOrder } from './order-by.js';
 import { applyConditions, applyComputedFilters } from './conditions.js';
-import { appendAggConditions } from './aggregations.js';
+import { appendAggConditions, AGG_FN, aggExpr } from './aggregations.js';
 import {
   buildLeftJoinOnClauses,
   buildLeftJoinFilters,
@@ -186,8 +186,7 @@ async function buildPagination(
   where: string,
   values: unknown[],
   paginator: { page: number; itemsPerPage: number },
-  extraJoins: string[] = [],
-  compute: ComputeRequest = {}
+  extraJoins: string[] = []
 ): Promise<PaginationResult> {
   const tableName = tableConf.Schema.tableName;
   const joinClause = extraJoins.length > 0 ? ' ' + extraJoins.join(' ') : '';
@@ -198,9 +197,29 @@ async function buildPagination(
   );
   const total = parseInt(countResult.rows[0].total, 10);
 
-  // One statement per (function, field), in a fixed order; errors are reported at the body
-  // path `compute.<fn>.<i>`, also when the field arrived through the querystring form.
-  const computed: Record<string, Record<string, unknown>> = {};
+  return { total, pages: Math.ceil(total / paginator.itemsPerPage), paginator };
+}
+
+/**
+ * `result.computed`: the requested aggregates over every row the WHERE matches, with no LIMIT,
+ * so the value does not depend on the page — nor on whether the search is paginated at all.
+ *
+ * One statement per (function, field), in a fixed order; errors are reported at the body path
+ * `compute.<fn>.<i>`, also when the field arrived through the querystring form. The functions
+ * are joinGroup's, rendered by the same `aggExpr`.
+ */
+async function buildComputed(
+  db: QueryClient,
+  tableConf: TableConfig,
+  where: string,
+  values: unknown[],
+  extraJoins: string[],
+  compute: ComputeRequest
+): Promise<ComputedResult | undefined> {
+  const tableName = tableConf.Schema.tableName;
+  const joinClause = extraJoins.length > 0 ? ' ' + extraJoins.join(' ') : '';
+
+  const computed: ComputedResult = {};
   for (const fn of COMPUTE_FNS) {
     for (const [i, field] of (compute[fn] ?? []).entries()) {
       const at = `compute.${fn}.${i}`;
@@ -211,20 +230,16 @@ async function buildPagination(
         err400('bound_values_not_allowed', at, `Computed field '${field}' with bound values cannot be used in compute.${fn}`);
       }
       const result = await db.query<{ value: unknown }>(
-        `SELECT ${fn.toUpperCase()}(${renderRef(ref.expr, 1, db)}) as value FROM ${db.qi(tableName)}${joinClause} WHERE ${where}`,
+        `SELECT ${aggExpr(AGG_FN[fn], renderRef(ref.expr, 1, db))} as value FROM ${db.qi(tableName)}${joinClause} WHERE ${where}`,
         values
       );
-      computed[fn] ??= {};
-      computed[fn][field] = result.rows[0].value;
+      const byField = computed[fn] ?? {};
+      byField[field] = result.rows[0].value;
+      computed[fn] = byField;
     }
   }
 
-  return {
-    total,
-    pages: Math.ceil(total / paginator.itemsPerPage),
-    ...(Object.keys(computed).length > 0 ? { computed } : {}),
-    paginator,
-  };
+  return Object.keys(computed).length > 0 ? computed : undefined;
 }
 
 /**
@@ -232,7 +247,7 @@ async function buildPagination(
  * keys the querystring form produces, each appended to its function's list once.
  */
 function mergeCompute(params: SearchParams): ComputeRequest {
-  const legacy: Record<ComputeFn, string | undefined> = {
+  const legacy: Partial<Record<ComputeFn, string>> = {
     min: params.computeMin, max: params.computeMax, sum: params.computeSum, avg: params.computeAvg,
   };
   const merged: ComputeRequest = {};
@@ -424,10 +439,11 @@ export async function searchEngine(
 
   let pagination: PaginationResult | undefined;
   if (paginator) {
-    pagination = await buildPagination(
-      db, tableConf, where, whereAndJoinValues, paginator, extraJoinClauses, mergeCompute(params)
-    );
+    pagination = await buildPagination(db, tableConf, where, whereAndJoinValues, paginator, extraJoinClauses);
   }
+  const computed = await buildComputed(
+    db, tableConf, where, whereAndJoinValues, extraJoinClauses, mergeCompute(params)
+  );
 
   const result: SearchResult = { main };
 
@@ -439,6 +455,9 @@ export async function searchEngine(
   // so the response still carries the hook's mutations.
   await runAfterRead(db, params.request, main, tableConf, 'search');
 
+  if (computed) {
+    result.computed = computed;
+  }
   if (pagination) {
     result.pagination = pagination;
   }

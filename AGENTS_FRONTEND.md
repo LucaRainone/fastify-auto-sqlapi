@@ -29,7 +29,7 @@ Everything travels in the body; all keys are optional and combinable, `{}` retur
 {
   "orderBy": "orders.sum.total DESC, creator.name ASC, id", // see orderBy below
   "paginator": { "page": 1, "itemsPerPage": 20 }, // see Pagination
-  "compute": { "sum": ["total"], "max": ["total"] }, // MIN/MAX/SUM/AVG over ALL matching rows → pagination.computed; requires paginator
+  "compute": { "sum": ["total"], "count": ["id"] }, // min|max|sum|avg|count|distinctCount over ALL matching rows, not the page → computed; paginator not needed
   "filters": { "status": "active", "deletedById": null }, // equality, AND; null → IS NULL; also computed fields and backend extra filters (see manifest). Unknown key → 400
   "conditions": [ // AND; the same field may repeat
     { "field": "total", "method": "isBetween", "params": [100, 500] },
@@ -69,9 +69,9 @@ Response; each section is present only if requested:
     { "by": "pending", "sum": { "total": 100 }, "count": { "id": 2 } } // with "by": one row per group; by = FK field gives per-main values
   ]}}, // without "by": ONE row, no "by", over the children of ALL returned mains
   "joinLeft": { "creator": [{ "id": 7, "name": "Alice" }] }, // deduplicated: match main.creatorId === creator.id
+  "computed": { "sum": { "total": 999 }, "count": { "id": 25 } }, // only when compute is sent: one entry per function and field
   "pagination": { // only when page or itemsPerPage is sent
     "total": 25, "pages": 3,
-    "computed": { "sum": { "total": 999 }, "max": { "total": 120 } }, // one entry per compute function and field
     "paginator": { "page": 1, "itemsPerPage": 20 }
   }
 }

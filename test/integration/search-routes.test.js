@@ -235,8 +235,8 @@ describe(`[${DIALECT}] search routes integration`, () => {
     });
 
     const body = JSON.parse(res.payload);
-    assert.ok(body.pagination.computed);
-    assert.ok(body.pagination.computed.min);
-    assert.ok(body.pagination.computed.max);
+    assert.ok(body.computed);
+    assert.ok(body.computed.min);
+    assert.ok(body.computed.max);
   });
 });

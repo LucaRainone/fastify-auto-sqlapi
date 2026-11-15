@@ -55,6 +55,12 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
 
 ### Changed
 
+- **BREAKING: `compute` stands on its own.** Its result moves from `pagination.computed` to
+  `computed` at the top level of the search result, and it no longer needs a paginator: without
+  one, `compute` used to be dropped silently, and a client had to paginate to get a total over
+  the rows it filtered. It covers every matching row, never the page. It gains `count` and
+  `distinctCount`, so it offers the same functions as joinGroup, rendered by the same SQL. New
+  exported type `ComputedResult`; `PaginationResult` loses `computed`. See BREAKING_CHANGES.md.
 - **BREAKING: `joinGroup` has one request and one response shape.** The request names `by`
   and the aggregate functions directly in the alias entry, beside `filters`/`conditions`; the
   `aggregations` wrapper is gone and is a 400 at `joinGroup.<alias>.aggregations`. The

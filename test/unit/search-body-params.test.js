@@ -89,12 +89,12 @@ describe('search body — paginator', () => {
 });
 
 describe('search body — compute', () => {
-  it('runs one aggregate per function and field, into pagination.computed', async () => {
+  it('runs one aggregate per function and field, into computed', async () => {
     const { app, pool } = await createApp();
     const res = await search(app, { paginator: { page: 1, itemsPerPage: 10 }, compute: { sum: ['total'], min: ['total', 'id'] } });
     assert.equal(res.statusCode, 200, res.payload);
     const body = res.json();
-    assert.deepEqual(body.pagination.computed, { min: { total: 42, id: 42 }, sum: { total: 42 } });
+    assert.deepEqual(body.computed, { min: { total: 42, id: 42 }, sum: { total: 42 } });
     const aggregates = pool.calls.map((c) => c.text).filter((t) => /^SELECT (SUM|MIN)\(/.test(t));
     assert.equal(aggregates.length, 3, pool.calls.map((c) => c.text).join('\n'));
     await app.close();
@@ -112,7 +112,7 @@ describe('search body — compute', () => {
     const { app } = await createApp();
     const res = await search(app, {}, '?page=1&itemsPerPage=10&computeSum=total');
     assert.equal(res.statusCode, 200, res.payload);
-    assert.deepEqual(res.json().pagination.computed, { sum: { total: 42 } });
+    assert.deepEqual(res.json().computed, { sum: { total: 42 } });
     await app.close();
   });
 });
@@ -141,6 +141,6 @@ describe('search body schema', () => {
     const body = SearchTableBodyPost(DbTables, 'order', 100);
     assert.equal(body.properties.orderBy?.type, 'string');
     assert.equal(body.properties.paginator?.properties?.itemsPerPage?.maximum, 100);
-    assert.deepEqual(Object.keys(body.properties.compute?.properties ?? {}).sort(), ['avg', 'max', 'min', 'sum']);
+    assert.deepEqual(Object.keys(body.properties.compute?.properties ?? {}).sort(), ['avg', 'count', 'distinctCount', 'max', 'min', 'sum']);
   });
 });

@@ -1364,3 +1364,38 @@ the same. Type `JoinGroupRequest` now extends `AggregationRequest` instead of wr
 Move the content of `aggregations` up one level. Read every result from `rows`: without `by`,
 `result.joinGroup.orders.sum.total` becomes `result.joinGroup.orders.rows[0].sum.total`; with
 `by`, `row.sum_total` becomes `row.sum.total`.
+
+# Breaking Change — `compute` answers in `computed`, with or without a paginator
+
+*Landing in the release after 0.6.0.*
+
+## Why this changed
+
+`compute` aggregates over every row a search matches, which has nothing to do with paging, yet
+its result sat inside `pagination` and it was dropped silently when no paginator was sent. It
+also offered four functions where joinGroup offers six.
+
+## What changed
+
+```jsonc
+// request: paginator optional now; count and distinctCount added
+{ "filters": { "status": "paid" }, "compute": { "sum": ["total"], "count": ["id"] } }
+
+// response — before
+{ "main": […], "pagination": { "total": 25, "pages": 3, "computed": { "sum": { "total": 999 } }, "paginator": {…} } }
+// response — after
+{ "main": […], "computed": { "sum": { "total": 999 }, "count": { "id": 25 } } }
+```
+
+- `computed` is present whenever `compute` is sent, and covers every matching row, never the page.
+- `pagination` keeps `total`, `pages` and `paginator`, and is present only with a paginator, as before.
+- The querystring `computeMin|Max|Sum|Avg` keys still work and land in the same `computed`.
+
+## Who is affected
+
+Clients and `sqlApi.search` callers reading `pagination.computed`.
+
+## Migration
+
+Read `result.computed` instead of `result.pagination.computed`. A request that paginated only
+to get `computed` can drop the paginator.

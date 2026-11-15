@@ -169,6 +169,6 @@ describe(`[${DIALECT}] aggregation orderBy + filtered joinLeft (misbinding regre
     assert.deepEqual(body.main.map((c) => c.name), ['Luigi', 'Mario']);
     assert.equal(body.pagination.total, 3);
     assert.equal(body.pagination.pages, 2);
-    assert.equal(Number(body.pagination.computed.max.id), annaId);
+    assert.equal(Number(body.computed.max.id), annaId);
   });
 });

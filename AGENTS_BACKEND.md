@@ -309,7 +309,7 @@ app.get('/billing/:customerId', async (request) =>
 
 sqlApi.search(table, { filters, conditions, joinMustExist, joinMultiple, joinGroup, joinLeft, select, selectComputed, orderBy, paginator, compute, maxRows }, req?)
 // select: main fields to project; the PK, the requested joins' keys and (with distinctResults) the ORDER BY fields are always added
-// compute: { sum: ['total'], max: ['total'] } → result.pagination.computed; needs paginator. computeMin/Max/Sum/Avg (one field each) are still accepted and merged into it
+// compute: { sum: ['total'], count: ['id'] } → result.computed, over every matching row; min|max|sum|avg|count|distinctCount; no paginator needed. computeMin/Max/Sum/Avg (one field each) are still accepted and merged into it
 sqlApi.get(table, id, req?)
 sqlApi.insert(table, { main, secondaries? }, req?) // the POST /rest body: app.sqlApi.insert('customer', req.body, req)
 sqlApi.update(table, { main, secondaries?, deletions? }, req?) // the PUT /rest body, PK in main

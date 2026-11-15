@@ -10,15 +10,19 @@ export interface Paginator {
   itemsPerPage: number;
 }
 
-/** The aggregate functions a search may compute over all matching rows. */
-export const COMPUTE_FNS = ['min', 'max', 'sum', 'avg'] as const;
+/** The aggregate functions a search may compute over all matching rows: those of joinGroup. */
+export const COMPUTE_FNS = ['min', 'max', 'sum', 'avg', 'count', 'distinctCount'] as const;
 export type ComputeFn = (typeof COMPUTE_FNS)[number];
 
 /**
- * Aggregates over ALL rows matching the search, by function: `{ sum: ['total'], max: ['total'] }`.
- * Each lands in `pagination.computed.<fn>.<field>`, so a paginator is required.
+ * Aggregates over ALL rows matching the search, whatever page is returned, by function:
+ * `{ sum: ['total'], count: ['id'] }`. Each lands in `result.computed.<fn>.<field>`; no
+ * paginator is needed.
  */
 export type ComputeRequest = Partial<Record<ComputeFn, string[]>>;
+
+/** `result.computed`: one value per requested function and field. */
+export type ComputedResult = Partial<Record<ComputeFn, Record<string, unknown>>>;
 
 export interface SearchParams {
   db: QueryClient;
@@ -65,7 +69,6 @@ export interface SearchParams {
 export interface PaginationResult {
   total: number;
   pages: number;
-  computed?: Record<string, Record<string, unknown>>;
   paginator: Paginator;
 }
 
@@ -74,5 +77,7 @@ export interface SearchResult {
   joinMultiple?: RowsByAlias;
   joinLeft?: RowsByAlias;
   joinGroup?: Record<string, Record<string, unknown>>;
+  /** Present when `compute` was requested: aggregates over every matching row. */
+  computed?: ComputedResult;
   pagination?: PaginationResult;
 }

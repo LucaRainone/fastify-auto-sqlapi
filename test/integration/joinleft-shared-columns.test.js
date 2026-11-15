@@ -127,7 +127,7 @@ describe(`[${DIALECT}] joinLeft with shared column names (ambiguity regression)`
     const body = await search('page=1&itemsPerPage=5&computeMax=id', { joinLeft });
     assert.equal(body.pagination.total, 1);
     // Mario's customer id, not his org's (org ids are all smaller — see the seed).
-    assert.equal(Number(body.pagination.computed.max.id), marioId);
+    assert.equal(Number(body.computed.max.id), marioId);
   });
 
   it('selectComputed referencing a shared column reads the main table', async () => {

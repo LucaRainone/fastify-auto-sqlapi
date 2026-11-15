@@ -281,11 +281,13 @@ export function SearchTableResponse(dbTables: DbTables, tableName: string): TObj
     responseProps.joinLeft = Type.Optional(Type.Partial(Type.Object(joinLeftProps)));
   }
 
+  responseProps.computed = Type.Optional(Type.Object(Object.fromEntries(
+    COMPUTE_FNS.map((fn) => [fn, Type.Optional(Type.Record(Type.String(), Type.Any()))])
+  )));
   responseProps.pagination = Type.Optional(
     Type.Object({
       total: Type.Integer(),
       pages: Type.Integer(),
-      computed: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
       paginator: Type.Object({
         page: Type.Integer(),
         itemsPerPage: Type.Integer(),

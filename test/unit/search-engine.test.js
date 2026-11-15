@@ -224,11 +224,11 @@ describe('searchEngine - pagination', () => {
       computeMax: 'id',
     });
 
-    assert.ok(result.pagination.computed);
-    assert.ok(result.pagination.computed.min);
-    assert.ok(result.pagination.computed.max);
-    assert.equal(result.pagination.computed.min.id, 10);
-    assert.equal(result.pagination.computed.max.id, 100);
+    assert.ok(result.computed);
+    assert.ok(result.computed.min);
+    assert.ok(result.computed.max);
+    assert.equal(result.computed.min.id, 10);
+    assert.equal(result.computed.max.id, 100);
   });
 });
 
