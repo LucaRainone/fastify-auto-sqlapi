@@ -120,7 +120,7 @@ const SHAPES = [
   ['orderBy computed + filter', 'customer', { filters: { name: 'Mario' }, orderBy: 'tier DESC' }],
   ['pagination', 'customer', { paginator: { page: 1, itemsPerPage: 5 } }],
   ['pagination + filter + computed', 'customer', { filters: { name: 'Mario', tier: 'vip' }, paginator: { page: 1, itemsPerPage: 5 } }],
-  ['computeMin/Max', 'customer', { paginator: { page: 1, itemsPerPage: 5 }, computeMin: 'id', computeMax: 'id' }],
+  ['compute min/max', 'customer', { paginator: { page: 1, itemsPerPage: 5 }, compute: { min: ['id'], max: ['id'] } }],
   ['select with a computed field', 'customer', { select: ['id', 'name', 'upperName'] }],
   ['maxRows cap', 'customer', { maxRows: 10 }],
 
@@ -166,7 +166,7 @@ const SHAPES = [
     joinGroup: { orders: { by: 'status', sum: ['total'] } },
     orderBy: 'tier DESC, name ASC',
     paginator: { page: 1, itemsPerPage: 5 },
-    computeMin: 'id',
+    compute: { min: ['id'] },
   }],
 ];
 

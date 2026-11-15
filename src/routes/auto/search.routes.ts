@@ -1,50 +1,34 @@
 import type { FastifyInstance } from 'fastify';
-import { SearchTableBodyPost, SearchTableQuery, SearchTableResponse } from '../../lib/schema/search.js';
+import { SearchTableBodyPost, SearchTableResponse } from '../../lib/schema/search.js';
 import { registerForAllTables } from './route-helpers.js';
-import { httpError } from '../../lib/errors.js';
-import { rejectSelectComputed } from '../../lib/engine/search/fields.js';
-import { DEFAULT_MAX_ITEMS_PER_PAGE, COMPUTE_FNS } from '../../types.js';
-import type { SqlApiPluginOptions, ComputeRequest, SearchParams } from '../../types.js';
+import { rejectRetiredKey, rejectRetiredSearchKeys } from '../../lib/engine/search/fields.js';
+import { DEFAULT_MAX_ITEMS_PER_PAGE } from '../../types.js';
+import type { SqlApiPluginOptions, SearchParams } from '../../types.js';
 
-/** The request keys that may arrive in the body or, for compatibility, in the querystring. */
+/** The search request: every key travels in the body. */
 interface SearchBody extends Pick<SearchParams,
   'filters' | 'conditions' | 'joinMustExist' | 'joinMultiple' | 'joinGroup' | 'joinLeft' | 'select' | 'orderBy' | 'compute'
 > {
   paginator?: { page?: number; itemsPerPage?: number };
 }
 
-interface SearchQuery {
-  orderBy?: string;
-  page?: number;
-  itemsPerPage?: number;
-  computeMin?: string;
-  computeMax?: string;
-  computeSum?: string;
-  computeAvg?: string;
-}
-
 /**
- * The body is canonical and the querystring its flat alias: a key present in both would
- * leave the request ambiguous, so it is a 400 at the body key rather than a silent pick.
+ * The querystring keys the search read before 1.0. They moved into the body; a client still
+ * sending one gets a 400 naming it instead of a result that silently ignores its ordering,
+ * paging or aggregates. Any other querystring key is left alone, as on every route.
  */
-function pickOne<T>(key: string, fromBody: T | undefined, fromQuery: T | undefined): T | undefined {
-  if (fromBody !== undefined && fromQuery !== undefined) {
-    throw httpError(400, `'${key}' was sent both in the body and in the querystring`, {
-      code: 'conflicting_input',
-      path: key,
-    });
-  }
-  return fromBody ?? fromQuery;
-}
+const RETIRED_QUERY_KEYS: Record<string, string> = {
+  orderBy: `send 'orderBy' in the body`,
+  page: `send 'paginator': { page, itemsPerPage } in the body`,
+  itemsPerPage: `send 'paginator': { page, itemsPerPage } in the body`,
+  computeMin: `send 'compute': { min: [field] } in the body`,
+  computeMax: `send 'compute': { max: [field] } in the body`,
+  computeSum: `send 'compute': { sum: [field] } in the body`,
+  computeAvg: `send 'compute': { avg: [field] } in the body`,
+};
 
-/** The querystring's one-field `compute*` keys as a compute request, or undefined when none. */
-function computeFromQuery(query: SearchQuery): ComputeRequest | undefined {
-  const compute: ComputeRequest = {};
-  for (const fn of COMPUTE_FNS) {
-    const field = query[`compute${fn.charAt(0).toUpperCase()}${fn.slice(1)}` as keyof SearchQuery] as string | undefined;
-    if (field) compute[fn] = [field];
-  }
-  return Object.keys(compute).length > 0 ? compute : undefined;
+function rejectRetiredQuery(query: object): void {
+  for (const [key, instead] of Object.entries(RETIRED_QUERY_KEYS)) rejectRetiredKey(query, key, key, instead);
 }
 
 export default async function searchRoutes(
@@ -60,7 +44,6 @@ export default async function searchRoutes(
     successStatus: 200,
     schemas: (db, table) => ({
       body: SearchTableBodyPost(db, table, maxRows),
-      querystring: SearchTableQuery(maxRows),
       response: SearchTableResponse(db, table),
     }),
     summary: 'Search',
@@ -76,21 +59,14 @@ export default async function searchRoutes(
       ].filter(Boolean).join('. ');
     },
     handle: async (sqlApi, tableName, _tc, request) => {
+      rejectRetiredQuery(request.query as object);
       const body = request.body as SearchBody;
-      rejectSelectComputed(body);
-      const query = request.query as SearchQuery;
-
-      const orderBy = pickOne('orderBy', body.orderBy, query.orderBy);
-      const queryPaginator = (query.page !== undefined || query.itemsPerPage !== undefined)
-        ? { page: query.page, itemsPerPage: query.itemsPerPage }
-        : undefined;
-      const partialPaginator = pickOne('paginator', body.paginator, queryPaginator);
-      const compute = pickOne('compute', body.compute, computeFromQuery(query));
+      rejectRetiredSearchKeys(body);
 
       // The page size cap is the schemas' `maximum` (a structured 400); `maxRows` is the LIMIT
       // applied when the client does not paginate, and the ceiling of the page-only default.
-      const paginator = partialPaginator
-        ? { page: partialPaginator.page ?? 1, itemsPerPage: partialPaginator.itemsPerPage ?? Math.min(500, maxRows) }
+      const paginator = body.paginator
+        ? { page: body.paginator.page ?? 1, itemsPerPage: body.paginator.itemsPerPage ?? Math.min(500, maxRows) }
         : undefined;
 
       const result = await sqlApi.search(tableName, {
@@ -101,9 +77,9 @@ export default async function searchRoutes(
         joinGroup: body.joinGroup,
         joinLeft: body.joinLeft,
         select: body.select,
-        orderBy,
+        orderBy: body.orderBy,
         paginator,
-        compute,
+        compute: body.compute,
         maxRows,
       }, request);
 

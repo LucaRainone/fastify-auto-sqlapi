@@ -222,7 +222,7 @@ allowedReadJoins: [
 
 ## Computed fields
 
-A computed field is a SQL expression usable like a field in `filters`, `conditions`, `orderBy`, `computeMin/Max/Sum/Avg` and `joinGroup.<alias>.by`. It is projected only when listed in the request's `select`.
+A computed field is a SQL expression usable like a field in `filters`, `conditions`, `orderBy`, `compute` and `joinGroup.<alias>.by`. It is projected only when listed in the request's `select`.
 
 ```ts
 computedFields: {
@@ -255,8 +255,8 @@ computedFields: {
 
 The read-side counterpart of `beforeInsert`/`beforeUpdate`: decrypt, unpack, rescale. Declare it on the table that **owns** the column. It then runs wherever those rows surface: `ctx.source` is `get | search | joinMultiple | joinLeft`, and `ctx.alias` names the relation on joins. It is called once per result set and mutates the rows in place.
 
-- It does not run on joinGroup, compute*, or an empty result. It cannot add or remove rows (the COUNT has already run).
-- `filters`, `orderBy` and `compute*` act on the **stored** value, so an encrypted column is searched as ciphertext. With a deterministic cipher, encrypt the search value in `extendedCondition`. With a randomized cipher, the column cannot be searched.
+- It does not run on joinGroup, compute, or an empty result. It cannot add or remove rows (the COUNT has already run).
+- `filters`, `orderBy` and `compute` act on the **stored** value, so an encrypted column is searched as ciphertext. With a deterministic cipher, encrypt the search value in `extendedCondition`. With a randomized cipher, the column cannot be searched.
 - It changes values, not types: the response is serialized with the generated schema (an object in a `text` column becomes `"[object Object]"`). If the stored type and the API type differ, write a custom route.
 - For encryption at rest, pair it with `beforeInsert` + `beforeUpdate` (as in the defineTable example). That covers own routes, joins, and writes as a secondary.
 
@@ -309,7 +309,7 @@ app.get('/billing/:customerId', async (request) =>
 
 sqlApi.search(table, { filters, conditions, joinMustExist, joinMultiple, joinGroup, joinLeft, select, orderBy, paginator, compute, maxRows }, req?)
 // select: main fields to project; the PK, the requested joins' keys and (with distinctResults) the ORDER BY fields are always added
-// compute: { sum: ['total'], count: ['id'] } → result.computed, over every matching row; min|max|sum|avg|count|distinctCount; no paginator needed. computeMin/Max/Sum/Avg (one field each) are still accepted and merged into it
+// compute: { sum: ['total'], count: ['id'] } → result.computed, over every matching row; min|max|sum|avg|count|distinctCount; no paginator needed
 sqlApi.get(table, id, req?)
 sqlApi.insert(table, { main, secondaries? }, req?) // the POST /rest body: app.sqlApi.insert('customer', req.body, req)
 sqlApi.update(table, { main, secondaries?, deletions? }, req?) // the PUT /rest body, PK in main

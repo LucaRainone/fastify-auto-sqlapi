@@ -1,7 +1,7 @@
 // `orderBy`, the paginator and the compute request travel in the search BODY, like every
-// other part of the request; the querystring form (`?orderBy=&page=&itemsPerPage=&computeSum=`)
-// stays as an alternative. The body is canonical: a value given in both places is a 400,
-// and the engine reports compute/paginator errors at the body path.
+// other part of the request, and only there. The pre-1.0 querystring form
+// (`?orderBy=&page=&itemsPerPage=&computeSum=`) is a 400 `retired_key` naming the key, not
+// silently ignored; so are the one-field `computeMin/Max/Sum/Avg` keys of `sqlApi.search()`.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,7 +9,8 @@ import Fastify from 'fastify';
 import path from 'node:path';
 import { ROOT, createMockSchema } from './_harness.js';
 
-const { fastifyAutoSqlApi, defineTable, exportTableInfo, Type } = await import(path.join(ROOT, 'dist/index.js'));
+const lib = await import(path.join(ROOT, 'dist/index.js'));
+const { fastifyAutoSqlApi, defineTable, exportTableInfo, createSqlApi, agentToolSchemas, Type } = lib;
 
 const SchemaOrder = createMockSchema('customer_order', {
   id: Type.Integer(),
@@ -108,30 +109,64 @@ describe('search body — compute', () => {
     await app.close();
   });
 
-  it('the querystring form still works and lands in the same place', async () => {
-    const { app } = await createApp();
-    const res = await search(app, {}, '?page=1&itemsPerPage=10&computeSum=total');
-    assert.equal(res.statusCode, 200, res.payload);
-    assert.deepEqual(res.json().computed, { sum: { total: 42 } });
-    await app.close();
-  });
 });
 
-describe('search body — a value given in both body and querystring', () => {
+describe('the pre-1.0 querystring form is rejected, not ignored', () => {
   const cases = [
-    ['orderBy', { orderBy: 'id' }, '?orderBy=total', 'orderBy'],
-    ['paginator', { paginator: { page: 1 } }, '?itemsPerPage=10', 'paginator'],
-    ['compute', { compute: { sum: ['total'] } }, '?computeMin=total', 'compute'],
+    ['orderBy', '?orderBy=total'],
+    ['page', '?page=2'],
+    ['itemsPerPage', '?itemsPerPage=10'],
+    ['computeMin', '?computeMin=total'],
+    ['computeMax', '?computeMax=total'],
+    ['computeSum', '?computeSum=total'],
+    ['computeAvg', '?computeAvg=total'],
   ];
-  for (const [label, payload, qs, expectedPath] of cases) {
-    it(`${label}: 400 conflicting_input at the body key`, async () => {
-      const { app } = await createApp();
-      const res = await search(app, payload, qs);
+  for (const [key, qs] of cases) {
+    it(`${key} in the querystring: 400 retired_key at ${key}, nothing queried`, async () => {
+      const { app, pool } = await createApp();
+      const res = await search(app, {}, qs);
       assert.equal(res.statusCode, 400, res.payload);
-      assert.deepEqual(res.json().fields.map((f) => [f.path, f.code]), [[expectedPath, 'conflicting_input']]);
+      assert.deepEqual(res.json().fields.map((f) => [f.path, f.code]), [[key, 'retired_key']]);
+      assert.equal(pool.calls.length, 0);
       await app.close();
     });
   }
+
+  it('also when the body carries the same key', async () => {
+    const { app } = await createApp();
+    const res = await search(app, { orderBy: 'id' }, '?orderBy=total');
+    assert.equal(res.statusCode, 400, res.payload);
+    assert.deepEqual(res.json().fields.map((f) => [f.path, f.code]), [['orderBy', 'retired_key']]);
+    await app.close();
+  });
+
+  it('a querystring key the search never read is left alone', async () => {
+    const { app } = await createApp();
+    const res = await search(app, {}, '?cacheBust=1');
+    assert.equal(res.statusCode, 200, res.payload);
+    await app.close();
+  });
+
+  for (const key of ['computeMin', 'computeMax', 'computeSum', 'computeAvg']) {
+    it(`${key} in sqlApi.search is a 400 retired_key`, async () => {
+      const DbTables = { order: defineTable({ primary: 'id', ...exportTableInfo(SchemaOrder) }) };
+      const pool = createMockPool();
+      const sqlApi = createSqlApi(pool, DbTables, { dialect: 'postgres' });
+      await assert.rejects(
+        () => sqlApi.search('order', { [key]: 'total' }),
+        (err) => err.statusCode === 400 &&
+          JSON.stringify(err.validationErrors.map((f) => [f.path, f.code])) === JSON.stringify([[key, 'retired_key']])
+      );
+      assert.equal(pool.calls.length, 0);
+    });
+  }
+
+  it('the search route and its agent tool schema declare no querystring', () => {
+    const DbTables = { order: defineTable({ primary: 'id', ...exportTableInfo(SchemaOrder) }) };
+    const schemas = agentToolSchemas(DbTables, 'order');
+    assert.deepEqual(Object.keys(schemas.search), ['body']);
+    assert.equal(lib.SearchTableQuery, undefined);
+  });
 });
 
 describe('search body schema', () => {

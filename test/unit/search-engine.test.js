@@ -220,8 +220,7 @@ describe('searchEngine - pagination', () => {
       db,
       tableConf: DbTables.customer,
       paginator: { page: 1, itemsPerPage: 10 },
-      computeMin: 'id',
-      computeMax: 'id',
+      compute: { min: ['id'], max: ['id'] },
     });
 
     assert.ok(result.computed);
@@ -1095,11 +1094,11 @@ describe('searchEngine - computed fields', () => {
     assert.ok(mockPg.calls[0].values.includes('%mario%'));
   });
 
-  it('computeMin on a computed field wraps the expr inside MIN(...)', async () => {
+  it('compute.min on a computed field wraps the expr inside MIN(...)', async () => {
     const mockPg = createMockPg([
       { rows: [{ id: 1 }], affectedRows: 1 },         // main
       { rows: [{ total: '1' }], affectedRows: 1 },    // count
-      { rows: [{ value: 'M Rossi' }], affectedRows: 1 }, // computeMin
+      { rows: [{ value: 'M Rossi' }], affectedRows: 1 }, // compute.min
     ]);
     const { DbTables, db } = createComputedDbTables(mockPg);
 
@@ -1107,11 +1106,11 @@ describe('searchEngine - computed fields', () => {
       db,
       tableConf: DbTables.customer,
       paginator: { page: 1, itemsPerPage: 10 },
-      computeMin: 'fullName',
+      compute: { min: ['fullName'] },
     });
 
     const computeSql = mockPg.calls[2].text;
     assert.ok(computeSql.includes('MIN('));
-    assert.ok(computeSql.includes('||'), 'computeMin wraps the computed expr');
+    assert.ok(computeSql.includes('||'), 'compute.min wraps the computed expr');
   });
 });

@@ -1,7 +1,7 @@
 // A search request that sends neither `page` nor `itemsPerPage` is NOT paginated: the main
 // query is capped at `maxItemsPerPage` rows, no COUNT runs and no `pagination` block is
-// returned (AGENTS_FRONTEND.md, "Pagination"). The querystring schema must therefore not
-// declare a `default` for `itemsPerPage`: Ajv injects schema defaults before the handler runs,
+// returned (AGENTS_FRONTEND.md, "Pagination"). The body schema must therefore not
+// declare a `default` for `paginator.itemsPerPage`: Ajv injects schema defaults before the handler runs,
 // which would turn every request into page 1 of a 500-row paginator.
 
 import { describe, it } from 'node:test';
@@ -70,7 +70,7 @@ describe('POST /search without page or itemsPerPage', () => {
 describe('POST /search with a partial paginator', () => {
   it('page alone defaults itemsPerPage to 500', async () => {
     const { app, sql } = await createTestApp(1000);
-    const res = await app.inject({ method: 'POST', url: '/search/test_table?page=2', payload: {} });
+    const res = await app.inject({ method: 'POST', url: '/search/test_table', payload: { paginator: { page: 2 } } });
     assert.equal(res.statusCode, 200, res.payload);
     assert.deepEqual(res.json().pagination.paginator, { page: 2, itemsPerPage: 500 });
     assert.match(sql[0], /LIMIT 500 OFFSET 500/);
@@ -80,7 +80,7 @@ describe('POST /search with a partial paginator', () => {
 
   it('page alone defaults itemsPerPage to maxItemsPerPage when that is below 500', async () => {
     const { app } = await createTestApp(100);
-    const res = await app.inject({ method: 'POST', url: '/search/test_table?page=1', payload: {} });
+    const res = await app.inject({ method: 'POST', url: '/search/test_table', payload: { paginator: { page: 1 } } });
     assert.equal(res.statusCode, 200, res.payload);
     assert.deepEqual(res.json().pagination.paginator, { page: 1, itemsPerPage: 100 });
     await app.close();
@@ -88,7 +88,7 @@ describe('POST /search with a partial paginator', () => {
 
   it('itemsPerPage alone defaults page to 1', async () => {
     const { app, sql } = await createTestApp(1000);
-    const res = await app.inject({ method: 'POST', url: '/search/test_table?itemsPerPage=20', payload: {} });
+    const res = await app.inject({ method: 'POST', url: '/search/test_table', payload: { paginator: { itemsPerPage: 20 } } });
     assert.equal(res.statusCode, 200, res.payload);
     assert.deepEqual(res.json().pagination.paginator, { page: 1, itemsPerPage: 20 });
     assert.match(sql[0], /LIMIT 20 OFFSET 0/);

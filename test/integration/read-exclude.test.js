@@ -169,8 +169,8 @@ describe(`[${DIALECT}] readExclude integration`, () => {
   it('ordering by an excluded field is rejected with 400', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer?orderBy=taxNumber',
-      payload: {},
+      url: '/auto/search/customer',
+      payload: { orderBy: 'taxNumber' },
     });
 
     assert.equal(res.statusCode, 400, res.body);

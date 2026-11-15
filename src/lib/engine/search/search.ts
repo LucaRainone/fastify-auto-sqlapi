@@ -10,7 +10,7 @@ import {
   ownField,
 } from '../../read-access.js';
 import { MAX_CONDITIONS, MAX_ORDER_BY_PARTS } from '../../condition-methods.js';
-import { primaryAsString, COMPUTE_FNS, type ComputeFn, type ComputeRequest, type ComputedResult } from '../../../types.js';
+import { primaryAsString, COMPUTE_FNS, type ComputeRequest, type ComputedResult } from '../../../types.js';
 import {
   err400,
   resolveFieldRef,
@@ -19,7 +19,7 @@ import {
   renderRef,
   mapRowsToCamelCase,
   buildMainSelectColumns,
-  rejectSelectComputed,
+  rejectRetiredSearchKeys,
 } from './fields.js';
 import { assertJoinFilterKeys, requireJoin } from './joins.js';
 import { runAfterRead } from '../read-hooks.js';
@@ -204,8 +204,7 @@ async function buildPagination(
  * so the value does not depend on the page — nor on whether the search is paginated at all.
  *
  * One statement per (function, field), in a fixed order; errors are reported at the body path
- * `compute.<fn>.<i>`, also when the field arrived through the querystring form. The functions
- * are joinGroup's, rendered by the same `aggExpr`.
+ * `compute.<fn>.<i>`. The functions are joinGroup's, rendered by the same `aggExpr`.
  */
 async function buildComputed(
   db: QueryClient,
@@ -239,23 +238,6 @@ async function buildComputed(
   }
 
   return Object.keys(computed).length > 0 ? computed : undefined;
-}
-
-/**
- * The compute request as one map: `compute` plus the one-field `computeMin`/`Max`/`Sum`/`Avg`
- * keys the querystring form produces, each appended to its function's list once.
- */
-function mergeCompute(params: SearchParams): ComputeRequest {
-  const legacy: Partial<Record<ComputeFn, string>> = {
-    min: params.computeMin, max: params.computeMax, sum: params.computeSum, avg: params.computeAvg,
-  };
-  const merged: ComputeRequest = {};
-  for (const fn of COMPUTE_FNS) {
-    const fields = [...(params.compute?.[fn] ?? [])];
-    if (legacy[fn] && !fields.includes(legacy[fn])) fields.push(legacy[fn]);
-    if (fields.length > 0) merged[fn] = fields;
-  }
-  return merged;
 }
 
 // ─── searchEngine entrypoint ────────────────────────────────
@@ -371,7 +353,7 @@ export async function searchEngine(
     orderBy, paginator, tenant,
   } = params;
 
-  rejectSelectComputed(params);
+  rejectRetiredSearchKeys(params);
   assertRequestWithinLimits(params);
   assertJoinRequestsAllowed(dbTables, params);
 
@@ -442,7 +424,7 @@ export async function searchEngine(
     pagination = await buildPagination(db, tableConf, where, whereAndJoinValues, paginator, extraJoinClauses);
   }
   const computed = await buildComputed(
-    db, tableConf, where, whereAndJoinValues, extraJoinClauses, mergeCompute(params)
+    db, tableConf, where, whereAndJoinValues, extraJoinClauses, params.compute ?? {}
   );
 
   const result: SearchResult = { main };

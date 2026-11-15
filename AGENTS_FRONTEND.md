@@ -22,7 +22,7 @@ POST {p}/bulk/{table}/delete body={ids:[1, 2]} → [{main:{id:1}}, ...] // only 
 
 ## Search
 
-Everything travels in the body; all keys are optional and combinable, `{}` returns the first N rows. Querystring alternative for three of them, for older clients: `?orderBy=…&page=1&itemsPerPage=20&computeSum=total` (one field per `computeMin|Max|Sum|Avg`); a key sent both in the body and in the querystring → 400 `conflicting_input`, and errors are reported at the body path either way (`paginator.page`, `compute.sum.0`).
+Everything travels in the body, and only there; all keys are optional and combinable, `{}` returns the first N rows. The pre-1.0 querystring keys (`?orderBy=`, `page`, `itemsPerPage`, `computeMin|Max|Sum|Avg`) → 400 `retired_key` at that key.
 
 ```jsonc
 // POST {p}/search/customer
@@ -135,8 +135,8 @@ Every error has one shape. `error` is the HTTP reason phrase; `requestId` is the
 ```
 
 - 400 always carries `fields`, whether the request failed the schema, the backend's business validation or the engine. Map `fields[].path` to form fields; when `fields` is empty, show `message`.
-  - `path` is the dot path of the offending value in the request: body keys from the root (`main.name`, `secondaries.orders.0.total`, `filters.status`, `conditions.2.params`, `joinGroup.orders.by`, `joinMultiple.orders.select.1`), querystring and path parameters by name (`orderBy`, `itemsPerPage`, `id`). `""` when the error is not attributable to one input.
-  - `code` is stable: an Ajv keyword (`required`, `type`, `maximum`, `additionalProperties`, `enum`…), a code the backend chose in its own validation, or an engine code: `unknown_field`, `not_readable`, `unknown_alias`, `wrong_join_family`, `invalid_method`, `invalid_params`, `invalid_order_by`, `invalid_paginator`, `invalid_aggregation`, `undeclared_aggregation`, `bound_values_not_allowed`, `extra_filter_not_allowed`, `limit_exceeded`, `conflicting_input`, `retired_key` (a key removed in 1.0, e.g. `selectComputed`, a join's `selection`), `missing_key`, `duplicate_key`, `ambiguous_tenant`. The engine's `message` repeats the field's.
+  - `path` is the dot path of the offending value in the request: body keys from the root (`main.name`, `secondaries.orders.0.total`, `filters.status`, `conditions.2.params`, `joinGroup.orders.by`, `joinMultiple.orders.select.1`), path parameters and retired querystring keys by name (`id`, `orderBy`). `""` when the error is not attributable to one input.
+  - `code` is stable: an Ajv keyword (`required`, `type`, `maximum`, `additionalProperties`, `enum`…), a code the backend chose in its own validation, or an engine code: `unknown_field`, `not_readable`, `unknown_alias`, `wrong_join_family`, `invalid_method`, `invalid_params`, `invalid_order_by`, `invalid_paginator`, `invalid_aggregation`, `undeclared_aggregation`, `bound_values_not_allowed`, `extra_filter_not_allowed`, `limit_exceeded`, `retired_key` (a key removed in 1.0, e.g. `selectComputed`, a join's `selection`, the search querystring), `missing_key`, `duplicate_key`, `ambiguous_tenant`. The engine's `message` repeats the field's.
 - 403: tenant violation. 404: record not found, or outside your tenant. No `fields`, except a mapped DB error (below).
 - 500: DB errors (e.g. constraint violations): `message` is fixed, the detail is in the server log under `requestId`. The backend may answer some of them with another status instead (typically 409 on a duplicate): same envelope, plus `fields: [{ path: "", code }]` with a backend-chosen code to translate.
 - Per search, max 100 `conditions` per section (top level and each join) and max 20 `orderBy` parts (≤ 1024 chars); over either → 400 `limit_exceeded`. Collapse many equality conditions into one `isIn`.

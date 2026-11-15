@@ -51,7 +51,7 @@ export { setupSwagger } from './routes/setup-swagger.js';
 
 // Search
 export { searchEngine } from './lib/engine/search/search.js';
-export { SearchTableBodyPost, SearchTableQuery, SearchTableResponse } from './lib/schema/search.js';
+export { SearchTableBodyPost, SearchTableResponse } from './lib/schema/search.js';
 export { default as searchRoutes } from './routes/auto/search.routes.js';
 
 // Insert

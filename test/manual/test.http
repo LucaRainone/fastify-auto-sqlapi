@@ -43,32 +43,32 @@ Content-Type: application/json
 ### ─── Customer: pagination ───────────────────────────────────
 
 ### Page 1, 2 items per page
-POST http://localhost:3000/auto/search/customer?page=1&itemsPerPage=2
+POST http://localhost:3000/auto/search/customer
 Content-Type: application/json
 
-{}
+{ "paginator": { "page": 1, "itemsPerPage": 2 } }
 
 ### Page 2
 
-POST http://localhost:3000/auto/search/customer?page=2&itemsPerPage=2
+POST http://localhost:3000/auto/search/customer
 Content-Type: application/json
 
-{}
+{ "paginator": { "page": 2, "itemsPerPage": 2 } }
 
 ### Pagination + compute aggregates
 
-POST http://localhost:3000/auto/search/customer?page=1&itemsPerPage=10&computeMin=id&computeMax=id
+POST http://localhost:3000/auto/search/customer
 Content-Type: application/json
 
-{}
+{ "paginator": { "page": 1, "itemsPerPage": 10 }, "compute": { "min": ["id"], "max": ["id"] } }
 
 ### ─── Customer: order by ─────────────────────────────────────
 
 ### Order by email DESC
-POST http://localhost:3000/auto/search/customer?orderBy=email%20DESC
+POST http://localhost:3000/auto/search/customer
 Content-Type: application/json
 
-{}
+{ "orderBy": "email DESC" }
 
 ### ─── Customer: joins ────────────────────────────────────────
 
@@ -185,10 +185,11 @@ Content-Type: application/json
 ### ─── Customer: joins + joinGroups combined ──────────────────
 
 ### Full: filters + joins + joinGroups + pagination
-POST http://localhost:3000/auto/search/customer?page=1&itemsPerPage=10
+POST http://localhost:3000/auto/search/customer
 Content-Type: application/json
 
 {
+  "paginator": { "page": 1, "itemsPerPage": 10 },
   "filters": {
     "isActive": true
   },
@@ -550,11 +551,11 @@ X-Tenant-Id: 1
 }
 
 ### Tenant + pagination
-POST http://localhost:3000/auto/search/customer?page=1&itemsPerPage=2
+POST http://localhost:3000/auto/search/customer
 Content-Type: application/json
 X-Tenant-Id: 1
 
-{}
+{ "paginator": { "page": 1, "itemsPerPage": 2 } }
 
 ### ─── Tenant: search (indiretto) ────────────────────────────
 

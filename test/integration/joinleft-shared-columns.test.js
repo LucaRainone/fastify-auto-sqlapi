@@ -94,10 +94,10 @@ describe(`[${DIALECT}] joinLeft with shared column names (ambiguity regression)`
     await app.close();
   });
 
-  async function search(query, body) {
+  async function search(body) {
     const res = await app.inject({
       method: 'POST',
-      url: `/auto/search/customer${query ? '?' + query : ''}`,
+      url: '/auto/search/customer',
       payload: body,
     });
     assert.equal(res.statusCode, 200, res.payload);
@@ -105,12 +105,12 @@ describe(`[${DIALECT}] joinLeft with shared column names (ambiguity regression)`
   }
 
   it('filters on a shared column resolve against the main table', async () => {
-    const body = await search('', { filters: { name: 'Mario' }, joinLeft });
+    const body = await search({ filters: { name: 'Mario' }, joinLeft });
     assert.deepEqual(body.main.map((c) => c.name), ['Mario']);
   });
 
   it('conditions on a shared column resolve against the main table', async () => {
-    const body = await search('', {
+    const body = await search({
       conditions: [{ field: 'id', method: 'isGreater', params: [0] }],
       joinLeft,
     });
@@ -119,19 +119,19 @@ describe(`[${DIALECT}] joinLeft with shared column names (ambiguity regression)`
   });
 
   it('computed-field filters referencing a shared column resolve against the main table', async () => {
-    const body = await search('', { filters: { loudName: 'MARIO' }, joinLeft });
+    const body = await search({ filters: { loudName: 'MARIO' }, joinLeft });
     assert.deepEqual(body.main.map((c) => c.name), ['Mario']);
   });
 
   it('compute aggregates on a shared column read the main table', async () => {
-    const body = await search('page=1&itemsPerPage=5&computeMax=id', { joinLeft });
+    const body = await search({ paginator: { page: 1, itemsPerPage: 5 }, compute: { max: ['id'] }, joinLeft });
     assert.equal(body.pagination.total, 1);
     // Mario's customer id, not his org's (org ids are all smaller — see the seed).
     assert.equal(Number(body.computed.max.id), marioId);
   });
 
   it('a computed field in select referencing a shared column reads the main table', async () => {
-    const body = await search('', { select: ['id', 'name', 'loudName'], joinLeft });
+    const body = await search({ select: ['id', 'name', 'loudName'], joinLeft });
     assert.equal(body.main.length, 1);
     assert.equal(body.main[0].loudName, 'MARIO');
   });
@@ -140,14 +140,14 @@ describe(`[${DIALECT}] joinLeft with shared column names (ambiguity regression)`
   // once built `*, <expr>` by hand, and the LEFT JOIN's columns leaked into the row — the
   // org's id and name won over Mario's.
   it("a computed field in select with a filtered joinLeft keeps the main row's own id and name", async () => {
-    const body = await search('', { select: ['id', 'name', 'loudName'], joinLeft });
+    const body = await search({ select: ['id', 'name', 'loudName'], joinLeft });
     assert.equal(body.main.length, 1);
     assert.equal(body.main[0].id, marioId, 'the customer id, not the org id');
     assert.equal(body.main[0].name, 'Mario', 'the customer name, not the org name');
   });
 
   it("a parent orderBy with a computed field in select keeps the main row's own id and name", async () => {
-    const body = await search('orderBy=org.name', { select: ['id', 'name', 'loudName'], joinLeft: { org: {} } });
+    const body = await search({ orderBy: 'org.name', select: ['id', 'name', 'loudName'], joinLeft: { org: {} } });
     assert.deepEqual(body.main.map((c) => c.name), ['Mario', 'Luigi'], 'Acme before Globex');
     assert.equal(body.main[0].id, marioId);
   });

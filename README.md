@@ -26,7 +26,7 @@ nested children, so a whole subgraph can live behind a single exposed table.
 spenders first."* No resolver, no query builder, no one-off endpoint:
 
 ```jsonc
-// POST /api/search/customer?orderBy=orders.sum.total DESC&page=1&itemsPerPage=20
+// POST /api/search/customer
 {
   "filters": { "status": "active" },
   "joinGroup": {
@@ -35,7 +35,9 @@ spenders first."* No resolver, no query builder, no one-off endpoint:
       "sum": ["total"], "count": ["id"]
     }
   },
-  "conditions": [{ "field": "orders.sum.total", "method": "isGreater", "params": [500] }]
+  "conditions": [{ "field": "orders.sum.total", "method": "isGreater", "params": [500] }],
+  "orderBy": "orders.sum.total DESC",
+  "paginator": { "page": 1, "itemsPerPage": 20 }
 }
 ```
 

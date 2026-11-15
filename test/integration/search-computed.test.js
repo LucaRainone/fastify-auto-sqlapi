@@ -90,8 +90,8 @@ describe(`[${DIALECT}] computed fields integration`, () => {
   it('orderBy by computed (concat)', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/product?orderBy=label+ASC',
-      payload: {},
+      url: '/auto/search/product',
+      payload: { orderBy: 'label ASC' },
     });
     assert.equal(res.statusCode, 200);
     const body = JSON.parse(res.payload);
@@ -104,8 +104,8 @@ describe(`[${DIALECT}] computed fields integration`, () => {
   it('computed fields in select are projected into main rows', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/product?orderBy=name+ASC',
-      payload: { select: ['name', 'productTier', 'label'] },
+      url: '/auto/search/product',
+      payload: { orderBy: 'name ASC', select: ['name', 'productTier', 'label'] },
     });
     assert.equal(res.statusCode, 200);
     const body = JSON.parse(res.payload);

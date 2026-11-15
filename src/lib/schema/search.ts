@@ -5,7 +5,7 @@ import { resolveJoinTableConf } from '../table-helpers.js';
 import { DEFAULT_MAX_ITEMS_PER_PAGE, COMPUTE_FNS } from '../../types.js';
 import type { DbTables, TableConfig } from '../../types.js';
 
-// ─── orderBy / paginator / compute: the same fields in the body and in the querystring ──
+// ─── orderBy / paginator / compute ──
 
 const orderByField = (): TSchema => Type.Optional(Type.String({ maxLength: MAX_ORDER_BY_LENGTH }));
 const pageField = (): TSchema => Type.Optional(Type.Integer({ minimum: 1 }));
@@ -208,9 +208,7 @@ export function SearchTableBodyPost(
     // (readExclude included), not here: a closed enum would be stripped by `removeAdditional`
     // the same way a closed filters map is.
     select: Type.Optional(SelectSchema),
-    // Ordering, paging and aggregates belong with the rest of the request. The querystring
-    // (SearchTableQuery) carries the same three for compatibility; the route merges them and
-    // rejects a key sent in both places.
+    // Ordering, paging and aggregates belong with the rest of the request, in the body only.
     orderBy: orderByField(),
     paginator: Type.Optional(Type.Object({
       page: pageField(),
@@ -229,23 +227,6 @@ export function SearchTableBodyPost(
   }
 
   return Type.Object(bodyProperties as Record<string, ReturnType<typeof Type.Optional>>);
-}
-
-/**
- * Querystring schema, parameterized on the plugin's `maxItemsPerPage`: the flat form of the
- * body's `orderBy`, `paginator` and `compute` (one field per `compute*` key), kept so existing
- * clients need not move. The body is canonical; see `itemsPerPageField` for the missing default.
- */
-export function SearchTableQuery(maxItemsPerPage: number = DEFAULT_MAX_ITEMS_PER_PAGE): TObject {
-  return Type.Object({
-    orderBy: orderByField(),
-    page: pageField(),
-    itemsPerPage: itemsPerPageField(maxItemsPerPage),
-    computeMin: Type.Optional(Type.String()),
-    computeMax: Type.Optional(Type.String()),
-    computeSum: Type.Optional(Type.String()),
-    computeAvg: Type.Optional(Type.String()),
-  });
 }
 
 export function SearchTableResponse(dbTables: DbTables, tableName: string): TObject {

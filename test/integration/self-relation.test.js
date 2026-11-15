@@ -70,10 +70,10 @@ describe(`[${DIALECT}] self-referencing relation (correlation shadowing regressi
     await app.close();
   });
 
-  async function search(query, body) {
+  async function search(body) {
     const res = await app.inject({
       method: 'POST',
-      url: `/auto/search/customer${query ? '?' + query : ''}`,
+      url: '/auto/search/customer',
       payload: body,
     });
     assert.equal(res.statusCode, 200, res.payload);
@@ -82,29 +82,30 @@ describe(`[${DIALECT}] self-referencing relation (correlation shadowing regressi
 
   it('joinMustExist correlates to the outer row, not to itself', async () => {
     // Who edited someone? A shadowed correlation asks "who edited themselves" → nobody.
-    const body = await search('', { joinMustExist: { edited: {} } });
+    const body = await search({ joinMustExist: { edited: {} } });
     assert.deepEqual(body.main.map((c) => c.name), ['Alice', 'Bob']);
   });
 
   it('joinMustExist filters apply to the inner (aliased) row', async () => {
     // Who edited Carol? The name filter must hit the edited row, not the editor.
-    const body = await search('', { joinMustExist: { edited: { filters: { name: 'Carol' } } } });
+    const body = await search({ joinMustExist: { edited: { filters: { name: 'Carol' } } } });
     assert.deepEqual(body.main.map((c) => c.name), ['Bob']);
   });
 
   it('aggregation orderBy counts the edited rows of each outer row', async () => {
     // A shadowed correlation zeroes every count: the DESC order collapses to the id
     // fallback and Alice comes first.
-    const body = await search(
-      `orderBy=${encodeURIComponent('edited.count.id DESC')}&page=1&itemsPerPage=2`,
-      { joinGroup: { edited: { count: ['id'] } } }
-    );
+    const body = await search({
+      orderBy: 'edited.count.id DESC',
+      paginator: { page: 1, itemsPerPage: 2 },
+      joinGroup: { edited: { count: ['id'] } },
+    });
     assert.deepEqual(body.main.map((c) => c.name), ['Bob', 'Alice']);
   });
 
   it('aggregation conditions compare the aggregate of the outer row', async () => {
     // Who edited more than one row? Only Bob (2).
-    const body = await search('', {
+    const body = await search({
       joinGroup: { edited: { count: ['id'] } },
       conditions: [{ field: 'edited.count.id', method: 'isGreater', params: [1] }],
     });
@@ -113,7 +114,7 @@ describe(`[${DIALECT}] self-referencing relation (correlation shadowing regressi
 
   it('joinMultiple side-fetch returns the edited rows', async () => {
     // Non-correlated side query: sanity check that the self-relation also works there.
-    const body = await search('', {
+    const body = await search({
       filters: { name: 'Bob' },
       joinMultiple: { edited: {} },
     });

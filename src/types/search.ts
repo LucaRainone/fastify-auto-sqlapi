@@ -37,11 +37,6 @@ export interface SearchParams {
   paginator?: Paginator;
   /** Aggregates over all matching rows; see `ComputeRequest`. */
   compute?: ComputeRequest;
-  /** One-field forms of `compute`, kept for the querystring: merged into it. */
-  computeMin?: string;
-  computeMax?: string;
-  computeSum?: string;
-  computeAvg?: string;
   /**
    * Fields to project into `main` rows: schema fields and computed fields alike. Omitted,
    * every readable schema field is returned and no computed field. The primary key, the

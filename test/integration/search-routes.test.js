@@ -124,8 +124,8 @@ describe(`[${DIALECT}] search routes integration`, () => {
   it('supports pagination', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer?page=1&itemsPerPage=2',
-      payload: {},
+      url: '/auto/search/customer',
+      payload: { paginator: { page: 1, itemsPerPage: 2 } },
     });
 
     assert.equal(res.statusCode, 200);
@@ -141,8 +141,8 @@ describe(`[${DIALECT}] search routes integration`, () => {
   it('pagination page 2', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer?page=2&itemsPerPage=2',
-      payload: {},
+      url: '/auto/search/customer',
+      payload: { paginator: { page: 2, itemsPerPage: 2 } },
     });
 
     const body = JSON.parse(res.payload);
@@ -153,8 +153,8 @@ describe(`[${DIALECT}] search routes integration`, () => {
   it('supports orderBy', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer?orderBy=name%20DESC',
-      payload: {},
+      url: '/auto/search/customer',
+      payload: { orderBy: 'name DESC' },
     });
 
     const body = JSON.parse(res.payload);
@@ -230,8 +230,8 @@ describe(`[${DIALECT}] search routes integration`, () => {
   it('computeMin/computeMax with pagination', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer_order?page=1&itemsPerPage=10&computeMin=total&computeMax=total',
-      payload: {},
+      url: '/auto/search/customer_order',
+      payload: { paginator: { page: 1, itemsPerPage: 10 }, compute: { min: ['total'], max: ['total'] } },
     });
 
     const body = JSON.parse(res.payload);

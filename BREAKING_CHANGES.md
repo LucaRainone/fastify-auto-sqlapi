@@ -1389,7 +1389,6 @@ also offered four functions where joinGroup offers six.
 
 - `computed` is present whenever `compute` is sent, and covers every matching row, never the page.
 - `pagination` keeps `total`, `pages` and `paginator`, and is present only with a paginator, as before.
-- The querystring `computeMin|Max|Sum|Avg` keys still work and land in the same `computed`.
 
 ## Who is affected
 
@@ -1458,3 +1457,53 @@ passing `selection` to `buildRelation`; code reading `JoinDefinition.selection`.
 - `selectComputed: [c]` → `select: [...the columns you read, c]`.
 - `selection: 'a,b'` or `selection: ['a', 'b']` → `select: ['a', 'b']`, in requests and in
   `buildRelation`.
+
+# Breaking Change — the search request travels in the body only
+
+*Landing in the release after 0.6.0.*
+
+## Why this changed
+
+`orderBy`, the paginator and the aggregates could arrive in the querystring or in the body, so
+one request had two spellings, a 400 for sending a key in both, and a second set of one-field
+keys (`computeMin|Max|Sum|Avg`) that `sqlApi.search()` kept accepting next to `compute`.
+
+## What changed
+
+```
+// before
+POST /search/orders?orderBy=total+DESC&page=2&itemsPerPage=20&computeSum=total
+{ "filters": { "status": "paid" } }
+```
+```jsonc
+// after
+POST /search/orders
+{
+  "filters": { "status": "paid" },
+  "orderBy": "total DESC",
+  "paginator": { "page": 2, "itemsPerPage": 20 },
+  "compute": { "sum": ["total"] }
+}
+```
+
+- The querystring keys `orderBy`, `page`, `itemsPerPage`, `computeMin`, `computeMax`,
+  `computeSum`, `computeAvg` are a 400 with code `retired_key` at that key, not silently
+  ignored. Any other querystring key is left alone, as on every route.
+- `sqlApi.search()` and `searchEngine` reject `computeMin|Max|Sum|Avg` the same way; use
+  `compute: { min: [field] }`.
+- The search route declares no querystring schema; `SearchTableQuery` is no longer exported and
+  `agentToolSchemas(...).search` is `{ body }`.
+- The `conflicting_input` code is gone: there is one place for each key.
+
+## Who is affected
+
+Clients sending any of those keys in the search querystring; `sqlApi.search` callers passing
+`computeMin|Max|Sum|Avg`; code importing `SearchTableQuery` or reading
+`agentToolSchemas(...).search.querystring`.
+
+## Migration
+
+- `?orderBy=x` → `"orderBy": "x"` in the body.
+- `?page=p&itemsPerPage=n` → `"paginator": { "page": p, "itemsPerPage": n }`; `page` alone
+  still defaults `itemsPerPage` to 500 (or `maxItemsPerPage` when lower).
+- `?computeSum=f` (or `computeSum: 'f'` in `sqlApi.search`) → `"compute": { "sum": ["f"] }`.

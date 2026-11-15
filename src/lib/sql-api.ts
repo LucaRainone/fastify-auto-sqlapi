@@ -6,7 +6,7 @@ import { resolveTenant } from './tenant.js';
 import { validateJoinTargets } from './table-helpers.js';
 import { httpError } from './errors.js';
 import { searchEngine } from './engine/search/search.js';
-import { rejectSelectComputed } from './engine/search/fields.js';
+import { rejectRetiredSearchKeys } from './engine/search/fields.js';
 import { getEngine } from './engine/rest/get.js';
 import { insertEngine } from './engine/rest/insert.js';
 import { updateEngine } from './engine/rest/update.js';
@@ -49,11 +49,6 @@ export interface SqlApiSearchParams {
   paginator?: Paginator;
   /** Aggregates over all matching rows, by function (see SearchParams.compute). */
   compute?: ComputeRequest;
-  /** One-field forms of `compute`; merged into it. */
-  computeMin?: string;
-  computeMax?: string;
-  computeSum?: string;
-  computeAvg?: string;
   /** Main fields to project, schema and computed alike (see SearchParams.select). */
   select?: string[];
   /** Row cap for the main query when no paginator is provided (see SearchParams.maxRows). */
@@ -160,7 +155,7 @@ export class SqlApi {
   }
 
   async search(tableName: string, params: SqlApiSearchParams = {}, request?: ApiRequest): Promise<SearchResult> {
-    rejectSelectComputed(params);
+    rejectRetiredSearchKeys(params);
     const tableConf = this.getTableConf(tableName);
     const tenant = await this.getTenant(tableName, request);
     return searchEngine(this.dbTables, {
@@ -175,10 +170,6 @@ export class SqlApi {
       orderBy: params.orderBy,
       paginator: params.paginator,
       compute: params.compute,
-      computeMin: params.computeMin,
-      computeMax: params.computeMax,
-      computeSum: params.computeSum,
-      computeAvg: params.computeAvg,
       select: params.select,
       maxRows: params.maxRows,
       tenant,

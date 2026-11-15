@@ -121,8 +121,8 @@ describe('search select — main projection', () => {
     const app = await buildApp({ conversation: { distinctResults: true } }, pool);
     const res = await app.inject({
       method: 'POST',
-      url: '/search/chat?orderBy=title DESC',
-      payload: { select: ['id'] },
+      url: '/search/chat',
+      payload: { select: ['id'], orderBy: 'title DESC' },
     });
     assert.equal(res.statusCode, 200, res.payload);
     const sql = pool.calls[0].text;

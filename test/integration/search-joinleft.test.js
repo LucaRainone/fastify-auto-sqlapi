@@ -111,8 +111,8 @@ describe(`[${DIALECT}] joinLeft (N:1 parent) integration`, () => {
   it('joinLeft with orderBy 2-part on parent field', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer_order?orderBy=customer.name+ASC',
-      payload: { joinLeft: { customer: {} } },
+      url: '/auto/search/customer_order',
+      payload: { orderBy: 'customer.name ASC', joinLeft: { customer: {} } },
     });
     assert.equal(res.statusCode, 200);
     const body = JSON.parse(res.payload);
@@ -127,8 +127,8 @@ describe(`[${DIALECT}] joinLeft (N:1 parent) integration`, () => {
   it('rejects orderBy 2-part on non-joinLeft alias with 400', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer_order?orderBy=bogus.name+ASC',
-      payload: {},
+      url: '/auto/search/customer_order',
+      payload: { orderBy: 'bogus.name ASC' },
     });
     assert.equal(res.statusCode, 400);
   });

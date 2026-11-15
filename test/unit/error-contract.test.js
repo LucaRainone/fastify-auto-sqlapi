@@ -92,7 +92,7 @@ describe('error envelope — 400 from the engine', () => {
 
   it('a malformed orderBy: path orderBy, code invalid_order_by', async () => {
     const app = await createApp();
-    const res = await app.inject({ method: 'POST', url: '/search/item?orderBy=name;drop', payload: {} });
+    const res = await app.inject({ method: 'POST', url: '/search/item', payload: { orderBy: 'name;drop' } });
     assert.equal(res.statusCode, 400, res.payload);
     const body = res.json();
     assertEnvelope(body, 400, 'Bad Request');

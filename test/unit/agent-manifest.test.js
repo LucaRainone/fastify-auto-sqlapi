@@ -177,10 +177,10 @@ describe('agentToolSchemas', () => {
     assert.equal(schemas.bulkDelete, undefined);
   });
 
-  it('search schema carries body and querystring; bulk respects maxBulkItems', () => {
+  it('search schema carries the whole request in the body; bulk respects maxBulkItems', () => {
     const schemas = agentToolSchemas(makeDbTables(), 'customer', { maxItemsPerPage: 100, maxBulkItems: 5 });
     assert.ok(schemas.search.body.properties.filters);
-    assert.equal(schemas.search.querystring.properties.itemsPerPage.maximum, 100);
+    assert.equal(schemas.search.body.properties.paginator.properties.itemsPerPage.maximum, 100);
     assert.equal(schemas.bulkUpsert.body.maxItems, 5);
   });
 

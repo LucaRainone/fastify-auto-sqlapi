@@ -101,8 +101,8 @@ describe(`[${DIALECT}] computed fields with bound values`, () => {
   it('orders by a computed field alongside a plain filter', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer?orderBy=tier',
-      payload: { filters: { isActive: true } },
+      url: '/auto/search/customer',
+      payload: { orderBy: 'tier', filters: { isActive: true } },
     });
 
     assert.equal(res.statusCode, 200, res.body);
@@ -115,8 +115,8 @@ describe(`[${DIALECT}] computed fields with bound values`, () => {
   it('counts correctly when paginating a computed filter', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer?page=1&itemsPerPage=10',
-      payload: { filters: { isActive: true, tier: 'vip' } },
+      url: '/auto/search/customer',
+      payload: { paginator: { page: 1, itemsPerPage: 10 }, filters: { isActive: true, tier: 'vip' } },
     });
 
     assert.equal(res.statusCode, 200, res.body);

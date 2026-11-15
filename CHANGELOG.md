@@ -44,17 +44,22 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   starts with. No extra statement. Tables without an upsert rule report `inserted`. New `QueryClient` methods
   `insertOrUpdateWithAction` and `bulkInsertOrUpdateWithAction`; the existing ones keep
   returning PK rows. Exported types `WriteAction`, `WrittenRow`.
-- **`orderBy`, `paginator` and `compute` in the search body.** The body is now the canonical
-  form of the whole request; the querystring (`orderBy`, `page`, `itemsPerPage`,
-  `computeMin|Max|Sum|Avg`) stays as an alias. A key sent in both places is a 400
-  `conflicting_input` at the body key. `compute` is `{ min?, max?, sum?, avg?: string[] }`,
-  several fields per function, also in `sqlApi.search()`; the one-field `compute*` keys are
-  merged into it. Engine errors on these are reported at the body path (`paginator.page`,
-  `compute.sum.0`) whichever form carried the value. New exported types `ComputeFn`,
-  `ComputeRequest`; `SearchTableBodyPost` takes the `maxItemsPerPage` cap as third argument.
+- **`orderBy`, `paginator` and `compute` in the search body.** The body carries the whole
+  request (the querystring form is gone, see Changed). `compute` is
+  `{ min?, max?, sum?, avg?, count?, distinctCount?: string[] }`, several fields per function,
+  also in `sqlApi.search()`. Engine errors on these are reported at the body path
+  (`paginator.page`, `compute.sum.0`). New exported types `ComputeFn`, `ComputeRequest`;
+  `SearchTableBodyPost` takes the `maxItemsPerPage` cap as third argument.
 
 ### Changed
 
+- **BREAKING: the search request travels in the body only.** The querystring keys `orderBy`,
+  `page`, `itemsPerPage` and `computeMin|Max|Sum|Avg` are a 400 `retired_key` at that key
+  (`orderBy`, `paginator`, `compute` go in the body); any other querystring key is left alone.
+  `sqlApi.search()` and `searchEngine` drop `computeMin|Max|Sum|Avg` the same way (400
+  `retired_key`). `SearchTableQuery` is no longer exported, `agentToolSchemas(...).search`
+  has no `querystring`, and the `conflicting_input` code is gone with the two forms. See
+  BREAKING_CHANGES.md.
 - **BREAKING: one word for the projection, `select`.** The main `select` takes computed fields
   too, so `selectComputed` is gone; a join reference and `buildRelation` take `select` instead
   of `selection`, as an array only (no comma-separated string). `buildRelation` checks its
@@ -130,7 +135,7 @@ Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BR
   `secondaries.orders.0.total`). Tuples are still rendered verbatim: nothing changes for
   existing hooks, but paths in that grammar are what a client can map to its form.
 - The search route no longer re-checks `itemsPerPage` against `maxItemsPerPage`: the
-  querystring schema's `maximum` already rejects it, as a structured 400.
+  search schema's `maximum` already rejects it, as a structured 400.
 
 - **BREAKING: a relation over a table that `dbTables` exposes under several keys must name
   its `target`.** Startup fails otherwise, naming the host table, the relation and the

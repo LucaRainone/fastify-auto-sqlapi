@@ -104,8 +104,9 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
   it('orders customers by SUM of customer_order totals DESC', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
+      url: '/auto/search/customer',
       payload: {
+        orderBy: 'customer_order.sum.total DESC',
         joinGroup: {
           customer_order: { sum: ['total'] },
         },
@@ -123,8 +124,9 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
   it('orders customers by SUM ASC — no-data customers get 0 via COALESCE', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer?orderBy=customer_order.sum.total%20ASC',
+      url: '/auto/search/customer',
       payload: {
+        orderBy: 'customer_order.sum.total ASC',
         joinGroup: {
           customer_order: { sum: ['total'] },
         },
@@ -142,8 +144,9 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
   it('supports AVG aggregation in orderBy', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer?orderBy=customer_order.avg.total%20DESC',
+      url: '/auto/search/customer',
       payload: {
+        orderBy: 'customer_order.avg.total DESC',
         joinGroup: {
           customer_order: { avg: ['total'] },
         },
@@ -159,8 +162,9 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
   it('supports COUNT aggregation in orderBy', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer?orderBy=customer_order.count.id%20DESC',
+      url: '/auto/search/customer',
       payload: {
+        orderBy: 'customer_order.count.id DESC',
         joinGroup: {
           customer_order: { count: ['id'] },
         },
@@ -183,8 +187,9 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
     try {
       const res = await app.inject({
         method: 'POST',
-        url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
+        url: '/auto/search/customer',
         payload: {
+          orderBy: 'customer_order.sum.total DESC',
           joinGroup: {
             customer_order: {
               sum: ['total'],
@@ -217,8 +222,9 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
     try {
       const res = await app.inject({
         method: 'POST',
-        url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC,%20name%20ASC',
+        url: '/auto/search/customer',
         payload: {
+          orderBy: 'customer_order.sum.total DESC, name ASC',
           joinGroup: {
             customer_order: { sum: ['total'] },
           },
@@ -239,8 +245,9 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
   it('paginates correctly with aggregation orderBy', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC&page=1&itemsPerPage=2',
+      url: '/auto/search/customer',
       payload: {
+        orderBy: 'customer_order.sum.total DESC', paginator: { page: 1, itemsPerPage: 2 },
         joinGroup: {
           customer_order: { sum: ['total'] },
         },
@@ -258,8 +265,9 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
   it('returns breakdown in joinGroup response alongside ordering', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
+      url: '/auto/search/customer',
       payload: {
+        orderBy: 'customer_order.sum.total DESC',
         joinGroup: {
           customer_order: { sum: ['total'] },
         },
@@ -277,8 +285,8 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
   it('rejects orderBy with undeclared joinGroup (400)', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
-      payload: {},
+      url: '/auto/search/customer',
+      payload: { orderBy: 'customer_order.sum.total DESC' },
     });
 
     assert.equal(res.statusCode, 400);
@@ -289,8 +297,9 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
   it('rejects orderBy with undeclared aggregation (400)', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
+      url: '/auto/search/customer',
       payload: {
+        orderBy: 'customer_order.sum.total DESC',
         joinGroup: {
           customer_order: { sum: ['id'] },
         },
@@ -305,8 +314,9 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
   it('rejects orderBy when joinGroup uses by on a non-FK column (400)', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
+      url: '/auto/search/customer',
       payload: {
+        orderBy: 'customer_order.sum.total DESC',
         joinGroup: {
           customer_order: { sum: ['total'], by: 'status' },
         },
@@ -398,8 +408,9 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
     // Filter: at least 1 order. Order: sum DESC.
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
+      url: '/auto/search/customer',
       payload: {
+        orderBy: 'customer_order.sum.total DESC',
         conditions: [
           { field: 'customer_order.count.id', method: 'isGreater', params: [0] },
         ],
@@ -439,8 +450,9 @@ describe(`[${DIALECT}] search orderBy — joinGroup aggregations`, () => {
     // contains the grouped breakdown (one row per customer) so the UI can render per-row counts.
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer?orderBy=customer_order.count.id%20DESC',
+      url: '/auto/search/customer',
       payload: {
+        orderBy: 'customer_order.count.id DESC',
         joinGroup: {
           customer_order: {
             count: ['id'], by: 'customerId',
@@ -515,9 +527,10 @@ describe(`[${DIALECT}] search orderBy agg with multi-tenant (FK scoping)`, () =>
   it('tenant 1 sees only its customers, ordered by sum — tenant 2 data not visible', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
+      url: '/auto/search/customer',
       headers: { 'x-tenant-id': '1' },
       payload: {
+        orderBy: 'customer_order.sum.total DESC',
         joinGroup: {
           customer_order: { sum: ['total'] },
         },
@@ -535,9 +548,10 @@ describe(`[${DIALECT}] search orderBy agg with multi-tenant (FK scoping)`, () =>
   it('tenant 2 sees only its single customer', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer?orderBy=customer_order.sum.total%20DESC',
+      url: '/auto/search/customer',
       headers: { 'x-tenant-id': '2' },
       payload: {
+        orderBy: 'customer_order.sum.total DESC',
         joinGroup: {
           customer_order: { sum: ['total'] },
         },
@@ -675,8 +689,8 @@ describe(`[${DIALECT}] joinGroup min/max/avg over a main row without children`, 
   let app;
   let db;
 
-  async function search(url, payload) {
-    const res = await app.inject({ method: 'POST', url, payload });
+  async function search(payload) {
+    const res = await app.inject({ method: 'POST', url: '/auto/search/customer', payload });
     assert.equal(res.statusCode, 200, res.payload);
     return JSON.parse(res.payload).main.map((r) => r.name);
   }
@@ -707,7 +721,8 @@ describe(`[${DIALECT}] joinGroup min/max/avg over a main row without children`, 
 
   for (const direction of ['ASC', 'DESC']) {
     it(`orders by max of a text column ${direction}, the childless row placed as the database places NULL`, async () => {
-      const names = await search(`/auto/search/customer?orderBy=customer_order.max.status%20${direction}`, {
+      const names = await search({
+        orderBy: `customer_order.max.status ${direction}`,
         joinGroup: { customer_order: { by: 'customerId', max: ['status'] } },
       });
       const withChildren = ['Luigi Verdi', 'Mario Rossi'];
@@ -715,7 +730,8 @@ describe(`[${DIALECT}] joinGroup min/max/avg over a main row without children`, 
     });
 
     it(`orders by max of a date column ${direction}, the childless row placed as the database places NULL`, async () => {
-      const names = await search(`/auto/search/customer?orderBy=customer_order.max.orderDate%20${direction}`, {
+      const names = await search({
+        orderBy: `customer_order.max.orderDate ${direction}`,
         joinGroup: { customer_order: { max: ['orderDate'] } },
       });
       const withChildren = ['Luigi Verdi', 'Mario Rossi'];
@@ -724,14 +740,15 @@ describe(`[${DIALECT}] joinGroup min/max/avg over a main row without children`, 
   }
 
   it('orders by min of a numeric column without inventing a 0 for the childless row', async () => {
-    const names = await search('/auto/search/customer?orderBy=customer_order.min.total%20ASC', {
+    const names = await search({
+      orderBy: 'customer_order.min.total ASC',
       joinGroup: { customer_order: { min: ['total'] } },
     });
     assert.deepEqual(names, withChildless(['Luigi Verdi', 'Mario Rossi'], 'ASC'));
   });
 
   it('a HAVING-style condition on min of a numeric column does not match the childless row as 0', async () => {
-    const names = await search('/auto/search/customer', {
+    const names = await search({
       conditions: [{ field: 'customer_order.min.total', method: 'isLess', params: [10] }],
       joinGroup: { customer_order: { min: ['total'] } },
     });
@@ -739,7 +756,7 @@ describe(`[${DIALECT}] joinGroup min/max/avg over a main row without children`, 
   });
 
   it('a HAVING-style isNull on avg matches exactly the childless row', async () => {
-    const names = await search('/auto/search/customer', {
+    const names = await search({
       conditions: [{ field: 'customer_order.avg.total', method: 'isNull', params: [] }],
       joinGroup: { customer_order: { avg: ['total'] } },
     });
@@ -747,7 +764,7 @@ describe(`[${DIALECT}] joinGroup min/max/avg over a main row without children`, 
   });
 
   it('a HAVING-style condition on max of a date column compares dates, not a 0', async () => {
-    const names = await search('/auto/search/customer', {
+    const names = await search({
       conditions: [{ field: 'customer_order.max.orderDate', method: 'isLess', params: ['2026-03-01'] }],
       joinGroup: { customer_order: { max: ['orderDate'] } },
     });
@@ -756,14 +773,15 @@ describe(`[${DIALECT}] joinGroup min/max/avg over a main row without children`, 
 
   it('count, distinctCount and sum are still 0 for the childless row', async () => {
     for (const [fn, field] of [['count', 'id'], ['distinctCount', 'status'], ['sum', 'total']]) {
-      const names = await search('/auto/search/customer', {
+      const names = await search({
         conditions: [{ field: `customer_order.${fn}.${field}`, method: 'isEqual', params: [0] }],
         joinGroup: { customer_order: { [fn]: [field] } },
       });
       assert.deepEqual(names, ['Anna Bianchi'], `${fn} without rows`);
     }
 
-    const names = await search('/auto/search/customer?orderBy=customer_order.count.id%20ASC', {
+    const names = await search({
+      orderBy: 'customer_order.count.id ASC',
       joinGroup: { customer_order: { count: ['id'] } },
     });
     assert.deepEqual(names, ['Anna Bianchi', 'Luigi Verdi', 'Mario Rossi']);

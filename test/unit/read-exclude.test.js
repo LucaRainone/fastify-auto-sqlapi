@@ -125,7 +125,7 @@ describe('readExclude - excluded fields cannot be referenced (no value probing)'
     ['filters', { filters: { hiddenPotential: 9 } }],
     ['conditions', { conditions: [{ field: 'hiddenPotential', method: 'isGreater', params: [5] }] }],
     ['orderBy', { orderBy: 'hiddenPotential DESC' }],
-    ['computeMax', { paginator: { page: 1, itemsPerPage: 10 }, computeMax: 'hiddenPotential' }],
+    ['compute.max', { paginator: { page: 1, itemsPerPage: 10 }, compute: { max: ['hiddenPotential'] } }],
   ];
 
   for (const [label, params] of cases) {

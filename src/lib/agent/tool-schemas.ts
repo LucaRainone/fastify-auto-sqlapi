@@ -1,4 +1,4 @@
-import { SearchTableBodyPost, SearchTableQuery } from '../schema/search.js';
+import { SearchTableBodyPost } from '../schema/search.js';
 import { InsertTableBody } from '../schema/insert.js';
 import { UpdateTableBody } from '../schema/update.js';
 import { BulkUpsertTableBody } from '../schema/bulk-upsert.js';
@@ -8,8 +8,8 @@ import { DEFAULT_MAX_ITEMS_PER_PAGE, DEFAULT_MAX_BULK_ITEMS } from '../../types.
 import type { DbTables } from '../../types.js';
 
 export interface AgentToolSchemas {
-  /** POST /search/{table}: `body` + `querystring` (orderBy/page/itemsPerPage/compute*). */
-  search?: { body: object; querystring: object };
+  /** POST /search/{table}: the whole request, `orderBy`/`paginator`/`compute` included. */
+  search?: { body: object };
   insert?: { body: object };
   update?: { body: object };
   bulkUpsert?: { body: object };
@@ -41,10 +41,8 @@ export function agentToolSchemas(
   const out: AgentToolSchemas = {};
 
   if (ops.has('search')) {
-    const maxItemsPerPage = opts?.maxItemsPerPage ?? DEFAULT_MAX_ITEMS_PER_PAGE;
     out.search = {
-      body: SearchTableBodyPost(dbTables, tableName, maxItemsPerPage),
-      querystring: SearchTableQuery(maxItemsPerPage),
+      body: SearchTableBodyPost(dbTables, tableName, opts?.maxItemsPerPage ?? DEFAULT_MAX_ITEMS_PER_PAGE),
     };
   }
   if (ops.has('insert')) out.insert = { body: InsertTableBody(dbTables, tableName) };

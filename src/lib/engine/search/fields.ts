@@ -46,9 +46,16 @@ export function rejectRetiredKey(input: object | undefined, key: string, at: str
   }
 }
 
-/** `selectComputed` was folded into `select` in 1.0: checked at every search entry point. */
-export function rejectSelectComputed(params: object): void {
+/**
+ * Search parameters retired in 1.0, checked at every search entry point: `selectComputed` was
+ * folded into `select`, the one-field `computeMin/Max/Sum/Avg` into `compute`.
+ */
+export function rejectRetiredSearchKeys(params: object): void {
   rejectRetiredKey(params, 'selectComputed', 'selectComputed', `list computed fields in 'select'`);
+  for (const fn of ['Min', 'Max', 'Sum', 'Avg']) {
+    const key = `compute${fn}`;
+    rejectRetiredKey(params, key, key, `use 'compute': { ${fn.toLowerCase()}: [field] }`);
+  }
 }
 
 /** `at.key`, or '' when `at` is unknown: a child path is only as precise as its parent. */

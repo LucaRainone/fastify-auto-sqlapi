@@ -102,7 +102,7 @@ describe(`[${DIALECT}] aggregation orderBy + filtered joinLeft (misbinding regre
 
     // Pending-total sums, Acme customers only: Luigi 300 > Mario 100 > Anna 0 (no orders).
     // Peach (Globex) has the highest pending sum, so a leaked filter shows up in the order.
-    // Peach is also seeded last: her id is the global max, so pagination's computeMax=id
+    // Peach is also seeded last: her id is the global max, so compute.max of id
     // changes if the joinLeft filter is misapplied to the COUNT/compute queries.
     const customers = await seedRows(db, 'customer', [
       { name: 'Mario', email: 'mario@test.it', is_active: true, organization_id: acmeId },
@@ -125,10 +125,10 @@ describe(`[${DIALECT}] aggregation orderBy + filtered joinLeft (misbinding regre
     await app.close();
   });
 
-  async function search(query, body) {
+  async function search(body) {
     const res = await app.inject({
       method: 'POST',
-      url: `/auto/search/customer?${query}`,
+      url: '/auto/search/customer',
       payload: body,
     });
     assert.equal(res.statusCode, 200, res.payload);
@@ -139,10 +139,7 @@ describe(`[${DIALECT}] aggregation orderBy + filtered joinLeft (misbinding regre
     // Correct bindings: WHERE gets 'Acme', the ORDER BY subquery gets 'pending'.
     // Swapped bindings ('pending' in the WHERE) return no rows; 'Acme' in the aggregate
     // filter zeroes every sum and the strict Luigi > Mario > Anna order collapses.
-    const body = await search(
-      `orderBy=${encodeURIComponent('orders.sum.total DESC')}`,
-      combinedBody
-    );
+    const body = await search({ ...combinedBody, orderBy: 'orders.sum.total DESC' });
     assert.deepEqual(body.main.map((c) => c.name), ['Luigi', 'Mario', 'Anna']);
   });
 
@@ -150,22 +147,21 @@ describe(`[${DIALECT}] aggregation orderBy + filtered joinLeft (misbinding regre
     // Three bound values across three fragments, in emission order: isActive (WHERE),
     // 'Acme' (joinLeft extra), 'pending' (ORDER BY aggregate). Any pairwise swap either
     // empties the result or reverses the expected ASC order.
-    const body = await search(
-      `orderBy=${encodeURIComponent('orders.sum.total ASC')}`,
-      { ...combinedBody, filters: { isActive: true } }
-    );
+    const body = await search({ ...combinedBody, filters: { isActive: true }, orderBy: 'orders.sum.total ASC' });
     assert.deepEqual(body.main.map((c) => c.name), ['Mario', 'Luigi']);
   });
 
   it('reuses WHERE + joinLeft values (without orderBy values) in COUNT and compute queries', async () => {
-    // The pagination COUNT and computeMax reuse the WHERE with a snapshot of its values,
+    // The pagination COUNT and compute.max reuse the WHERE with a snapshot of its values,
     // excluding the ORDER BY's 'pending'. A wrong snapshot fails outright on Postgres
     // (parameter count mismatch) and miscounts on MySQL; a leaked joinLeft filter would
     // surface as total 4 and max id = Peach's.
-    const body = await search(
-      `orderBy=${encodeURIComponent('orders.sum.total DESC')}&page=1&itemsPerPage=2&computeMax=id`,
-      combinedBody
-    );
+    const body = await search({
+      ...combinedBody,
+      orderBy: 'orders.sum.total DESC',
+      paginator: { page: 1, itemsPerPage: 2 },
+      compute: { max: ['id'] },
+    });
     assert.deepEqual(body.main.map((c) => c.name), ['Luigi', 'Mario']);
     assert.equal(body.pagination.total, 3);
     assert.equal(body.pagination.pages, 2);

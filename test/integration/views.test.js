@@ -188,8 +188,8 @@ describe(`[${DIALECT}] serving a view over HTTP`, () => {
   it('filters and orders on an aggregated column', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer_summary?orderBy=orderCount DESC',
-      payload: { conditions: [{ field: 'orderCount', method: 'isGreater', params: [0] }] },
+      url: '/auto/search/customer_summary',
+      payload: { orderBy: 'orderCount DESC', conditions: [{ field: 'orderCount', method: 'isGreater', params: [0] }] },
     });
 
     assert.equal(res.statusCode, 200, res.body);
@@ -201,8 +201,8 @@ describe(`[${DIALECT}] serving a view over HTTP`, () => {
   it('paginates the view', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/customer_summary?page=1&itemsPerPage=1',
-      payload: {},
+      url: '/auto/search/customer_summary',
+      payload: { paginator: { page: 1, itemsPerPage: 1 } },
     });
 
     assert.equal(res.statusCode, 200, res.body);
@@ -370,7 +370,7 @@ describe(`[${DIALECT}] a view whose primary key could not be inferred`, () => {
 
   it('orders by the declared defaultOrder, not by the placeholder', async () => {
     const res = await app.inject({
-      method: 'POST', url: '/auto/search/order_status_count?page=1&itemsPerPage=10', payload: {},
+      method: 'POST', url: '/auto/search/order_status_count', payload: { paginator: { page: 1, itemsPerPage: 10 } },
     });
 
     assert.equal(res.statusCode, 200, res.body);

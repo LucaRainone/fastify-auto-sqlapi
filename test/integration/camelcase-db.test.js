@@ -119,8 +119,8 @@ describe(`[${DIALECT}] camelCase DB columns — end-to-end`, () => {
   it('orderBy works on camelCase column (no case folding)', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/userAccount?orderBy=userId%20DESC,%20id%20ASC',
-      payload: {},
+      url: '/auto/search/userAccount',
+      payload: { orderBy: 'userId DESC, id ASC' },
     });
 
     assert.equal(res.statusCode, 200);

@@ -248,8 +248,8 @@ describe(`[${DIALECT}] writes against real computed columns`, () => {
   it('searches, filters and orders on a computed column like any other', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auto/search/computed_line?orderBy=subtotal DESC',
-      payload: { conditions: [{ field: 'subtotal', method: 'isGreater', params: [0] }] },
+      url: '/auto/search/computed_line',
+      payload: { orderBy: 'subtotal DESC', conditions: [{ field: 'subtotal', method: 'isGreater', params: [0] }] },
     });
 
     assert.equal(res.statusCode, 200, res.body);
