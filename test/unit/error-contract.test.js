@@ -161,3 +161,52 @@ describe('error envelope — other statuses', () => {
     await app.close();
   });
 });
+
+// The routes answer through their own error handler, registered in the plugin's scope: an
+// application `setErrorHandler` is never reached by them, so it cannot reshape the envelope.
+// Fastify's `onError` hooks are inherited instead, so an application hook added before the
+// plugin sees every route error — the place for logging and error reporting.
+describe('error envelope — the application error handler and onError hooks', () => {
+  async function appWithObservers(query) {
+    const seen = { handler: 0, hook: [] };
+    const app = Fastify();
+    app.setErrorHandler((error, _request, reply) => {
+      seen.handler++;
+      reply.status(418).send({ mine: true });
+    });
+    app.addHook('onError', async (_request, _reply, error) => { seen.hook.push(error); });
+    app.decorate('pg', { query });
+    await app.register(fastifyAutoSqlApi, {
+      dbTables: { item: defineTable({ primary: 'id', schema: SchemaItem }) },
+    });
+    return { app, seen };
+  }
+
+  it('an application setErrorHandler does not answer the routes\' errors', async () => {
+    const { app, seen } = await appWithObservers(async () => ({ rows: [], rowCount: 0 }));
+    const res = await app.inject({ method: 'POST', url: '/search/item', payload: { filters: { nope: 1 } } });
+    assert.equal(res.statusCode, 400, res.payload);
+    assertEnvelope(res.json(), 400, 'Bad Request');
+    assert.equal(seen.handler, 0);
+    await app.close();
+  });
+
+  it('an application onError hook sees a 4xx the routes raise', async () => {
+    const { app, seen } = await appWithObservers(async () => ({ rows: [], rowCount: 0 }));
+    await app.inject({ method: 'POST', url: '/search/item', payload: { filters: { nope: 1 } } });
+    assert.equal(seen.hook.length, 1);
+    assert.equal(seen.hook[0].statusCode, 400);
+    await app.close();
+  });
+
+  it('an application onError hook sees a driver error, the original under cause', async () => {
+    const driverError = new Error('relation "item" does not exist');
+    const { app, seen } = await appWithObservers(async () => { throw driverError; });
+    const res = await app.inject({ method: 'POST', url: '/search/item', payload: {} });
+    assert.equal(res.statusCode, 500, res.payload);
+    assert.equal(seen.hook.length, 1);
+    assert.equal(seen.hook[0].statusCode, 500);
+    assert.equal(seen.hook[0].cause, driverError);
+    await app.close();
+  });
+});

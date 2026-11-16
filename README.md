@@ -295,6 +295,8 @@ stay in the log. The plugin remaps no status on its own (a unique violation is a
 `dbErrors` — `{ '23505': { status: 409, code: 'duplicate' } }` — and they get that status and a
 code the client translates, still without driver detail. Set
 `exposeDebugInfo: true` while developing to get the driver detail on the wire, additively.
+The routes answer through their own error handler, so an application `setErrorHandler` never
+sees their errors; an `onError` hook added before the plugin does, for logging and reporting.
 ([ADR 0013](./docs/adr/0013-sanitized-db-errors.md), [ADR 0024](./docs/adr/0024-the-consumer-maps-driver-codes-through-dberrors.md))
 
 Two caps are on by default and configurable: `maxItemsPerPage` (1000) bounds a search — and is

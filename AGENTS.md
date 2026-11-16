@@ -9,6 +9,7 @@ A Fastify plugin that generates REST CRUD endpoints (search, get, insert, update
 - Setting up the plugin, configuring tables, joins, tenant scope, hooks, validation, querying from custom routes/scripts/jobs (`sqlApi`), raw SQL in hooks (`db`): AGENTS_BACKEND.md.
 - Upgrading from 0.x: BREAKING_CHANGES.md (0.6 → 1.0), docs/breaking-changes-0.x.md for older releases.
 - A behavior that looks wrong: docs/adr/ first. These include open-by-default `operations`, non-transactional bulk, always-updatable fields, sanitized DB errors mapped only through `dbErrors`, and joins not running the target's route guards. They are recorded decisions, not gaps.
+- The routes answer errors with their own handler: an application `setErrorHandler` never sees them, an `onError` hook does (AGENTS_BACKEND.md, Rules).
 
 These files are the contract. **Do not read the plugin's sources** (`node_modules/fastify-auto-sqlapi/dist/`): they are internal, carry no stability guarantee, and say nothing about which behaviors are deliberate. If the docs do not answer, say so and ask. Never copy an internal helper into consumer code.
 
