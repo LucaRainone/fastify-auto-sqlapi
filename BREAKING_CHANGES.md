@@ -275,7 +275,7 @@ validate: async (db, req, main) => {
 }
 // after
 validate: async ({ main }) => {
-  const errors: Pick<ValidationField, 'path' | 'code'>[] = [];
+  const errors: ValidatorResult = [];
   if (!main.email) errors.push({ path: 'main.email', code: 'required' });
   if (main.age < 18) errors.push({ path: 'main.age', code: 'too_young' });
   return errors;
@@ -368,7 +368,7 @@ Gone from the package entry, with what replaces them:
 | `searchEngine`, `getEngine`, `insertEngine`, `updateEngine`, `deleteEngine`, `bulkUpsertEngine`, `bulkDeleteEngine` | `createSqlApi(db, dbTables).<operation>(table, …)` |
 | `SearchTableBodyPost`, `InsertTableBody`, `UpdateTableBody`, `BulkUpsertTableBody`, `BulkDeleteTableBody` and their `*Response` | `agentToolSchemas(dbTables, table)` for the request schemas |
 | `SearchTableQuery` | — the search has no querystring |
-| `ValidationError` | `Pick<ValidationField, 'path' \| 'code'>` |
+| `ValidationError` | `ValidatorResult`, an array of `{ path, code }` |
 | `toCamelCase`, `toUnderscore`, `toSchemaName`, `camelcaseObject`, `snakecaseRecord` | `Schema.col(field)` for a column name |
 | `getDialect`, `SqlDialect` | the dialect name; `db.dialectName`, `db.cbDialect` |
 | `resolveTenant`, `TenantContext` | `tenantScope` on the table, `getTenantId` on the plugin |

@@ -6,7 +6,7 @@ import { writeExcludedFields, insertExcludedFields } from '../write-access.js';
 
 const SINGLE_PK_OPERATIONS = new Set<TableOperation>(['get', 'delete']);
 
-interface ManifestField {
+export interface ManifestField {
   type: string;
   /** Present (true) when the field must be sent on insert. */
   required?: boolean;
@@ -18,7 +18,7 @@ interface ManifestField {
   readOnly?: boolean;
 }
 
-interface ManifestJoin {
+export interface ManifestJoin {
   alias: string;
   table: string;
   /** '1:N' → usable in joinMustExist/joinMultiple/joinGroup; 'N:1' → usable in joinLeft. */

@@ -2,7 +2,7 @@
 export { httpError, type HttpErrorField } from './lib/errors.js';
 
 // DB
-export { QueryClient, createQueryClient } from './lib/db.js';
+export { QueryClient, createQueryClient, type BulkUpsertOptions } from './lib/db.js';
 
 // Dialect
 export type { DialectName } from './lib/dialect.js';
@@ -13,7 +13,7 @@ export { mysqlQueryable } from './lib/adapters/mysql-adapter.js';
 
 // Table helpers
 export { defineTable, buildRelation } from './lib/table-helpers.js';
-export type { TableDefinition } from './lib/table-helpers.js';
+export type { TableDefinition, BuildRelationOptions } from './lib/table-helpers.js';
 export { Nullable } from './lib/nullable.js';
 
 // Agent / LLM client helpers
@@ -22,6 +22,8 @@ export {
   renderAgentManifestMd,
   type AgentManifest,
   type ManifestTable,
+  type ManifestField,
+  type ManifestJoin,
 } from './lib/agent/manifest.js';
 export { agentToolSchemas, type AgentToolSchemas } from './lib/agent/tool-schemas.js';
 
@@ -43,6 +45,7 @@ export { ConditionBuilder, Expression } from 'node-condition-builder';
 // Types
 export type {
   ApiRequest,
+  ApiReply,
   CliConfig,
   Queryable,
   TransactionQueryable,
@@ -55,6 +58,8 @@ export type {
   SelectOptions,
   SchemaDefinition,
   JoinDefinition,
+  JoinFetchRequest,
+  JoinRefFilter,
   RowsByAlias,
   TableConfig,
   TableOperation,
@@ -105,6 +110,7 @@ export type {
   DeleteHookContext,
   BulkDeleteHookContext,
   ValidatorFn,
+  ValidatorResult,
   BulkValidatorItem,
   BulkValidatorFn,
 } from './types.js';

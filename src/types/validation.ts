@@ -36,7 +36,7 @@ export interface ValidateContext<F extends Record<string, TSchema> = Record<stri
  * code the client translates (`required`, `overlap`, `unique`). An empty array lets the write
  * through.
  */
-type ValidatorResult = Pick<ValidationField, 'path' | 'code'>[];
+export type ValidatorResult = Pick<ValidationField, 'path' | 'code'>[];
 
 export type ValidatorFn<F extends Record<string, TSchema> = Record<string, TSchema>> = (
   ctx: ValidateContext<F>

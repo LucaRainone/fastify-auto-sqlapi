@@ -158,7 +158,7 @@ export const TableCustomer = defineTable({
   // operation runs on (inside a write, the transaction's); req = the request, undefined when sqlApi.*
   // is called without one (guard req?.user). Data keys: record, secondaries, deletions, rows, id, ids, main, items.
   validate: async ({ db, req, main, secondaries }) => { // camelCase, secondaries keyed by alias
-    const errors: Pick<ValidationField, 'path' | 'code'>[] = []; // { path, code }, the fields of the 400, as is (no message: no prose, the client translates the code). path = dot path in the request body: main.<field>, secondaries.<alias>.<i>.<field>, '' when not attributable. Anything else (a tuple, a message) → 500
+    const errors: ValidatorResult = []; // { path, code }[], the fields of the 400, as is (no message: no prose, the client translates the code). path = dot path in the request body: main.<field>, secondaries.<alias>.<i>.<field>, '' when not attributable. Anything else (a tuple, a message) → 500
     if (!main.name) errors.push({ path: 'main.name', code: 'required' });
     (secondaries?.orders ?? []).forEach((o, i) => {
       if (o.total < 0) errors.push({ path: `secondaries.orders.${i}.total`, code: 'min' });
@@ -412,7 +412,7 @@ Everything is imported from `fastify-auto-sqlapi`, so there is nothing else to i
 - for hooks: `httpError`, `TENANT_ADMIN`, `ConditionBuilder`, `Expression`
 - `QueryClient`, `createQueryClient`, `pgQueryable`, `mysqlQueryable`
 - `agentToolSchemas`, `buildAgentManifest`, `renderAgentManifestMd`
-- Types: those of the config (`DbTables`, `TableDefinition`, `TableConfig`, `JoinDefinition`, `TenantScope`…), of the hooks (`ValidationField`, `ValidatorFn`, `BulkValidatorFn`, `WriteHookContext`…), of `sqlApi` (`SqlApi*Params`, `SearchResult`…) and of the CLI (`CliConfig`)
+- Types: those of the config (`DbTables`, `TableDefinition`, `TableConfig`, `JoinDefinition`, `BuildRelationOptions`, `TenantScope`…), of the hooks (`ApiRequest`, `ApiReply`, `ValidationField`, `ValidatorFn`, `ValidatorResult`, `BulkValidatorFn`, `WriteHookContext`, `PrimaryKeyValue`…), of `sqlApi` (`SqlApi*Params`, `JoinFetchRequest`, `JoinRefFilter`, `SearchResult`…), of the QueryClient (`BulkUpsertOptions`…), of the agent manifest (`AgentManifest`, `ManifestTable`, `ManifestField`, `ManifestJoin`) and of the CLI (`CliConfig`). Every type a public signature names is exported, except the building blocks of an exported one
 
 Nothing else is public: the engines, route plugins, schema builders, naming helpers, dialect table and tenant resolution are internals.
 

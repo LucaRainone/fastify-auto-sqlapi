@@ -20,6 +20,10 @@ which supersedes ADR 0022.
 
 ### Added
 
+- **Every type a public signature names is exported**: `ApiReply`, `BuildRelationOptions`,
+  `JoinFetchRequest`, `JoinRefFilter`, `BulkUpsertOptions`, `ManifestField`, `ManifestJoin`,
+  `ValidatorResult` (what `validate` returns) and `PrimaryKeyValue`, which a consumer could
+  only reach through another type before.
 - **Bulk delete on a composite primary key.** `POST /bulk/:table/delete` and
   `sqlApi.bulkDelete()` take one object per key, `{ ids: [{ postId: 1, tagId: 2 }] }`, matched
   on every key column; the hooks receive the same objects, typed `PrimaryKeyValue`. A link
