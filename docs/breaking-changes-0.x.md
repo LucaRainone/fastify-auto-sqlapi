@@ -1,0 +1,1000 @@
+# Breaking changes in 0.x (archive)
+
+The migration notes of the 0.x releases, from 0.1.3 to 0.6.0, kept as they were written: each
+section shows the API of its own release, and the names it uses may have changed since. To
+upgrade to 1.0, read [BREAKING_CHANGES.md](../BREAKING_CHANGES.md), which covers everything
+from 0.6.0 to 1.0.0 in one guide.
+
+---
+
+# Breaking Changes — Join API redesign
+
+*Landed in **0.1.3**.*
+
+The join API was rewritten to be explicit, alias-based, and to add a real `LEFT JOIN` mode (`joinLeft`) for N:1 relationships. **No backward compatibility** — old names are rejected with 400. Both backend (table configuration) and frontend (request/response shapes) are affected. This document is the single source of truth for migrating either side.
+
+## Why this changed
+
+- The old API conflated "filter by child", "fetch children", and "aggregate children" under generic names (`joinFilters`, `joins`, `joinGroups`).
+- There was no way to embed a parent record (N:1) inline in the search results, nor to order/filter the main query by a parent field.
+- The same table could not be joined twice with different semantic roles (e.g. `createdBy` and `updatedBy` both pointing to `user`) because lookup keys collided on `joinSchema.tableName`.
+
+The new API addresses all three with a coherent `join*` prefix family and explicit `alias`.
+
+## Naming map
+
+| Old (request body) | New (request body) | Direction | Cardinality | What it does |
+|--------------------|--------------------|-----------|-------------|--------------|
+| `joinFilters` | `joinMustExist` | child → main | 1:N | Filters main rows via `EXISTS` subquery |
+| `joins` | `joinMultiple` | child → main | 1:N | Fetches child rows in a side query |
+| `joinGroups` | `joinGroup` | child → main | 1:N | Aggregations on children (SUM/MIN/…) with optional GROUP BY |
+| — | `joinLeft` | parent → main | N:1 | **NEW** real `LEFT JOIN` for embedding the parent |
+
+| Old (response) | New (response) |
+|----------------|----------------|
+| `result.joins` | `result.joinMultiple` |
+| `result.joinGroups` | `result.joinGroup` |
+| — | `result.joinLeft` (NEW) |
+
+| Old (`buildRelation` last arg) | New (`buildRelation` last arg) |
+|---------------------------------|---------------------------------|
+| `selection?: string` (positional) | `options?: { alias?: string; selection?: string; unique?: boolean }` (all optional; `alias` defaults to `joinSchema.tableName`) |
+
+| Old (lookup key inside the body) | New (lookup key inside the body) |
+|-----------------------------------|-----------------------------------|
+| `joinSchema.tableName` | `alias` (declared in `buildRelation`) |
+
+The `alias` is also the key used in:
+- Response payloads (`result.joinMultiple.<alias>`, `result.joinLeft.<alias>`, `result.joinGroup.<alias>`)
+- `secondaries` and `deletions` payloads in insert/update/bulk-upsert (`secondaries: { <alias>: [...] }`)
+- Dotted notation in `orderBy` and `conditions`
+
+## buildRelation — new signature
+
+```typescript
+// Options object is optional; every field has a sensible default.
+buildRelation(mainSchema, mainField, joinSchema, joinField);
+
+// Or with any subset of options:
+buildRelation(mainSchema, mainField, joinSchema, joinField, {
+  alias: 'creator',         // optional, default = joinSchema.tableName.
+                            // Used as the key in request/response/secondaries payloads
+                            // and in dotted-notation orderBy/conditions.
+  selection: '*',           // optional, default '*'. Comma-separated list, e.g. 'id,name,email'.
+  unique: false,            // optional, default false.
+                            //   true  → relation is N:1 (each main row has at most one join row).
+                            //           Allowed in joinLeft. Forbidden in joinMultiple/joinMustExist/joinGroup.
+                            //   false → relation is 1:N. Allowed in the other three. Forbidden in joinLeft.
+});
+```
+
+You only need to declare an explicit `alias` when:
+- you join the same table more than once (e.g. `createdBy` and `updatedBy` both pointing to `user`); or
+- you want a name different from the join table's name in the API surface (e.g. `'orders'` instead of `'customer_order'`).
+
+If two relations within the same `allowedReadJoins` (or `allowedWriteJoins`) end up resolving to the same alias — explicit or implicit — `defineTable` throws at startup with:
+
+```
+defineTable: duplicate alias '<name>' in allowedReadJoins. When omitted,
+alias defaults to joinSchema.tableName — declare an explicit alias to disambiguate.
+```
+
+If a request hits an alias on the wrong family, the engine returns `400`:
+
+```
+Join alias 'orders' is not declared with unique:true; use joinMultiple/joinMustExist/joinGroup instead
+Join alias 'creator' is declared with unique:true; use joinLeft instead
+Unknown join alias: <name>
+```
+
+## Request body — by family
+
+### `joinMustExist` (was `joinFilters`)
+
+EXISTS-based filter: returns main rows that have at least one matching child.
+
+```json
+{
+  "joinMustExist": {
+    "orders": {
+      "filters": { "status": "completed" },
+      "conditions": [{ "field": "total", "method": "isGreater", "params": [50] }]
+    }
+  }
+}
+```
+
+### `joinMultiple` (was `joins`)
+
+Fetches child rows in a side query; populates `result.joinMultiple.<alias>`.
+
+```json
+{
+  "joinMultiple": {
+    "orders": {
+      "filters": { "status": "completed" },
+      "selection": "id,total,status"
+    }
+  }
+}
+```
+
+`selection` is optional and overrides the default declared in `buildRelation`.
+
+### `joinGroup` (was `joinGroups`)
+
+Aggregations on the child table; populates `result.joinGroup.<alias>`.
+
+```json
+{
+  "joinGroup": {
+    "orders": {
+      "aggregations": {
+        "by": "status",
+        "sum": ["total"],
+        "count": ["id"]
+      },
+      "filters": { "status": "completed" }
+    }
+  }
+}
+```
+
+### `joinLeft` (NEW, requires `unique: true`)
+
+Real `LEFT JOIN` for N:1 (parent) relationships. The parent rows are returned in `result.joinLeft.<alias>` as a deduplicated array (one entry per distinct parent PK).
+
+```json
+{
+  "joinLeft": {
+    "creator": {},
+    "updater": { "filters": { "active": true }, "selection": "id,name" }
+  }
+}
+```
+
+The engine attaches a real `LEFT JOIN <parentTable> AS <alias>` to the main query **only when needed**:
+- when the request includes `filters` or `conditions` on the parent (effectively turns into INNER JOIN behavior on those aliases — main rows whose parent doesn't match are excluded);
+- when `orderBy` uses 2-part dotted notation referring to a parent field (`alias.field`).
+
+Otherwise only a side query `WHERE pk IN (distinct fk values)` is issued — no LEFT JOIN, no row duplication. Either way, the response shape is the same.
+
+> **Limitation**: `extraFilters` declared via `extendedCondition` on the parent table are **not** applied inside `joinLeft.filters` (only schema fields). The other join families fully support extraFilters.
+
+## orderBy — dotted notations
+
+| Form | Allowed alias source | What it does |
+|------|----------------------|--------------|
+| `<field>` | main schema | regular column ordering |
+| `<alias>.<field>` | `joinLeft` (`unique: true` aliases) | orders main query by a parent field via LEFT JOIN |
+| `<alias>.<fn>.<field>` | `joinGroup` (declared in the same body) | orders main query by an aggregation via correlated scalar subquery |
+
+Ambiguity: 2-part and 3-part are disambiguated by counting dots. The 2-part is rejected unless the alias is in `joinLeft` allowlist; 3-part is rejected unless the alias is in the request `joinGroup` declaration.
+
+## Response shape
+
+```json
+{
+  "table": "session",
+  "main": [...],
+  "joinLeft":     { "creator": [...], "updater": [...] },
+  "joinMultiple": { "orders": [...] },
+  "joinGroup":    { "orders": { "sum": { "total": 300 }, "count": { "id": 2 } } },
+  "pagination":   { "total": 25, "pages": 3, "paginator": { "page": 1, "itemsPerPage": 20 } }
+}
+```
+
+All four `join*` keys appear only when requested. `pagination` only when `paginator` is provided.
+
+Each value in `result.joinLeft.<alias>` is an array of parent rows (one entry per distinct FK in `main`). The client maps a main row to its parent by FK lookup (`main.userId === joinLeft.creator[i].id`).
+
+## Write side — secondaries / deletions
+
+`secondaries` and `deletions` payloads in insert/update/bulk-upsert now use the **alias** as key (was `joinSchema.tableName`):
+
+```json
+{
+  "main": { "name": "Mario" },
+  "secondaries": { "orders": [{ "total": 50 }] },
+  "deletions":   { "orders": [{ "id": 10 }] }
+}
+```
+
+## Migration recipes (mechanical)
+
+### 1) Find every `buildRelation` call
+
+Old form:
+```
+buildRelation(M, mF, J, jF)
+buildRelation(M, mF, J, jF, '<sel>')        // 5th positional arg = selection
+```
+
+New form (alias is optional, defaults to `J.tableName`):
+```ts
+// Simplest case — no rewrite needed beyond removing the old positional selection:
+buildRelation(M, mF, J, jF)
+
+// Or supply any options you actually need:
+buildRelation(M, mF, J, jF, {
+  // alias: 'orders',          // omit if joinSchema.tableName is fine as alias
+  // selection: 'id, total',   // omit for '*'
+  // unique: true              // ADD if jF is the PK of J (relation is N:1)
+})
+```
+
+**Heuristic for `unique`**: if `joinField` is the PK (or part of the composite PK) of `joinSchema`, the relation is N:1 and you almost certainly want `unique: true` so the alias is usable in `joinLeft`. Mark the call with a `// TODO verify unique:true` and review.
+
+**When to add an explicit `alias`**: only if (a) you join the same table multiple times, or (b) you want a friendlier name than the SQL table name (e.g. `orders` vs `customer_order`).
+
+### 2) Rename request keys (regex-replace inside HTTP/JSON bodies and search params)
+
+```
+joinFilters: → joinMustExist:
+joins:       → joinMultiple:
+joinGroups:  → joinGroup:
+```
+
+### 3) Rename response accessors
+
+```
+result.joins      → result.joinMultiple
+result.joinGroups → result.joinGroup
+body.joins        → body.joinMultiple
+body.joinGroups   → body.joinGroup
+```
+
+(Plus `result.joinLeft` is now available for the new family.)
+
+### 4) Rename secondaries keys
+
+If you used the join table's name as the secondaries key, change it to the new alias:
+
+```diff
+- "secondaries": { "customer_order": [...] }
++ "secondaries": { "orders": [...] }
+```
+
+### 5) Inspect dotted orderBy/conditions
+
+`<table>.<fn>.<field>` still works for joinGroup, but `<table>` must now be the alias declared in `buildRelation`. If the alias differs from the old `tableName`, update the string.
+
+If you need to order by a parent field, **add a `joinLeft`-eligible relation** (with `unique: true`) and use 2-part notation `alias.field` (NEW capability — not available before).
+
+## Validation summary (400 responses)
+
+The engine rejects, with `statusCode: 400`, any of:
+
+- `joinLeft` referencing an alias declared with `unique: false`
+- `joinMultiple`/`joinMustExist`/`joinGroup` referencing an alias declared with `unique: true`
+- request keys referencing an alias not declared in `allowedReadJoins`
+- `orderBy` 2-part `<alias>.<field>` whose alias is not in `joinLeft`-eligible (i.e. `unique:true`) declarations
+- `orderBy` 3-part `<alias>.<fn>.<field>` whose alias or `(fn, field)` pair is not declared in `joinGroup` for the same request
+- `defineTable` with two `allowedReadJoins`/`allowedWriteJoins` entries resolving to the same alias (thrown at startup, not at request time)
+
+---
+
+# Breaking Change — computed field placeholders use `?` markers
+
+*Landed in **0.1.6**.*
+
+`ComputedFieldExpr.expr` must now mark each bound value with `?`. The engine assigns the
+placeholder positions. Writing `$1` (or `db.ph(n)`) inside the expression no longer works and
+is rejected with a descriptive error.
+
+## Why this changed
+
+A computed field cannot know its own placeholder offset: the position depends on how many
+values the rest of the query bound before it. The previous contract asked the *consumer* to
+supply "stable indices", which is not knowable — so any computed that declared `values` and
+was used together with another filter produced a query that referenced the wrong parameter:
+
+```
+WHERE ("name" = $1) AND (CASE WHEN "role" = $1 THEN ... END = $3)
+values: ['Mario', 'admin', 500]
+```
+
+`$2` ('admin') was bound but never referenced, while the expression read `$1` ('Mario'). The
+query did not fail — it silently returned the wrong rows.
+
+## Migration
+
+```typescript
+// Before — placeholder guessed by the caller (silently misbound)
+bonus: ({ db, qiCol }) => ({
+  expr: `CASE WHEN ${qiCol('role')} = ${db.ph(1)} THEN ${qiCol('salary')} ELSE 0 END`,
+  values: ['admin'],
+  type: Type.Number(),
+}),
+
+// After — `?` marker, position assigned by the engine
+bonus: ({ qiCol }) => ({
+  expr: `CASE WHEN ${qiCol('role')} = ? THEN ${qiCol('salary')} ELSE 0 END`,
+  values: ['admin'],
+  type: Type.Number(),
+}),
+```
+
+Computed fields that declare **no** bound values (the majority: JSON extraction, concat,
+`dateTrunc`, arithmetic) are unaffected and need no change. Their SQL is emitted verbatim, so
+a literal `?` — the PostgreSQL jsonb operator — keeps working. In an expression that *does*
+carry values, escape a literal question mark as `\?`.
+
+A mismatch between the number of `?` markers and `values.length` now raises a descriptive
+error instead of producing a wrong query.
+
+## What this unlocks
+
+Bound values now work in every position that lands in the `WHERE` clause or in `ORDER BY`,
+including `joinLeft.filters` / `joinLeft.conditions` and `orderBy`, which previously rejected
+them with 400. They remain rejected in `selectComputed`, `computeMin/Max/Sum/Avg`,
+`joinGroup.aggregations.by` and `defaultOrder`, where the expression precedes the `WHERE`
+values in the parameter order.
+
+# Breaking Change — by-single-id operations disabled for composite primary keys
+
+*Landed in **0.1.11**.*
+
+Since **0.1.11**, tables whose `primary` is an array of more than one field no longer expose
+the operations that address a record by a single PK value:
+
+- `GET /rest/:table/:id` and `DELETE /rest/:table/:id` are **not registered** (404);
+- `POST /bulk/:table/delete` is **not registered** (404);
+- explicitly listing `get`, `delete` or `bulkDelete` in `ITable.operations` for such a table
+  now **throws at startup** with a descriptive error;
+- the programmatic `sqlApi.get/delete/bulkDelete` reject with `400`.
+
+Search, insert, update and bulk upsert are unaffected — they already matched every PK column.
+
+## Why this changed
+
+These operations matched on the **first** PK column alone. On `primary: ['agentId', 'teamId']`:
+
+- `DELETE /rest/t/1` deleted **every** row with `agent_id = 1` — not one record;
+- `GET /rest/t/1` returned an arbitrary row among those sharing `agent_id = 1`;
+- bulk delete removed every row matching each listed first-column value.
+
+A single `:id` cannot address a composite key; silently matching a prefix of the key is data
+loss waiting to happen, so the operations are refused loudly instead.
+
+## Who is affected
+
+Only consumers with composite-PK tables **and** clients calling get/delete/bulk-delete on
+them. If your composite table's first PK column happens to be unique on its own, these
+endpoints previously behaved correctly for you — they are now gone and you must migrate.
+
+## Migration
+
+- **Read one record** → `search` with every PK field in the filters:
+
+  ```typescript
+  await fetch('/auto/search/agent_team', {
+    method: 'POST',
+    body: JSON.stringify({ filters: { agentId: 1, teamId: 2 } }),
+  });
+  ```
+
+- **Delete one record** → a custom route using the low-level `QueryClient`, matching the
+  full key:
+
+  ```typescript
+  import { createQueryClient, pgQueryable } from 'fastify-auto-sqlapi';
+
+  const db = createQueryClient(pgQueryable(app.pg), 'postgres');
+
+  app.delete('/agent-team/:agentId/:teamId', async (req) => {
+    const { agentId, teamId } = req.params;
+    await db.delete('agent_team', { agent_id: agentId, team_id: teamId });
+    return { main: { agentId, teamId } };
+  });
+  ```
+
+- **Row removal as part of an edit flow** → `update` on the parent with `deletions` (write
+  joins), or bulk upsert — both match every PK column.
+
+- **First PK column is truly unique on its own?** Then the composite declaration was
+  redundant: declare `primary: 'id'` (single) and keep the second column as a plain field —
+  every by-id operation comes back.
+
+---
+
+# Breaking Change — unknown filter keys are rejected
+
+*Landed in **0.1.14**.*
+
+`filters` keys that match nothing are now a `400`, on the main table and on every join family.
+Previously they were dropped without a word.
+
+## Why this changed
+
+The engine only ever visited filter keys matching a schema field, an `extraFilters` entry or a
+computed field. Anything else — a typo, a renamed column, a field that exists on the table but
+not on the trimmed Schema a relation was declared with — was never looked at, and the query ran
+as if the filter had not been sent.
+
+That fails in the dangerous direction. A rejected filter returns *more* rows than the caller
+asked for, and nothing in the response says so; in an application where filters are also how
+visibility is narrowed, a typo becomes a data exposure. It was also the odd one out: an unknown
+field in `selection`, `conditions`, `orderBy` or a `joinGroup` aggregation has always been
+a 400.
+
+## What changed
+
+| Request | Before | After |
+|---|---|---|
+| `filters: { nosuchfield: 'x' }` | `200`, filter ignored | `400 Unknown filter field: nosuchfield` |
+| `joinMultiple.<alias>.filters: { nosuchfield: 1 }` | `200`, filter ignored | `400 Unknown filter field: nosuchfield` |
+| `joinLeft.<alias>.filters: { <extraFilter> }` | `200`, filter ignored | `400 Filter '<key>' is an extraFilter: …` |
+| `filters: { knownField: undefined }` | ignored | ignored (unchanged) |
+| `filters: { knownField: null }` | `IS NULL` | `IS NULL` (unchanged) |
+
+Two related fixes ship with it:
+
+- The check runs in the engine, not in the route schema, so `sqlApi.search()` behaves the same
+  as the HTTP routes. (A closed `additionalProperties: false` schema would not have worked:
+  Fastify runs Ajv with `removeAdditional: true`, so it would have *stripped* the key and
+  reproduced the same silent behaviour one layer up.)
+- Join filters are validated **before any query runs**. They used to be validated inside the
+  side query, which is skipped entirely when the main result set is empty — so the same request
+  answered 400 or 200 depending on the data it matched.
+
+## Who is affected
+
+Callers that send filter keys the target table does not declare. Over-sending is the common
+case: a frontend that spreads a whole form state into `filters`, or reuses one filter object
+across two tables.
+
+## Migration
+
+Send only keys the table declares. `GET /agent/manifest` and the Swagger body schema both list
+them per table (schema fields + `extraFilters` + computed fields).
+
+For a form-state object, filter it before sending rather than relying on the server to ignore
+the extras:
+
+```typescript
+const ALLOWED = ['name', 'status', 'createdFrom'] as const;
+const filters = Object.fromEntries(
+  Object.entries(formState).filter(([k, v]) => ALLOWED.includes(k) && v !== '')
+);
+```
+
+Passing `undefined` for an absent value is still safe and needs no filtering: only keys with a
+defined value are validated.
+
+## joinLeft and extraFilters
+
+`joinLeft.<alias>.filters` used to advertise the parent table's `extraFilters` in Swagger and
+accept them at runtime, applying nothing: `buildLeftJoinClauses` builds its condition inline and
+never runs the target's `extendedCondition`, whose column references cannot be qualified with
+the `LEFT JOIN` alias the parent gets there. They are no longer advertised, and sending one
+returns a `400` naming the reason.
+
+Use `joinMustExist` on the same relation when you need an extra filter on the parent — that path
+delegates to the target's own `filters()` and does run `extendedCondition`.
+
+---
+
+# Breaking Change — request limits, condition arity and tenant scope inside subqueries
+
+*Landed in **0.2.0**.*
+
+## Why this changed
+
+Four ways a single search request could do more than the plugin admitted, and one where the
+declared scope was not the enforced one.
+
+- `maxItemsPerPage` bounds the **rows a search returns**, not the work done to find them. Every
+  dotted `conditions` entry and every 3-part `orderBy` token becomes its own correlated subquery,
+  so an uncapped list turned one request into arbitrarily many.
+- `paginator.page` and `paginator.itemsPerPage` are rendered straight into `LIMIT`/`OFFSET`.
+  `Paginator` is a compile-time type only, and `sqlApi.search()` is a documented public API a
+  consumer may hand an unvalidated querystring — the integer check has to exist at runtime.
+- `key in map` and `map[key]` walk `Object.prototype`, so `constructor`, `toString`, `valueOf`,
+  `hasOwnProperty` and `__proto__` satisfied every "is this a known field" check and reached the
+  SQL builders, where they rendered as `undefined` or as a column that does not exist.
+- A condition method was dispatched with whatever `params` carried. A missing or wrongly shaped
+  one threw a `TypeError` inside the builder, which the error handler can only report as a 500.
+- `tenantScope` was applied to the main query and to the tables a request addressed directly. The
+  subqueries and child writes the same request produced carried no scope, so a scoped table was
+  still readable and writable through its own relations.
+
+## What changed
+
+Every row below answers **400** where it previously did something else.
+
+| Input | Rule now | Before |
+|---|---|---|
+| `conditions` | at most **100** entries, per section (top level and each join family) — schema `maxItems` plus an engine backstop | unbounded |
+| `orderBy` | at most **20** comma-separated parts; the request schema also caps the string at **1024** characters | unbounded |
+| `paginator` | `page` and `itemsPerPage` must both be integers `>= 1`, checked before any query runs | any value, rendered into `LIMIT`/`OFFSET` as-is |
+| condition `params` | must be an array; single-value methods need 1 entry, `isBetween`/`isNotBetween` 2, `isIn`/`isNotIn` an array as the first entry | passed to the builder as-is → `TypeError` → 500 |
+| field names | inherited `Object.prototype` keys are not fields, in `filters`, condition fields, `orderBy` and `selectComputed` | resolved as known fields and reached the SQL |
+
+The two caps are exported as `MAX_CONDITIONS` and `MAX_ORDER_BY_PARTS`. Both checks live in the
+**engine**, not in the route, which is what covers `sqlApi.search()` — no schema validates a
+programmatic caller. `isNull`/`isNotNull` still take no params, and an explicit `undefined` handed
+to `isIn` remains the documented no-op.
+
+And `tenantScope` now follows the request into everything it touches:
+
+- **secondaries** — a child row written alongside a main row is scoped and anchored by the child
+  table's own `tenantScope`;
+- **`joinLeft`** — the predicate lands in the `ON` clause, so `LEFT` semantics survive;
+- **`joinGroup` aggregation subqueries**, and the 3-part aggregation `orderBy` built on them —
+  they counted and summed every tenant's child rows, which disagreed with the scoped
+  `result.joinGroup` for the same alias and leaked the existence of the rest.
+
+## Who is affected
+
+- **A client that sends more than 100 `conditions` or more than 20 `orderBy` parts.** Generated
+  filter UIs are the realistic case: a "select all" that emits one condition per row.
+- **A caller that forwards a raw querystring to `sqlApi.search()`.** `itemsPerPage: '10'` is a
+  string and is now a 400: parse the querystring before you forward it.
+- **Conditions assembled programmatically.** One built with a missing `params` used to reach the
+  builder; it is now refused up front, with the method named.
+- **Any deployment using `tenantScope` with `secondaries`, `joinLeft` or `joinGroup`.**
+  Aggregates that used to count across tenants return smaller numbers, and an ordering built on
+  them changes with it. A secondary write that used to land in another tenant's rows is now
+  refused. This is the fix, not a regression — but a dashboard whose numbers were computed
+  cross-tenant will move.
+
+Not affected: requests within the caps, a well-formed integer `paginator`, and any deployment
+without `tenantScope`.
+
+## Migration
+
+Split an oversized `conditions` list rather than raising anything — the caps are not configurable:
+
+```typescript
+// Before: one request with 400 conditions
+{ conditions: ids.map((id) => ({ field: 'id', method: 'isEqual', params: [id] })) }
+
+// After: one condition, one bound array
+{ conditions: [{ field: 'id', method: 'isIn', params: [ids] }] }
+```
+
+Parse a querystring before it reaches `sqlApi.search()`:
+
+```typescript
+const paginator = {
+  page: Number.parseInt(req.query.page ?? '1', 10),
+  itemsPerPage: Number.parseInt(req.query.itemsPerPage ?? '50', 10),
+};
+```
+
+Then re-read any number your product computes from `joinGroup`: if it was collected under a
+tenant scope, it was counting rows that tenant cannot see, and it changes with this release.
+
+---
+
+# Breaking Change — the tenant follows the request, not the table it addresses
+
+*Landed in **0.2.1**.*
+
+`tenantScope` on a table is now enforced even when the request was addressed to a **different**
+table that reaches it through a relation. Previously the tenant was resolved from the addressed
+table alone: if that table declared no `tenantScope`, no predicate was applied anywhere — not to
+it, and not to the scoped tables it joined or wrote into.
+
+## Why this changed
+
+A relation in `allowedReadJoins` is a read grant on its target, and one in `allowedWriteJoins` is
+a write grant (see [ADR 0010](./adr/0010-joins-do-not-run-route-guards.md)). `tenantScope`
+was documented as the one request-derived protection that crosses a join — the cap that makes a
+relation safe to declare. It did not cross when the *host* was open:
+
+```typescript
+// shift is public on purpose: everyone may see who works when.
+shift: {
+  ...exportTableInfo(SchemaShift),
+  allowedReadJoins: [buildRelation(SchemaShift, 'id', SchemaSwapRequest, 'shiftId', { alias: 'swap' })],
+},
+// …but why somebody wants to change the roster is not public.
+shift_swap_request: {
+  ...exportTableInfo(SchemaSwapRequest),
+  tenantScope: { column: 'agent_id' },
+},
+```
+
+```sql
+-- POST /search/shift  { "joinMultiple": { "swap": {} } }   — before
+SELECT … FROM shift_swap_request WHERE (shift_id IN ($1))
+-- after
+SELECT … FROM shift_swap_request WHERE (shift_id IN ($1) AND (agent_id IN ($2)))
+```
+
+Every scoped row of the neighbour was readable through the open host, and writable through it as
+a secondary. The declaration said "scoped"; the deployment was not. Nothing in the response said
+so, which is the dangerous direction — the same reasoning as unknown filter keys above.
+
+## What changed
+
+- `TenantContext.scope` is now **optional**. `ids` is request-level and travels with the request;
+  `scope` is table-level and absent when the addressed table declares none. Absent `scope` means
+  "no filter on *this* table", never "no tenant" — related tables still enforce their own.
+- `getTenantId` is now called for a request addressed to an unscoped table **when one of that
+  table's declared relations points at a scoped table**. It is still not called when nothing
+  scoped is in reach, so genuinely tenant-free routes are unaffected. Reach is one level: joins
+  and secondaries resolve from the addressed table's own relations and never chain further.
+
+## Who is affected
+
+- **You declare `tenantScope` on a table that another table joins or writes into, where that
+  other table has no scope of its own.** Those requests now return fewer rows and can now answer
+  `403`. This is the fix: the rows were never yours to serve. Check any UI that displayed them.
+- **Your `getTenantId` assumes an authenticated request.** It now runs on routes that previously
+  skipped it — a public host with a scoped neighbour. A body like
+  `(request) => request.user.organizationId` throws there, turning a `200` into a `500`.
+- **You read `tenant.scope` in TypeScript** (custom routes using the exported `TenantContext`).
+  Its type is now `TenantScope | undefined`.
+
+Not affected: tables with no `tenantScope` anywhere in reach, deployments without `getTenantId`,
+admins (`getTenantId` → `null`), and every table that already declared its own scope — their SQL
+is unchanged.
+
+## Migration
+
+Make `getTenantId` total. It already had to return `null` for admins, so the null case exists:
+
+```typescript
+// Before — throws on a route that never had a user
+getTenantId: (request) => request.user.organizationId,
+
+// After — an absent user is simply an unscoped caller
+getTenantId: (request) => request.user?.organizationId ?? null,
+```
+
+Then decide, for each open table that relates to a scoped one, whether the relation was meant to
+be a read grant at all. If it was not, remove it from `allowedReadJoins` — a relation is the
+grant, and the scope is only the cap on it.
+
+---
+
+# Breaking Change — secondaries run the child table's `beforeInsert`
+
+*Landed in **0.2.2**.*
+
+## Why this changed
+
+`processSecondaries` consulted the child table's configuration for its `excludeFromCreation` and
+its `tenantScope`, but skipped its `beforeInsert`. A child table whose hook *transformed* a value
+rather than adding one — encrypting a column, normalising a unit — therefore stored the raw
+client value whenever its rows arrived as another table's secondaries, and correctly only through
+its own route. Nothing failed at write time; the row read back as garbage later. See
+[ADR 0014](./adr/0014-what-follows-a-write-join.md).
+
+## What changed
+
+- A child table's **`beforeInsert` now runs** for rows written as `secondaries`, after that
+  table's `excludeFromCreation` strip and before the engine's FK auto-fill (which stays
+  authoritative). The child's `validate` and `afterInsert` still do not run.
+- The **get response schema honours `readExclude`**: it previously advertised fields the engine
+  never selects. `schemaOverrides` is unchanged — still write bodies only.
+- The **update body now requires the primary key**. It identifies the row (`PUT /rest/:table`
+  carries it in `main`), but the generated PK field is `Optional` and that modifier reached the
+  update body unchanged, so a request omitting `main.id` built its `WHERE` on `undefined`
+  instead of being rejected with a 400.
+
+## Who is affected
+
+- **A table of yours declares `beforeInsert` and is also a write-join target.** The hook now runs
+  on that path. If it was written assuming the table's own route — reading `req.params`, counting
+  invocations, calling an external service per record — it now runs where it did not before. It
+  receives the transaction connection, so what it writes rolls back with the host's write.
+- **You send an update without `main.<pk>`.** It never identified a row — the `WHERE` was built
+  on `undefined` — and is now a 400.
+- **A client of yours read a `readExclude`d field out of the get route's Swagger.** It was never
+  returned; only the documentation claimed it.
+
+Not affected: tables with no `beforeInsert`, or none that are write-join targets. Nothing about
+`schemaOverrides` changes.
+
+## Migration
+
+For a `beforeInsert` that must keep running on the table's own route only, guard on the context
+it needs rather than on the path:
+
+```typescript
+beforeInsert: async (db, req, record) => {
+  record.slug = slugify(record.name);           // shaping: correct on both paths, leave it
+  if (req.routeOptions?.url?.startsWith('/rest/')) await notify(record);  // side effect: narrow it
+},
+```
+
+---
+
+# Breaking Change — the route URL is the `DbTables` key
+
+*Landed in **0.3.0**.*
+
+## Why this changed
+
+The documentation always said *"the route URL name is the key you use in the `dbTables`
+record"*, and everything but the URL agreed: the handler, `operations`, `onRequests`, the
+Swagger tags and the agent manifest all resolved the table config by its key. The URL alone was
+built from `Schema.tableName`. Two consequences:
+
+- **Several table configs over one physical table could not coexist.** Exposing
+  `conversation` once for its owner and once for whoever holds a share link — each key with its
+  own `operations`, guards and joins — put both on `/search/conversation`, and Fastify refused
+  to start: `Method 'POST' already declared for route '/search/conversation'`.
+- **A renamed key was served under the wrong name.** `{ orders: TableCustomerOrder }` started
+  fine, but answered on `/search/customer_order` while the manifest told agent clients to call
+  `orders`.
+
+## What changed
+
+- Every auto route is named after the key: `/search/<key>`, `/rest/<key>`, `/rest/<key>/:id`,
+  `/bulk/<key>`, `/bulk/<key>/delete`.
+- The search response's `table` is the key, so it matches the URL that was called and the
+  manifest entry.
+- SQL is unchanged: it still targets `Schema.tableName`.
+
+## Who is affected
+
+- **A `DbTables` key of yours differs from its schema's `tableName`.** Its routes move from the
+  table name to the key, and `table` in its search responses changes the same way.
+
+Not affected: configs generated by `sqlapi-generate-tables`, whose keys are the table names, and
+any hand-written config that kept that convention.
+
+## Migration
+
+Either call the new URLs, or rename the key back to the table name to keep the old ones:
+
+```typescript
+// before: routes answered on /search/customer_order
+export const dbTables: DbTables = { orders: TableCustomerOrder };
+
+// keep the old URLs
+export const dbTables: DbTables = { customer_order: TableCustomerOrder };
+```
+
+A client that read `table` from a search response to recover the physical table name should
+use the key it called instead — that is now what `table` returns.
+
+---
+
+# Breaking Change — an upsert targets a unique key verified at startup
+
+*Landed in **0.4.0**.* Decision and rationale: [ADR 0021](./adr/0021-upsert-targets-a-verified-unique-key.md).
+
+## Why this changed
+
+`upsertMap` accepted any column list, and the dialects disagreed on what it meant:
+
+- **No unique index on the declared columns**: PostgreSQL failed every write; MySQL never
+  conflicted and inserted duplicates, silently.
+- **MySQL `ON DUPLICATE KEY UPDATE` fires on any unique index**, not on the declared key: a row
+  carrying another row's unique value (an `email`, an `id`) updated *that* row, silently, where
+  PostgreSQL refused the write.
+- **A natural-key upsert on MySQL returned wrong PKs** for the rows it updated, and secondaries
+  were attached to them.
+
+## What changed
+
+- **The generated Schema carries `uniqueKeys`**, the table's unique keys other than the
+  primary key — emitted even when empty. Partial, expression and (MySQL) prefix indexes are not
+  keys an upsert can target and are left out.
+- **`defineTable` refuses an `upsertMap` rule that is not exactly the Schema's `primaryKey` or
+  one of its `uniqueKeys`** (same fields, any order). This includes rules on write-join child
+  schemas — the child still needs no `defineTable` of its own. A rule on a view is refused.
+- **Every upserted row must carry its key — `400` otherwise**: a natural key must be present
+  and not null; the primary key may be absent altogether (a plain insert with a generated key)
+  but not partial or null. Two rows of one request with the same key are a `400` too.
+- **MySQL and MariaDB upsert by key** — probe, insert, update — instead of
+  `ON DUPLICATE KEY UPDATE`. A row whose other unique column belongs to another row is now a
+  database error (sanitized 500) on every dialect, never a write to that other row.
+
+## Who is affected
+
+- **Schemas generated before this release** used with a natural-key rule (`['email']`,
+  `['customerId', 'tag']` that is not the PK…): `defineTable` throws until they are
+  regenerated. Rules on the primary key keep working — `primaryKey` was already generated.
+- **A rule on columns without a unique index**: it never worked on PostgreSQL, and on MySQL it
+  was inserting duplicates. `defineTable` now throws.
+- **Clients sending upsert rows without their key**, or twice the same key in one request:
+  `400`.
+- **MySQL/MariaDB**: an upsert costs two to three statements per chunk instead of one.
+- **A driver configured without `CLIENT_FOUND_ROWS`** (MySQL/MariaDB): the upsert checks the
+  rows its UPDATE matched, and without that flag the driver reports changed rows instead —
+  a row re-sent unchanged would be reported as missing. `mysql2` sets the flag by default.
+- **Code using the exported `SqlDialect` type or `getDialect()` for upserts**: `upsertSql()`
+  and `upsertUpdateSet()` are gone. They are replaced by `onConflict?: { sql(), updateSet() }`,
+  present on PostgreSQL only — its absence is what tells MySQL/MariaDB to upsert by key.
+  A custom `SqlDialect` implementation no longer compiles until it drops the two methods.
+
+## Migration
+
+1. Regenerate the schemas: `npx sqlapi-generate-schema`. Each Schema now ends with
+   `uniqueKeys: [...]`.
+2. Start the application: a rule that is not a unique key fails with a message listing the
+   keys the table has, e.g.
+   `upsertMap rule on 'customer' (email) is not a unique key of the table. An upsert must target exactly one: (id) primary key (ADR 0021).`
+   Either add the unique index the rule assumed, or point the rule at an existing key.
+3. Make sure every upsert row carries its key. For a write-join child keyed on
+   `(parentId, lang)`, the FK is filled from the parent — the client sends `lang`.
+4. If you use `SqlDialect` directly: build an upsert through `QueryClient.insertOrUpdate` /
+   `bulkInsertOrUpdate`, which pick the right strategy per dialect, rather than from the
+   dialect's clause. The PostgreSQL clause, if you need it, is now
+   `getDialect('postgres').onConflict!.sql(keys, getDialect('postgres').onConflict!.updateSet(fields, keepAsIs))`
+   — `updateSet` returns `''` when nothing is left to update, as before. A custom dialect
+   implements `onConflict` only when its upsert syntax names its conflict target; otherwise it
+   leaves it out and gets the upsert by key.
+
+```typescript
+// before
+const dialect = getDialect('postgres');
+dialect.upsertSql(quotedKeys, dialect.upsertUpdateSet(fields, conflictKeys));
+
+// after
+const { onConflict } = getDialect('postgres');
+onConflict!.sql(quotedKeys, onConflict!.updateSet(fields, conflictKeys));
+```
+
+---
+
+# Breaking Change — `min`, `max` and `avg` of a main row without children are NULL
+
+*Landed in **0.4.1**.*
+
+## Why this changed
+
+`orderBy` and HAVING-style conditions on `<alias>.<fn>.<field>` run a correlated subquery per
+main row, and every aggregate was wrapped in `COALESCE(…, 0)`. Over no child rows, that 0 is
+the right answer for `count`, `distinctCount` and `sum`, but `min`, `max` and `avg` have no
+value at all:
+
+- **PostgreSQL**: on a text, char, date or timestamp column the request failed with a 500,
+  `COALESCE types … and integer cannot be matched`.
+- **MySQL/MariaDB**: no error, but those mains were compared as `0` — `max(orderDate) <
+  '2026-03-01'` matched every main without children.
+- **Both, numeric columns**: a 0 that no child row holds decided the ordering and conditions.
+
+## What changed
+
+- `count`, `distinctCount` and `sum` over no rows are still 0.
+- `min`, `max` and `avg` over no rows are NULL. In `orderBy` they sort where the database puts
+  NULL (PostgreSQL: last in ASC, first in DESC; MySQL/MariaDB: first in ASC, last in DESC). In
+  conditions they fail every comparison; `isNull` / `isNotNull` select them.
+- "Without children" includes children all excluded by the joinGroup's own `filters` /
+  `conditions`.
+- `result.joinGroup` is unchanged: it was never coalesced.
+
+## Who is affected
+
+Clients that order or filter by `min`, `max` or `avg` of a **numeric** column on tables where
+some main rows have no children:
+
+- `orderBy=orders.min.total ASC` on PostgreSQL: those mains move from first to last.
+  `… DESC`: from last to first. On MySQL/MariaDB the order is unchanged (NULL sorts as the
+  smallest value, where the 0 was for non-negative columns).
+- `conditions: [{ field: 'orders.max.total', method: 'isLess', params: [5] }]`: those mains
+  no longer match. `isGreater` with a negative value, `isEqual` with 0 and similar change the
+  same way.
+
+## Migration
+
+- To drop mains without children from a result, add `{ field: 'orders.count.id', method:
+  'isGreater', params: [0] }` (or `isNotNull` on the aggregate).
+- To list only them, use `isNull` on the aggregate, or `isEqual 0` on `count`.
+- Conditions are ANDed, so "below 5 **or** no children" is no longer one request: run the
+  `isNull` search separately, or compare against a `count` instead where that expresses the
+  same thing.
+
+# Breaking Change — Node.js 22 or newer is required
+
+*Landed in **0.5.0**.*
+
+## Why this changed
+
+`engines.node` said `>=18`, but no Node version other than 24 was tested, and the promise
+was already wrong: Fastify 5, a required peer dependency, supports Node 20 and later only.
+Node 18 and Node 20 are both end-of-life, so the floor now starts at the oldest maintained
+LTS line, and CI runs the full gate on Node 22, 24 and 26 to keep that promise checked.
+
+## Who is affected
+
+Deployments still running Node 18 or 20. Nothing in the API, the request/response shapes
+or the table configuration changes.
+
+## Migration
+
+Upgrade the runtime to Node 22 or newer. npm only warns on an `engines` mismatch (it fails
+with `engine-strict=true`), so a deployment on an older Node may keep installing, but it is
+no longer supported or tested.
+
+# Breaking Change — TypeBox 1.x replaces `@sinclair/typebox`
+
+*Landed in **0.6.0**.*
+
+## Why this changed
+
+TypeBox 1.0 moved to a new package, [`typebox`](https://www.npmjs.com/package/typebox), and
+the Fastify ecosystem followed: `@fastify/type-provider-typebox` 6 requires it. Schemas from
+the two packages do not understand each other. TypeBox keeps a schema's kind and its
+`Optional` modifier in hidden markers, and the two versions spell them differently (0.x uses
+symbols, 1.x uses `~kind` / `~optional` keys). A schema from one version placed inside an
+object built by the other loses its `Optional`: the field silently becomes required. Before
+this change, a consumer on the type provider was the one hitting it.
+
+## What changed
+
+- `Type` and `Static`, re-exported by `fastify-auto-sqlapi`, come from `typebox` 1.x.
+- `@sinclair/typebox` is no longer a dependency.
+- The JSON Schema sent to Fastify, Ajv and Swagger is unchanged: validation, serialization,
+  error shapes and the OpenAPI document are the same.
+
+## Who is affected
+
+- **Code that imports `Type` from `fastify-auto-sqlapi`** (the generated schema files,
+  `defineTable()` configs written as documented): nothing to do at runtime. TypeScript code
+  that names TypeBox types (`TSchema`, `TObject`, …) from `@sinclair/typebox` must import them
+  from `typebox` instead.
+- **Code that builds schemas with `@sinclair/typebox` directly** and passes them to this
+  package (`schemaOverrides`, computed fields, extra filters, hand-written schema files from
+  generator versions before February 2026): `Type.Optional` fields become required, which
+  turns into `400 required` on requests that omit them.
+
+## Migration
+
+- Import `Type` from `fastify-auto-sqlapi`, or install `typebox` (1.x) and replace
+  `'@sinclair/typebox'` with `'typebox'` in your imports. Any `typebox` 1.x copy works.
+- Re-running `npx sqlapi-generate-schema` regenerates schema files with the right import.
+- Search for leftovers: `grep -rn "@sinclair/typebox" src/`.
+
+# Breaking Change — API cleanup ahead of 1.0
+
+*Landed in **0.6.0**.*
+
+## Why this changed
+
+A sweep of the public surface for what 1.0 should not carry: an export that was already
+deprecated and wrong on one dialect, a hook parameter that never received a value, and names
+that broke the glossary. 0.6.0 was not yet published when the renames were made, so they are
+made outright rather than through a deprecation cycle: one migration instead of two.
+
+## What changed
+
+### Removed
+
+- **`escapeIdent`.** It doubled `"` and nothing else: a Postgres-only escape that produced wrong
+  identifiers on MySQL, and that left the quoting to the caller.
+- **The fourth parameter of `beforeUpdate`** (`secondaryFieldsFetcher?: unknown`). The engine
+  always called the hook with three arguments, so the parameter was `undefined` every time.
+- **`SearchTableQueryString`.** A constant built at the default cap: it described the wrong
+  `itemsPerPage` maximum whenever the plugin was configured with another `maxItemsPerPage`.
+
+### Renamed
+
+| Before | After | Notes |
+|---|---|---|
+| `excludeFromCreation` | `insertExclude` | Same behaviour. `defineTable` refuses the old key with a message naming the new one. |
+| `ITable` (type) | `TableConfig` | The same type under the glossary's name. |
+
+## Who is affected
+
+- Code calling `escapeIdent`.
+- TypeScript code whose `beforeUpdate` declares a fourth parameter as required. An optional
+  one still compiles, and was always `undefined`.
+- Every table config using `excludeFromCreation` — in practice every generated table with an
+  auto-increment primary key. TypeScript reports the unknown key on an object literal passed
+  to `defineTable` or typed as `TableConfig`/`DbTables`, and `defineTable` refuses it at
+  startup. A plain JavaScript object that skips `defineTable` would have the key silently
+  ignored: wrap it in `defineTable`, or check it by hand with the `grep` below.
+- Code importing `ITable` or `SearchTableQueryString`: a compile error, or an import error
+  when the module loads.
+
+## Migration
+
+- `` `"${escapeIdent(name)}"` `` → `db.qi(name)` on the `QueryClient` the hook receives. It quotes
+  for the right dialect (`"…"` on PostgreSQL, `` `…` `` on MySQL/MariaDB).
+- Drop the fourth parameter from `beforeUpdate`.
+- `excludeFromCreation:` → `insertExclude:` in every table config (find them with
+  `grep -rn excludeFromCreation src/`). The table generator writes the new name for new
+  tables; existing files are never overwritten, so rename by hand or with
+  `sed -i 's/excludeFromCreation/insertExclude/g'` on the table files.
+- `ITable` → `TableConfig` in type annotations.
+- `SearchTableQueryString` → `SearchTableQuery(maxItemsPerPage)` with the cap the plugin is
+  configured with.

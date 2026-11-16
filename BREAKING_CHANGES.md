@@ -1,1087 +1,52 @@
-# Breaking Changes — Join API redesign
+# Upgrading from 0.6 to 1.0
 
-*Landed in **0.1.3**.*
+1.0 makes the API coherent in one breaking release: one name and one place for each concept,
+one shape for each result, and every key the API no longer reads refused rather than ignored
+([ADR 0027](./docs/adr/0027-the-1-0-contract.md)). This guide covers every breaking change
+from 0.6.0 to 1.0.0, grouped by where you make the edit. The notes of earlier releases are in
+[docs/breaking-changes-0.x.md](./docs/breaking-changes-0.x.md).
 
-The join API was rewritten to be explicit, alias-based, and to add a real `LEFT JOIN` mode (`joinLeft`) for N:1 relationships. **No backward compatibility** — old names are rejected with 400. Both backend (table configuration) and frontend (request/response shapes) are affected. This document is the single source of truth for migrating either side.
+**How to work through it.** The old forms fail loudly, naming their replacement:
 
-## Why this changed
+- a pre-1.0 config key or plugin option throws at startup (`defineTable`, plugin registration,
+  `createSqlApi`);
+- a pre-1.0 request key is a 400 with code `retired_key` at that key;
+- a pre-1.0 call shape in `sqlApi` or the QueryClient throws a `TypeError`.
 
-- The old API conflated "filter by child", "fetch children", and "aggregate children" under generic names (`joinFilters`, `joins`, `joinGroups`).
-- There was no way to embed a parent record (N:1) inline in the search results, nor to order/filter the main query by a parent field.
-- The same table could not be joined twice with different semantic roles (e.g. `createdBy` and `updatedBy` both pointing to `user`) because lookup keys collided on `joinSchema.tableName`.
+So: update the backend (sections 1–4), start the application and fix what it reports, then
+update the clients (section 5). Section 6 lists what changes without any edit on your side.
 
-The new API addresses all three with a coherent `join*` prefix family and explicit `alias`.
+Contents:
 
-## Naming map
+1. [Plugin registration and `createSqlApi`](#1-plugin-registration-and-createsqlapi)
+2. [Table configuration](#2-table-configuration)
+3. [Hooks and validators](#3-hooks-and-validators)
+4. [`sqlApi`, the QueryClient and the imports](#4-sqlapi-the-queryclient-and-the-imports)
+5. [HTTP clients](#5-http-clients)
+6. [Behavior that changes without an edit](#6-behavior-that-changes-without-an-edit)
 
-| Old (request body) | New (request body) | Direction | Cardinality | What it does |
-|--------------------|--------------------|-----------|-------------|--------------|
-| `joinFilters` | `joinMustExist` | child → main | 1:N | Filters main rows via `EXISTS` subquery |
-| `joins` | `joinMultiple` | child → main | 1:N | Fetches child rows in a side query |
-| `joinGroups` | `joinGroup` | child → main | 1:N | Aggregations on children (SUM/MIN/…) with optional GROUP BY |
-| — | `joinLeft` | parent → main | N:1 | **NEW** real `LEFT JOIN` for embedding the parent |
+---
 
-| Old (response) | New (response) |
-|----------------|----------------|
-| `result.joins` | `result.joinMultiple` |
-| `result.joinGroups` | `result.joinGroup` |
-| — | `result.joinLeft` (NEW) |
+## 1. Plugin registration and `createSqlApi`
 
-| Old (`buildRelation` last arg) | New (`buildRelation` last arg) |
-|---------------------------------|---------------------------------|
-| `selection?: string` (positional) | `options?: { alias?: string; selection?: string; unique?: boolean }` (all optional; `alias` defaults to `joinSchema.tableName`) |
+### `dbTables`, not `DbTables`
 
-| Old (lookup key inside the body) | New (lookup key inside the body) |
-|-----------------------------------|-----------------------------------|
-| `joinSchema.tableName` | `alias` (declared in `buildRelation`) |
+The option is camelCase, like every other one. `DbTables` throws at registration.
 
-The `alias` is also the key used in:
-- Response payloads (`result.joinMultiple.<alias>`, `result.joinLeft.<alias>`, `result.joinGroup.<alias>`)
-- `secondaries` and `deletions` payloads in insert/update/bulk-upsert (`secondaries: { <alias>: [...] }`)
-- Dotted notation in `orderBy` and `conditions`
-
-## buildRelation — new signature
-
-```typescript
-// Options object is optional; every field has a sensible default.
-buildRelation(mainSchema, mainField, joinSchema, joinField);
-
-// Or with any subset of options:
-buildRelation(mainSchema, mainField, joinSchema, joinField, {
-  alias: 'creator',         // optional, default = joinSchema.tableName.
-                            // Used as the key in request/response/secondaries payloads
-                            // and in dotted-notation orderBy/conditions.
-  selection: '*',           // optional, default '*'. Comma-separated list, e.g. 'id,name,email'.
-  unique: false,            // optional, default false.
-                            //   true  → relation is N:1 (each main row has at most one join row).
-                            //           Allowed in joinLeft. Forbidden in joinMultiple/joinMustExist/joinGroup.
-                            //   false → relation is 1:N. Allowed in the other three. Forbidden in joinLeft.
-});
-```
-
-You only need to declare an explicit `alias` when:
-- you join the same table more than once (e.g. `createdBy` and `updatedBy` both pointing to `user`); or
-- you want a name different from the join table's name in the API surface (e.g. `'orders'` instead of `'customer_order'`).
-
-If two relations within the same `allowedReadJoins` (or `allowedWriteJoins`) end up resolving to the same alias — explicit or implicit — `defineTable` throws at startup with:
-
-```
-defineTable: duplicate alias '<name>' in allowedReadJoins. When omitted,
-alias defaults to joinSchema.tableName — declare an explicit alias to disambiguate.
-```
-
-If a request hits an alias on the wrong family, the engine returns `400`:
-
-```
-Join alias 'orders' is not declared with unique:true; use joinMultiple/joinMustExist/joinGroup instead
-Join alias 'creator' is declared with unique:true; use joinLeft instead
-Unknown join alias: <name>
-```
-
-## Request body — by family
-
-### `joinMustExist` (was `joinFilters`)
-
-EXISTS-based filter: returns main rows that have at least one matching child.
-
-```json
-{
-  "joinMustExist": {
-    "orders": {
-      "filters": { "status": "completed" },
-      "conditions": [{ "field": "total", "method": "isGreater", "params": [50] }]
-    }
-  }
-}
-```
-
-### `joinMultiple` (was `joins`)
-
-Fetches child rows in a side query; populates `result.joinMultiple.<alias>`.
-
-```json
-{
-  "joinMultiple": {
-    "orders": {
-      "filters": { "status": "completed" },
-      "selection": "id,total,status"
-    }
-  }
-}
-```
-
-`selection` is optional and overrides the default declared in `buildRelation`.
-
-### `joinGroup` (was `joinGroups`)
-
-Aggregations on the child table; populates `result.joinGroup.<alias>`.
-
-```json
-{
-  "joinGroup": {
-    "orders": {
-      "aggregations": {
-        "by": "status",
-        "sum": ["total"],
-        "count": ["id"]
-      },
-      "filters": { "status": "completed" }
-    }
-  }
-}
-```
-
-### `joinLeft` (NEW, requires `unique: true`)
-
-Real `LEFT JOIN` for N:1 (parent) relationships. The parent rows are returned in `result.joinLeft.<alias>` as a deduplicated array (one entry per distinct parent PK).
-
-```json
-{
-  "joinLeft": {
-    "creator": {},
-    "updater": { "filters": { "active": true }, "selection": "id,name" }
-  }
-}
-```
-
-The engine attaches a real `LEFT JOIN <parentTable> AS <alias>` to the main query **only when needed**:
-- when the request includes `filters` or `conditions` on the parent (effectively turns into INNER JOIN behavior on those aliases — main rows whose parent doesn't match are excluded);
-- when `orderBy` uses 2-part dotted notation referring to a parent field (`alias.field`).
-
-Otherwise only a side query `WHERE pk IN (distinct fk values)` is issued — no LEFT JOIN, no row duplication. Either way, the response shape is the same.
-
-> **Limitation**: `extraFilters` declared via `extendedCondition` on the parent table are **not** applied inside `joinLeft.filters` (only schema fields). The other join families fully support extraFilters.
-
-## orderBy — dotted notations
-
-| Form | Allowed alias source | What it does |
-|------|----------------------|--------------|
-| `<field>` | main schema | regular column ordering |
-| `<alias>.<field>` | `joinLeft` (`unique: true` aliases) | orders main query by a parent field via LEFT JOIN |
-| `<alias>.<fn>.<field>` | `joinGroup` (declared in the same body) | orders main query by an aggregation via correlated scalar subquery |
-
-Ambiguity: 2-part and 3-part are disambiguated by counting dots. The 2-part is rejected unless the alias is in `joinLeft` allowlist; 3-part is rejected unless the alias is in the request `joinGroup` declaration.
-
-## Response shape
-
-```json
-{
-  "table": "session",
-  "main": [...],
-  "joinLeft":     { "creator": [...], "updater": [...] },
-  "joinMultiple": { "orders": [...] },
-  "joinGroup":    { "orders": { "sum": { "total": 300 }, "count": { "id": 2 } } },
-  "pagination":   { "total": 25, "pages": 3, "paginator": { "page": 1, "itemsPerPage": 20 } }
-}
-```
-
-All four `join*` keys appear only when requested. `pagination` only when `paginator` is provided.
-
-Each value in `result.joinLeft.<alias>` is an array of parent rows (one entry per distinct FK in `main`). The client maps a main row to its parent by FK lookup (`main.userId === joinLeft.creator[i].id`).
-
-## Write side — secondaries / deletions
-
-`secondaries` and `deletions` payloads in insert/update/bulk-upsert now use the **alias** as key (was `joinSchema.tableName`):
-
-```json
-{
-  "main": { "name": "Mario" },
-  "secondaries": { "orders": [{ "total": 50 }] },
-  "deletions":   { "orders": [{ "id": 10 }] }
-}
-```
-
-## Migration recipes (mechanical)
-
-### 1) Find every `buildRelation` call
-
-Old form:
-```
-buildRelation(M, mF, J, jF)
-buildRelation(M, mF, J, jF, '<sel>')        // 5th positional arg = selection
-```
-
-New form (alias is optional, defaults to `J.tableName`):
 ```ts
-// Simplest case — no rewrite needed beyond removing the old positional selection:
-buildRelation(M, mF, J, jF)
-
-// Or supply any options you actually need:
-buildRelation(M, mF, J, jF, {
-  // alias: 'orders',          // omit if joinSchema.tableName is fine as alias
-  // selection: 'id, total',   // omit for '*'
-  // unique: true              // ADD if jF is the PK of J (relation is N:1)
-})
-```
-
-**Heuristic for `unique`**: if `joinField` is the PK (or part of the composite PK) of `joinSchema`, the relation is N:1 and you almost certainly want `unique: true` so the alias is usable in `joinLeft`. Mark the call with a `// TODO verify unique:true` and review.
-
-**When to add an explicit `alias`**: only if (a) you join the same table multiple times, or (b) you want a friendlier name than the SQL table name (e.g. `orders` vs `customer_order`).
-
-### 2) Rename request keys (regex-replace inside HTTP/JSON bodies and search params)
-
-```
-joinFilters: → joinMustExist:
-joins:       → joinMultiple:
-joinGroups:  → joinGroup:
-```
-
-### 3) Rename response accessors
-
-```
-result.joins      → result.joinMultiple
-result.joinGroups → result.joinGroup
-body.joins        → body.joinMultiple
-body.joinGroups   → body.joinGroup
-```
-
-(Plus `result.joinLeft` is now available for the new family.)
-
-### 4) Rename secondaries keys
-
-If you used the join table's name as the secondaries key, change it to the new alias:
-
-```diff
-- "secondaries": { "customer_order": [...] }
-+ "secondaries": { "orders": [...] }
-```
-
-### 5) Inspect dotted orderBy/conditions
-
-`<table>.<fn>.<field>` still works for joinGroup, but `<table>` must now be the alias declared in `buildRelation`. If the alias differs from the old `tableName`, update the string.
-
-If you need to order by a parent field, **add a `joinLeft`-eligible relation** (with `unique: true`) and use 2-part notation `alias.field` (NEW capability — not available before).
-
-## Validation summary (400 responses)
-
-The engine rejects, with `statusCode: 400`, any of:
-
-- `joinLeft` referencing an alias declared with `unique: false`
-- `joinMultiple`/`joinMustExist`/`joinGroup` referencing an alias declared with `unique: true`
-- request keys referencing an alias not declared in `allowedReadJoins`
-- `orderBy` 2-part `<alias>.<field>` whose alias is not in `joinLeft`-eligible (i.e. `unique:true`) declarations
-- `orderBy` 3-part `<alias>.<fn>.<field>` whose alias or `(fn, field)` pair is not declared in `joinGroup` for the same request
-- `defineTable` with two `allowedReadJoins`/`allowedWriteJoins` entries resolving to the same alias (thrown at startup, not at request time)
-
----
-
-# Breaking Change — computed field placeholders use `?` markers
-
-*Landed in **0.1.6**.*
-
-`ComputedFieldExpr.expr` must now mark each bound value with `?`. The engine assigns the
-placeholder positions. Writing `$1` (or `db.ph(n)`) inside the expression no longer works and
-is rejected with a descriptive error.
-
-## Why this changed
-
-A computed field cannot know its own placeholder offset: the position depends on how many
-values the rest of the query bound before it. The previous contract asked the *consumer* to
-supply "stable indices", which is not knowable — so any computed that declared `values` and
-was used together with another filter produced a query that referenced the wrong parameter:
-
-```
-WHERE ("name" = $1) AND (CASE WHEN "role" = $1 THEN ... END = $3)
-values: ['Mario', 'admin', 500]
-```
-
-`$2` ('admin') was bound but never referenced, while the expression read `$1` ('Mario'). The
-query did not fail — it silently returned the wrong rows.
-
-## Migration
-
-```typescript
-// Before — placeholder guessed by the caller (silently misbound)
-bonus: ({ db, qiCol }) => ({
-  expr: `CASE WHEN ${qiCol('role')} = ${db.ph(1)} THEN ${qiCol('salary')} ELSE 0 END`,
-  values: ['admin'],
-  type: Type.Number(),
-}),
-
-// After — `?` marker, position assigned by the engine
-bonus: ({ qiCol }) => ({
-  expr: `CASE WHEN ${qiCol('role')} = ? THEN ${qiCol('salary')} ELSE 0 END`,
-  values: ['admin'],
-  type: Type.Number(),
-}),
-```
-
-Computed fields that declare **no** bound values (the majority: JSON extraction, concat,
-`dateTrunc`, arithmetic) are unaffected and need no change. Their SQL is emitted verbatim, so
-a literal `?` — the PostgreSQL jsonb operator — keeps working. In an expression that *does*
-carry values, escape a literal question mark as `\?`.
-
-A mismatch between the number of `?` markers and `values.length` now raises a descriptive
-error instead of producing a wrong query.
-
-## What this unlocks
-
-Bound values now work in every position that lands in the `WHERE` clause or in `ORDER BY`,
-including `joinLeft.filters` / `joinLeft.conditions` and `orderBy`, which previously rejected
-them with 400. They remain rejected in `selectComputed`, `computeMin/Max/Sum/Avg`,
-`joinGroup.aggregations.by` and `defaultOrder`, where the expression precedes the `WHERE`
-values in the parameter order.
-
-# Breaking Change — by-single-id operations disabled for composite primary keys
-
-*Landed in **0.1.11**.*
-
-Since **0.1.11**, tables whose `primary` is an array of more than one field no longer expose
-the operations that address a record by a single PK value:
-
-- `GET /rest/:table/:id` and `DELETE /rest/:table/:id` are **not registered** (404);
-- `POST /bulk/:table/delete` is **not registered** (404);
-- explicitly listing `get`, `delete` or `bulkDelete` in `ITable.operations` for such a table
-  now **throws at startup** with a descriptive error;
-- the programmatic `sqlApi.get/delete/bulkDelete` reject with `400`.
-
-Search, insert, update and bulk upsert are unaffected — they already matched every PK column.
-
-## Why this changed
-
-These operations matched on the **first** PK column alone. On `primary: ['agentId', 'teamId']`:
-
-- `DELETE /rest/t/1` deleted **every** row with `agent_id = 1` — not one record;
-- `GET /rest/t/1` returned an arbitrary row among those sharing `agent_id = 1`;
-- bulk delete removed every row matching each listed first-column value.
-
-A single `:id` cannot address a composite key; silently matching a prefix of the key is data
-loss waiting to happen, so the operations are refused loudly instead.
-
-## Who is affected
-
-Only consumers with composite-PK tables **and** clients calling get/delete/bulk-delete on
-them. If your composite table's first PK column happens to be unique on its own, these
-endpoints previously behaved correctly for you — they are now gone and you must migrate.
-
-## Migration
-
-- **Read one record** → `search` with every PK field in the filters:
-
-  ```typescript
-  await fetch('/auto/search/agent_team', {
-    method: 'POST',
-    body: JSON.stringify({ filters: { agentId: 1, teamId: 2 } }),
-  });
-  ```
-
-- **Delete one record** → a custom route using the low-level `QueryClient`, matching the
-  full key:
-
-  ```typescript
-  import { createQueryClient, pgQueryable } from 'fastify-auto-sqlapi';
-
-  const db = createQueryClient(pgQueryable(app.pg), 'postgres');
-
-  app.delete('/agent-team/:agentId/:teamId', async (req) => {
-    const { agentId, teamId } = req.params;
-    await db.delete('agent_team', { agent_id: agentId, team_id: teamId });
-    return { main: { agentId, teamId } };
-  });
-  ```
-
-- **Row removal as part of an edit flow** → `update` on the parent with `deletions` (write
-  joins), or bulk upsert — both match every PK column.
-
-- **First PK column is truly unique on its own?** Then the composite declaration was
-  redundant: declare `primary: 'id'` (single) and keep the second column as a plain field —
-  every by-id operation comes back.
-
----
-
-# Breaking Change — unknown filter keys are rejected
-
-*Landed in **0.1.14**.*
-
-`filters` keys that match nothing are now a `400`, on the main table and on every join family.
-Previously they were dropped without a word.
-
-## Why this changed
-
-The engine only ever visited filter keys matching a schema field, an `extraFilters` entry or a
-computed field. Anything else — a typo, a renamed column, a field that exists on the table but
-not on the trimmed Schema a relation was declared with — was never looked at, and the query ran
-as if the filter had not been sent.
-
-That fails in the dangerous direction. A rejected filter returns *more* rows than the caller
-asked for, and nothing in the response says so; in an application where filters are also how
-visibility is narrowed, a typo becomes a data exposure. It was also the odd one out: an unknown
-field in `selection`, `conditions`, `orderBy` or a `joinGroup` aggregation has always been
-a 400.
-
-## What changed
-
-| Request | Before | After |
-|---|---|---|
-| `filters: { nosuchfield: 'x' }` | `200`, filter ignored | `400 Unknown filter field: nosuchfield` |
-| `joinMultiple.<alias>.filters: { nosuchfield: 1 }` | `200`, filter ignored | `400 Unknown filter field: nosuchfield` |
-| `joinLeft.<alias>.filters: { <extraFilter> }` | `200`, filter ignored | `400 Filter '<key>' is an extraFilter: …` |
-| `filters: { knownField: undefined }` | ignored | ignored (unchanged) |
-| `filters: { knownField: null }` | `IS NULL` | `IS NULL` (unchanged) |
-
-Two related fixes ship with it:
-
-- The check runs in the engine, not in the route schema, so `sqlApi.search()` behaves the same
-  as the HTTP routes. (A closed `additionalProperties: false` schema would not have worked:
-  Fastify runs Ajv with `removeAdditional: true`, so it would have *stripped* the key and
-  reproduced the same silent behaviour one layer up.)
-- Join filters are validated **before any query runs**. They used to be validated inside the
-  side query, which is skipped entirely when the main result set is empty — so the same request
-  answered 400 or 200 depending on the data it matched.
-
-## Who is affected
-
-Callers that send filter keys the target table does not declare. Over-sending is the common
-case: a frontend that spreads a whole form state into `filters`, or reuses one filter object
-across two tables.
-
-## Migration
-
-Send only keys the table declares. `GET /agent/manifest` and the Swagger body schema both list
-them per table (schema fields + `extraFilters` + computed fields).
-
-For a form-state object, filter it before sending rather than relying on the server to ignore
-the extras:
-
-```typescript
-const ALLOWED = ['name', 'status', 'createdFrom'] as const;
-const filters = Object.fromEntries(
-  Object.entries(formState).filter(([k, v]) => ALLOWED.includes(k) && v !== '')
-);
-```
-
-Passing `undefined` for an absent value is still safe and needs no filtering: only keys with a
-defined value are validated.
-
-## joinLeft and extraFilters
-
-`joinLeft.<alias>.filters` used to advertise the parent table's `extraFilters` in Swagger and
-accept them at runtime, applying nothing: `buildLeftJoinClauses` builds its condition inline and
-never runs the target's `extendedCondition`, whose column references cannot be qualified with
-the `LEFT JOIN` alias the parent gets there. They are no longer advertised, and sending one
-returns a `400` naming the reason.
-
-Use `joinMustExist` on the same relation when you need an extra filter on the parent — that path
-delegates to the target's own `filters()` and does run `extendedCondition`.
-
----
-
-# Breaking Change — request limits, condition arity and tenant scope inside subqueries
-
-*Landed in **0.2.0**.*
-
-## Why this changed
-
-Four ways a single search request could do more than the plugin admitted, and one where the
-declared scope was not the enforced one.
-
-- `maxItemsPerPage` bounds the **rows a search returns**, not the work done to find them. Every
-  dotted `conditions` entry and every 3-part `orderBy` token becomes its own correlated subquery,
-  so an uncapped list turned one request into arbitrarily many.
-- `paginator.page` and `paginator.itemsPerPage` are rendered straight into `LIMIT`/`OFFSET`.
-  `Paginator` is a compile-time type only, and `sqlApi.search()` is a documented public API a
-  consumer may hand an unvalidated querystring — the integer check has to exist at runtime.
-- `key in map` and `map[key]` walk `Object.prototype`, so `constructor`, `toString`, `valueOf`,
-  `hasOwnProperty` and `__proto__` satisfied every "is this a known field" check and reached the
-  SQL builders, where they rendered as `undefined` or as a column that does not exist.
-- A condition method was dispatched with whatever `params` carried. A missing or wrongly shaped
-  one threw a `TypeError` inside the builder, which the error handler can only report as a 500.
-- `tenantScope` was applied to the main query and to the tables a request addressed directly. The
-  subqueries and child writes the same request produced carried no scope, so a scoped table was
-  still readable and writable through its own relations.
-
-## What changed
-
-Every row below answers **400** where it previously did something else.
-
-| Input | Rule now | Before |
-|---|---|---|
-| `conditions` | at most **100** entries, per section (top level and each join family) — schema `maxItems` plus an engine backstop | unbounded |
-| `orderBy` | at most **20** comma-separated parts; the request schema also caps the string at **1024** characters | unbounded |
-| `paginator` | `page` and `itemsPerPage` must both be integers `>= 1`, checked before any query runs | any value, rendered into `LIMIT`/`OFFSET` as-is |
-| condition `params` | must be an array; single-value methods need 1 entry, `isBetween`/`isNotBetween` 2, `isIn`/`isNotIn` an array as the first entry | passed to the builder as-is → `TypeError` → 500 |
-| field names | inherited `Object.prototype` keys are not fields, in `filters`, condition fields, `orderBy` and `selectComputed` | resolved as known fields and reached the SQL |
-
-The two caps are exported as `MAX_CONDITIONS` and `MAX_ORDER_BY_PARTS`. Both checks live in the
-**engine**, not in the route, which is what covers `sqlApi.search()` — no schema validates a
-programmatic caller. `isNull`/`isNotNull` still take no params, and an explicit `undefined` handed
-to `isIn` remains the documented no-op.
-
-And `tenantScope` now follows the request into everything it touches:
-
-- **secondaries** — a child row written alongside a main row is scoped and anchored by the child
-  table's own `tenantScope`;
-- **`joinLeft`** — the predicate lands in the `ON` clause, so `LEFT` semantics survive;
-- **`joinGroup` aggregation subqueries**, and the 3-part aggregation `orderBy` built on them —
-  they counted and summed every tenant's child rows, which disagreed with the scoped
-  `result.joinGroup` for the same alias and leaked the existence of the rest.
-
-## Who is affected
-
-- **A client that sends more than 100 `conditions` or more than 20 `orderBy` parts.** Generated
-  filter UIs are the realistic case: a "select all" that emits one condition per row.
-- **A caller that forwards a raw querystring to `sqlApi.search()`.** `itemsPerPage: '10'` is a
-  string and is now a 400: parse the querystring before you forward it.
-- **Conditions assembled programmatically.** One built with a missing `params` used to reach the
-  builder; it is now refused up front, with the method named.
-- **Any deployment using `tenantScope` with `secondaries`, `joinLeft` or `joinGroup`.**
-  Aggregates that used to count across tenants return smaller numbers, and an ordering built on
-  them changes with it. A secondary write that used to land in another tenant's rows is now
-  refused. This is the fix, not a regression — but a dashboard whose numbers were computed
-  cross-tenant will move.
-
-Not affected: requests within the caps, a well-formed integer `paginator`, and any deployment
-without `tenantScope`.
-
-## Migration
-
-Split an oversized `conditions` list rather than raising anything — the caps are not configurable:
-
-```typescript
-// Before: one request with 400 conditions
-{ conditions: ids.map((id) => ({ field: 'id', method: 'isEqual', params: [id] })) }
-
-// After: one condition, one bound array
-{ conditions: [{ field: 'id', method: 'isIn', params: [ids] }] }
-```
-
-Parse a querystring before it reaches `sqlApi.search()`:
-
-```typescript
-const paginator = {
-  page: Number.parseInt(req.query.page ?? '1', 10),
-  itemsPerPage: Number.parseInt(req.query.itemsPerPage ?? '50', 10),
-};
-```
-
-Then re-read any number your product computes from `joinGroup`: if it was collected under a
-tenant scope, it was counting rows that tenant cannot see, and it changes with this release.
-
----
-
-# Breaking Change — the tenant follows the request, not the table it addresses
-
-*Landed in **0.2.1**.*
-
-`tenantScope` on a table is now enforced even when the request was addressed to a **different**
-table that reaches it through a relation. Previously the tenant was resolved from the addressed
-table alone: if that table declared no `tenantScope`, no predicate was applied anywhere — not to
-it, and not to the scoped tables it joined or wrote into.
-
-## Why this changed
-
-A relation in `allowedReadJoins` is a read grant on its target, and one in `allowedWriteJoins` is
-a write grant (see [ADR 0010](./docs/adr/0010-joins-do-not-run-route-guards.md)). `tenantScope`
-was documented as the one request-derived protection that crosses a join — the cap that makes a
-relation safe to declare. It did not cross when the *host* was open:
-
-```typescript
-// shift is public on purpose: everyone may see who works when.
-shift: {
-  ...exportTableInfo(SchemaShift),
-  allowedReadJoins: [buildRelation(SchemaShift, 'id', SchemaSwapRequest, 'shiftId', { alias: 'swap' })],
-},
-// …but why somebody wants to change the roster is not public.
-shift_swap_request: {
-  ...exportTableInfo(SchemaSwapRequest),
-  tenantScope: { column: 'agent_id' },
-},
-```
-
-```sql
--- POST /search/shift  { "joinMultiple": { "swap": {} } }   — before
-SELECT … FROM shift_swap_request WHERE (shift_id IN ($1))
--- after
-SELECT … FROM shift_swap_request WHERE (shift_id IN ($1) AND (agent_id IN ($2)))
-```
-
-Every scoped row of the neighbour was readable through the open host, and writable through it as
-a secondary. The declaration said "scoped"; the deployment was not. Nothing in the response said
-so, which is the dangerous direction — the same reasoning as unknown filter keys above.
-
-## What changed
-
-- `TenantContext.scope` is now **optional**. `ids` is request-level and travels with the request;
-  `scope` is table-level and absent when the addressed table declares none. Absent `scope` means
-  "no filter on *this* table", never "no tenant" — related tables still enforce their own.
-- `getTenantId` is now called for a request addressed to an unscoped table **when one of that
-  table's declared relations points at a scoped table**. It is still not called when nothing
-  scoped is in reach, so genuinely tenant-free routes are unaffected. Reach is one level: joins
-  and secondaries resolve from the addressed table's own relations and never chain further.
-
-## Who is affected
-
-- **You declare `tenantScope` on a table that another table joins or writes into, where that
-  other table has no scope of its own.** Those requests now return fewer rows and can now answer
-  `403`. This is the fix: the rows were never yours to serve. Check any UI that displayed them.
-- **Your `getTenantId` assumes an authenticated request.** It now runs on routes that previously
-  skipped it — a public host with a scoped neighbour. A body like
-  `(request) => request.user.organizationId` throws there, turning a `200` into a `500`.
-- **You read `tenant.scope` in TypeScript** (custom routes using the exported `TenantContext`).
-  Its type is now `TenantScope | undefined`.
-
-Not affected: tables with no `tenantScope` anywhere in reach, deployments without `getTenantId`,
-admins (`getTenantId` → `null`), and every table that already declared its own scope — their SQL
-is unchanged.
-
-## Migration
-
-Make `getTenantId` total. It already had to return `null` for admins, so the null case exists:
-
-```typescript
-// Before — throws on a route that never had a user
-getTenantId: (request) => request.user.organizationId,
-
-// After — an absent user is simply an unscoped caller
-getTenantId: (request) => request.user?.organizationId ?? null,
-```
-
-Then decide, for each open table that relates to a scoped one, whether the relation was meant to
-be a read grant at all. If it was not, remove it from `allowedReadJoins` — a relation is the
-grant, and the scope is only the cap on it.
-
----
-
-# Breaking Change — secondaries run the child table's `beforeInsert`
-
-*Landed in **0.2.2**.*
-
-## Why this changed
-
-`processSecondaries` consulted the child table's configuration for its `excludeFromCreation` and
-its `tenantScope`, but skipped its `beforeInsert`. A child table whose hook *transformed* a value
-rather than adding one — encrypting a column, normalising a unit — therefore stored the raw
-client value whenever its rows arrived as another table's secondaries, and correctly only through
-its own route. Nothing failed at write time; the row read back as garbage later. See
-[ADR 0014](./docs/adr/0014-what-follows-a-write-join.md).
-
-## What changed
-
-- A child table's **`beforeInsert` now runs** for rows written as `secondaries`, after that
-  table's `excludeFromCreation` strip and before the engine's FK auto-fill (which stays
-  authoritative). The child's `validate` and `afterInsert` still do not run.
-- The **get response schema honours `readExclude`**: it previously advertised fields the engine
-  never selects. `schemaOverrides` is unchanged — still write bodies only.
-- The **update body now requires the primary key**. It identifies the row (`PUT /rest/:table`
-  carries it in `main`), but the generated PK field is `Optional` and that modifier reached the
-  update body unchanged, so a request omitting `main.id` built its `WHERE` on `undefined`
-  instead of being rejected with a 400.
-
-## Who is affected
-
-- **A table of yours declares `beforeInsert` and is also a write-join target.** The hook now runs
-  on that path. If it was written assuming the table's own route — reading `req.params`, counting
-  invocations, calling an external service per record — it now runs where it did not before. It
-  receives the transaction connection, so what it writes rolls back with the host's write.
-- **You send an update without `main.<pk>`.** It never identified a row — the `WHERE` was built
-  on `undefined` — and is now a 400.
-- **A client of yours read a `readExclude`d field out of the get route's Swagger.** It was never
-  returned; only the documentation claimed it.
-
-Not affected: tables with no `beforeInsert`, or none that are write-join targets. Nothing about
-`schemaOverrides` changes.
-
-## Migration
-
-For a `beforeInsert` that must keep running on the table's own route only, guard on the context
-it needs rather than on the path:
-
-```typescript
-beforeInsert: async (db, req, record) => {
-  record.slug = slugify(record.name);           // shaping: correct on both paths, leave it
-  if (req.routeOptions?.url?.startsWith('/rest/')) await notify(record);  // side effect: narrow it
-},
-```
-
----
-
-# Breaking Change — the route URL is the `DbTables` key
-
-*Landed in **0.3.0**.*
-
-## Why this changed
-
-The documentation always said *"the route URL name is the key you use in the `dbTables`
-record"*, and everything but the URL agreed: the handler, `operations`, `onRequests`, the
-Swagger tags and the agent manifest all resolved the table config by its key. The URL alone was
-built from `Schema.tableName`. Two consequences:
-
-- **Several table configs over one physical table could not coexist.** Exposing
-  `conversation` once for its owner and once for whoever holds a share link — each key with its
-  own `operations`, guards and joins — put both on `/search/conversation`, and Fastify refused
-  to start: `Method 'POST' already declared for route '/search/conversation'`.
-- **A renamed key was served under the wrong name.** `{ orders: TableCustomerOrder }` started
-  fine, but answered on `/search/customer_order` while the manifest told agent clients to call
-  `orders`.
-
-## What changed
-
-- Every auto route is named after the key: `/search/<key>`, `/rest/<key>`, `/rest/<key>/:id`,
-  `/bulk/<key>`, `/bulk/<key>/delete`.
-- The search response's `table` is the key, so it matches the URL that was called and the
-  manifest entry.
-- SQL is unchanged: it still targets `Schema.tableName`.
-
-## Who is affected
-
-- **A `DbTables` key of yours differs from its schema's `tableName`.** Its routes move from the
-  table name to the key, and `table` in its search responses changes the same way.
-
-Not affected: configs generated by `sqlapi-generate-tables`, whose keys are the table names, and
-any hand-written config that kept that convention.
-
-## Migration
-
-Either call the new URLs, or rename the key back to the table name to keep the old ones:
-
-```typescript
-// before: routes answered on /search/customer_order
-export const dbTables: DbTables = { orders: TableCustomerOrder };
-
-// keep the old URLs
-export const dbTables: DbTables = { customer_order: TableCustomerOrder };
-```
-
-A client that read `table` from a search response to recover the physical table name should
-use the key it called instead — that is now what `table` returns.
-
----
-
-# Breaking Change — an upsert targets a unique key verified at startup
-
-*Landed in **0.4.0**.* Decision and rationale: [ADR 0021](./docs/adr/0021-upsert-targets-a-verified-unique-key.md).
-
-## Why this changed
-
-`upsertMap` accepted any column list, and the dialects disagreed on what it meant:
-
-- **No unique index on the declared columns**: PostgreSQL failed every write; MySQL never
-  conflicted and inserted duplicates, silently.
-- **MySQL `ON DUPLICATE KEY UPDATE` fires on any unique index**, not on the declared key: a row
-  carrying another row's unique value (an `email`, an `id`) updated *that* row, silently, where
-  PostgreSQL refused the write.
-- **A natural-key upsert on MySQL returned wrong PKs** for the rows it updated, and secondaries
-  were attached to them.
-
-## What changed
-
-- **The generated Schema carries `uniqueKeys`**, the table's unique keys other than the
-  primary key — emitted even when empty. Partial, expression and (MySQL) prefix indexes are not
-  keys an upsert can target and are left out.
-- **`defineTable` refuses an `upsertMap` rule that is not exactly the Schema's `primaryKey` or
-  one of its `uniqueKeys`** (same fields, any order). This includes rules on write-join child
-  schemas — the child still needs no `defineTable` of its own. A rule on a view is refused.
-- **Every upserted row must carry its key — `400` otherwise**: a natural key must be present
-  and not null; the primary key may be absent altogether (a plain insert with a generated key)
-  but not partial or null. Two rows of one request with the same key are a `400` too.
-- **MySQL and MariaDB upsert by key** — probe, insert, update — instead of
-  `ON DUPLICATE KEY UPDATE`. A row whose other unique column belongs to another row is now a
-  database error (sanitized 500) on every dialect, never a write to that other row.
-
-## Who is affected
-
-- **Schemas generated before this release** used with a natural-key rule (`['email']`,
-  `['customerId', 'tag']` that is not the PK…): `defineTable` throws until they are
-  regenerated. Rules on the primary key keep working — `primaryKey` was already generated.
-- **A rule on columns without a unique index**: it never worked on PostgreSQL, and on MySQL it
-  was inserting duplicates. `defineTable` now throws.
-- **Clients sending upsert rows without their key**, or twice the same key in one request:
-  `400`.
-- **MySQL/MariaDB**: an upsert costs two to three statements per chunk instead of one.
-- **A driver configured without `CLIENT_FOUND_ROWS`** (MySQL/MariaDB): the upsert checks the
-  rows its UPDATE matched, and without that flag the driver reports changed rows instead —
-  a row re-sent unchanged would be reported as missing. `mysql2` sets the flag by default.
-- **Code using the exported `SqlDialect` type or `getDialect()` for upserts**: `upsertSql()`
-  and `upsertUpdateSet()` are gone. They are replaced by `onConflict?: { sql(), updateSet() }`,
-  present on PostgreSQL only — its absence is what tells MySQL/MariaDB to upsert by key.
-  A custom `SqlDialect` implementation no longer compiles until it drops the two methods.
-
-## Migration
-
-1. Regenerate the schemas: `npx sqlapi-generate-schema`. Each Schema now ends with
-   `uniqueKeys: [...]`.
-2. Start the application: a rule that is not a unique key fails with a message listing the
-   keys the table has, e.g.
-   `upsertMap rule on 'customer' (email) is not a unique key of the table. An upsert must target exactly one: (id) primary key (ADR 0021).`
-   Either add the unique index the rule assumed, or point the rule at an existing key.
-3. Make sure every upsert row carries its key. For a write-join child keyed on
-   `(parentId, lang)`, the FK is filled from the parent — the client sends `lang`.
-4. If you use `SqlDialect` directly: build an upsert through `QueryClient.insertOrUpdate` /
-   `bulkInsertOrUpdate`, which pick the right strategy per dialect, rather than from the
-   dialect's clause. The PostgreSQL clause, if you need it, is now
-   `getDialect('postgres').onConflict!.sql(keys, getDialect('postgres').onConflict!.updateSet(fields, keepAsIs))`
-   — `updateSet` returns `''` when nothing is left to update, as before. A custom dialect
-   implements `onConflict` only when its upsert syntax names its conflict target; otherwise it
-   leaves it out and gets the upsert by key.
-
-```typescript
 // before
-const dialect = getDialect('postgres');
-dialect.upsertSql(quotedKeys, dialect.upsertUpdateSet(fields, conflictKeys));
-
+await app.register(fastifyAutoSqlApi, { DbTables: dbTables, prefix: '/api' });
 // after
-const { onConflict } = getDialect('postgres');
-onConflict!.sql(quotedKeys, onConflict!.updateSet(fields, conflictKeys));
+await app.register(fastifyAutoSqlApi, { dbTables, prefix: '/api' });
 ```
 
----
+The `DbTables` *type* keeps its name.
 
-# Breaking Change — `min`, `max` and `avg` of a main row without children are NULL
+### Admin is declared with `TENANT_ADMIN`; no tenant is a 401
 
-*Landed in **0.4.1**.*
-
-## Why this changed
-
-`orderBy` and HAVING-style conditions on `<alias>.<fn>.<field>` run a correlated subquery per
-main row, and every aggregate was wrapped in `COALESCE(…, 0)`. Over no child rows, that 0 is
-the right answer for `count`, `distinctCount` and `sum`, but `min`, `max` and `avg` have no
-value at all:
-
-- **PostgreSQL**: on a text, char, date or timestamp column the request failed with a 500,
-  `COALESCE types … and integer cannot be matched`.
-- **MySQL/MariaDB**: no error, but those mains were compared as `0` — `max(orderDate) <
-  '2026-03-01'` matched every main without children.
-- **Both, numeric columns**: a 0 that no child row holds decided the ordering and conditions.
-
-## What changed
-
-- `count`, `distinctCount` and `sum` over no rows are still 0.
-- `min`, `max` and `avg` over no rows are NULL. In `orderBy` they sort where the database puts
-  NULL (PostgreSQL: last in ASC, first in DESC; MySQL/MariaDB: first in ASC, last in DESC). In
-  conditions they fail every comparison; `isNull` / `isNotNull` select them.
-- "Without children" includes children all excluded by the joinGroup's own `filters` /
-  `conditions`.
-- `result.joinGroup` is unchanged: it was never coalesced.
-
-## Who is affected
-
-Clients that order or filter by `min`, `max` or `avg` of a **numeric** column on tables where
-some main rows have no children:
-
-- `orderBy=orders.min.total ASC` on PostgreSQL: those mains move from first to last.
-  `… DESC`: from last to first. On MySQL/MariaDB the order is unchanged (NULL sorts as the
-  smallest value, where the 0 was for non-negative columns).
-- `conditions: [{ field: 'orders.max.total', method: 'isLess', params: [5] }]`: those mains
-  no longer match. `isGreater` with a negative value, `isEqual` with 0 and similar change the
-  same way.
-
-## Migration
-
-- To drop mains without children from a result, add `{ field: 'orders.count.id', method:
-  'isGreater', params: [0] }` (or `isNotNull` on the aggregate).
-- To list only them, use `isNull` on the aggregate, or `isEqual 0` on `count`.
-- Conditions are ANDed, so "below 5 **or** no children" is no longer one request: run the
-  `isNull` search separately, or compare against a `count` instead where that expresses the
-  same thing.
-
-# Breaking Change — Node.js 22 or newer is required
-
-*Landed in **0.5.0**.*
-
-## Why this changed
-
-`engines.node` said `>=18`, but no Node version other than 24 was tested, and the promise
-was already wrong: Fastify 5, a required peer dependency, supports Node 20 and later only.
-Node 18 and Node 20 are both end-of-life, so the floor now starts at the oldest maintained
-LTS line, and CI runs the full gate on Node 22, 24 and 26 to keep that promise checked.
-
-## Who is affected
-
-Deployments still running Node 18 or 20. Nothing in the API, the request/response shapes
-or the table configuration changes.
-
-## Migration
-
-Upgrade the runtime to Node 22 or newer. npm only warns on an `engines` mismatch (it fails
-with `engine-strict=true`), so a deployment on an older Node may keep installing, but it is
-no longer supported or tested.
-
-# Breaking Change — TypeBox 1.x replaces `@sinclair/typebox`
-
-*Landed in **0.6.0**.*
-
-## Why this changed
-
-TypeBox 1.0 moved to a new package, [`typebox`](https://www.npmjs.com/package/typebox), and
-the Fastify ecosystem followed: `@fastify/type-provider-typebox` 6 requires it. Schemas from
-the two packages do not understand each other. TypeBox keeps a schema's kind and its
-`Optional` modifier in hidden markers, and the two versions spell them differently (0.x uses
-symbols, 1.x uses `~kind` / `~optional` keys). A schema from one version placed inside an
-object built by the other loses its `Optional`: the field silently becomes required. Before
-this change, a consumer on the type provider was the one hitting it.
-
-## What changed
-
-- `Type` and `Static`, re-exported by `fastify-auto-sqlapi`, come from `typebox` 1.x.
-- `@sinclair/typebox` is no longer a dependency.
-- The JSON Schema sent to Fastify, Ajv and Swagger is unchanged: validation, serialization,
-  error shapes and the OpenAPI document are the same.
-
-## Who is affected
-
-- **Code that imports `Type` from `fastify-auto-sqlapi`** (the generated schema files,
-  `defineTable()` configs written as documented): nothing to do at runtime. TypeScript code
-  that names TypeBox types (`TSchema`, `TObject`, …) from `@sinclair/typebox` must import them
-  from `typebox` instead.
-- **Code that builds schemas with `@sinclair/typebox` directly** and passes them to this
-  package (`schemaOverrides`, computed fields, extra filters, hand-written schema files from
-  generator versions before February 2026): `Type.Optional` fields become required, which
-  turns into `400 required` on requests that omit them.
-
-## Migration
-
-- Import `Type` from `fastify-auto-sqlapi`, or install `typebox` (1.x) and replace
-  `'@sinclair/typebox'` with `'typebox'` in your imports. Any `typebox` 1.x copy works.
-- Re-running `npx sqlapi-generate-schema` regenerates schema files with the right import.
-- Search for leftovers: `grep -rn "@sinclair/typebox" src/`.
-
-# Breaking Change — API cleanup ahead of 1.0
-
-*Landed in **0.6.0**.*
-
-## Why this changed
-
-A sweep of the public surface for what 1.0 should not carry: an export that was already
-deprecated and wrong on one dialect, a hook parameter that never received a value, and names
-that broke the glossary. 0.6.0 was not yet published when the renames were made, so they are
-made outright rather than through a deprecation cycle: one migration instead of two.
-
-## What changed
-
-### Removed
-
-- **`escapeIdent`.** It doubled `"` and nothing else: a Postgres-only escape that produced wrong
-  identifiers on MySQL, and that left the quoting to the caller.
-- **The fourth parameter of `beforeUpdate`** (`secondaryFieldsFetcher?: unknown`). The engine
-  always called the hook with three arguments, so the parameter was `undefined` every time.
-- **`SearchTableQueryString`.** A constant built at the default cap: it described the wrong
-  `itemsPerPage` maximum whenever the plugin was configured with another `maxItemsPerPage`.
-
-### Renamed
-
-| Before | After | Notes |
-|---|---|---|
-| `excludeFromCreation` | `insertExclude` | Same behaviour. `defineTable` refuses the old key with a message naming the new one. |
-| `ITable` (type) | `TableConfig` | The same type under the glossary's name. |
-
-## Who is affected
-
-- Code calling `escapeIdent`.
-- TypeScript code whose `beforeUpdate` declares a fourth parameter as required. An optional
-  one still compiles, and was always `undefined`.
-- Every table config using `excludeFromCreation` — in practice every generated table with an
-  auto-increment primary key. TypeScript reports the unknown key on an object literal passed
-  to `defineTable` or typed as `TableConfig`/`DbTables`, and `defineTable` refuses it at
-  startup. A plain JavaScript object that skips `defineTable` would have the key silently
-  ignored: wrap it in `defineTable`, or check it by hand with the `grep` below.
-- Code importing `ITable` or `SearchTableQueryString`: a compile error, or an import error
-  when the module loads.
-
-## Migration
-
-- `` `"${escapeIdent(name)}"` `` → `db.qi(name)` on the `QueryClient` the hook receives. It quotes
-  for the right dialect (`"…"` on PostgreSQL, `` `…` `` on MySQL/MariaDB).
-- Drop the fourth parameter from `beforeUpdate`.
-- `excludeFromCreation:` → `insertExclude:` in every table config (find them with
-  `grep -rn excludeFromCreation src/`). The table generator writes the new name for new
-  tables; existing files are never overwritten, so rename by hand or with
-  `sed -i 's/excludeFromCreation/insertExclude/g'` on the table files.
-- `ITable` → `TableConfig` in type annotations.
-- `SearchTableQueryString` → `SearchTableQuery(maxItemsPerPage)` with the cap the plugin is
-  configured with.
-
----
-
-# Breaking Change — a relation over a table exposed under several keys names its `target`
-
-*Landed in **0.7.0** (unreleased).*
-
-## Why this changed
-
-A relation is declared against a Schema, while `dbTables` is keyed by route name, and one
-physical table may sit under several keys, each with its own `readExclude`, `tenantScope`,
-hooks and computed fields. Those rules follow a join (ADR 0010), so the engine has to pick the
-config that governs the joined table. It picked the first key whose Schema matched, and the
-generated search schemas used a different lookup, `dbTables[Schema.tableName]`, which found
-nothing when the key was not the table name. Two lookups for the same decision, one of them
-order-dependent and the other wrong for a documented configuration.
-
-There is now one rule, `resolveJoinTableConf`, shared by the schemas and every engine path:
-
-- one key over the joined table → that config, whatever the key is called;
-- several keys → the relation must name one with `target`;
-- no key → no config, as before.
-
-## What changed
-
-- `buildRelation(..., { target: '<dbTables key>' })` is new. The key must exist and must be a
-  config over the joined table.
-- A relation over a table that `dbTables` exposes under several keys, without `target`, is a
-  startup error. The message names the host table, the relation alias and the candidate keys.
-- A relation over a table whose only key differs from the table name now applies that key's
-  config. Before, its `readExclude` fields were selected and returned through `joinMultiple`
-  and `joinLeft`, and a filter on them was accepted.
-
-## Who is affected
-
-- Deployments with several `dbTables` entries over one physical table **and** a relation
-  pointing at that table. Startup fails with the list of candidate keys.
-- Deployments with a single key over a joined table, named differently from the table: no
-  change to make, but join responses may lose fields that key's `readExclude` hides. That is
-  the configured behaviour finally applying.
-
-## Migration
-
-For each failing relation, add the key whose rules the join should run under:
-
-```ts
-allowedReadJoins: [
-  buildRelation(SchemaChat, 'id', SchemaMessage, 'conversationId', {
-    alias: 'messages',
-    target: 'msgPublic', // the dbTables key, not the table name
-  }),
-],
-```
-
-Pick the key the way you would pick a route for the same caller: the one whose `readExclude`
-and `tenantScope` the host's readers are meant to see.
-
----
-
-# Breaking Change — admin is declared with `TENANT_ADMIN`, an absent tenant is 401
-
-*Landed in **0.7.0** (unreleased).*
-
-## Why this changed
-
-`getTenantId` returning `null` or `undefined` meant "admin, no filter". The tenant identity
-comes from the request — `req.user`, set by the consumer's own auth hook — so every way that
-hook can fail produced the same value: hook not registered, registered after the plugin,
-throwing before it set the user, a JWT without the claim, a typo in the property name. Each of
-them was served as a superadmin, silently, with full cross-tenant access. The option's own
-documentation told consumers to throw on a missing principal; a default that needs a warning
-is the wrong default. Nothing in the plugin failed closed.
-
-## What changed
-
-- `getTenantId` declares unrestricted access by returning the exported `TENANT_ADMIN`
-  sentinel (a registry symbol: no tenant id can collide with it, two copies of the package
-  agree on it).
-- `null`/`undefined` is refused with `401 Unauthorized`, before any SQL, on every request that
-  reaches a table with a `tenantScope` — directly, through a join or through a secondary.
-- Unchanged: `[]` is 403 (a caller with no tenant); tables with no scope in reach never call
-  `getTenantId`, so an anonymous request still reads them (ADR 0002); `sqlApi.*` called without
-  a request runs with no tenant, as documented.
-
-## Who is affected
-
-- Every deployment with `tenantScope` on at least one table. Code returning `null` for the
-  admin, including the `req.user?.x ?? null` pattern from older docs, now answers 401 to the
-  admin and to anonymous callers alike until it returns `TENANT_ADMIN` for the former.
-- TypeScript: the return type of `getTenantId` is `TenantResolution` (`TenantId | TenantId[] |
-  TenantAdmin | null | undefined`); returning `null` still compiles, it is a runtime 401.
-
-## Migration
+`getTenantId` returning `null` or `undefined` meant "no filter": an auth hook that did not run,
+a missing claim or a typo served the request as a superadmin. It is now a 401 on every table
+with a `tenantScope` in reach, before any SQL. Unrestricted access is returned explicitly:
 
 ```ts
 import { TENANT_ADMIN } from 'fastify-auto-sqlapi';
@@ -1092,45 +57,67 @@ getTenantId: (req) => (req.user?.isSuperadmin ? null : req.user?.organizationId 
 getTenantId: (req) => (req.user?.isSuperadmin ? TENANT_ADMIN : req.user?.organizationId),
 ```
 
-Find the sites with `grep -rn "getTenantId" src/`. A test or script that used `null` as the
-admin bypass needs the same change.
+`[]` is still a 403, and a table with no scope in reach never calls `getTenantId`.
 
----
+### One registration owns `app.sqlApi`; a second one passes `decorate: false`
 
-# Breaking Change — a write runs in a transaction or not at all
+A second registration in the same scope (another prefix, another surface), or one over a
+`sqlApi` the application decorated itself, fails at startup.
 
-*Landed in **0.7.0** (unreleased).*
+```ts
+await app.register(fastifyAutoSqlApi, { dbTables, prefix: '/admin' });              // owns app.sqlApi
+await app.register(fastifyAutoSqlApi, { dbTables: publicTables, prefix: '/public', decorate: false });
+```
 
-## Why this changed
+### The plugin is the one way to mount the routes; `operations` narrows a registration
 
-`QueryClient.withTransaction` degraded: when the `Queryable` had no `connect()`, it ran its
-callback directly, with no BEGIN and no ROLLBACK. Every insert and update goes through it, so
-a custom adapter without `connect()` wrote the main row, the secondaries, the deletions and
-ran the after-hooks as separate autocommitted statements — while the docs promised atomicity
-and "throw in `afterUpdate` = rollback". Nothing reported the loss. See ADR 0023.
+The route plugins (`searchRoutes`, `getRoutes`, `insertRoutes`, `updateRoutes`, `deleteRoutes`,
+`bulkUpsertRoutes`, `bulkDeleteRoutes`, `agentManifestRoutes`) and `setupSwagger` are no longer
+exported. A narrower surface is a registration of the plugin with `operations`, intersected
+with each table's own:
 
-## What changed
+```ts
+// before
+await app.register(async (instance) => {
+  await setupSwagger(instance, { swagger: true });
+  const opts = { DbTables: publicTables };
+  await instance.register(searchRoutes, opts);
+  await instance.register(getRoutes, opts);
+  await instance.register(agentManifestRoutes, opts);
+}, { prefix: '/public' });
 
-- `withTransaction` throws when the `Queryable` has no `connect()`, before running anything:
-  `Transactions are unavailable: the Queryable has no connect() …`. Over HTTP that is a 500 on
-  the first insert or update; `sqlApi.insert`/`update` reject.
-- A nested `withTransaction` still joins the outer transaction.
-- The plugin logs a warning once when the database client it was given cannot do
-  transactions. Reads keep working: they never open one.
-- `QueryClient.supportsTransactions` tells whether a client can.
+// after
+await app.register(fastifyAutoSqlApi, {
+  dbTables: publicTables, prefix: '/public', decorate: false,
+  operations: ['search', 'get'],
+  swagger: true, agentManifest: true,
+});
+```
 
-## Who is affected
+A composite-PK table is skipped for `get`/`delete`/`bulkDelete` named here, not refused. The
+agent manifest of a registration lists its narrowed operations, and
+`agentToolSchemas(dbTables, table, { operations })` takes the same option.
 
-- Deployments or scripts feeding the plugin, `createSqlApi` or `createQueryClient` a custom
-  `Queryable` without `connect()`, and writing through it. The built-in `pgQueryable(pool)`
-  and `mysqlQueryable(pool)` provide `connect()`; a `fastify.pg` from `@fastify/postgres` and a
-  `mysql2/promise` pool are fine.
-- Test doubles for the database used to exercise inserts or updates.
+A consumer `setErrorHandler` never receives a route error: the plugin's own handler answers
+first. To answer a driver error with a status, list its code in `dbErrors` (new in 1.0, ADR
+0024): `dbErrors: { '23505': { status: 409, code: 'duplicate' } }`.
 
-## Migration
+### `createSqlApi`: the QueryClient carries the dialect
 
-Give the adapter a `connect()` that checks out a dedicated connection and returns a
-`TransactionQueryable` (`query` plus `release`):
+```ts
+createSqlApi(createQueryClient(pool, 'mysql'), dbTables);   // the QueryClient's dialect
+createSqlApi(mysqlQueryable(pool), dbTables, { dialect: 'mysql' }); // a raw pool: the option
+createSqlApi(pgPool, dbTables);                              // a raw pool without it: postgres
+```
+
+A `dialect` option next to a QueryClient throws a `TypeError`, even when it agrees: drop it.
+
+### A write runs in a transaction or not at all
+
+Inserts and updates run in a transaction, and a `Queryable` without `connect()` can no longer
+open one: the write throws before running anything (ADR 0023). The built-in `pgQueryable(pool)`
+and `mysqlQueryable(pool)`, a `fastify.pg` from `@fastify/postgres` and a `mysql2/promise` pool
+all have it. A custom adapter needs a `connect()` returning `{ query, release }`:
 
 ```ts
 const queryable: Queryable = {
@@ -1142,28 +129,116 @@ const queryable: Queryable = {
 };
 ```
 
-A read-only surface over an adapter without `connect()` needs no change: register
-`searchRoutes` and `getRoutes` only, and the warning is the only effect.
+Reads never open a transaction; the plugin logs a warning once when its client cannot.
 
 ---
 
-# Breaking Change — hooks and validators receive one context object
+## 2. Table configuration
 
-*Landed in **0.7.0** (unreleased).*
+### `defineTable` takes one flat object; `exportTableInfo` is gone
 
-## Why this changed
+```ts
+// before
+defineTable({
+  primary: 'id',
+  ...exportTableInfo(SchemaCustomer, { q: Type.String() }, (condition, filters) => { /* … */ }),
+});
 
-Every hook took positional parameters, `(db, req, record, secondaryRecords, deletionRecords)`,
-so every piece of information added later was a new trailing parameter — a breaking change
-each time, and a fourth parameter nobody received survived in `beforeUpdate` until 0.6.0.
-`req` was typed `ApiRequest` while `sqlApi.*` called without a request handed `undefined`
-(the engines cast it away): a hook reading `req.user` compiled and crashed. The names were not
-the glossary's either (`secondaryRecords`, `deletionRecords`, `deletedIds`).
+// after
+defineTable({
+  primary: 'id',
+  schema: SchemaCustomer,
+  extraFilters: { q: Type.String() },          // or a Type.Object, as before
+  extendedCondition: (condition, filters) => { /* … */ },
+});
+```
 
-## What changed
+- `...exportTableInfo(S)` → `schema: S`; `(S, EF)` → `schema: S, extraFilters: EF`;
+  `(S, EF, fn)` → `schema: S, extraFilters: EF, extendedCondition: fn`.
+- The table config carries `schema`, not `Schema`, and has no `filters` function:
+  `tableConf.Schema` → `tableConf.schema`.
+- Tables generated by `sqlapi-generate-tables` before 1.0 use the spread: edit them as above.
 
-One object per hook. `db` is the client the operation runs on (the transaction's, inside a
-write); `req` is `ApiRequest | undefined`; the data carries the glossary's names.
+### `readJoins` and `writeJoins`
+
+```ts
+// before
+allowedReadJoins: [buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
+allowedWriteJoins: [buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
+// after
+readJoins: [buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
+writeJoins: [buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
+```
+
+A plain rename; the semantics do not change.
+
+### `upsertKey` replaces `upsertMap`
+
+The key of the main rows sits on the table; the key of the secondaries on the write relation
+that writes them. `buildUpsertRule` and `buildUpsertRules` are gone.
+
+```ts
+// before
+defineTable({
+  primary: 'id', ...exportTableInfo(SchemaProduct),
+  allowedWriteJoins: [buildRelation(SchemaProduct, 'id', SchemaTranslation, 'productId', { alias: 'translations' })],
+  upsertMap: buildUpsertRules(
+    buildUpsertRule(SchemaProduct, ['sku']),
+    buildUpsertRule(SchemaTranslation, ['productId', 'lang']),
+  ),
+});
+
+// after
+defineTable({
+  primary: 'id', schema: SchemaProduct,
+  upsertKey: ['sku'],
+  writeJoins: [
+    buildRelation(SchemaProduct, 'id', SchemaTranslation, 'productId', { alias: 'translations', upsertKey: ['productId', 'lang'] }),
+  ],
+});
+```
+
+The key is still checked at startup against the primary key and `uniqueKeys` of the schema
+(ADR 0021). An `upsertKey` on a relation in `readJoins` throws: build a separate relation for
+the read side when the same one was listed in both.
+
+### `defaultOrder` has the grammar of `orderBy`
+
+`field [ASC|DESC]`, comma separated, each a schema field or a computed field, checked by
+`defineTable`. Nothing reaches the SQL as written any more.
+
+```ts
+// before: an unknown token reached the SQL as written
+defaultOrder: 'created_at DESC'      // a DB column name
+defaultOrder: 'LOWER(name), id'      // an SQL expression
+// after
+defaultOrder: 'createdAt DESC'
+defaultOrder: 'nameLower, id'        // computedFields: { nameLower: ({ qiCol }) => ({ expr: `LOWER(${qiCol('name')})`, values: [], type: Type.String() }) }
+```
+
+A dotted notation (`alias.field`) is refused: the default applies to requests without joins.
+
+### `buildRelation`: `select`, and `target` when a table sits under several keys
+
+- `selection` is `select`, an array only: `{ selection: 'id, total' }` → `{ select: ['id', 'total'] }`.
+  Each name is checked against the joined schema at startup.
+- A relation over a table that `dbTables` exposes under several keys must name the one whose
+  rules apply, or startup fails listing the candidates:
+
+```ts
+readJoins: [
+  buildRelation(SchemaChat, 'id', SchemaMessage, 'conversationId', { alias: 'messages', target: 'msgPublic' }),
+],
+```
+
+---
+
+## 3. Hooks and validators
+
+### One context object
+
+Every hook and validator receives `{ db, req, ...data }` instead of positional parameters.
+`req` is `ApiRequest | undefined`: `undefined` when reached through `sqlApi.*` without a request.
 
 | Hook | Before | After |
 |---|---|---|
@@ -1177,99 +252,54 @@ write); `req` is `ApiRequest | undefined`; the data carries the glossary's names
 | `beforeBulkDelete` | `(db, req, ids)` | `({ db, req, ids })` |
 | `afterBulkDelete` | `(db, req, deletedIds)` | `({ db, req, ids })` |
 
-Behaviour is unchanged: the same hooks run at the same points with the same data.
-
-## Who is affected
-
-Every table config declaring a hook or a validator. TypeScript reports the arity mismatch on
-each one; a plain JavaScript hook keeps compiling and receives the context object as its first
-parameter, with `record`/`main`/… `undefined` — so migrate before upgrading, or the hook
-silently does nothing.
-
-## Migration
-
-Destructure what the hook used:
-
 ```ts
 // before
 beforeInsert: async (db, req, record) => { record.createdBy = req.user.id; },
-afterUpdate: async (db, req, record, secondaryRecords, deletionRecords) => { … },
-afterRead: async (db, req, rows, ctx) => { … ctx.source … },
-afterBulkDelete: async (db, req, deletedIds) => { … },
 // after
 beforeInsert: async ({ req, record }) => { record.createdBy = req?.user.id; },
-afterUpdate: async ({ db, req, record, secondaries, deletions }) => { … },
-afterRead: async ({ rows, source }) => { … },
-afterBulkDelete: async ({ ids }) => { … },
 ```
 
-`req` may be `undefined` for a hook reached through `sqlApi.*` without a request: guard the
-access, or pass the request. Find the sites with
+A plain JavaScript hook keeps loading and receives the context as its first parameter, with
+`record`, `main`… undefined: migrate the hooks before upgrading. Find them with
 `grep -rnE "(before|after)(Insert|Update|Read|Delete|BulkDelete)|validate(Bulk)?:" src/`.
 
-# Breaking Change — `app.sqlApi` belongs to one registration, a second one passes `decorate: false`
-
-*Landing in the release after 0.6.0.*
-
-## Why this changed
-
-`app.sqlApi` was set by whichever registration of the plugin came first, and every later one
-skipped it silently. With the plugin registered under two prefixes — an admin surface and a
-public one, say — application code calling `app.sqlApi` got the first registration's tables,
-tenant resolver and rules, and nothing said which. The routes of each registration now run
-with their own configuration (fixed separately); the decorator, which application code reads,
-had to stop being a silent pick.
-
-## What changed
-
-- Registering the plugin in a scope that already has a `sqlApi` decorator — another
-  registration, or one the application set itself — fails at startup, naming the fix.
-- New option `decorate` (default `true`). `decorate: false` registers the routes and leaves
-  `app.sqlApi` alone. `createSqlApi()` gives application code another instance when it needs
-  one with that registration's configuration.
-- Granular route plugins (`searchRoutes`, `getRoutes`, …) no longer decorate anything. The
-  decorator they set lived in their own encapsulated scope, where no application route could
-  read it.
-
-## Who is affected
-
-Applications registering `fastifyAutoSqlApi` more than once in the same scope, or decorating
-their own `sqlApi` before registering it. A single registration is unaffected.
-
-## Migration
+### `validate` returns `{ path, code }` objects
 
 ```ts
-await app.register(fastifyAutoSqlApi, { DbTables: dbTables, prefix: '/admin' }); // owns app.sqlApi
-await app.register(fastifyAutoSqlApi, { DbTables: publicTables, prefix: '/public', decorate: false });
+// before
+validate: async (db, req, main) => {
+  const errors: ValidationError[] = [];
+  if (!main.email) errors.push(['main.email', 'required']);
+  if (main.age < 18) errors.push(['main.age', 'too_young', 'Must be an adult']);
+  return errors;
+}
+// after
+validate: async ({ main }) => {
+  const errors: Pick<ValidationField, 'path' | 'code'>[] = [];
+  if (!main.email) errors.push({ path: 'main.email', code: 'required' });
+  if (main.age < 18) errors.push({ path: 'main.age', code: 'too_young' });
+  return errors;
+}
 ```
 
-# Breaking Change — `sqlApi.insert` / `sqlApi.update` take `main`, as the HTTP body does
+- The objects become the `fields` of the 400; their `message` is the code. A hook writes no
+  user-facing text: move it to the client, keyed by the code.
+- A tuple, an object with a `message`, or a result that is not an array is a programming
+  error (a 500 naming the hook and the entry), and nothing is written.
+- `ValidationError` is no longer exported. The same applies to `validateBulk`, whose paths
+  start with `items.<i>`; when it is declared, `validate` does not run in a bulk upsert
+  (ADR 0025).
 
-*Landing in the release after 0.6.0.*
+### `ctx.db`: `upsert` and `bulkUpsert`
 
-## Why this changed
+See [the QueryClient](#the-queryclient-upsert-and-bulkupsert) below: a hook calling
+`insertOrUpdate` or `bulkInsertOrUpdate` on `db` needs the rename.
 
-The same row had two names: `main` in the body of `POST`/`PUT /rest/:table` and in `validate`,
-`record` in `sqlApi.insert`/`update`. Code written against the HTTP contract failed on the
-programmatic one, and a custom route could not forward a request body without rebuilding it.
+---
 
-## What changed
+## 4. `sqlApi`, the QueryClient and the imports
 
-| | Before | After |
-|---|---|---|
-| `sqlApi.insert` | `{ record, secondaries? }` | `{ main, secondaries? }` |
-| `sqlApi.update` | `{ record, secondaries?, deletions? }` | `{ main, secondaries?, deletions? }` |
-
-A call still sending `record` (plain JavaScript, or a cast) throws a `TypeError` naming the key
-before any SQL runs. Hooks are unchanged: `beforeInsert`, `beforeUpdate`, `afterInsert` and
-`afterUpdate` still receive `record`, the one row of their table being written, which may be
-a secondary of another table's request.
-
-## Who is affected
-
-Application code calling `sqlApi.insert` or `sqlApi.update`. HTTP clients and hooks are not.
-
-## Migration
+### `sqlApi.insert` / `sqlApi.update` take the HTTP body
 
 ```ts
 // before
@@ -1279,203 +309,85 @@ await app.sqlApi.insert('customer', { main: { name: 'Mario' } }, req);
 await app.sqlApi.insert('customer', req.body, req); // a body for POST /rest/customer, as is
 ```
 
-Find the sites with `grep -rnE "sqlApi\.(insert|update)\(" src/`; TypeScript reports each one.
+`record` throws a `TypeError` naming `main`. Hooks keep `record`.
 
-# Breaking Change — a bulk delete takes `{ ids: [...] }`
-
-*Landing in the release after 0.6.0.*
-
-## Why this changed
-
-The ids of a bulk delete had three shapes: an array of `{ <pk field>: value }` objects in the
-HTTP body, a bare array in `sqlApi.bulkDelete`, `{ ids }` in the hooks. A client had to know
-each table's primary key name just to delete, and a custom route could not hand a request body
-to `sqlApi.bulkDelete`.
-
-## What changed
-
-| | Before | After |
-|---|---|---|
-| `POST /bulk/:table/delete` body | `[{ "id": 1 }, { "id": 2 }]` | `{ "ids": [1, 2] }` |
-| `sqlApi.bulkDelete` | `bulkDelete(table, [1, 2], req)` | `bulkDelete(table, { ids: [1, 2] }, req)` |
-| `beforeBulkDelete` / `afterBulkDelete` | `{ ids }` | unchanged |
-| Response | `[{ main: { id: 1 } }, …]`, rows actually deleted | unchanged |
-
-The ids are typed as the primary key field (an integer PK refuses `"abc"` at `ids.<i>`), and
-`maxBulkItems` caps their number. The old array body is a 400 before any SQL; a bare array
-passed to `sqlApi.bulkDelete` throws a `TypeError` naming `ids`.
-
-## Who is affected
-
-HTTP clients of the bulk delete route, and application code calling `sqlApi.bulkDelete`.
-
-## Migration
-
-```js
-// before
-fetch('/api/bulk/agent/delete', { method: 'POST', body: JSON.stringify([{ agentId: 7 }, { agentId: 8 }]) });
-await app.sqlApi.bulkDelete('agent', [7, 8], req);
-// after
-fetch('/api/bulk/agent/delete', { method: 'POST', body: JSON.stringify({ ids: [7, 8] }) });
-await app.sqlApi.bulkDelete('agent', { ids: [7, 8] }, req);
-```
-
-# Breaking Change — `joinGroup` has one request and one response shape
-
-*Landing in the release after 0.6.0.*
-
-## Why this changed
-
-The response changed shape with `by`: `{ sum: { total } }` without it, `rows: [{ by, sum_total }]`
-with it — and `sum_total` was snake_case in a camelCase API, unlike the `alias.sum.total` a
-client writes in `orderBy`. The request wrapped the functions in an `aggregations` object
-nothing else used.
-
-## What changed
-
-```jsonc
-// request — before
-"joinGroup": { "orders": { "aggregations": { "by": "status", "sum": ["total"] }, "filters": { … } } }
-// request — after
-"joinGroup": { "orders": { "by": "status", "sum": ["total"], "filters": { … } } }
-
-// response without by — before / after
-"joinGroup": { "orders": { "sum": { "total": 150 } } }
-"joinGroup": { "orders": { "rows": [{ "sum": { "total": 150 } }] } }
-
-// response with by — before / after
-"joinGroup": { "orders": { "rows": [{ "by": "pending", "sum_total": 100 }] } }
-"joinGroup": { "orders": { "rows": [{ "by": "pending", "sum": { "total": 100 } }] } }
-```
-
-- No main rows: `{ rows: [] }` instead of `{}`.
-- The `aggregations` wrapper is a 400 (`invalid_aggregation` at `joinGroup.<alias>.aggregations`),
-  not an empty result. A joinGroup with no aggregate function is a 400 at `joinGroup.<alias>`.
-- Error paths lose the `aggregations` segment: `joinGroup.<alias>.by`, `joinGroup.<alias>.sum.0`.
-- `orderBy` and conditions on `alias.fn.field` are unchanged.
-
-## Who is affected
-
-Clients sending `joinGroup` and reading `result.joinGroup`, and `sqlApi.search` callers doing
-the same. Type `JoinGroupRequest` now extends `AggregationRequest` instead of wrapping it.
-
-## Migration
-
-Move the content of `aggregations` up one level. Read every result from `rows`: without `by`,
-`result.joinGroup.orders.sum.total` becomes `result.joinGroup.orders.rows[0].sum.total`; with
-`by`, `row.sum_total` becomes `row.sum.total`.
-
-# Breaking Change — `compute` answers in `computed`, with or without a paginator
-
-*Landing in the release after 0.6.0.*
-
-## Why this changed
-
-`compute` aggregates over every row a search matches, which has nothing to do with paging, yet
-its result sat inside `pagination` and it was dropped silently when no paginator was sent. It
-also offered four functions where joinGroup offers six.
-
-## What changed
-
-```jsonc
-// request: paginator optional now; count and distinctCount added
-{ "filters": { "status": "paid" }, "compute": { "sum": ["total"], "count": ["id"] } }
-
-// response — before
-{ "main": […], "pagination": { "total": 25, "pages": 3, "computed": { "sum": { "total": 999 } }, "paginator": {…} } }
-// response — after
-{ "main": […], "computed": { "sum": { "total": 999 }, "count": { "id": 25 } } }
-```
-
-- `computed` is present whenever `compute` is sent, and covers every matching row, never the page.
-- `pagination` keeps `total`, `pages` and `paginator`, and is present only with a paginator, as before.
-
-## Who is affected
-
-Clients and `sqlApi.search` callers reading `pagination.computed`.
-
-## Migration
-
-Read `result.computed` instead of `result.pagination.computed`. A request that paginated only
-to get `computed` can drop the paginator.
-
-# Breaking Change — one word for the projection: `select`
-
-*Landing in the release after 0.6.0.*
-
-## Why this changed
-
-The same idea — which fields to return — had three names: `select` for the main schema fields,
-`selectComputed` for the main computed fields, and `selection` (an array or a comma-separated
-string) on a join reference and in `buildRelation`. Everywhere else (`filters`, `conditions`,
-`orderBy`) computed fields and columns already share one word, and their names cannot collide.
-
-## What changed
-
-```jsonc
-// before
-{
-  "select": ["id", "name"],
-  "selectComputed": ["displayName"],
-  "joinMultiple": { "orders": { "selection": "id,total" } },
-  "joinLeft": { "creator": { "selection": ["id", "name"] } }
-}
-// after
-{
-  "select": ["id", "name", "displayName"],
-  "joinMultiple": { "orders": { "select": ["id", "total"] } },
-  "joinLeft": { "creator": { "select": ["id", "name"] } }
-}
-```
+### `sqlApi.bulkDelete` takes `{ ids }`
 
 ```ts
 // before
-buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { selection: 'id, total' });
+await app.sqlApi.bulkDelete('agent', [7, 8], req);
 // after
-buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { select: ['id', 'total'] });
+await app.sqlApi.bulkDelete('agent', { ids: [7, 8] }, req);
 ```
 
-- `select` lists schema fields and computed fields alike. Without it, every readable schema
-  field is returned and no computed field, as before.
-- There is no "every column plus one computed field" any more: `selectComputed` alone used to
-  mean that. List the columns you need next to the computed field.
-- A join's `select` and `buildRelation`'s `select` are arrays; the comma-separated string is gone.
-  `buildRelation` checks each name against the joined schema at startup.
-- Error paths follow: `select.<i>` for a computed field too, `joinMultiple.<alias>.select.<i>`.
-- `selectComputed` and a join's `selection` are a 400 with code `retired_key` at that key, not
-  silently ignored. `buildRelation({ selection })` throws at startup.
-- `JoinDefinition.selection: string` (default `'*'`) becomes `JoinDefinition.select?: string[]`
-  (absent: every readable field); `JoinFetchRequest.selection` becomes `select`.
+### `sqlApi.search` takes the HTTP search body
 
-## Who is affected
+The search changes of [section 5](#5-http-clients) apply to `sqlApi.search` as well: `select`
+instead of `selectComputed`, `compute` instead of `computeMin|Max|Sum|Avg`, the `joinGroup`
+request and result shapes, `result.computed`. The one-field keys throw a 400 `retired_key`:
 
-Clients and `sqlApi.search` callers sending `selectComputed` or a join `selection`; backends
-passing `selection` to `buildRelation`; code reading `JoinDefinition.selection`.
-
-## Migration
-
-- `selectComputed: [c]` → `select: [...the columns you read, c]`.
-- `selection: 'a,b'` or `selection: ['a', 'b']` → `select: ['a', 'b']`, in requests and in
-  `buildRelation`.
-
-# Breaking Change — the search request travels in the body only
-
-*Landing in the release after 0.6.0.*
-
-## Why this changed
-
-`orderBy`, the paginator and the aggregates could arrive in the querystring or in the body, so
-one request had two spellings, a 400 for sending a key in both, and a second set of one-field
-keys (`computeMin|Max|Sum|Avg`) that `sqlApi.search()` kept accepting next to `compute`.
-
-## What changed
-
+```ts
+// before
+await app.sqlApi.search('order', { computeSum: 'total' });
+// after
+await app.sqlApi.search('order', { compute: { sum: ['total'] } });
 ```
+
+### A table `sqlApi` does not know is a programming error
+
+`sqlApi.search('custmer', …)` throws a plain `Error` naming the known tables; it was a 400
+`unknown_table`. `createSqlApi` infers the table names from `dbTables`, so a misspelled one
+fails at compile time.
+
+### The QueryClient: `upsert` and `bulkUpsert`
+
+```ts
+// before
+db.insertOrUpdate(table, record, keys, pk)                       // → pk
+db.insertOrUpdateWithAction(table, record, keys, pk)             // → { pk, action }
+db.bulkInsertOrUpdate(table, records, keys, pk, 500, ['org_id']) // → pk[]
+db.bulkInsertOrUpdateWithAction(table, records, keys, pk)        // → { pk, action }[]
+// after
+db.upsert(table, record, keys, pk)                                                     // → { pk, action }
+db.bulkUpsert(table, records, keys, pk, { chunkSize: 500, immutableCols: ['org_id'] }) // → { pk, action }[]
+```
+
+- Where the PK was read: `(await db.upsert(…)).pk`, `(await db.bulkUpsert(…)).map((r) => r.pk)`.
+- A positional chunk size or immutable column list throws a `TypeError`.
+- A `Date` is a value now; a JSON object is not (`JSON.stringify` it: the drivers do not).
+
+### Imports
+
+Gone from the package entry, with what replaces them:
+
+| Removed | Use instead |
+|---|---|
+| `exportTableInfo`, `TableFilterFn` | `defineTable({ schema, extraFilters, extendedCondition })`; type `TableDefinition` |
+| `buildUpsertRule`, `buildUpsertRules` | `upsertKey` on the table and on `buildRelation` |
+| `searchRoutes`, `getRoutes`, `insertRoutes`, `updateRoutes`, `deleteRoutes`, `bulkUpsertRoutes`, `bulkDeleteRoutes`, `agentManifestRoutes`, `setupSwagger` | the plugin, with `operations`, `swagger`, `agentManifest` |
+| `searchEngine`, `getEngine`, `insertEngine`, `updateEngine`, `deleteEngine`, `bulkUpsertEngine`, `bulkDeleteEngine` | `createSqlApi(db, dbTables).<operation>(table, …)` |
+| `SearchTableBodyPost`, `InsertTableBody`, `UpdateTableBody`, `BulkUpsertTableBody`, `BulkDeleteTableBody` and their `*Response` | `agentToolSchemas(dbTables, table)` for the request schemas |
+| `SearchTableQuery` | — the search has no querystring |
+| `ValidationError` | `Pick<ValidationField, 'path' \| 'code'>` |
+| `toCamelCase`, `toUnderscore`, `toSchemaName`, `camelcaseObject`, `snakecaseRecord` | `Schema.col(field)` for a column name |
+| `getDialect`, `SqlDialect` | the dialect name; `db.dialectName`, `db.cbDialect` |
+| `resolveTenant`, `TenantContext` | `tenantScope` on the table, `getTenantId` on the plugin |
+| `SearchParams`, `GetParams`, `InsertParams`, `UpdateParams`, `DeleteParams`, `BulkUpsertParams`, `BulkDeleteParams` | `SqlApiSearchParams`, `SqlApiInsertParams`, `SqlApiUpdateParams`, `SqlApiBulkDeleteParams` |
+| `ColumnInfo`, `TableMap` | — CLI internals |
+| `SqlApiConfig` | `CliConfig`, every key optional: `export default { … } satisfies CliConfig` |
+
+`test/unit/public-exports.test.js` pins the runtime exports of 1.0.
+
+---
+
+## 5. HTTP clients
+
+### The search request travels in the body only
+
+```jsonc
 // before
 POST /search/orders?orderBy=total+DESC&page=2&itemsPerPage=20&computeSum=total
 { "filters": { "status": "paid" } }
-```
-```jsonc
 // after
 POST /search/orders
 {
@@ -1486,427 +398,104 @@ POST /search/orders
 }
 ```
 
-- The querystring keys `orderBy`, `page`, `itemsPerPage`, `computeMin`, `computeMax`,
-  `computeSum`, `computeAvg` are a 400 with code `retired_key` at that key, not silently
-  ignored. Any other querystring key is left alone, as on every route.
-- `sqlApi.search()` and `searchEngine` reject `computeMin|Max|Sum|Avg` the same way; use
-  `compute: { min: [field] }`.
-- The search route declares no querystring schema; `SearchTableQuery` is no longer exported and
-  `agentToolSchemas(...).search` is `{ body }`.
-- The `conflicting_input` code is gone: there is one place for each key.
-
-## Who is affected
-
-Clients sending any of those keys in the search querystring; `sqlApi.search` callers passing
-`computeMin|Max|Sum|Avg`; code importing `SearchTableQuery` or reading
-`agentToolSchemas(...).search.querystring`.
-
-## Migration
-
-- `?orderBy=x` → `"orderBy": "x"` in the body.
-- `?page=p&itemsPerPage=n` → `"paginator": { "page": p, "itemsPerPage": n }`; `page` alone
-  still defaults `itemsPerPage` to 500 (or `maxItemsPerPage` when lower).
-- `?computeSum=f` (or `computeSum: 'f'` in `sqlApi.search`) → `"compute": { "sum": ["f"] }`.
-
-# Breaking Change — a table config is one flat object, and the plugin option is `dbTables`
-
-## What changed
-
-```ts
-// before
-const DbTables = {
-  customer: defineTable({
-    primary: 'id',
-    ...exportTableInfo(SchemaCustomer, { q: Type.String() }, (condition, filters) => { /* ... */ }),
-  }),
-};
-await app.register(fastifyAutoSqlApi, { DbTables });
-
-// after
-const dbTables = {
-  customer: defineTable({
-    primary: 'id',
-    schema: SchemaCustomer,
-    extraFilters: { q: Type.String() },
-    extendedCondition: (condition, filters) => { /* ... */ },
-  }),
-};
-await app.register(fastifyAutoSqlApi, { dbTables });
-```
-
-- `exportTableInfo` is no longer exported. Its three arguments are three keys of the config:
-  `schema`, `extraFilters` (a record of fields or a `Type.Object`, as before) and
-  `extendedCondition`. Column filters are built from `schema` as they were.
-- The table config carries `schema`, not `Schema`, and has no `filters` function. Code
-  reading `tableConf.Schema` reads `tableConf.schema`.
-- The plugin option `DbTables` is `dbTables`, like every other option. The same key is used
-  by the route plugins (`searchRoutes`, `getRoutes`, ...).
-- Refused at startup, never ignored: `defineTable` with `Schema` or `filters`, or without
-  `schema`, throws naming the new key; so do the plugin, the route plugins and `createSqlApi`
-  for a `dbTables` entry written by hand in the old shape, and the plugin for the `DbTables`
-  option.
-- Types: `TableFilterFn` is gone; `TableDefinition` types what `defineTable` takes. The
-  `DbTables` type keeps its name.
-
-## Who is affected
-
-Every consumer: the table definitions and the `register()` call. Tables generated by
-`sqlapi-generate-tables` before 1.0 use the spread and need the edit below (or a regeneration).
-
-## Migration
-
-- `...exportTableInfo(S)` → `schema: S`
-- `...exportTableInfo(S, EF)` → `schema: S, extraFilters: EF`
-- `...exportTableInfo(S, EF, fn)` → `schema: S, extraFilters: EF, extendedCondition: fn`
-  (drop `extraFilters` when it was `{}`)
-- `register(fastifyAutoSqlApi, { DbTables: x })` → `{ dbTables: x }`; the same in the options
-  passed to the route plugins.
-- `tableConf.Schema` → `tableConf.schema`.
-
-# Breaking Change — the upsert key is `upsertKey`, on the table and on the write relation
-
-## What changed
-
-```ts
-// before
-defineTable({
-  primary: 'id', schema: SchemaProduct,
-  allowedWriteJoins: [buildRelation(SchemaProduct, 'id', SchemaTranslation, 'productId', { alias: 'translations' })],
-  upsertMap: buildUpsertRules(
-    buildUpsertRule(SchemaProduct, ['sku']),
-    buildUpsertRule(SchemaTranslation, ['productId', 'lang']),
-  ),
-});
-
-// after
-defineTable({
-  primary: 'id', schema: SchemaProduct,
-  upsertKey: ['sku'],
-  allowedWriteJoins: [
-    buildRelation(SchemaProduct, 'id', SchemaTranslation, 'productId', { alias: 'translations', upsertKey: ['productId', 'lang'] }),
-  ],
-});
-```
-
-- `upsertKey` on the table: the main row of an insert and every bulk upsert item upsert on it.
-- `upsertKey` on a relation in `allowedWriteJoins`: the secondaries written through it upsert
-  on it. Two relations to the same table can have different keys, and the key no longer
-  depends on which Schema object the relation was built with — `upsertMap` looked rules up by
-  object identity and lost them in silence when the instance differed.
-- The check is unchanged (ADR 0021): exactly the primary key or one of the Schema's
-  `uniqueKeys`, at startup. New: an `upsertKey` on a relation in `allowedReadJoins` throws, and
-  `buildRelation` throws on a key naming a field the joined schema lacks.
-- `defineTable` with `upsertMap` throws naming `upsertKey`. `buildUpsertRule` and
-  `buildUpsertRules` are no longer exported.
-
-## Who is affected
-
-Tables declaring `upsertMap`.
-
-## Migration
-
-- A rule on the table's own Schema → `upsertKey: [...]` on the table.
-- A rule on a write-join child's Schema → `upsertKey: [...]` in the options of that relation's
-  `buildRelation` in `allowedWriteJoins`. When the same relation object is also listed in
-  `allowedReadJoins`, build a separate one for the read side.
-
-# Breaking Change — `readJoins` and `writeJoins`
-
-## What changed
-
-```ts
-// before
-defineTable({
-  primary: 'id', schema: SchemaCustomer,
-  allowedReadJoins: [buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
-  allowedWriteJoins: [buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
-});
-
-// after
-defineTable({
-  primary: 'id', schema: SchemaCustomer,
-  readJoins: [buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
-  writeJoins: [buildRelation(SchemaCustomer, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
-});
-```
-
-- The table config's whitelists are named after what they list, as `operations` is:
-  `readJoins` (search) and `writeJoins` (secondaries and deletions). Nothing else changes.
-- `allowedReadJoins` / `allowedWriteJoins` throw at startup naming the new key: in
-  `defineTable`, and in the plugin, the route plugins and `createSqlApi` for a `dbTables` entry
-  written by hand.
-
-## Who is affected
-
-Every table declaring relations.
-
-## Migration
-
-- `allowedReadJoins` → `readJoins`, `allowedWriteJoins` → `writeJoins`, a plain rename. The
-  earlier sections of this file show the old names in their examples.
-
-# Breaking Change — `defaultOrder` has the grammar of `orderBy`, never raw SQL
-
-## What changed
-
-```ts
-// before: an unknown token reached the SQL as written
-defaultOrder: 'created_at DESC'      // a DB column name
-defaultOrder: 'LOWER(name), id'      // an SQL expression
-defaultOrder: 'nmae'                 // a typo → a 500 on every search
-
-// after: field [ASC|DESC], comma separated, checked at startup
-defaultOrder: 'createdAt DESC'
-defaultOrder: 'nameLower, id'        // computedFields: { nameLower: ({ qiCol }) => ({ expr: `LOWER(${qiCol('name')})`, values: [], type: Type.String() }) }
-```
-
-- Each term is a schema field or a computed field, with an optional `ASC`/`DESC`: the grammar
-  of a 1-part request `orderBy`. `defineTable` throws on anything else, naming the term — for a
-  DB column name, the field it maps to.
-- The dotted notations (`alias.field`, `alias.fn.field`) stay request-only: the default applies
-  to requests that carry no join.
-- A config written by hand, not through `defineTable`, fails the search with the same message
-  instead of running the token.
-
-## Who is affected
-
-Tables whose `defaultOrder` names DB columns instead of fields, or carries an SQL expression.
-Configs that name fields — what `sqlapi-generate-tables` writes — are unaffected.
-
-## Migration
-
-- A DB column → its camelCase field (`created_at` → `createdAt`).
-- An expression → a computed field, ordered by its name.
-
-# Breaking Change — `createSqlApi` takes the dialect from the QueryClient
-
-## What changed
-
-```ts
-// before: accepted, and the two could disagree
-createSqlApi(createQueryClient(pool, 'mysql'), dbTables, { dialect: 'postgres' });
-
-// after
-createSqlApi(createQueryClient(pool, 'mysql'), dbTables);          // the QueryClient's dialect
-createSqlApi(mysqlPool, dbTables, { dialect: 'mysql' });           // a raw pool: the option
-createSqlApi(pgPool, dbTables);                                    // a raw pool without it: postgres
-```
-
-- With a QueryClient, a `dialect` option throws a TypeError, even when it agrees: the
-  QueryClient is the one source.
-- The global `ConditionBuilder.DIALECT` follows the dialect the SqlApi runs on. Before, only
-  the option set it, so a MySQL QueryClient without the option left it on whatever it was.
-
-## Who is affected
-
-Code passing both a QueryClient and `dialect` to `createSqlApi`.
-
-## Migration
-
-- Drop the `dialect` option when the first argument is a QueryClient.
-
-# Breaking Change — the plugin is the one way to mount the routes
-
-## What changed
-
-```ts
-// before: route plugins assembled by hand
-import { searchRoutes, getRoutes, agentManifestRoutes, setupSwagger } from 'fastify-auto-sqlapi';
-await app.register(async (instance) => {
-  await setupSwagger(instance, { swagger: true });
-  const opts = { dbTables: publicTables };
-  await instance.register(searchRoutes, opts);
-  await instance.register(getRoutes, opts);
-  await instance.register(agentManifestRoutes, opts);
-}, { prefix: '/public' });
-
-// after: a second registration, narrowed
-await app.register(fastifyAutoSqlApi, {
-  dbTables: publicTables, prefix: '/public', decorate: false,
-  operations: ['search', 'get'],
-  swagger: true, agentManifest: true,
-});
-```
-
-- New plugin option `operations`, intersected with each table's own `operations`: a route is
-  registered only when both allow it. Omitted, nothing changes. A composite-PK table is
-  skipped for `get`/`delete`/`bulkDelete` named here, not refused (naming them on the table
-  itself still throws). Not an array, or an unknown operation, fails at register.
-- The agent manifest of a registration lists its intersected operations;
-  `agentToolSchemas(dbTables, table, { operations })` takes the same option.
-- No longer exported:
-  - the route plugins `searchRoutes`, `getRoutes`, `insertRoutes`, `updateRoutes`,
-    `deleteRoutes`, `bulkUpsertRoutes`, `bulkDeleteRoutes`, `agentManifestRoutes`, and
-    `setupSwagger`;
-  - the engines `searchEngine`, `getEngine`, `insertEngine`, `updateEngine`, `deleteEngine`,
-    `bulkUpsertEngine`, `bulkDeleteEngine` — `sqlApi.*` is the programmatic API;
-  - the schema builders `SearchTableBodyPost`, `SearchTableResponse`, `InsertTableBody`,
-    `InsertTableResponse`, `UpdateTableBody`, `UpdateTableResponse`, `BulkUpsertTableBody`,
-    `BulkUpsertTableResponse`, `BulkDeleteTableBody`, `BulkDeleteTableResponse` —
-    `agentToolSchemas` gives the request schemas of a table.
-- A consumer `setErrorHandler` never sees a route error: the plugin's own handler answers
-  first. The driver error behind a sanitized 500 is in the log, under the `requestId` the
-  response carries; a status for a driver code is `dbErrors`.
-
-## Who is affected
-
-Code that registers route plugins one by one, calls the engines directly, or builds the
-route schemas; a consumer `setErrorHandler` that relied on receiving the route errors of a
-route plugin registered alone.
-
-## Migration
-
-- Route plugins assembled by hand → one more `register(fastifyAutoSqlApi, { …, operations,
-  prefix, decorate: false })`; `setupSwagger` → `swagger: true`; `agentManifestRoutes` →
-  `agentManifest: true`.
-- `xxxEngine({ db, tableConf, … })` → `createSqlApi(db, dbTables).xxx(table, …)`.
-- `SearchTableBodyPost(dbTables, table)` and the other builders → `agentToolSchemas(dbTables,
-  table).search.body` (and `.insert`, `.update`, `.bulkUpsert`, `.bulkDelete`).
-- Error policy in a consumer `setErrorHandler` → `dbErrors` for driver codes; `httpError` from
-  a hook for your own.
-
-# Breaking Change — `validate` returns `{ path, code }` objects
-
-## What changed
-
-```ts
-// before
-validate: async ({ main }) => {
-  const errors: ValidationError[] = [];
-  if (!main.email) errors.push(['main.email', 'required']);
-  if (main.age < 18) errors.push(['main.age', 'too_young', 'Must be an adult']);
-  return errors;
-}
-
-// after
-validate: async ({ main }) => {
-  const errors: Pick<ValidationField, 'path' | 'code'>[] = [];
-  if (!main.email) errors.push({ path: 'main.email', code: 'required' });
-  if (main.age < 18) errors.push({ path: 'main.age', code: 'too_young' });
-  return errors;
-}
-```
-
-- `validate` and `validateBulk` return the objects the 400 carries in `fields`, without
-  `message`: `{ path, code }`. The response's `message` is the code — a hook writes no prose,
-  the client translates the code.
-- A tuple, an object with a `message`, a missing or non-string `path`/`code`, or a result that
-  is not an array is a programming error: a 500 whose logged message names the hook and the
-  entry, never a 400, and nothing is written.
-- The `ValidationError` type is no longer exported.
-
-## Who is affected
-
-Every `validate` / `validateBulk`, and code importing `ValidationError`.
-
-## Migration
-
-- `[path, code]` → `{ path, code }`.
-- `[path, code, message]` → `{ path, code }`: move the text to the client, keyed by the code.
-- `ValidationError[]` → `Pick<ValidationField, 'path' | 'code'>[]`.
-
-# Breaking Change — QueryClient `upsert` / `bulkUpsert`, and `sqlApi` table names
-
-## What changed
-
-```ts
-// before
-db.insertOrUpdate(table, record, keys, pk)                       // → pk
-db.insertOrUpdateWithAction(table, record, keys, pk)             // → { pk, action }
-db.bulkInsertOrUpdate(table, records, keys, pk, 500, ['org_id']) // → pk[]
-db.bulkInsertOrUpdateWithAction(table, records, keys, pk)        // → { pk, action }[]
-
-// after
-db.upsert(table, record, keys, pk)                                                    // → { pk, action }
-db.bulkUpsert(table, records, keys, pk, { chunkSize: 500, immutableCols: ['org_id'] }) // → { pk, action }[]
-```
-
-- One method per operation, named as the route is, answering what it did to each row.
-- `bulkUpsert` takes its options as an object. A positional chunk size or immutable column
-  list throws a TypeError: dropped in silence, an immutable column would be written on update.
-- `DbRecordValue` accepts `Date`. A JSON object is still not a value: the drivers do not
-  serialize it as JSON (pg sends an array as a Postgres array, mysql2 expands an object into
-  `key = value` pairs), so `JSON.stringify` it.
-- `sqlApi.<method>('<table>')` with a table that is not a key of `dbTables` throws a plain
-  Error naming the known tables: a programming error, no longer a 400 `unknown_table`.
-  `createSqlApi` infers the table names from the `dbTables` it is given, so a misspelled one
-  fails at compile time. `app.sqlApi` takes any string, as before.
-
-## Who is affected
-
-Hooks and scripts calling the QueryClient upsert methods; code catching the 400
-`unknown_table` from `sqlApi`.
-
-## Migration
-
-- `insertOrUpdate(…)` → `(await upsert(…)).pk`; `insertOrUpdateWithAction` → `upsert`.
-- `bulkInsertOrUpdate(…, n, cols)` → `(await bulkUpsert(…, { chunkSize: n, immutableCols: cols })).map((r) => r.pk)`;
-  `bulkInsertOrUpdateWithAction` → `bulkUpsert`.
-- An unknown table name is a bug to fix at the call site, not an error to handle.
-
-# Breaking Change — internals are no longer exported
-
-## What changed
-
-The package entry exports the public API only. Gone:
-
-- the naming helpers `toCamelCase`, `toUnderscore`, `toSchemaName`, `camelcaseObject`,
-  `snakecaseRecord` — a column name is `schema.col(field)`;
-- `getDialect` and the `SqlDialect` type — a dialect is named (`'mysql'`), and a QueryClient
-  answers `db.dialectName` / `db.cbDialect`;
-- `resolveTenant`, `TenantContext` — a table declares `tenantScope`, the plugin and
-  `createSqlApi` take `getTenantId` (its return type, `TenantResolution`, stays exported);
-- the engine parameter types `SearchParams`, `GetParams`, `InsertParams`, `UpdateParams`,
-  `DeleteParams`, `BulkUpsertParams`, `BulkDeleteParams` — `sqlApi` has `SqlApi*Params`;
-- `ColumnInfo`, `TableMap` — CLI internals.
-
-`SqlApiConfig` is renamed `CliConfig`, and every key is optional, as the CLI reads it:
-
-```ts
-// sqlapi.config.ts
-import type { CliConfig } from 'fastify-auto-sqlapi';
-export default { outputDir: './src/db', dialect: 'postgres' } satisfies CliConfig;
-```
-
-## Who is affected
-
-Code importing one of those names.
-
-## Migration
-
-- `toUnderscore(field)` for a column → `Schema.col(field)`.
-- `SearchParams` → `SqlApiSearchParams` (and so on for the other operations).
-- `SqlApiConfig` → `CliConfig`.
-
-# Breaking Change — an undeclared write alias is a 400, not dropped
-
-## What changed
+`orderBy`, `page`, `itemsPerPage` and `computeMin|Max|Sum|Avg` in the querystring are a 400
+`retired_key` at that key. `page` alone still defaults `itemsPerPage` to 500 (or
+`maxItemsPerPage` when lower). Any other querystring key is left alone.
+
+### `select` is the one projection word
 
 ```jsonc
-// writeJoins declares the alias "orders"
+// before
+{ "select": ["id", "name"], "selectComputed": ["displayName"],
+  "joinMultiple": { "orders": { "selection": "id,total" } } }
+// after
+{ "select": ["id", "name", "displayName"],
+  "joinMultiple": { "orders": { "select": ["id", "total"] } } }
+```
+
+`select` takes schema and computed fields alike. `selectComputed` alone used to mean "every
+column plus these": list the columns you read next to the computed field. `selectComputed` and
+a join's `selection` are a 400 `retired_key`.
+
+### `compute` answers in `computed`, with or without a paginator
+
+```jsonc
+// request: no paginator needed; count and distinctCount added
+{ "filters": { "status": "paid" }, "compute": { "sum": ["total"], "count": ["id"] } }
+// response — before
+{ "main": […], "pagination": { "total": 25, "pages": 3, "computed": { "sum": { "total": 999 } }, "paginator": {…} } }
+// response — after
+{ "main": […], "computed": { "sum": { "total": 999 }, "count": { "id": 25 } } }
+```
+
+Read `result.computed`. It covers every matching row, never the page; `pagination` keeps
+`total`, `pages` and `paginator` and comes only with a paginator.
+
+### `joinGroup` has one request and one response shape
+
+```jsonc
+// request — before / after
+"joinGroup": { "orders": { "aggregations": { "by": "status", "sum": ["total"] } } }
+"joinGroup": { "orders": { "by": "status", "sum": ["total"] } }
+
+// response without by — before / after
+"joinGroup": { "orders": { "sum": { "total": 150 } } }
+"joinGroup": { "orders": { "rows": [{ "sum": { "total": 150 } }] } }
+
+// response with by — before / after
+"joinGroup": { "orders": { "rows": [{ "by": "pending", "sum_total": 100 }] } }
+"joinGroup": { "orders": { "rows": [{ "by": "pending", "sum": { "total": 100 } }] } }
+```
+
+No main rows gives `rows: []`. The `aggregations` wrapper is a 400, and so is a joinGroup with
+no aggregate function. Error paths drop the `aggregations` segment.
+
+### A bulk delete takes `{ ids }`
+
+```js
+// before
+fetch('/api/bulk/agent/delete', { method: 'POST', body: JSON.stringify([{ agentId: 7 }, { agentId: 8 }]) });
+// after
+fetch('/api/bulk/agent/delete', { method: 'POST', body: JSON.stringify({ ids: [7, 8] }) });
+```
+
+The same body for every table, whatever its primary key is called; the ids are typed as it.
+
+### An undeclared write alias is a 400
+
+```jsonc
+// writeJoins declares "orders"
 POST /rest/customer
 { "main": { "name": "Mario" }, "secondaries": { "order": [{ "total": 100 }] } }
-
 // before: 201 — the customer is written, the order is not, nothing says so
 // after:  400 { "fields": [ { "path": "secondaries.order", "code": "unknown_field" } ] }, nothing written
 ```
 
-- An alias under `secondaries` or `deletions` that the table does not declare in `writeJoins`
-  is a 400 `unknown_field` at `secondaries.<alias>` / `deletions.<alias>`
-  (`<i>.secondaries.<alias>` for the item `i` of a bulk upsert). Nothing of the request is
-  written, in a bulk upsert no item either.
-- It covers a typo, a relation declared in `readJoins` only, and any alias sent to a table with
-  no write join.
-- Over HTTP and through `sqlApi.insert`, `sqlApi.update` and `sqlApi.bulkUpsert` alike.
-- The body schemas leave the alias container open, listing the declared aliases: the engine is
-  what refuses another one.
+The same for `deletions`, for an alias the table only reads, and in a bulk upsert
+(`<i>.secondaries.<alias>`, no item written).
 
-## Who is affected
+### One error envelope
 
-Clients or code sending child rows under an alias the table does not declare. Those rows were
-never written, nor those deletions applied: the request now says so.
+Every error is `{ statusCode, error, message, requestId, fields? }`:
 
-## Migration
+- `error` is the HTTP reason phrase (`Bad Request`, `Not Found`) for every status; the
+  engine's 4xx used to say `Error`.
+- `requestId` is on every error, and matches the server log's `reqId`.
+- every 400 carries `fields: [{ path, code, message }]`, the engine's rejections included.
+  Map `path` to a form field and translate `code`; `message` is a description for the
+  developer, not for the user.
 
-- Send child rows under an alias the table declares in `writeJoins` (the agent manifest lists
-  them), or declare the relation there.
+---
+
+## 6. Behavior that changes without an edit
+
+- **A search without `paginator` is not paginated.** Every search used to become page 1 of
+  500 rows, with a `COUNT(*)` and a `pagination` block, because the querystring schema
+  injected a default. It now returns up to `maxItemsPerPage` rows, without `pagination`.
+- **A join target's config applies whatever its `dbTables` key is called.** A table exposed
+  under a key other than its name ran its joins with no config: its `readExclude` fields were
+  returned through `joinMultiple` and `joinLeft`. They are now hidden, as configured.
+- **`:id` is typed as the primary key** on `GET` and `DELETE /rest/:table/:id`: `/rest/item/abc`
+  on an integer key is a 400 on `id`, no longer a 500.
+- **Each registration's routes run with its own configuration.** A second registration used
+  to serve its routes with the first one's `dbTables`, `getTenantId` and table rules.

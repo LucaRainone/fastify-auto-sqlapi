@@ -1,13 +1,13 @@
 # fastify-auto-sqlapi — backend reference (LLM)
 
-Setting up the plugin and configuring tables. Client request grammar: AGENTS_FRONTEND.md. Migrating from `joinFilters`/`joins`/`joinGroups`: BREAKING_CHANGES.md.
+Setting up the plugin and configuring tables. Client request grammar: AGENTS_FRONTEND.md. Upgrading from 0.x: BREAKING_CHANGES.md.
 
 ## Rules
 
 - Everything is a camelCase **schema field name** (request/response bodies, `defineTable` keys, hooks, `validate`, `sqlApi.*`, `buildRelation`). **Real DB column names** only where you talk to the database yourself: `db.*` (QueryClient), `tenantScope`, and any SQL string you write. Get them with `Schema.col('field')` / `qiCol('field')`, never type them: columns may be snake_case or camelCase, the generated Schema knows which.
 - `sqlApi` = high-level (camelCase, validation, hooks, tenant, joins, computed). `db` = the SQL layer under it (real names, none of that). Not interchangeable.
 - Do not read `node_modules/fastify-auto-sqlapi/dist/`: internal, unstable, not documentation. If this file does not answer, say so.
-- Behaviors that look like bugs but are decisions (docs/adr/): default-open `operations`, non-transactional bulk, every field updatable, raw 500 on DB errors, joins not running the target's route guards, no conditional/mass update route, `validateBulk` replacing `validate` in bulk, `PUT /rest/:table` taking the PK in `main`. Do not "fix" them.
+- Behaviors that look like bugs but are decisions (docs/adr/): default-open `operations`, non-transactional bulk, every field updatable, a sanitized 500 on DB errors unless mapped in `dbErrors`, joins not running the target's route guards, no conditional/mass update route, `validateBulk` replacing `validate` in bulk, `PUT /rest/:table` taking the PK in `main`. Do not "fix" them.
 
 ## CLI: generate Schemas and tables
 
@@ -125,7 +125,7 @@ export const TableCustomer = defineTable({
   }],
 
   // --- field visibility ---
-  insertExclude: ['id', 'createdAt'], // MUST list auto-increment PKs (CLI does it). Was `excludeFromCreation` before 0.6.0, now refused by defineTable. Strips CLIENT input on insert only: beforeInsert and the FK auto-fill may still set it. Not a security tool: every field stays updatable (ADR 0004).
+  insertExclude: ['id', 'createdAt'], // MUST list auto-increment PKs (CLI does it). Strips CLIENT input on insert only: beforeInsert and the FK auto-fill may still set it. Not a security tool: every field stays updatable (ADR 0004).
   readExclude: ['passwordHash'], // never projected (search, get, default join projection); naming it in filters/conditions/orderBy/aggregations/select → 400. Still writable. Static, applies to admins too. PK not allowed.
   writeExclude: ['searchVector'], // dropped from insert/update/bulk bodies and in the engines; still readable. For trigger-owned columns; GENERATED columns need nothing. Runs after hooks. Not PK, not also in readExclude (that is excludeColumns).
   schemaOverrides: { email: Type.String({ format: 'email' }) }, // stricter type for WRITE bodies only (responses and filters keep the generated type: stored rows predate the rule). Taken verbatim: no Optional → mandatory, no Nullable → null rejected.

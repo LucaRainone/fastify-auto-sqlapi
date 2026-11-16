@@ -2,264 +2,135 @@
 
 All notable changes to this project are documented here. This project follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and adheres to
-[Semantic Versioning](https://semver.org/) as it applies to `0.x`: a release with a breaking
-change bumps the minor, a release without one bumps the patch, so a `^0.N.0` range never
-installs a breaking change ([ADR 0022](./docs/adr/0022-stay-on-0x-while-every-consumer-is-first-party.md)).
+[Semantic Versioning](https://semver.org/): from 1.0, a breaking change bumps the major
+([ADR 0027](./docs/adr/0027-the-1-0-contract.md)). Through 0.x, a breaking change bumped the
+minor and never the patch ([ADR 0022](./docs/adr/0022-stay-on-0x-while-every-consumer-is-first-party.md)).
 
-Migration instructions for breaking changes live in **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)**.
+Migration instructions: **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)** from 0.6 to 1.0;
+[docs/breaking-changes-0.x.md](./docs/breaking-changes-0.x.md) for the 0.x releases, which the
+"See BREAKING_CHANGES.md" of the entries below 1.0.0 refer to.
 
-## [Unreleased]
+## [1.0.0] - Unreleased
+
+The API made coherent in one breaking release: one name and one place for each concept, one
+shape for each result, every retired key refused rather than ignored. **Upgrading from 0.6:
+[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)**, one guide for the whole release. The contract
+of 1.0 — what is public, how it changes — is [ADR 0027](./docs/adr/0027-the-1-0-contract.md),
+which supersedes ADR 0022.
 
 ### Added
 
-- **ADRs 0025–0027.** 0025: `validateBulk` replaces `validate` in a bulk upsert (one query for
-  the batch, not one per item). 0026: an update carries its primary key in `main`, so `PUT
-  /rest/:table` has no `:id`. 0027: the 1.0 contract — what is public, semantic versioning and
-  the deprecation policy, and the rules the API keeps; it supersedes 0022.
 - **`dbErrors`**: driver error codes the consumer answers with an HTTP status and a code of
   its own instead of the sanitized 500, keyed by `err.code` as the driver raises it:
   `dbErrors: { '23505': { status: 409, code: 'duplicate' } }` (`'ER_DUP_ENTRY'` on
-  MySQL/MariaDB). The answer keeps the error envelope, with the reason phrase as `message` and
-  `fields: [{ path: '', code }]` whatever the status, so the client translates a code and the
-  API carries no prose; no driver detail reaches it. The plugin ships no mapping and
-  interprets nothing (ADR 0024). This replaces the documented `setErrorHandler` recipe, which
-  never worked with the main plugin: the routes' own error handler answers before an
-  application handler is reached. An invalid entry (not `{ status, code }`, status outside
-  400–599, empty code) fails registration. Exported type `DbErrorMapping`.
-- **`target` on `buildRelation`**: the `dbTables` key whose config governs the joined table.
-  Needed only when the same physical table is exposed under several keys.
-- **One error envelope**, `{statusCode, error, message, requestId, fields?}`, for every error
-  the routes return. `requestId` is now on every error, not only on 500s. Every 400 carries
-  `fields` (`{path, code, message}[]`): the engine's rejections — unknown field or alias,
-  bad condition params, malformed `orderBy`, request limits, upsert keys, ambiguous tenant —
-  now name a stable `code` and the request path of the offending value, where one exists.
-  Codes and the path grammar are listed in AGENTS_FRONTEND.md.
-- **`ValidationField`** (exported type): one entry of `fields`. **`httpError`** is exported,
-  so a hook can throw a 400 in the same shape: `httpError(400, msg, { code, path })`.
-- **`select` in search**: the main fields to project, over HTTP and in `sqlApi.search()`.
-  The primary key, the keys the requested joins correlate on and, with `distinctResults`,
-  the ORDER BY fields are always projected. An unknown or `readExclude`d name is a 400 at
-  `select.<i>`.
-- **`selection` accepts an array** as well as the comma-separated string, in a join
-  reference and in `buildRelation`.
-- **`action: 'inserted' | 'updated'`** on every item of the bulk upsert response and on the
-  single insert response: what the statement did to the main row. PostgreSQL reads it off the
-  upsert statement (`(xmax = 0)` in RETURNING); MySQL/MariaDB off the probe their upsert-by-key
-  starts with. No extra statement. Tables without an upsert rule report `inserted`. New `QueryClient` methods
-  `insertOrUpdateWithAction` and `bulkInsertOrUpdateWithAction`; the existing ones keep
-  returning PK rows. Exported types `WriteAction`, `WrittenRow`.
-- **`orderBy`, `paginator` and `compute` in the search body.** The body carries the whole
-  request (the querystring form is gone, see Changed). `compute` is
-  `{ min?, max?, sum?, avg?, count?, distinctCount?: string[] }`, several fields per function,
-  also in `sqlApi.search()`. Engine errors on these are reported at the body path
-  (`paginator.page`, `compute.sum.0`). New exported types `ComputeFn`, `ComputeRequest`;
-  `SearchTableBodyPost` takes the `maxItemsPerPage` cap as third argument.
+  MySQL/MariaDB). The answer keeps the error envelope with `fields: [{ path: '', code }]`, and
+  no driver detail. The plugin ships no mapping (ADR 0024). An invalid entry fails
+  registration. Exported type `DbErrorMapping`.
+- **One error envelope**, `{ statusCode, error, message, requestId, fields? }`, for every error
+  the routes return. `error` is the reason phrase, `requestId` the log's `reqId`, and every 400
+  carries `fields: [{ path, code, message }]` — the engine's rejections included, with a stable
+  code and the request path of the offending value. Codes and the path grammar are listed in
+  AGENTS_FRONTEND.md. `httpError(400, msg, { code, path })` is exported, for hooks.
+- **Plugin option `operations`**: the operations a registration exposes, intersected with each
+  table's own. The agent manifest of the registration and `agentToolSchemas(…, { operations })`
+  follow it.
+- **Plugin option `decorate`** (default `true`): `false` for every registration but the one
+  owning `app.sqlApi`.
+- **`select` in search**: the fields to project, schema and computed alike, over HTTP and in
+  `sqlApi.search()`. The primary key, the keys the requested joins correlate on and, with
+  `distinctResults`, the ORDER BY fields are always projected.
+- **`compute` in search**: `{ min, max, sum, avg, count, distinctCount }`, several fields per
+  function, answered in a top-level `computed` over every matching row, with or without a
+  paginator.
+- **`action: 'inserted' | 'updated'`** on the single insert response and on every item of the
+  bulk upsert response. Exported types `WriteAction`, `WrittenRow`.
+- **`upsertKey`** on the table (main rows) and on `buildRelation` (the secondaries of a write
+  join), verified at startup (ADR 0021).
+- **`target` on `buildRelation`**: the `dbTables` key whose config governs the joined table,
+  required when that table sits under several keys.
+- **`TENANT_ADMIN`**: what `getTenantId` returns for unrestricted access. Exported types
+  `TenantAdmin`, `TenantResolution`, `GetTenantId`.
+- **Hook context types**: `HookContext`, `WriteRecord`, `WriteHookContext`,
+  `AfterInsertContext`, `AfterUpdateContext`, `AfterReadContext`, `ReadSource`,
+  `DeleteHookContext`, `BulkDeleteHookContext`, `ValidateContext`, `BulkValidateContext`.
+- **`QueryClient.supportsTransactions`**, and `Date` as a QueryClient value.
+- **`createSqlApi` infers the table names** of the `dbTables` it is given: a misspelled one
+  fails at compile time.
+- **Types** `TableDefinition` (what `defineTable` takes), `ValidationField`, `ComputeFn`,
+  `ComputeRequest`, `ComputedResult`, `RowsByAlias`, `SqlApiBulkDeleteParams`, `CliConfig`.
+- **ADRs 0023–0027**: a write runs in a transaction or not at all; `dbErrors`; `validateBulk`
+  replaces `validate` in a bulk upsert; an update carries its primary key in `main`; the 1.0
+  contract.
 
 ### Changed
 
-- **BREAKING: an undeclared write alias is a 400.** An alias under `secondaries` or
-  `deletions` that the table does not declare in `writeJoins` — a typo, a read-only relation,
-  any alias on a table with no write join — is a 400 `unknown_field` at that alias
-  (`<i>.secondaries.<alias>` in a bulk upsert), over HTTP and through `sqlApi`, and nothing
-  is written. It was dropped in silence: the closed alias container of the body schema was
-  stripped by Fastify's default Ajv (`removeAdditional`) instead of rejected, and the engines
-  skipped the alias, so the write answered success with its child rows unwritten. The alias
-  container is now open and the engine refuses the alias. See BREAKING_CHANGES.md.
-- **BREAKING: internals are no longer exported.** Gone from the package entry: the naming
-  helpers (`toCamelCase`, `toUnderscore`, `toSchemaName`, `camelcaseObject`,
-  `snakecaseRecord`), `getDialect` and `SqlDialect`, `resolveTenant`, `TenantContext`, the
-  engine parameter types (`SearchParams`, `GetParams`, `InsertParams`,
-  `UpdateParams`, `DeleteParams`, `BulkUpsertParams`, `BulkDeleteParams`), `ColumnInfo` and
-  `TableMap`. `SqlApiConfig` is `CliConfig`, every key optional, for
-  `export default { … } satisfies CliConfig` in `sqlapi.config.ts`. See BREAKING_CHANGES.md.
-- **BREAKING: the QueryClient has one method per upsert, `upsert` and `bulkUpsert`.** Both
-  answer `{ pk, action }` (per record, in input order, for the bulk one); `bulkUpsert` takes
-  `{ chunkSize, immutableCols }` as an options object, and a positional chunk size or immutable
-  column list throws a TypeError rather than being dropped. `insertOrUpdate`,
-  `insertOrUpdateWithAction`, `bulkInsertOrUpdate` and `bulkInsertOrUpdateWithAction` are gone.
-  `DbRecordValue` accepts `Date`. `sqlApi` given a table it does not know throws a plain Error
-  naming the known ones (it was a 400 `unknown_table`), and `createSqlApi` infers the table
-  names, so a misspelled one fails at compile time. See BREAKING_CHANGES.md.
-- **BREAKING: `validate` and `validateBulk` return `{ path, code }` objects.** The same shape
-  as the `fields` of the 400, with `message` mirroring the code: a hook writes no prose, the
-  client translates the code. The pre-1.0 tuples (`[path, code, message?]`), an object with a
-  `message`, a missing or non-string `path`/`code`, or a result that is not an array are a
-  programming error (500 naming the hook and the entry), never a 400, and nothing is written.
-  The `ValidationError` type is gone; hooks are typed with `ValidationField`. See
-  BREAKING_CHANGES.md.
-- **BREAKING: the plugin is the one way to mount the routes; `operations` narrows a
-  registration.** The plugin option `operations` is intersected with each table's own (a
-  composite-PK table is skipped for the single-PK operations, not refused); the agent
-  manifest of that registration lists the intersected operations, and `agentToolSchemas`
-  takes the same `operations`. No longer exported: the route plugins (`searchRoutes`,
-  `getRoutes`, `insertRoutes`, `updateRoutes`, `deleteRoutes`, `bulkUpsertRoutes`,
-  `bulkDeleteRoutes`, `agentManifestRoutes`), `setupSwagger`, the engines (`searchEngine`, …)
-  and the body/response schema builders (`SearchTableBodyPost`, `InsertTableBody`, …). A
-  read-only surface is a second registration with `operations`, `prefix` and `decorate: false`.
-  See BREAKING_CHANGES.md.
-- **BREAKING: `createSqlApi` has one source for its dialect.** A QueryClient carries its own,
-  and a `dialect` option beside it throws a TypeError, even when it agrees; a raw pool takes
-  the option, `postgres` when omitted as in the plugin. The global ConditionBuilder dialect
-  (used by an `extendedCondition` building its own builders) now follows the dialect in
-  effect: it was set from the option only, so a MySQL QueryClient could leave it on postgres.
-  See BREAKING_CHANGES.md.
-- **BREAKING: `defaultOrder` has the grammar of a 1-part `orderBy`.** `field [ASC|DESC]`,
-  comma separated, each a schema field or a computed field, checked by `defineTable`: a typo, a
-  DB column name (the error names its field), an SQL expression or a dotted notation throws at
-  startup instead of reaching the SQL as written. An expression is declared in `computedFields`
-  and ordered by name. A config written by hand past `defineTable` fails the search rather than
-  running the token. See BREAKING_CHANGES.md.
-- **BREAKING: `readJoins` / `writeJoins`.** The relation lists of a table config are named after
-  what they grant, like `operations`: `allowedReadJoins` is `readJoins`, `allowedWriteJoins` is
-  `writeJoins`. Same semantics and checks; the old keys throw at startup (`defineTable`, and
-  the plugin / `createSqlApi` for an entry written by hand), naming the new one. See
-  BREAKING_CHANGES.md.
-- **BREAKING: the upsert key has one place per role, `upsertKey`.** On the table for its main
-  rows (`defineTable({ upsertKey: ['email'] })`: insert and bulk upsert), on the write
-  relation for its secondaries (`buildRelation(…, { upsertKey: ['productId', 'lang'] })`).
-  `upsertMap`, keyed by Schema object identity, is refused by `defineTable` naming the new
-  keys; `buildUpsertRule` and `buildUpsertRules` are no longer exported. The keys are checked
-  at startup as before (ADR 0021); an `upsertKey` on a relation in `allowedReadJoins` throws.
-  See BREAKING_CHANGES.md.
-- **BREAKING: a table config is one flat object, and the plugin option is `dbTables`.**
-  `defineTable({ primary, schema, extraFilters, extendedCondition, ... })` replaces the spread
-  of `exportTableInfo(Schema, extraFilters, extendedCondition)`, which is no longer exported;
-  the table config carries `schema` (was `Schema`) and no `filters` function. The plugin, the
-  route plugins and `createSqlApi` check every `dbTables` entry at startup: the pre-1.0 shape
-  (`Schema`, `filters`) or a missing `schema` throws, naming the new key. The plugin option
-  `DbTables` is `dbTables`, and passing `DbTables` throws. The `TableFilterFn` type is gone;
-  `TableDefinition` types what `defineTable` takes. See BREAKING_CHANGES.md.
-- **BREAKING: the search request travels in the body only.** The querystring keys `orderBy`,
-  `page`, `itemsPerPage` and `computeMin|Max|Sum|Avg` are a 400 `retired_key` at that key
-  (`orderBy`, `paginator`, `compute` go in the body); any other querystring key is left alone.
-  `sqlApi.search()` and `searchEngine` drop `computeMin|Max|Sum|Avg` the same way (400
-  `retired_key`). `SearchTableQuery` is no longer exported, `agentToolSchemas(...).search`
-  has no `querystring`, and the `conflicting_input` code is gone with the two forms. See
-  BREAKING_CHANGES.md.
-- **BREAKING: one word for the projection, `select`.** The main `select` takes computed fields
-  too, so `selectComputed` is gone; a join reference and `buildRelation` take `select` instead
-  of `selection`, as an array only (no comma-separated string). `buildRelation` checks its
-  `select` against the joined schema at startup. The old keys are a 400 `retired_key` (an
-  error at startup in `buildRelation`) rather than ignored. `JoinDefinition.selection` becomes
-  `select?: string[]`. See BREAKING_CHANGES.md.
-- **BREAKING: `compute` stands on its own.** Its result moves from `pagination.computed` to
-  `computed` at the top level of the search result, and it no longer needs a paginator: without
-  one, `compute` used to be dropped silently, and a client had to paginate to get a total over
-  the rows it filtered. It covers every matching row, never the page. It gains `count` and
-  `distinctCount`, so it offers the same functions as joinGroup, rendered by the same SQL. New
-  exported type `ComputedResult`; `PaginationResult` loses `computed`. See BREAKING_CHANGES.md.
-- **BREAKING: `joinGroup` has one request and one response shape.** The request names `by`
-  and the aggregate functions directly in the alias entry, beside `filters`/`conditions`; the
-  `aggregations` wrapper is gone and is a 400 at `joinGroup.<alias>.aggregations`. The
-  response is always `{ rows: [...] }`, one row per group or a single row without `by`, with
-  the aggregates nested as in the dotted notation: `{ by, sum: { total } }` instead of
-  `{ sum: { total } }` without `by` and `rows: [{ by, sum_total }]` with it. No main rows gives
-  `rows: []` instead of `{}`. A joinGroup with no aggregate function is a 400. Error paths drop
-  the `aggregations` segment (`joinGroup.<alias>.by`, `joinGroup.<alias>.sum.0`). See
-  BREAKING_CHANGES.md.
-- **BREAKING: a bulk delete takes `{ ids: [...] }`, over HTTP and in `sqlApi.bulkDelete`.**
-  `POST /bulk/:table/delete` took an array of `{ <pk field>: value }` objects, so a client had
-  to know each table's PK name to delete, and `sqlApi.bulkDelete` took a bare array: the same
-  ids in two shapes, a third in the hooks. The body is now `{ ids }` for every table, ids typed
-  as the PK; `maxBulkItems` caps the ids. The old array body is a 400; a bare array passed to
-  `sqlApi.bulkDelete` is a `TypeError` naming `ids`, before any SQL. The response is
-  unchanged. The bulk delete hooks already received `{ ids }`. Exported type
-  `SqlApiBulkDeleteParams`. See BREAKING_CHANGES.md.
-- **BREAKING: `sqlApi.insert` and `sqlApi.update` take the HTTP body.** The main row goes
-  under `main`, as in `POST`/`PUT /rest/:table`, instead of `record`: a custom route can hand
-  `req.body` over as is. A call still sending `record` is refused with a `TypeError` naming the
-  key, before any SQL; it would otherwise insert an empty row or miss the one to update. Hooks
-  keep `record`: they receive one row of their table, which may be a secondary of another
-  table's request. See BREAKING_CHANGES.md.
-- **BREAKING: `app.sqlApi` belongs to one registration.** A second registration of the plugin
-  in the same scope, or one over a `sqlApi` the application decorated itself, fails at
-  startup instead of leaving `app.sqlApi` to whichever registration came first. New option
-  `decorate` (default `true`): a second surface passes `decorate: false`. Granular route
-  plugins no longer decorate: their decorator lived in their own encapsulated scope, where no
-  application route could see it. See BREAKING_CHANGES.md.
-- **BREAKING: every hook and validator receives one context object.** `validate`,
-  `validateBulk`, `beforeInsert`, `beforeUpdate`, `afterInsert`, `afterUpdate`, `afterRead`,
-  `beforeDelete`, `afterDelete`, `beforeBulkDelete` and `afterBulkDelete` take
-  `{ db, req, ...data }` instead of positional parameters: `({ db, req, record })`,
-  `({ db, req, record, secondaries, deletions })`, `({ db, req, rows, source, alias })`,
-  `({ db, req, id })`, `({ db, req, ids })`, `({ db, req, main, secondaries })`,
-  `({ db, req, items })`. `req` is typed `ApiRequest | undefined`, which is what `sqlApi.*`
-  hands a hook when called without a request; the engines no longer cast it. Exported types:
-  `HookContext`, `WriteRecord`, `WriteHookContext`, `AfterInsertContext`, `AfterUpdateContext`,
-  `AfterReadContext`, `ReadSource`, `DeleteHookContext`, `BulkDeleteHookContext`,
-  `ValidateContext`, `BulkValidateContext`. The table generator writes the new shape. See
-  BREAKING_CHANGES.md for the old→new map.
-- **BREAKING: a write runs in a transaction or not at all.** `QueryClient.withTransaction`
-  ran its callback unprotected when the `Queryable` had no `connect()`: a custom adapter
-  without it got every insert and update — main row, secondaries, deletions, after-hooks — as
-  separate autocommitted statements, and `afterUpdate`'s "throw = rollback" rolled back
-  nothing. It now throws before running anything, naming the fix; a nested call still joins
-  the outer transaction. Reads are unaffected, and the plugin warns once at startup when the
-  client it was given cannot do transactions. The built-in adapters are unaffected. New
-  `QueryClient.supportsTransactions`. ADR 0023, BREAKING_CHANGES.md.
-- **BREAKING: admin is declared, never inferred.** `getTenantId` returning `null` or
-  `undefined` was "no tenant filter": an auth hook that did not run, a missing claim, a typo in
-  `req.user.<x>` each served the request as a superadmin. It is now a 401 on every table with a
-  tenant scope in reach, before any SQL. Unrestricted access is declared by returning the
-  exported `TENANT_ADMIN` sentinel. `[]` stays 403; tables with no scope in reach never call
-  `getTenantId`, so anonymous reads of them are unchanged. New exported types `TenantAdmin`,
-  `TenantResolution`, `GetTenantId`. See BREAKING_CHANGES.md.
-- **`error` in error responses is the HTTP reason phrase** (`Bad Request`, `Not Found`,
-  `Forbidden`) for every status. The 4xx the engine raised reported `Error`, the JS class
-  name, while schema errors and 500s already used the phrase.
-- The `validate`/`validateBulk` examples use the request path grammar (`main.name`,
-  `secondaries.orders.0.total`). Tuples are still rendered verbatim: nothing changes for
-  existing hooks, but paths in that grammar are what a client can map to its form.
-- The search route no longer re-checks `itemsPerPage` against `maxItemsPerPage`: the
-  search schema's `maximum` already rejects it, as a structured 400.
+Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
 
-- **BREAKING: a relation over a table that `dbTables` exposes under several keys must name
-  its `target`.** Startup fails otherwise, naming the host table, the relation and the
-  candidate keys. The first matching key used to be picked, which made `readExclude`,
-  `tenantScope` and hooks on a join depend on object key order. See BREAKING_CHANGES.md.
+- **Plugin and `createSqlApi`**
+  - The plugin option `DbTables` is `dbTables`.
+  - `getTenantId` returning `null`/`undefined` is a 401 on every table with a tenant scope in
+    reach; unrestricted access is `TENANT_ADMIN`.
+  - A second registration in the same scope, or one over an application `sqlApi`, fails
+    unless it passes `decorate: false`.
+  - The plugin is the one way to mount the routes: the route plugins and `setupSwagger` are no
+    longer exported.
+  - `createSqlApi` takes the dialect from a QueryClient; a `dialect` option beside one throws.
+  - A write needs a `Queryable` with `connect()`: without it, inserts and updates throw instead
+    of running unprotected (ADR 0023).
+- **Table configuration**
+  - `defineTable({ primary, schema, extraFilters, extendedCondition, … })` replaces the spread
+    of `exportTableInfo()`; the config carries `schema`, not `Schema`.
+  - `allowedReadJoins` / `allowedWriteJoins` are `readJoins` / `writeJoins`.
+  - `upsertMap` and `buildUpsertRule(s)` are replaced by `upsertKey`.
+  - `defaultOrder` has the 1-part `orderBy` grammar, checked at startup; no raw SQL.
+  - `buildRelation({ selection })` is `{ select: [...] }`, checked against the joined schema.
+  - A relation over a table exposed under several keys must name its `target`.
+  - Every pre-1.0 key throws at startup, naming its replacement.
+- **Hooks**
+  - Every hook and validator receives one context object, `{ db, req, …data }`; `req` may be
+    `undefined`.
+  - `validate` and `validateBulk` return `{ path, code }` objects; tuples, a `message`, or a
+    result that is not an array are a programming error. `ValidationError` is gone.
+- **`sqlApi` and the QueryClient**
+  - `sqlApi.insert` / `update` take `{ main, … }`, the HTTP body; `record` throws.
+  - `sqlApi.bulkDelete` takes `{ ids }`.
+  - An unknown table in `sqlApi` throws an `Error`; it was a 400 `unknown_table`.
+  - The QueryClient upserts with `upsert` and `bulkUpsert`, both answering `{ pk, action }`;
+    `bulkUpsert` takes `{ chunkSize, immutableCols }`. `insertOrUpdate`,
+    `bulkInsertOrUpdate` and their `*WithAction` versions are gone.
+- **Exports**: the package entry exports the public API only. Gone: the engines, the schema
+  builders, `SearchTableQuery`, the naming helpers, `getDialect`/`SqlDialect`,
+  `resolveTenant`/`TenantContext`, the engine parameter types, `ColumnInfo`, `TableMap`.
+  `SqlApiConfig` is `CliConfig`.
+- **HTTP**
+  - The search request travels in the body only: `orderBy`, `page`, `itemsPerPage` and
+    `computeMin|Max|Sum|Avg` in the querystring are a 400 `retired_key`.
+  - `select` replaces `selectComputed` and a join's `selection`, both a 400 `retired_key`.
+  - `compute` answers in a top-level `computed`, not `pagination.computed`.
+  - `joinGroup` takes `by` and the functions directly, and always answers `{ rows: [...] }`
+    with `{ by, sum: { total } }` rows.
+  - `POST /bulk/:table/delete` takes `{ ids: [...] }`.
+  - An alias under `secondaries` or `deletions` not declared in `writeJoins` is a 400
+    `unknown_field`, and nothing is written: it was dropped in silence.
+  - `error` in an error response is the HTTP reason phrase for every status.
 
 ### Fixed
 
-- **An update on a table whose tenant column is camelCase failed with a 500.** The tenant
-  predicate the UPDATE appends (direct and `anyOf` scopes) named the column unquoted, so
-  Postgres folded `"userId"` to `userid` and rejected the statement; reads, inserts and deletes
-  quoted it and worked. The column is now quoted like every other one. MySQL/MariaDB, whose
-  column names are case-insensitive, were not affected.
-- **A second registration of the plugin ran its routes with the first one's configuration.**
-  The routes called `fastify.sqlApi`, and that decorator belongs to whichever registration
-  set it first: registering the plugin under two prefixes, or a granular route plugin next to
-  the main one, served the second surface with the first one's `DbTables`, `getTenantId` and
-  table rules. A table only the second declared answered 400 `unknown_table`; one both
-  declared ran with the first one's `readExclude`, `tenantScope` and hooks — a tenant scope
-  declared only on the second surface was not applied. Each registration's routes now run
-  through that registration's own SqlApi. `app.sqlApi`, for application code, belongs to
-  one registration (see `decorate` under Changed).
-- **A search with `selectComputed` and a JOIN on the main query returned the joined table's
-  columns in the main rows** (also fixed in 0.5.1). A filtered or ordered `joinLeft`, or a
-  tenant scope with `through`, adds a JOIN to the main statement; the `selectComputed` path
-  built its projection as a bare `*, <expr> AS "x"`, which bypassed the qualification
-  `db.select` applies to a plain `*`. On a column name shared with the joined table (`id`,
-  `name`, `createdAt`…) the driver keeps the last value read, so every main row carried the
-  parent's id and its extra columns. The main projection is now always `"table".*` or the
-  table's readable columns, qualified, whatever else is projected.
-- **A join target's config applies whatever its `dbTables` key is called.** The generated
-  search schemas and most read paths looked the config up as `dbTables[Schema.tableName]`,
-  so a table exposed under a key other than its name ran its joins with no config at all:
-  its `readExclude` fields were selected, advertised and returned through `joinMultiple` and
-  `joinLeft`, and a filter on them was accepted instead of being a 400. Every join path now
-  resolves the target through one rule (`resolveJoinTableConf`).
-
-- **`GET|DELETE /rest/:table/:id` validate `:id` against the primary key field's type.** The
-  parameter was declared as free text, so on an integer PK `/rest/item/abc` reached the
-  database and surfaced as a 500, and `/rest/item/7` was bound as the string `"7"`. It is now
-  a structured 400 on `id`, and the value reaches SQL with the PK's type.
-
-- **A search without `page` or `itemsPerPage` is no longer paginated.** The querystring
-  schema declared `default: 500` on `itemsPerPage`, and Ajv injects schema defaults before
-  the handler runs, so every search became page 1 of 500 rows: a `COUNT(*)` on each request
-  and a `pagination` block the client never asked for, while the documented behaviour (LIMIT
-  `maxItemsPerPage`, no COUNT, no block) was unreachable over HTTP. The schema declares no
-  default; the route applies the 500-row default only when `page` alone is sent.
+- **A search without a paginator was paginated.** The querystring schema declared a default
+  `itemsPerPage`, which Ajv injected before the handler: every search ran a `COUNT(*)` and
+  answered page 1 of 500 rows. It now returns up to `maxItemsPerPage` rows, without
+  `pagination`.
+- **A second registration of the plugin ran its routes with the first one's configuration**:
+  its `dbTables`, `getTenantId` and table rules — a tenant scope declared only on the second
+  surface was not applied. Each registration's routes run through its own SqlApi.
+- **A join target's config applied only when its `dbTables` key was the table name.**
+  Otherwise its `readExclude` fields were returned through `joinMultiple` and `joinLeft`.
+- **An update on a table whose tenant column is camelCase failed with a 500** on PostgreSQL:
+  the tenant predicate named the column unquoted.
+- **A search with computed fields and a JOIN on the main query returned the joined table's
+  columns in the main rows** (also fixed in 0.5.1).
+- **`GET|DELETE /rest/:table/:id` validate `:id` against the primary key's type**: a 400 on
+  `id` instead of a 500, and the value reaches SQL with the key's type.
 
 ## [0.6.0]
 
