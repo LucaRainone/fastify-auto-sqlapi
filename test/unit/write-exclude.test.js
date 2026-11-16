@@ -108,7 +108,7 @@ describe('write body schemas exclude database-computed fields', () => {
   it('drops the child table generated field from a secondaries body', () => {
     const { dbTables } = createDbTables(createMockPg([]));
     const body = InsertTableBody(dbTables, 'invoice');
-    const line = body.properties.secondaries.properties.invoice_line.items;
+    const line = body.properties.upsert.properties.invoice_line.items;
     assert.equal(line.properties.labelUpper, undefined);
     assert.ok(line.properties.label);
   });

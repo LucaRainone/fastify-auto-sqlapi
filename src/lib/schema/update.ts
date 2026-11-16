@@ -6,9 +6,8 @@ import {
   pkSchema,
   applySchemaOverrides,
   asRequired,
-  attachWriteJoinSections,
-  writeJoinBodyFields,
-  writeJoinResponseFields,
+  attachRequestSections,
+  attachOutcomeSections,
 } from './helpers.js';
 
 export function UpdateTableBody(dbTables: DbTables, tableName: string): TObject {
@@ -35,11 +34,7 @@ export function UpdateTableBody(dbTables: DbTables, tableName: string): TObject 
     main: Type.Object(mainFields, { additionalProperties: false }),
   };
 
-  attachWriteJoinSections(bodyProperties, tableConf, dbTables, {
-    withDeletions: true,
-    secondaryFields: writeJoinBodyFields,
-    strictItems: true,
-  });
+  attachRequestSections(bodyProperties, tableConf, dbTables, { withDelete: true });
 
   return Type.Object(bodyProperties);
 }
@@ -51,10 +46,7 @@ export function UpdateTableResponse(dbTables: DbTables, tableName: string): TObj
     main: Type.Object(pkSchema(tableConf, tableConf.schema, primaryAsString(tableConf.primary))),
   };
 
-  attachWriteJoinSections(responseProperties, tableConf, dbTables, {
-    withDeletions: true,
-    secondaryFields: writeJoinResponseFields,
-  });
+  attachOutcomeSections(responseProperties, tableConf, dbTables, { deletions: 'all' });
 
   return Type.Object(responseProperties);
 }

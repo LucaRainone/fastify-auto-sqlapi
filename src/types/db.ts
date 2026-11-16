@@ -57,11 +57,28 @@ export interface WrittenRow {
 }
 
 /**
- * Rows grouped by relation alias: `secondaries` and `deletions` in a write, the rows written
- * or removed through them as handed to `afterInsert`/`afterUpdate`, and `joinMultiple` /
- * `joinLeft` in a search result. Rows are camelCase.
+ * Rows grouped by relation alias: the `upsert`, `delete` and `replace` sections of a write
+ * request, the rows written (`secondaries`) and removed (`deletions`) as a write answers them
+ * and hands them to `afterInsert`/`afterUpdate`, and `joinMultiple` / `joinLeft` in a search
+ * result. Rows are camelCase.
  */
 export type RowsByAlias = Record<string, Record<string, unknown>[]>;
+
+/**
+ * The child rows a write request carries, by write-join alias, one section per action
+ * (ADR 0029). An alias appears in one section at most.
+ */
+export interface WriteJoinSections {
+  /** Child rows to write: inserted, or upserted on the relation's `upsertKey`. Others stay. */
+  upsert?: RowsByAlias;
+  /** Child rows to delete, named by their key (the FK to the main row is filled in). Update only. */
+  delete?: RowsByAlias;
+  /**
+   * The complete set of child rows: upserted on the relation's `upsertKey`, and every other
+   * child row of the main row deleted. `[]` deletes them all. Needs the relation's `upsertKey`.
+   */
+  replace?: RowsByAlias;
+}
 
 export interface SelectOptions {
   tableName: string;

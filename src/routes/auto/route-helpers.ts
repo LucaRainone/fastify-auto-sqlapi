@@ -17,7 +17,7 @@ export function buildWriteDescription(action: string, tableName: string, tableCo
     .join(', ');
   return [
     `${action} ${tableName}`,
-    joinList && `Available secondaries: ${joinList}`,
+    joinList && `Child rows (upsert, delete, replace) for: ${joinList}`,
   ].filter(Boolean).join('. ');
 }
 

@@ -71,7 +71,7 @@ describe('tenant enforcement on secondaries (write joins)', () => {
         dbTables: dbTables,
         request: mockRequest,
         record: { name: 'Mario' },
-        secondaries: { customer_order: [{ total: 5, organizationId: 999 }] },
+        upsert: { customer_order: [{ total: 5, organizationId: 999 }] },
         tenant: TENANT,
       }),
       (err) => err.statusCode === 403,
@@ -92,7 +92,7 @@ describe('tenant enforcement on secondaries (write joins)', () => {
       dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario' },
-      secondaries: { customer_order: [{ total: 5 }] },
+      upsert: { customer_order: [{ total: 5 }] },
       tenant: TENANT,
     });
 
@@ -120,7 +120,7 @@ describe('tenant enforcement on secondaries (write joins)', () => {
       dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario' },
-      secondaries: { customer_order: [{ total: 5, organizationId: 7 }] },
+      upsert: { customer_order: [{ total: 5, organizationId: 7 }] },
       tenant: TENANT,
     });
 
@@ -140,7 +140,7 @@ describe('tenant enforcement on secondaries (write joins)', () => {
       dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario' },
-      secondaries: { customer_order: [{ total: 5 }] },
+      upsert: { customer_order: [{ total: 5 }] },
       tenant: TENANT,
     });
 
@@ -163,7 +163,7 @@ describe('tenant enforcement on secondaries (write joins)', () => {
       dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario' },
-      secondaries: { customer_order: [{ total: 5, organizationId: 999 }] },
+      upsert: { customer_order: [{ total: 5, organizationId: 999 }] },
     });
 
     assert.ok(mockPg.calls[1].values.includes(999), 'admin writes are not tenant-filtered');
@@ -186,7 +186,7 @@ describe('tenant enforcement on secondaries (write joins)', () => {
         dbTables: dbTables,
         request: mockRequest,
         record: { name: 'Mario' },
-        secondaries: { customer_order: [{ total: 5 }] },
+        upsert: { customer_order: [{ total: 5 }] },
         tenant: TENANT,
       }),
       (err) => err.statusCode === 403,
@@ -208,7 +208,7 @@ describe('tenant enforcement on secondaries (write joins)', () => {
         dbTables: dbTables,
         request: mockRequest,
         record: { id: 1, name: 'Mario' },
-        secondaries: { customer_order: [{ total: 5, organizationId: 999 }] },
+        upsert: { customer_order: [{ total: 5, organizationId: 999 }] },
         tenant: TENANT,
       }),
       (err) => err.statusCode === 403
@@ -230,7 +230,7 @@ describe('tenant enforcement on secondaries (write joins)', () => {
         request: mockRequest,
         items: [{
           main: { name: 'Mario' },
-          secondaries: { customer_order: [{ total: 5, organizationId: 999 }] },
+          upsert: { customer_order: [{ total: 5, organizationId: 999 }] },
         }],
         tenant: TENANT,
       }),
@@ -258,7 +258,7 @@ describe('tenant enforcement on secondaries (write joins)', () => {
         dbTables: dbTables,
         request: mockRequest,
         record: { name: 'Mario' },
-        secondaries: { customer_order: [{ total: 5 }] },
+        upsert: { customer_order: [{ total: 5 }] },
         tenant: TENANT,
       }),
       (err) => err.statusCode === 403
@@ -280,7 +280,7 @@ describe('tenant enforcement on deletions (write joins)', () => {
       dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
-      deletions: { customer_order: [{ id: 10 }] },
+      delete: { customer_order: [{ id: 10 }] },
       tenant: TENANT,
     });
 
@@ -306,7 +306,7 @@ describe('tenant enforcement on deletions (write joins)', () => {
       dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
-      deletions: { customer_order: [{ id: 10 }] },
+      delete: { customer_order: [{ id: 10 }] },
     });
 
     assert.ok(!mockPg.calls[1].text.includes('organization_id'));
@@ -333,7 +333,7 @@ describe('deletions are bound to the main row, not just to the child id', () => 
       dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
-      deletions: { customer_order: [{ id: 10 }] },
+      delete: { customer_order: [{ id: 10 }] },
       tenant: TENANT,
     });
 
@@ -355,7 +355,7 @@ describe('deletions are bound to the main row, not just to the child id', () => 
       dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
-      deletions: { customer_order: [{ id: 10 }] },
+      delete: { customer_order: [{ id: 10 }] },
       tenant: TENANT,
     });
 
@@ -376,7 +376,7 @@ describe('deletions are bound to the main row, not just to the child id', () => 
       tableConf: dbTables.customer,
       dbTables: dbTables,
       request: mockRequest,
-      items: [{ main: { name: 'Mario' }, deletions: { customer_order: [{ id: 10 }] } }],
+      items: [{ main: { name: 'Mario' }, delete: { customer_order: [{ id: 10 }] } }],
       tenant: TENANT,
     });
 
@@ -405,7 +405,7 @@ describe('deletions are bound to the main row, not just to the child id', () => 
       dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
-      deletions: { customer_order: [{ id: 10 }] },
+      delete: { customer_order: [{ id: 10 }] },
       tenant: TENANT,
     });
 
@@ -432,7 +432,7 @@ describe('deletions are bound to the main row, not just to the child id', () => 
       dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
-      deletions: { customer_order: [{ id: 10 }] },
+      delete: { customer_order: [{ id: 10 }] },
       tenant: TENANT,
     });
 
@@ -461,7 +461,7 @@ describe('a secondary cannot be re-parented by the payload FK', () => {
       dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario' },
-      secondaries: { customer_order: [{ customerId: 999, total: 5 }] },
+      upsert: { customer_order: [{ customerId: 999, total: 5 }] },
       tenant: TENANT,
     });
 
@@ -483,7 +483,7 @@ describe('a secondary cannot be re-parented by the payload FK', () => {
       dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
-      secondaries: { customer_order: [{ customerId: 999, total: 5 }] },
+      upsert: { customer_order: [{ customerId: 999, total: 5 }] },
       tenant: TENANT,
     });
 
@@ -509,7 +509,7 @@ describe('upserted secondaries are conflict-guarded on every write path', () => 
         dbTables: dbTables,
         request: mockRequest,
         record: { id: 1, name: 'Mario' },
-        secondaries: { customer_order: [{ total: 5 }] },
+        upsert: { customer_order: [{ total: 5 }] },
         tenant: TENANT,
       }),
       (err) => err.statusCode === 403
@@ -531,7 +531,7 @@ describe('upserted secondaries are conflict-guarded on every write path', () => 
         tableConf: dbTables.customer,
         dbTables: dbTables,
         request: mockRequest,
-        items: [{ main: { name: 'Mario' }, secondaries: { customer_order: [{ total: 5 }] } }],
+        items: [{ main: { name: 'Mario' }, upsert: { customer_order: [{ total: 5 }] } }],
         tenant: TENANT,
       }),
       (err) => err.statusCode === 403
@@ -555,7 +555,7 @@ describe('a multi-tenant caller writing secondaries', () => {
         dbTables: dbTables,
         request: mockRequest,
         record: { name: 'Mario', organizationId: 7 },
-        secondaries: { customer_order: [{ total: 5 }] },
+        upsert: { customer_order: [{ total: 5 }] },
         tenant: { ids: [7, 8], scope: { column: 'organization_id' } },
       }),
       (err) => err.statusCode === 400

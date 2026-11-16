@@ -30,16 +30,19 @@ export interface WriteHookContext<F extends Record<string, TSchema> = Record<str
   record: WriteRecord<F>;
 }
 
-/** `afterInsert`: the input record merged with the generated primary key, and the secondaries written, by alias. */
+/**
+ * `afterInsert`: the input record merged with the generated primary key, the child rows
+ * written (`secondaries`: those of `upsert` and `replace`) and removed (`deletions`: those a
+ * `replace` left out, plus, in a bulk upsert, the item's `delete`), by alias.
+ */
 export interface AfterInsertContext<F extends Record<string, TSchema> = Record<string, TSchema>> extends HookContext {
   record: WriteRecord<F>;
   secondaries?: RowsByAlias;
-}
-
-/** `afterUpdate`: as `afterInsert`, plus the child rows removed through `deletions`, by alias. */
-export interface AfterUpdateContext<F extends Record<string, TSchema> = Record<string, TSchema>> extends AfterInsertContext<F> {
   deletions?: RowsByAlias;
 }
+
+/** `afterUpdate`: as `afterInsert`; `deletions` also holds the rows the request's `delete` removed. */
+export type AfterUpdateContext<F extends Record<string, TSchema> = Record<string, TSchema>> = AfterInsertContext<F>;
 
 /** Which read path produced the rows an `afterRead` hook is handed. */
 export type ReadSource = 'get' | 'search' | 'joinMultiple' | 'joinLeft';

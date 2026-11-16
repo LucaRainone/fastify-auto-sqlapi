@@ -97,6 +97,7 @@ export function defineTable<
   validateTenantScope(config as unknown as TableConfig);
   validateTenantColumnNames(config as unknown as TableConfig);
   validateUpsertKeys(config as unknown as TableConfig);
+  refuseUpsertKeyOnReadJoins(config as unknown as TableConfig);
   validateDefaultOrder(config as unknown as TableConfig);
   return config;
 }
@@ -450,8 +451,7 @@ const sameFieldSet = (a: string[], b: string[]): boolean =>
  * Fail-closed: a key the Schema cannot vouch for is refused. The Schema is what is read, not a
  * table config, so a child written only through a write join needs no `defineTable`.
  *
- * A read relation carrying one is refused too: reads never write, and a key that does nothing
- * where it is declared hides that the write relation lacks it.
+ * A read relation carrying one is refused too, see `refuseUpsertKeyOnReadJoins`.
  */
 function validateUpsertKeys(config: TableConfig): void {
   const table = config.schema.tableName;
@@ -476,13 +476,19 @@ function validateUpsertKeys(config: TableConfig): void {
       );
     }
   }
+}
+
+/**
+ * A read relation declaring `upsertKey` is refused: reads never write, and a key that does
+ * nothing where it is declared hides that the write relation lacks it.
+ */
+function refuseUpsertKeyOnReadJoins(config: TableConfig): void {
   for (const join of config.readJoins ?? []) {
-    if (join.upsertKey) {
-      throw new Error(
-        `defineTable: relation '${join.alias}' in readJoins declares 'upsertKey'. Reads ` +
-        `never write — declare it on the relation in writeJoins, with a separate buildRelation.`
-      );
-    }
+    if (!join.upsertKey) continue;
+    throw new Error(
+      `defineTable: relation '${join.alias}' in readJoins declares 'upsertKey'. Reads ` +
+      `never write — declare it on the relation in writeJoins, with a separate buildRelation.`
+    );
   }
 }
 

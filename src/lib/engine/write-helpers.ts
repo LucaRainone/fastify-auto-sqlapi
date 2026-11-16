@@ -1,6 +1,7 @@
 import type { ApiRequest } from '../../types/request.js';
 import { camelcaseObject, snakecaseRecord } from '../naming.js';
-import type { QueryClient } from '../db.js';
+import { buildKeyMatch, type QueryClient } from '../db.js';
+import { ConditionBuilder, type ConditionValue } from 'node-condition-builder';
 import { runValidation } from './validate.js';
 import { removeWriteExcluded, insertExcludedFields } from '../write-access.js';
 import { resolveJoinTableConf } from '../table-helpers.js';
@@ -20,7 +21,9 @@ import type {
   TenantContext,
   SchemaDefinition,
   RowsByAlias,
+  WriteJoinSections,
 } from '../../types.js';
+import { rejectRetiredKey } from './search/fields.js';
 
 /**
  * Every upserted record must carry its key (ADR 0021), checked on the record as it reaches the
@@ -71,12 +74,7 @@ export function assertUpsertKeys(
 
 /**
  * Resolve the write join an alias names, or undefined when the table does not declare it.
- *
- * An undeclared alias is skipped rather than rejected: a table with no `writeJoins`
- * ignores any secondaries sent to it, which is the tested contract (see the "ignores
- * secondaries/deletions not in writeJoins" specs). The HTTP boundary is what fails
- * closed — the generated body schema declares `additionalProperties:false` on the alias
- * container, so a request naming an undeclared alias is a 400 before it reaches here.
+ * An undeclared alias never gets this far: `assertWriteJoinAliases` refuses it first.
  */
 function findWriteJoin(
   tableConf: TableConfig,
@@ -85,22 +83,60 @@ function findWriteJoin(
   return tableConf.writeJoins?.find((j) => j.alias === alias);
 }
 
+/** True when any of `sections` names at least one alias — an empty list included. */
+export function hasAliases(...sections: (RowsByAlias | undefined)[]): boolean {
+  return sections.some((s) => s !== undefined && Object.keys(s).length > 0);
+}
+
+/** The sections of a write request, in the order their aliases are checked. */
+const SECTIONS = ['upsert', 'delete', 'replace'] as const;
+
 /**
- * Refuse an alias of `secondaries` or `deletions` the table does not declare in `writeJoins`:
- * a 400 `unknown_field` at `<at>.<section>.<alias>`, before anything is validated or written.
- * Dropped in silence, a typo'd alias would answer success with the child rows unwritten, or
- * the rows to delete still there. `at` is the bulk item's index, empty for a single write.
+ * Refuse the pre-1.0 child-row keys of a write request: `secondaries` became `upsert` and
+ * `deletions` became `delete` (ADR 0029). A 400 `retired_key` at `<at>.<key>`, never ignored:
+ * dropped, the child rows would go unwritten or undeleted with the write answering success.
+ * `at` is the bulk item's index, empty for a single write.
  */
-export function assertWriteJoinAliases(
-  tableConf: TableConfig,
-  sections: { secondaries?: RowsByAlias; deletions?: RowsByAlias },
-  at = ''
-): void {
-  for (const section of ['secondaries', 'deletions'] as const) {
+export function rejectRetiredWriteKeys(input: object, at = ''): void {
+  const path = (key: string): string => [at, key].filter(Boolean).join('.');
+  rejectRetiredKey(input, 'secondaries', path('secondaries'), `child rows to write go under 'upsert', a complete set under 'replace'`);
+  rejectRetiredKey(input, 'deletions', path('deletions'), `child rows to delete go under 'delete'`);
+}
+
+/**
+ * Check the aliases of a write request's `upsert`, `delete` and `replace` sections, before
+ * anything is validated or written; a 400 at `<at>.<section>.<alias>`:
+ * - `unknown_field` for an alias the table does not declare in `writeJoins`. Dropped in
+ *   silence, a typo'd alias would answer success with the child rows unwritten, or the rows to
+ *   delete still there;
+ * - `unknown_field` for a `replace` alias whose relation has no `upsertKey`: the key is what
+ *   tells a child row the request sends from one to delete;
+ * - `conflicting_alias` for an alias in `replace` and in `upsert` or `delete` too: the set
+ *   `replace` names already says what stays and what goes.
+ * `at` is the bulk item's index, empty for a single write.
+ */
+export function assertWriteJoinAliases(tableConf: TableConfig, sections: WriteJoinSections, at = ''): void {
+  for (const section of SECTIONS) {
     for (const alias of Object.keys(sections[section] ?? {})) {
-      if (findWriteJoin(tableConf, alias)) continue;
+      const join = findWriteJoin(tableConf, alias);
       const path = [at, section, alias].filter(Boolean).join('.');
-      throw httpError(400, `Unknown write join alias: ${alias}`, { code: 'unknown_field', path });
+      if (!join) {
+        throw httpError(400, `Unknown write join alias: ${alias}`, { code: 'unknown_field', path });
+      }
+      if (section === 'replace' && !join.upsertKey) {
+        throw httpError(
+          400,
+          `'${alias}' cannot be replaced: its relation declares no upsertKey to tell the rows apart`,
+          { code: 'unknown_field', path }
+        );
+      }
+      if (section === 'replace' && (Object.hasOwn(sections.upsert ?? {}, alias) || Object.hasOwn(sections.delete ?? {}, alias))) {
+        throw httpError(
+          400,
+          `'${alias}' is under replace and under upsert or delete: replace already names the complete set`,
+          { code: 'conflicting_alias', path }
+        );
+      }
     }
   }
 }
@@ -189,18 +225,18 @@ interface PrepareCtx {
  * Returns both `camel` (input + hook mutations, used for FK auto-fill / afterInsert) and
  * `snake` (DB-ready record). The original `input` is left intact.
  *
- * Pass `secondaries` so the validate hook receives them; pass undefined to skip
- * secondaries-aware validation (e.g. when a bulk-level validator already ran).
+ * Pass the request's `upsert`/`replace` sections so the validate hook receives them; set
+ * `skipValidate` when a bulk-level validator already ran.
  */
 export async function prepareInsertRecord(
   ctx: PrepareCtx,
   input: Record<string, unknown>,
-  secondaries?: RowsByAlias,
+  children: Pick<WriteJoinSections, 'upsert' | 'replace'> = {},
   options?: { skipValidate?: boolean }
 ): Promise<{ camel: Record<string, unknown>; snake: Record<string, unknown> }> {
   const camel: Record<string, unknown> = { ...input };
   if (!options?.skipValidate) {
-    await runValidation(ctx.db, ctx.request, ctx.tableConf, camel, secondaries);
+    await runValidation(ctx.db, ctx.request, ctx.tableConf, camel, children);
   }
   removeInsertExcluded(camel, ctx.tableConf);
   if (ctx.tableConf.beforeInsert) {
@@ -211,111 +247,168 @@ export async function prepareInsertRecord(
   return { camel, snake };
 }
 
-/**
- * Run `writeAlias` once per alias of a write-join payload, handing it the resolved target for
- * that alias and collecting the rows it reports back.
- *
- * Empty lists are a no-op, and an alias the table does not declare as a write join is skipped:
- * rejecting it is the request schema's job (`additionalProperties:false` on the alias
- * container), because a table declaring no write joins must keep ignoring what it is sent.
- */
-async function forEachWriteJoin(
-  pass: WriteJoinPass,
-  payload: RowsByAlias,
-  writeAlias: (
-    records: Record<string, unknown>[],
-    target: WriteJoinTarget,
-    joinDef: JoinDefinition
-  ) => Promise<Record<string, unknown>[]>
-): Promise<RowsByAlias> {
-  const results: RowsByAlias = {};
-
-  for (const [alias, records] of Object.entries(payload)) {
-    if (!records?.length) continue;
-
-    const joinDef = findWriteJoin(pass.tableConf, alias);
-    if (!joinDef) continue;
-
-    const target = resolveWriteJoinTarget(joinDef, pass.dbTables, pass.mainRecord, pass.tenant);
-    results[alias] = await writeAlias(records, target, joinDef);
-  }
-
-  return results;
+/** What `processSecondaries` did: the child rows written, and those a `replace` removed. */
+export interface SecondariesOutcome {
+  written: RowsByAlias;
+  removed: RowsByAlias;
 }
 
 /**
- * Write the child rows a request sent alongside the main record, one bulk statement per alias.
+ * Write the child rows of a request's `upsert` and `replace` sections, one bulk statement per
+ * alias; for a `replace` alias, then delete every other child row of the main row (ADR 0029).
  *
  * A secondary is a write like any other: the child table's own `tenantScope` is enforced on it
  * (`tenantForTable` re-targets the caller's tenant onto that table's scope). Without this the
  * client picks the child's tenant value, which lets it plant rows inside another tenant — and,
  * where the child is upserted, hijack one of that tenant's existing rows via the conflict key.
+ *
+ * An empty list writes nothing; under `replace` it still removes every child row. An alias the
+ * table does not declare is skipped: `assertWriteJoinAliases` refuses it first.
  */
-export function processSecondaries(
+export async function processSecondaries(
   pass: WriteJoinPass,
-  secondaries: RowsByAlias
-): Promise<RowsByAlias> {
+  sections: Pick<WriteJoinSections, 'upsert' | 'replace'>
+): Promise<SecondariesOutcome> {
+  const outcome: SecondariesOutcome = { written: {}, removed: {} };
+  const aliases: [string, Record<string, unknown>[] | undefined, boolean][] = [
+    ...Object.entries(sections.upsert ?? {}).map(([a, r]): [string, typeof r, boolean] => [a, r, false]),
+    ...Object.entries(sections.replace ?? {}).map(([a, r]): [string, typeof r, boolean] => [a, r, true]),
+  ];
+
+  for (const [alias, records, replace] of aliases) {
+    const joinDef = findWriteJoin(pass.tableConf, alias);
+    if (!joinDef || (!records?.length && !replace)) continue;
+
+    const target = resolveWriteJoinTarget(joinDef, pass.dbTables, pass.mainRecord, pass.tenant);
+    const sent = records?.length ? await writeSecondaryRows(pass, records, target, joinDef) : [];
+    if (records?.length) outcome.written[alias] = sent.map((r) => camelcaseObject(r.pk, target.joinSchema));
+
+    if (replace) {
+      const removed = await removeUnsentChildren(pass.db, target, joinDef, sent.map((r) => r.record));
+      if (removed.length) outcome.removed[alias] = removed;
+    }
+  }
+
+  return outcome;
+}
+
+/** The child table's primary key fields: its config's, else the Schema's, else the join field. */
+function childPrimaryKey(target: WriteJoinTarget, joinDef: JoinDefinition): string | string[] {
+  return target.childConf?.primary ?? target.joinSchema.primaryKey ?? joinDef.joinField;
+}
+
+/**
+ * Insert, or upsert on the relation's `upsertKey`, one alias' rows: each row's PK (DB columns)
+ * and the record as written, FK and tenant included — the key a `replace` keeps.
+ */
+async function writeSecondaryRows(
+  pass: WriteJoinPass,
+  records: Record<string, unknown>[],
+  target: WriteJoinTarget,
+  joinDef: JoinDefinition
+): Promise<{ pk: Record<string, unknown>; record: Record<string, unknown> }[]> {
   const { db, request } = pass;
+  const { joinSchema, joinCol, mainValue, childConf, childTenant } = target;
 
-  return forEachWriteJoin(pass, secondaries, async (records, target, joinDef) => {
-    const { joinSchema, joinCol, mainValue, childConf, childTenant } = target;
+  const childPk = childPrimaryKey(target, joinDef);
+  const childPkCol = Array.isArray(childPk)
+    ? childPk.map((f) => joinSchema.col(f))
+    : joinSchema.col(childPk);
 
-    const childPk = childConf?.primary || joinDef.joinField;
-    const childPkCol = Array.isArray(childPk)
-      ? childPk.map((f) => joinSchema.col(f))
-      : joinSchema.col(childPk);
-
-    // Same order as `prepareInsertRecord` (ADR 0005): the client whitelist runs first, then
-    // the child's own `beforeInsert`, then the DB format — so a value the hook assigns to an
-    // excluded field still reaches the INSERT. A secondary is a write like any other, and its
-    // table's transform has to run here too or a column that table encodes on the way in is
-    // stored raw whenever its rows arrive as another table's children.
-    const preparedRecords: Record<string, unknown>[] = [];
-    for (const rec of records) {
-      const camel = { ...rec };
-      if (childConf) {
-        removeInsertExcluded(camel, childConf);
-        if (childConf.beforeInsert) {
-          await childConf.beforeInsert({ db, req: request, record: camel });
-        }
+  // Same order as `prepareInsertRecord` (ADR 0005): the client whitelist runs first, then
+  // the child's own `beforeInsert`, then the DB format — so a value the hook assigns to an
+  // excluded field still reaches the INSERT. A secondary is a write like any other, and its
+  // table's transform has to run here too or a column that table encodes on the way in is
+  // stored raw whenever its rows arrive as another table's children.
+  const preparedRecords: Record<string, unknown>[] = [];
+  for (const rec of records) {
+    const camel = { ...rec };
+    if (childConf) {
+      removeInsertExcluded(camel, childConf);
+      if (childConf.beforeInsert) {
+        await childConf.beforeInsert({ db, req: request, record: camel });
       }
-      removeWriteExcluded(camel, childConf, joinSchema);
-      const prepared = snakecaseRecord(camel, joinSchema);
-      // FK auto-fill last: the engine's own value, not the client's and not the hook's.
-      prepared[joinCol] = mainValue;
-      preparedRecords.push(prepared);
     }
+    removeWriteExcluded(camel, childConf, joinSchema);
+    const prepared = snakecaseRecord(camel, joinSchema);
+    // FK auto-fill last: the engine's own value, not the client's and not the hook's.
+    prepared[joinCol] = mainValue;
+    preparedRecords.push(prepared);
+  }
 
-    // Tenant enforcement runs after the FK auto-fill: for an indirect scope the through-FK
-    // the engine just injected is the value being validated.
-    await enforceTenantOnWrites(db, childTenant, preparedRecords);
+  // Tenant enforcement runs after the FK auto-fill: for an indirect scope the through-FK
+  // the engine just injected is the value being validated.
+  await enforceTenantOnWrites(db, childTenant, preparedRecords);
 
-    const upsertKeys = joinDef.upsertKey;
-    let pkRows: Record<string, unknown>[];
+  const upsertKeys = joinDef.upsertKey;
+  let pkRows: Record<string, unknown>[];
 
-    if (upsertKeys) {
-      const conflictCols = upsertKeys.map((k) => joinSchema.col(k));
-      assertUpsertKeys(
-        joinSchema, conflictCols, (joinSchema.primaryKey ?? [childPk].flat()).map((f) => joinSchema.col(f)),
-        preparedRecords
-      );
-      // A conflicting upsert must not overwrite — or re-parent — a child row owned by
-      // another tenant, which the ON CONFLICT key alone would happily match.
-      await assertTenantOwnsConflicts(
-        db, childTenant, joinSchema.tableName, conflictCols, preparedRecords
-      );
-      pkRows = (await db.bulkUpsert(
-        joinSchema.tableName, preparedRecords as DbRecord[], conflictCols, childPkCol,
-        { immutableCols: tenantImmutableColumns(childTenant) }
-      )).map((r) => r.pk);
-    } else {
-      pkRows = await db.bulkInsert(
-        joinSchema.tableName, preparedRecords as DbRecord[], childPkCol
-      );
-    }
+  if (upsertKeys) {
+    const conflictCols = upsertKeys.map((k) => joinSchema.col(k));
+    assertUpsertKeys(
+      joinSchema, conflictCols, (joinSchema.primaryKey ?? [childPk].flat()).map((f) => joinSchema.col(f)),
+      preparedRecords
+    );
+    // A conflicting upsert must not overwrite — or re-parent — a child row owned by
+    // another tenant, which the ON CONFLICT key alone would happily match.
+    await assertTenantOwnsConflicts(
+      db, childTenant, joinSchema.tableName, conflictCols, preparedRecords
+    );
+    pkRows = (await db.bulkUpsert(
+      joinSchema.tableName, preparedRecords as DbRecord[], conflictCols, childPkCol,
+      { immutableCols: tenantImmutableColumns(childTenant) }
+    )).map((r) => r.pk);
+  } else {
+    pkRows = await db.bulkInsert(
+      joinSchema.tableName, preparedRecords as DbRecord[], childPkCol
+    );
+  }
 
-    return pkRows.map((r) => camelcaseObject(r, joinSchema));
-  });
+  return pkRows.map((pk, i) => ({ pk, record: preparedRecords[i] }));
+}
+
+/**
+ * Delete the child rows of the main row that a `replace` section left out: every
+ * row with the main row's FK whose `upsertKey` matches none of the rows just written. The
+ * child table's tenant guard joins the statement, so a row of another tenant pointing at this
+ * main row is never touched. A row with a NULL key matches nothing sent and is removed too
+ * (`NOT COALESCE(…, FALSE)`). Returns the removed rows' keys — primary key and `upsertKey`
+ * fields — as `deletions` reports them.
+ */
+async function removeUnsentChildren(
+  db: QueryClient,
+  target: WriteJoinTarget,
+  joinDef: JoinDefinition,
+  kept: Record<string, unknown>[]
+): Promise<Record<string, unknown>[]> {
+  const { joinSchema, joinCol, mainValue, childTenant } = target;
+  const table = db.qi(joinSchema.tableName);
+  const keyCols = (joinDef.upsertKey ?? []).map((f) => joinSchema.col(f));
+  const pkCols = [childPrimaryKey(target, joinDef)].flat().map((f) => joinSchema.col(f));
+  const reported = [...new Set([...pkCols, ...keyCols])].map((c) => db.qi(c)).join(', ');
+
+  const cb = new ConditionBuilder('AND', db.cbDialect);
+  cb.isEqual(db.qi(joinCol), mainValue as ConditionValue);
+  if (kept.length) {
+    const match = buildKeyMatch(
+      db, keyCols.map((c) => db.qi(c)), kept.map((r) => keyCols.map((c) => r[c] as ConditionValue))
+    ).toExpression();
+    cb.raw(`NOT COALESCE(${match.value}, FALSE)`, [...match.values]);
+  }
+  const guard = buildTenantRowGuard(db, childTenant, joinSchema.tableName);
+  if (guard) cb.append(guard);
+  const where = cb.build(1, db.ph);
+  const values = cb.getValues();
+
+  let rows: Record<string, unknown>[];
+  if (db.supportsReturning) {
+    rows = (await db.query(`DELETE FROM ${table} WHERE ${where}${db.returningPk(reported)}`, values)).rows;
+  } else {
+    // No RETURNING (mysql): read the rows through the same WHERE, then delete them.
+    rows = (await db.query(`SELECT ${reported} FROM ${table} WHERE ${where}`, values)).rows;
+    if (rows.length) await db.query(`DELETE FROM ${table} WHERE ${where}`, values);
+  }
+  return rows.map((r) => camelcaseObject(r, joinSchema));
 }
 
 /**
@@ -331,14 +424,19 @@ export function processSecondaries(
  * The FK alone is not isolation: a child row owned by another tenant may still point at a main
  * row the caller owns, so the child table's own `tenantScope` is added to the DELETE.
  */
-export function processDeletions(
+export async function processDeletions(
   pass: WriteJoinPass,
   deletions: RowsByAlias
 ): Promise<RowsByAlias> {
   const { db } = pass;
+  const results: RowsByAlias = {};
 
-  return forEachWriteJoin(pass, deletions, async (records, target) => {
-    const { joinSchema, joinCol, mainValue, childTenant } = target;
+  for (const [alias, records] of Object.entries(deletions)) {
+    const joinDef = findWriteJoin(pass.tableConf, alias);
+    if (!joinDef || !records?.length) continue;
+
+    const { joinSchema, joinCol, mainValue, childTenant } =
+      resolveWriteJoinTarget(joinDef, pass.dbTables, pass.mainRecord, pass.tenant);
     const tenantGuard = buildTenantRowGuard(db, childTenant, joinSchema.tableName);
     const deletedRows: Record<string, unknown>[] = [];
 
@@ -351,7 +449,8 @@ export function processDeletions(
         deletedRows.push(camelcaseObject(snaked as Record<string, unknown>, joinSchema));
       }
     }
+    results[alias] = deletedRows;
+  }
 
-    return deletedRows;
-  });
+  return results;
 }

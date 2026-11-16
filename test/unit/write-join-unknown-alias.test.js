@@ -44,20 +44,20 @@ describe('write join body schemas leave the alias container open, for the engine
 
   it('insert: secondaries lists the declared aliases and lets another one through', () => {
     const body = InsertTableBody(dbTables, 'customer');
-    assert.notEqual(body.properties.secondaries.additionalProperties, false);
-    assert.ok(body.properties.secondaries.properties.customer_order, 'declared aliases are documented');
+    assert.notEqual(body.properties.upsert.additionalProperties, false);
+    assert.ok(body.properties.upsert.properties.customer_order, 'declared aliases are documented');
   });
 
   it('update: secondaries and deletions both let an undeclared alias through', () => {
     const body = UpdateTableBody(dbTables, 'customer');
-    assert.notEqual(body.properties.secondaries.additionalProperties, false);
-    assert.notEqual(body.properties.deletions.additionalProperties, false);
+    assert.notEqual(body.properties.upsert.additionalProperties, false);
+    assert.notEqual(body.properties.delete.additionalProperties, false);
   });
 
   it('bulkUpsert: item secondaries and deletions both let an undeclared alias through', () => {
     const item = BulkUpsertTableBody(dbTables, 'customer').items;
-    assert.notEqual(item.properties.secondaries.additionalProperties, false);
-    assert.notEqual(item.properties.deletions.additionalProperties, false);
+    assert.notEqual(item.properties.upsert.additionalProperties, false);
+    assert.notEqual(item.properties.delete.additionalProperties, false);
   });
 });
 
@@ -68,7 +68,7 @@ describe('write join body schemas omit the sections when nothing is writable', (
     delete dbTables.customer.writeJoins;
 
     const body = UpdateTableBody(dbTables, 'customer');
-    assert.equal(body.properties.secondaries, undefined);
-    assert.equal(body.properties.deletions, undefined);
+    assert.equal(body.properties.upsert, undefined);
+    assert.equal(body.properties.delete, undefined);
   });
 });

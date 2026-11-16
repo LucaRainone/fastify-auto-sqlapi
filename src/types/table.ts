@@ -99,7 +99,7 @@ export interface TableConfig<F extends Record<string, TSchema> = Record<string, 
   // the triggering request — `undefined` when `sqlApi.*` is called without one. The data is
   // named as in the glossary: `record`, `secondaries`, `deletions`, `rows`, `id`, `ids`.
 
-  /** Business validation of an insert/update: `{ db, req, main, secondaries }` → errors (any → 400, nothing written). */
+  /** Business validation of an insert/update: `{ db, req, main, upsert, replace }` → errors (any → 400, nothing written). */
   validate?: ValidatorFn<F>;
   /** Bulk upsert validation, called once with every item: `{ db, req, items }`. When set, per-item `validate` is skipped in bulk. */
   validateBulk?: BulkValidatorFn<F>;
@@ -108,19 +108,20 @@ export interface TableConfig<F extends Record<string, TSchema> = Record<string, 
   /** Before the UPDATE: mutate `ctx.record` in place. The PK is present but never written. */
   beforeUpdate?: (ctx: WriteHookContext<F>) => void | Promise<void>;
   /**
-   * Runs after a successful insert: `{ db, req, record, secondaries }`, the camelCase input
-   * record merged with the generated primary key, and the secondaries written with it, keyed
-   * by alias (absent when the request had none).
+   * Runs after a successful insert: `{ db, req, record, secondaries, deletions }`, the camelCase
+   * input record merged with the generated primary key, the child rows written with it and
+   * those a `replace` removed, keyed by alias (absent when there were none).
    *
-   * On an insert it runs inside the transaction of the INSERT and its secondaries, so throwing
-   * rolls them back. On a bulk upsert it runs once per item, outside any transaction (ADR 0003).
+   * On an insert it runs inside the transaction of the INSERT and its child rows, so throwing
+   * rolls them back. On a bulk upsert it runs once per item, outside any transaction (ADR 0003)
+   * — except for an item with a `replace`, whose child rows and hook share one (ADR 0029).
    */
   afterInsert?: (ctx: AfterInsertContext<F>) => void | Promise<void>;
   /**
-   * Runs after a successful update, inside the same transaction as the UPDATE + secondaries +
-   * deletions: throwing here rolls back the whole operation. `{ db, req, record, secondaries,
-   * deletions }`: the camelCase input record (including the PK) plus the secondaries written
-   * and the child rows deleted, by alias.
+   * Runs after a successful update, inside the same transaction as the UPDATE and its child
+   * rows: throwing here rolls back the whole operation. `{ db, req, record, secondaries,
+   * deletions }`: the camelCase input record (including the PK) plus the child rows written and
+   * deleted, by alias.
    */
   afterUpdate?: (ctx: AfterUpdateContext<F>) => void | Promise<void>;
   /**

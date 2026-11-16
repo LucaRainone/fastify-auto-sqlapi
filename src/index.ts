@@ -61,6 +61,7 @@ export type {
   JoinFetchRequest,
   JoinRefFilter,
   RowsByAlias,
+  WriteJoinSections,
   TableConfig,
   TableOperation,
   DbTables,

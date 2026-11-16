@@ -20,6 +20,12 @@ which supersedes ADR 0022.
 
 ### Added
 
+- **`replace` in a write request** ([ADR 0029](./docs/adr/0029-a-write-names-its-child-rows-by-action.md)):
+  the complete set of child rows of an alias — the rows sent are upserted, every other child
+  row of the main row is deleted and reported under `deletions`, in the response and to
+  `afterInsert`/`afterUpdate`. `[]` removes them all. Needs the relation's `upsertKey`, which
+  the manifest now reports on each write join. In a bulk upsert, an item with a `replace` runs
+  its child rows in a transaction of its own.
 - **Every type a public signature names is exported**: `ApiReply`, `BuildRelationOptions`,
   `JoinFetchRequest`, `JoinRefFilter`, `BulkUpsertOptions`, `ManifestField`, `ManifestJoin`,
   `ValidatorResult` (what `validate` returns) and `PrimaryKeyValue`, which a consumer could
@@ -122,7 +128,10 @@ Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
   - `joinGroup` takes `by` and the functions directly, and always answers `{ rows: [...] }`
     with `{ by, sum: { total } }` rows.
   - `POST /bulk/:table/delete` takes `{ ids: [...] }`.
-  - An alias under `secondaries` or `deletions` not declared in `writeJoins` is a 400
+  - A write names its child rows by action: `secondaries` is `upsert`, `deletions` is `delete`,
+    and the old keys are a 400 `retired_key`; the response keeps `secondaries` and `deletions`
+    for what was written and removed. `validate` receives `{ main, upsert, replace }` (ADR 0029).
+  - An alias under `upsert`, `delete` or `replace` not declared in `writeJoins` is a 400
     `unknown_field`, and nothing is written: it was dropped in silence.
   - `error` in an error response is the HTTP reason phrase for every status.
 

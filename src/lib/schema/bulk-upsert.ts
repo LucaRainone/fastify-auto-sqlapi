@@ -5,9 +5,8 @@ import { writableFields } from '../write-access.js';
 import {
   pkSchema,
   applySchemaOverrides,
-  attachWriteJoinSections,
-  writeJoinBodyFields,
-  writeJoinResponseFields,
+  attachRequestSections,
+  attachOutcomeSections,
   WriteActionSchema,
 } from './helpers.js';
 
@@ -26,11 +25,7 @@ export function BulkUpsertTableBody(dbTables: DbTables, tableName: string, maxIt
     main: mainSchema,
   };
 
-  attachWriteJoinSections(itemProperties, tableConf, dbTables, {
-    withDeletions: true,
-    secondaryFields: writeJoinBodyFields,
-    strictItems: true,
-  });
+  attachRequestSections(itemProperties, tableConf, dbTables, { withDelete: true });
 
   return Type.Array(Type.Object(itemProperties), maxItems != null ? { maxItems } : {});
 }
@@ -43,10 +38,7 @@ export function BulkUpsertTableResponse(dbTables: DbTables, tableName: string) {
     action: WriteActionSchema,
   };
 
-  attachWriteJoinSections(responseProperties, tableConf, dbTables, {
-    withDeletions: true,
-    secondaryFields: writeJoinResponseFields,
-  });
+  attachOutcomeSections(responseProperties, tableConf, dbTables, { deletions: 'all' });
 
   return Type.Array(Type.Object(responseProperties));
 }

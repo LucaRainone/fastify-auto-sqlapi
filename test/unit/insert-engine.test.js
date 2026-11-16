@@ -320,7 +320,7 @@ describe('insertEngine - hooks', () => {
       dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario', email: 'mario@test.it' },
-      secondaries: {
+      upsert: {
         customer_order: [{ total: 100, status: 'pending' }],
       },
     });
@@ -379,7 +379,7 @@ describe('insertEngine - secondaries', () => {
       dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario', email: 'mario@test.it' },
-      secondaries: {
+      upsert: {
         customer_order: [
           { total: 100, status: 'pending' },
           { total: 200, status: 'completed' },
@@ -416,7 +416,7 @@ describe('insertEngine - secondaries', () => {
       dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario', email: 'mario@test.it' },
-      secondaries: {
+      upsert: {
         customer_order: [{ customerId: 7, total: 100, status: 'pending' }],
       },
     });
@@ -440,11 +440,11 @@ describe('insertEngine - secondaries', () => {
         dbTables: dbTables,
         request: mockRequest,
         record: { name: 'Mario', email: 'mario@test.it' },
-        secondaries: {
+        upsert: {
           customer_order: [{ total: 100, status: 'pending' }],
         },
       }),
-      (err) => err.statusCode === 400 && err.validationErrors[0].path === 'secondaries.customer_order'
+      (err) => err.statusCode === 400 && err.validationErrors[0].path === 'upsert.customer_order'
         && err.validationErrors[0].code === 'unknown_field'
     );
     assert.equal(mockPg.calls.length, 0);
@@ -465,7 +465,7 @@ describe('insertEngine - secondaries', () => {
       dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario', email: 'mario@test.it' },
-      secondaries: {
+      upsert: {
         customer_order: [{ id: 999, total: 100, status: 'pending' }],
       },
     });
@@ -512,7 +512,7 @@ describe('insertEngine - upsert', () => {
       dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario', email: 'mario@test.it' },
-      secondaries: {
+      upsert: {
         customer_order: [{ total: 100, status: 'pending' }],
       },
     });
@@ -570,7 +570,7 @@ describe('insertEngine - secondaries run the child table\'s beforeInsert', () =>
       dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario' },
-      secondaries: {
+      upsert: {
         customer_order: [
           { total: 100, status: 'pending' },
           { total: 200, status: 'completed' },
@@ -601,7 +601,7 @@ describe('insertEngine - secondaries run the child table\'s beforeInsert', () =>
       dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario' },
-      secondaries: {
+      upsert: {
         customer_order: [{ total: 100, status: 'pending' }, { total: 200, status: 'completed' }],
       },
     });
@@ -628,7 +628,7 @@ describe('insertEngine - secondaries run the child table\'s beforeInsert', () =>
       dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario' },
-      secondaries: { customer_order: [{ total: 100, status: 'client-sent' }] },
+      upsert: { customer_order: [{ total: 100, status: 'client-sent' }] },
     });
 
     const bulkCall = mockPg.calls[1];
@@ -652,7 +652,7 @@ describe('insertEngine - secondaries run the child table\'s beforeInsert', () =>
       dbTables: dbTables,
       request: mockRequest,
       record: { name: 'Mario' },
-      secondaries: { customer_order: [{ total: 100, status: 'pending' }] },
+      upsert: { customer_order: [{ total: 100, status: 'pending' }] },
     });
 
     const bulkCall = mockPg.calls[1];

@@ -6,6 +6,7 @@ import { resolveTenant } from './tenant.js';
 import { validateDbTables } from './table-helpers.js';
 import { searchEngine } from './engine/search/search.js';
 import { rejectRetiredSearchKeys } from './engine/search/fields.js';
+import { rejectRetiredWriteKeys } from './engine/write-helpers.js';
 import { getEngine } from './engine/rest/get.js';
 import { insertEngine } from './engine/rest/insert.js';
 import { updateEngine } from './engine/rest/update.js';
@@ -34,7 +35,7 @@ import type {
   PrimaryKeyValue,
   GetTenantId,
   TenantContext,
-  RowsByAlias,
+  WriteJoinSections,
 } from '../types.js';
 
 // ─── Public param types ─────────────────────────────────────
@@ -56,17 +57,14 @@ export interface SqlApiSearchParams {
   maxRows?: number;
 }
 
-/** The body of `POST /rest/:table`: the main row and the secondaries written with it. */
-export interface SqlApiInsertParams {
+/** The body of `POST /rest/:table`: the main row and the child rows to `upsert` or `replace`. */
+export interface SqlApiInsertParams extends Omit<WriteJoinSections, 'delete'> {
   main: Record<string, unknown>;
-  secondaries?: RowsByAlias;
 }
 
-/** The body of `PUT /rest/:table`: the main row (with its PK), secondaries and deletions. */
-export interface SqlApiUpdateParams {
+/** The body of `PUT /rest/:table`: the main row (with its PK) and the child rows to `upsert`, `delete` or `replace`. */
+export interface SqlApiUpdateParams extends WriteJoinSections {
   main: Record<string, unknown>;
-  secondaries?: RowsByAlias;
-  deletions?: RowsByAlias;
 }
 
 /**
@@ -98,6 +96,7 @@ function idsOf(tableName: string, params: { ids?: unknown }): PrimaryKeyValue[] 
  * naming the key, before any SQL.
  */
 function mainOf(method: 'insert' | 'update', tableName: string, params: { main?: unknown }): Record<string, unknown> {
+  rejectRetiredWriteKeys(params ?? {});
   const main = params?.main;
   if (main === null || typeof main !== 'object' || Array.isArray(main)) {
     throw new TypeError(
@@ -219,7 +218,8 @@ export class SqlApi<T extends DbTables = DbTables> {
       dbTables: this.dbTables,
       request,
       record: mainOf('insert', tableName, params),
-      secondaries: params.secondaries,
+      upsert: params.upsert,
+      replace: params.replace,
       tenant,
     });
   }
@@ -233,8 +233,9 @@ export class SqlApi<T extends DbTables = DbTables> {
       dbTables: this.dbTables,
       request,
       record: mainOf('update', tableName, params),
-      secondaries: params.secondaries,
-      deletions: params.deletions,
+      upsert: params.upsert,
+      delete: params.delete,
+      replace: params.replace,
       tenant,
     });
   }
@@ -248,6 +249,7 @@ export class SqlApi<T extends DbTables = DbTables> {
   async bulkUpsert(tableName: TableKey<T>, items: BulkUpsertItem[], request?: ApiRequest): Promise<BulkUpsertResult[]> {
     const tableConf = this.getTableConf(tableName);
     const tenant = await this.getTenant(tableName, request);
+    items.forEach((item, i) => rejectRetiredWriteKeys(item ?? {}, String(i)));
     return bulkUpsertEngine({
       db: this.db,
       tableConf,

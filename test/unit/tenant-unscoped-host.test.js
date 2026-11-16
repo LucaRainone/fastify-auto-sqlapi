@@ -131,7 +131,7 @@ describe('tenant scoping when the addressed table declares no scope of its own',
     await assert.rejects(
       () => api.insert('shift', {
         main: { day: '2026-09-01' },
-        secondaries: { swap: [{ agentId: 999 }] },
+        upsert: { swap: [{ agentId: 999 }] },
       }, {}),
       (err) => err.statusCode === 403,
       'a write join is a write grant: the child scope must be enforced through it'

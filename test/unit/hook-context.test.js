@@ -44,13 +44,13 @@ function assertBase(ctx, req) {
 }
 
 describe('hook context — writes', () => {
-  it('validate gets { db, req, main, secondaries }', async () => {
+  it('validate gets { db, req, main, upsert }', async () => {
     let seen;
     const api = createSqlApi(okDb(), createDbTables({ validate: (ctx) => { seen = ctx; return []; } }));
-    await api.insert('customer', { main: { name: 'Mario' }, secondaries: { orders: [{ total: 5 }] } }, REQ);
+    await api.insert('customer', { main: { name: 'Mario' }, upsert: { orders: [{ total: 5 }] } }, REQ);
     assertBase(seen, REQ);
     assert.deepEqual(seen.main, { name: 'Mario' });
-    assert.deepEqual(seen.secondaries, { orders: [{ total: 5 }] });
+    assert.deepEqual(seen.upsert, { orders: [{ total: 5 }] });
   });
 
   it('beforeInsert gets { db, req, record } and its mutation reaches the INSERT', async () => {
@@ -66,7 +66,7 @@ describe('hook context — writes', () => {
   it('afterInsert gets { db, req, record, secondaries }', async () => {
     let seen;
     const api = createSqlApi(okDb(), createDbTables({ afterInsert: (ctx) => { seen = ctx; } }));
-    await api.insert('customer', { main: { name: 'Mario' }, secondaries: { orders: [{ total: 5 }] } }, REQ);
+    await api.insert('customer', { main: { name: 'Mario' }, upsert: { orders: [{ total: 5 }] } }, REQ);
     assertBase(seen, REQ);
     assert.equal(seen.record.name, 'Mario');
     assert.equal(seen.record.id, 1, 'the generated PK is merged in');
@@ -81,8 +81,8 @@ describe('hook context — writes', () => {
     }));
     await api.update('customer', {
       main: { id: 1, name: 'Mario' },
-      secondaries: { orders: [{ total: 5 }] },
-      deletions: { orders: [{ id: 9 }] },
+      upsert: { orders: [{ total: 5 }] },
+      delete: { orders: [{ id: 9 }] },
     }, REQ);
     assertBase(seen.before, REQ);
     assert.equal(seen.before.record.name, 'Mario');
@@ -103,7 +103,7 @@ describe('hook context — writes', () => {
   it("a secondary's own beforeInsert gets the same shape", async () => {
     let seen;
     const api = createSqlApi(okDb(), createDbTables({}, { beforeInsert: (ctx) => { seen = ctx; } }));
-    await api.insert('customer', { main: { name: 'Mario' }, secondaries: { orders: [{ total: 5 }] } }, REQ);
+    await api.insert('customer', { main: { name: 'Mario' }, upsert: { orders: [{ total: 5 }] } }, REQ);
     assertBase(seen, REQ);
     assert.equal(seen.record.total, 5);
   });

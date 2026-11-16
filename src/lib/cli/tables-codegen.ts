@@ -336,7 +336,7 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
 
   // Imports
   lines.push(`import {defineTable, Type} from 'fastify-auto-sqlapi';`);
-  lines.push(`import type {ValidationField} from 'fastify-auto-sqlapi';`);
+  lines.push(`import type {ValidatorResult} from 'fastify-auto-sqlapi';`);
   lines.push(`import {${schema.schemaName} as Schema} from '../schemas/${schema.schemaName}.js';`);
 
   // Commented imports for related schemas
@@ -389,8 +389,8 @@ export function generateSingleTableFile(schema: ParsedSchema, allSchemas: Parsed
 
   // validate: use first non-PK field for example
   const exampleField = schema.fields.find(f => !pkFields(pk).includes(f)) || schema.fields[0];
-  lines.push(`  validate: async ({ db, req, main, secondaries }) => {`);
-  lines.push(`    const errors: Pick<ValidationField, 'path' | 'code'>[] = [];`);
+  lines.push(`  validate: async ({ db, req, main, upsert, replace }) => {`);
+  lines.push(`    const errors: ValidatorResult = [];`);
   lines.push(`    // if (!main.${exampleField}) errors.push({ path: 'main.${exampleField}', code: 'required' });`);
   lines.push(`    return errors;`);
   lines.push(`  },`);

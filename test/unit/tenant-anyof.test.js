@@ -424,7 +424,7 @@ describe('an anyOf-scoped table written as a secondary', () => {
       dbTables: dbTables,
       request: {},
       record: { day: '2026-09-01' },
-      secondaries: { swap: [{ requesterAgentId: 7, targetAgentId: 9 }] },
+      upsert: { swap: [{ requesterAgentId: 7, targetAgentId: 9 }] },
       tenant: HOST_TENANT,
     });
 
@@ -442,7 +442,7 @@ describe('an anyOf-scoped table written as a secondary', () => {
         dbTables: dbTables,
         request: {},
         record: { day: '2026-09-01' },
-        secondaries: { swap: [{ requesterAgentId: 9, targetAgentId: 12 }] },
+        upsert: { swap: [{ requesterAgentId: 9, targetAgentId: 12 }] },
         tenant: HOST_TENANT,
       }),
       (err) => err.statusCode === 403
@@ -460,7 +460,7 @@ describe('an anyOf-scoped table written as a secondary', () => {
         dbTables: dbTables,
         request: {},
         record: { day: '2026-09-01' },
-        secondaries: { swap: [{ message: 'no party named' }] },
+        upsert: { swap: [{ message: 'no party named' }] },
         tenant: HOST_TENANT,
       }),
       (err) => err.statusCode === 400

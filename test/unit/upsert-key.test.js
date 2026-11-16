@@ -46,7 +46,7 @@ async function insert(tableConf, secondaries) {
     dbTables: { customer: tableConf },
     request: {},
     record: { name: 'Mario', email: 'mario@test.it' },
-    secondaries,
+    upsert: secondaries,
   });
   return mockPg.calls.map((c) => c.text);
 }

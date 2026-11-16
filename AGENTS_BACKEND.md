@@ -133,10 +133,10 @@ export const TableCustomer = defineTable({
 
   // --- joins (see Relations) ---
   readJoins: [buildRelation(Schema, 'id', SchemaOrder, 'customerId', { alias: 'orders' })],
-  writeJoins: [buildRelation(Schema, 'id', SchemaOrder, 'customerId', { alias: 'orders', upsertKey: ['id'] })], // upsertKey: the secondaries of this relation upsert on it
+  writeJoins: [buildRelation(Schema, 'id', SchemaOrder, 'customerId', { alias: 'orders', upsertKey: ['id'] })], // upsertKey: the child rows of this relation upsert on it, and it can be replaced
 
   // --- upsert: the main row's INSERT (POST /rest, bulk upsert) becomes INSERT … ON CONFLICT (key) DO UPDATE ---
-  upsertKey: ['email'], // exactly the PK or one of the Schema's uniqueKeys, checked at startup (old Schemas: regenerate). Views: none. Main rows only; secondaries use the relation's upsertKey. Absent: plain INSERT.
+  upsertKey: ['email'], // exactly the PK or one of the Schema's uniqueKeys, checked at startup (old Schemas: regenerate). Views: none. Main rows only; child rows use the relation's upsertKey. Absent: plain INSERT.
   // Each upserted row must carry its key (natural key non-null; PK whole, or absent = plain insert), no two rows of a request may share it → 400. A row must still be insertable (PG: NOT NULL without default is required even for an existing row). Another row's unique value = DB error, never a hijack.
 
   // --- tenant (see Tenant scope) ---
@@ -156,16 +156,16 @@ export const TableCustomer = defineTable({
   // --- validation: after schema validation, before hooks and SQL. Any error → 400, nothing written ---
   // Every hook and validator receives ONE context object: { db, req, ...data }. db = the client the
   // operation runs on (inside a write, the transaction's); req = the request, undefined when sqlApi.*
-  // is called without one (guard req?.user). Data keys: record, secondaries, deletions, rows, id, ids, main, items.
-  validate: async ({ db, req, main, secondaries }) => { // camelCase, secondaries keyed by alias
-    const errors: ValidatorResult = []; // { path, code }[], the fields of the 400, as is (no message: no prose, the client translates the code). path = dot path in the request body: main.<field>, secondaries.<alias>.<i>.<field>, '' when not attributable. Anything else (a tuple, a message) → 500
+  // is called without one (guard req?.user). Data keys: record, secondaries, deletions, rows, id, ids, main, upsert, replace, items.
+  validate: async ({ db, req, main, upsert, replace }) => { // camelCase, the request's child-row sections keyed by alias
+    const errors: ValidatorResult = []; // { path, code }[], the fields of the 400, as is (no message: no prose, the client translates the code). path = dot path in the request body: main.<field>, upsert.<alias>.<i>.<field>, replace.<alias>.<i>.<field>, '' when not attributable. Anything else (a tuple, a message) → 500
     if (!main.name) errors.push({ path: 'main.name', code: 'required' });
-    (secondaries?.orders ?? []).forEach((o, i) => {
-      if (o.total < 0) errors.push({ path: `secondaries.orders.${i}.total`, code: 'min' });
+    (upsert?.orders ?? []).forEach((o, i) => {
+      if (o.total < 0) errors.push({ path: `upsert.orders.${i}.total`, code: 'min' });
     });
     return errors;
   },
-  validateBulk: async ({ db, req, items }) => { // bulk upsert: called once with [{ main, secondaries? }]; when defined, per-item validate is skipped in bulk, so a rule that must hold in bulk is written here too (ADR 0025). Paths start with items.<i>
+  validateBulk: async ({ db, req, items }) => { // bulk upsert: called once with the items as sent, [{ main, upsert?, delete?, replace? }]; when defined, per-item validate is skipped in bulk, so a rule that must hold in bulk is written here too (ADR 0025). Paths start with items.<i>
     const codes = items.map((i) => i.main.code);
     return new Set(codes).size === codes.length ? [] : [{ path: '', code: 'batch_unique' }];
   },
@@ -179,8 +179,8 @@ export const TableCustomer = defineTable({
     if (!req?.user.isAdmin) delete record.isAdmin; // field-level rules: silent strip here, or 400 in validate
     record.updatedAt = db.expression('NOW()');
   },
-  afterInsert: async ({ db, req, record, secondaries }) => {}, // record = input + generated PK; secondaries: RowsByAlias written with it
-  afterUpdate: async ({ db, req, record, secondaries, deletions }) => {}, // inside the transaction: throw = rollback
+  afterInsert: async ({ db, req, record, secondaries, deletions }) => {}, // record = input + generated PK; secondaries: child rows written; deletions: rows a replace removed
+  afterUpdate: async ({ db, req, record, secondaries, deletions }) => {}, // inside the transaction: throw = rollback. deletions: rows of delete and of a replace
   beforeDelete: async ({ db, req, id }) => {}, // throw aborts; runs after tenant ownership is verified
   afterDelete: async ({ db, req, id }) => {}, // not called on 404
   beforeBulkDelete: async ({ db, req, ids }) => {}, // once; throw aborts the whole batch. ids: values, or { <field>: value } on a composite PK
@@ -201,12 +201,12 @@ Every error the routes return has one envelope, `{statusCode, error, message, re
 
 ```ts
 buildRelation(mainSchema, mainField, joinSchema, joinField, {
-  alias, // default joinSchema.tableName. Key in requests, responses, secondaries, deletions, dotted notation. Set it only to join one table twice or for a friendlier name. Duplicate alias → throws.
+  alias, // default joinSchema.tableName. Key in requests (upsert, delete, replace), responses (secondaries, deletions), dotted notation. Set it only to join one table twice or for a friendlier name. Duplicate alias → throws.
   select, // default fields of the joined rows, e.g. ['id', 'name', 'total']; absent: every readable field. The request's select overrides it. A name the joined schema lacks → throws
   unique, // false: 1:N child→main (joinField = child FK) → joinMustExist / joinMultiple / joinGroup. true: N:1 parent→main (joinField = parent PK) → joinLeft. joinField is the target's PK → use true.
   fields, // read-only allowlist of the target's fields. Must include joinField. Not on write joins.
   target, // dbTables key whose config governs the joined table (readExclude, tenantScope, afterRead, computed, write rules). Required when several keys expose that table: startup fails until it is set. With one key, that config applies whatever the key is called.
-  upsertKey, // write joins only: the secondaries upsert on this key of the joined table, e.g. ['productId', 'lang']. Exactly its PK or one of its uniqueKeys, checked by defineTable (ADR 0021). Absent: plain INSERT. On a read join → throws.
+  upsertKey, // write joins only: the child rows upsert on this key of the joined table, e.g. ['productId', 'lang']. Exactly its PK or one of its uniqueKeys, checked by defineTable (ADR 0021). Absent: plain INSERT, and the alias takes no `replace`. On a read join → throws.
 });
 
 readJoins: [
@@ -217,7 +217,7 @@ readJoins: [
 
 - **A read join is a read grant on the target.** It runs inside the host's route: the target's `onRequests` and `operations` do not apply, so a table with `operations: []` is still readable through it. The target's `readExclude`, `tenantScope`, `afterRead` and the relation's schema still apply. `fields` narrows that schema, fail-closed: every other field is a 400 in selection, filters, conditions, orderBy and aggregations, and so is a computed field reaching past it. A column added later is not reachable until listed. Use `readExclude` instead to hide a column from the table's own routes too. (ADR 0010, 0011)
 - joinLeft adds a real `LEFT JOIN` only when filters or orderBy need the parent; otherwise it runs a side query.
-- **Owned children** (translations, `*_info`, composite PK like `(product_id, lang)`): make them a write join on the parent, not a `dbTables` entry. The child FK is auto-filled, and an `upsertKey` on the relation (`{ alias: 'translations', upsertKey: ['productId', 'lang'] }`) lets clients send only the child's own fields: `PUT /rest/product { main, secondaries: { translations: [{ lang: 'en', name: 'Bike' }] } }`. Expose a composite-PK table standalone only when it stands on its own (M:N links).
+- **Owned children** (translations, `*_info`, composite PK like `(product_id, lang)`): make them a write join on the parent, not a `dbTables` entry. The child FK is auto-filled, and an `upsertKey` on the relation (`{ alias: 'translations', upsertKey: ['productId', 'lang'] }`) lets clients send only the child's own fields: `PUT /rest/product { main, upsert: { translations: [{ lang: 'en', name: 'Bike' }] } }`. With that key the client can also send the whole set, `replace: { translations: [...] }`: the rows left out are deleted, in the write's transaction — in a bulk upsert, in the item's own (ADR 0029). Expose a composite-PK table standalone only when it stands on its own (M:N links).
 - **What a write join runs on the child**: its `insertExclude`, `tenantScope` and `beforeInsert`, then the FK auto-fill, which always wins. Not its `validate` or `afterInsert` (ADR 0014).
 
 ## Computed fields
@@ -311,8 +311,8 @@ sqlApi.search(table, { filters, conditions, joinMustExist, joinMultiple, joinGro
 // select: main fields to project, '*' for every readable one; the PK, the requested joins' keys and (with distinctResults) the ORDER BY fields are always added
 // compute: { sum: ['total'], count: ['id'] } → result.computed, over every matching row; min|max|sum|avg|count|distinctCount; no paginator needed
 sqlApi.get(table, id, req?)
-sqlApi.insert(table, { main, secondaries? }, req?) // the POST /rest body: app.sqlApi.insert('customer', req.body, req)
-sqlApi.update(table, { main, secondaries?, deletions? }, req?) // the PUT /rest body, PK in main
+sqlApi.insert(table, { main, upsert?, replace? }, req?) // the POST /rest body: app.sqlApi.insert('customer', req.body, req)
+sqlApi.update(table, { main, upsert?, delete?, replace? }, req?) // the PUT /rest body, PK in main
 sqlApi.delete(table, id, req?)
 sqlApi.bulkUpsert(table, items, req?) // each item writes only its own fields; items need not share keys
 sqlApi.bulkDelete(table, { ids }, req?) // the POST /bulk/:table/delete body; composite PK: ids are { <field>: value } objects

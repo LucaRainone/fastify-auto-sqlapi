@@ -5,6 +5,7 @@ import {
   prepareInsertRecord,
   assertUpsertKeys,
   assertWriteJoinAliases,
+  hasAliases,
 } from '../write-helpers.js';
 import {
   enforceTenantOnWrites,
@@ -18,6 +19,7 @@ import type {
   BulkUpsertParams,
   BulkUpsertResult,
   DbRecord,
+  RowsByAlias,
   WrittenRow,
 } from '../../../types.js';
 
@@ -46,8 +48,24 @@ async function upsertMains(
   );
 }
 
-/** Secondaries, deletions and the afterInsert hook for one upserted item. */
-async function finalizeUpsertedItem(
+/**
+ * The child rows and the afterInsert hook of one upserted item. The batch runs without a
+ * transaction (ADR 0003), but an item with a `replace` runs this in a transaction of its own
+ * (ADR 0029): its upsert and the removal of the rows it left out commit together, so the item
+ * never ends with half its children replaced.
+ */
+function finalizeUpsertedItem(
+  params: BulkUpsertParams,
+  item: BulkUpsertItem,
+  inputMain: Record<string, unknown>,
+  written: WrittenRow
+): Promise<BulkUpsertResult> {
+  return hasAliases(item.replace)
+    ? params.db.withTransaction((tx) => writeItemChildren({ ...params, db: tx }, item, inputMain, written))
+    : writeItemChildren(params, item, inputMain, written);
+}
+
+async function writeItemChildren(
   params: BulkUpsertParams,
   item: BulkUpsertItem,
   inputMain: Record<string, unknown>,
@@ -63,22 +81,27 @@ async function finalizeUpsertedItem(
   // FK auto-fill: input camelCase + generated PK
   const mainForFK = { ...inputMain, ...mainPkCamel };
 
-  if (item.secondaries && Object.keys(item.secondaries).length > 0) {
-    const sec = await processSecondaries(
-      { db, tableConf, dbTables, mainRecord: mainForFK, tenant, request }, item.secondaries
+  let removed: RowsByAlias = {};
+  if (hasAliases(item.upsert, item.replace)) {
+    const outcome = await processSecondaries(
+      { db, tableConf, dbTables, mainRecord: mainForFK, tenant, request }, { upsert: item.upsert, replace: item.replace }
     );
-    if (Object.keys(sec).length > 0) result.secondaries = sec;
+    if (Object.keys(outcome.written).length > 0) result.secondaries = outcome.written;
+    removed = outcome.removed;
   }
 
-  if (item.deletions && Object.keys(item.deletions).length > 0) {
+  if (hasAliases(item.delete)) {
     const del = await processDeletions(
-      { db, tableConf, dbTables, mainRecord: mainForFK, tenant, request }, item.deletions
+      { db, tableConf, dbTables, mainRecord: mainForFK, tenant, request }, item.delete ?? {}
     );
     if (Object.keys(del).length > 0) result.deletions = del;
   }
+  if (Object.keys(removed).length > 0) result.deletions = { ...result.deletions, ...removed };
 
   if (tableConf.afterInsert) {
-    await tableConf.afterInsert({ db, req: request, record: mainForFK, secondaries: result.secondaries });
+    await tableConf.afterInsert({
+      db, req: request, record: mainForFK, secondaries: result.secondaries, deletions: result.deletions,
+    });
   }
 
   return result;
@@ -106,7 +129,7 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
       prepareInsertRecord(
         { db, tableConf, request },
         item.main,
-        item.secondaries,
+        { upsert: item.upsert, replace: item.replace },
         { skipValidate: !!tableConf.validateBulk },
       ),
     ),

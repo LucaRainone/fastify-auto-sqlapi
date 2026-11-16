@@ -169,7 +169,7 @@ describe(`[${DIALECT}] bulk upsert — each item writes its own fields`, () => {
   it('writes each secondary of a bulk item with its own fields', async () => {
     const res = await bulkPut('customer', [{
       main: { id: 1, name: 'With orders' },
-      secondaries: {
+      upsert: {
         customer_order: [
           { total: 10, status: 'shipped' },
           { total: 20, notes: 'fragile' },
@@ -190,7 +190,7 @@ describe(`[${DIALECT}] bulk upsert — each item writes its own fields`, () => {
       url: '/auto/rest/customer',
       payload: {
         main: { id: 1, name: 'With orders' },
-        secondaries: {
+        upsert: {
           customer_order: [
             { total: 10, status: 'shipped' },
             { total: 20, notes: 'fragile' },

@@ -47,14 +47,14 @@ Writes read the same way — *"sync these clients and their tags: update the one
 // PUT /api/bulk/customer — all mains in one SQL; child FKs auto-filled from each parent
 [
   { "main": { "email": "mario@acme.it", "name": "Mario" },
-    "secondaries": { "tags": [{ "tag": "vip" }, { "tag": "newsletter" }] } },
+    "upsert": { "tags": [{ "tag": "vip" }, { "tag": "newsletter" }] } },
   { "main": { "email": "luigi@acme.it", "name": "Luigi" } }
 ]
 // → 200 [{ "main": { "id": 1 }, "secondaries": { "tags": [{ "id": 10 }, { "id": 11 }] } },
 //        { "main": { "id": 2 } }]
 ```
 
-Conflict keys are declared server-side (`upsertKey` on the table for the main rows, here customer on `email`, and on the write relation for its secondaries, here tags on `(customerId, tag)`) and checked at startup against the unique keys the database enforces, so re-sending the same payload updates rows instead of duplicating them and never touches a row through any other key — client-side sync without hand-written diffing.
+Conflict keys are declared server-side (`upsertKey` on the table for the main rows, here customer on `email`, and on the write relation for its child rows, here tags on `(customerId, tag)`) and checked at startup against the unique keys the database enforces, so re-sending the same payload updates rows instead of duplicating them and never touches a row through any other key — client-side sync without hand-written diffing. Send `replace` instead of `upsert` and the tags become exactly these: the ones left out are deleted, in the same transaction.
 
 And multi-tenancy is one plugin option (`getTenantId: (req) => req.user?.organizationId`), enforced on reads *and* writes with zero code in handlers. Rows of other tenants are simply invisible (`404`); here a caller in org B tries to re-point one of their own orders to a customer belonging to org A:
 
@@ -77,7 +77,7 @@ aggregations with HAVING-style conditions · ordering by related and computed va
 fields declared as SQL expressions (JSON extraction, derived strings, date bucketing)
 
 **Writes** — validated inserts and updates · nested child records with foreign keys filled in
-from the parent · child deletions in the same request · bulk upsert and bulk delete ·
+from the parent · child deletions, or the full set replaced, in the same request · bulk upsert and bulk delete ·
 transactions, so a write and its children commit or roll back together
 
 **Production** — multi-tenant row isolation from one `getTenantId`, enforced on reads *and*

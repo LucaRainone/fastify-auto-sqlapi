@@ -86,7 +86,7 @@ describe('insertExclude whitelists client input on insert', () => {
 
     await insertCustomer(dbTables, mockPg, {
       record: { name: 'Ada' },
-      secondaries: { customer_order: [{ id: 999, total: 5 }] },
+      upsert: { customer_order: [{ id: 999, total: 5 }] },
     });
 
     assert.deepEqual(insertedRows(mockPg.calls[1]), [{ total: 5, customer_id: 1 }]);

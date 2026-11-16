@@ -171,11 +171,11 @@ describe('bulkUpsertEngine - with secondaries', () => {
       items: [
         {
           main: { name: 'Mario', email: 'mario@test.it' },
-          secondaries: { customer_order: [{ total: 50, status: 'pending' }] },
+          upsert: { customer_order: [{ total: 50, status: 'pending' }] },
         },
         {
           main: { name: 'Luigi', email: 'luigi@test.it' },
-          secondaries: { customer_order: [{ total: 75, status: 'new' }] },
+          upsert: { customer_order: [{ total: 75, status: 'new' }] },
         },
       ],
     });
@@ -209,7 +209,7 @@ describe('bulkUpsertEngine - with deletions', () => {
       items: [
         {
           main: { name: 'Mario', email: 'mario@test.it' },
-          deletions: { customer_order: [{ id: 5 }] },
+          delete: { customer_order: [{ id: 5 }] },
         },
       ],
     });
@@ -295,7 +295,7 @@ describe('bulkUpsertEngine - hooks', () => {
       items: [
         {
           main: { name: 'Mario', email: 'mario@test.it' },
-          secondaries: { customer_order: [{ total: 50, status: 'pending' }] },
+          upsert: { customer_order: [{ total: 50, status: 'pending' }] },
         },
         { main: { name: 'Luigi', email: 'luigi@test.it' } },
       ],
@@ -369,8 +369,8 @@ describe('bulkUpsertEngine - mixed items', () => {
         { main: { name: 'Mario', email: 'mario@test.it' } },
         {
           main: { name: 'Luigi', email: 'luigi@test.it' },
-          secondaries: { customer_order: [{ total: 99, status: 'new' }] },
-          deletions: { customer_order: [{ id: 50 }] },
+          upsert: { customer_order: [{ total: 99, status: 'new' }] },
+          delete: { customer_order: [{ id: 50 }] },
         },
       ],
     });

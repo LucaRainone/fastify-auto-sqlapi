@@ -142,7 +142,7 @@ describe('upsert by the primary key', () => {
       insertEngine({
         db, tableConf: contentTables.content, dbTables: contentTables, request: {},
         record: { id: 99 },
-        secondaries: { info: [{ langId: 1, title: 'it' }, { title: 'no lang' }] },
+        upsert: { info: [{ langId: 1, title: 'it' }, { title: 'no lang' }] },
       }),
       is400(/"content_info".*\(contentId, langId\).*index 1.*langId/),
     );
@@ -156,7 +156,7 @@ describe('upsert by the primary key', () => {
     await insertEngine({
       db, tableConf: contentTables.content, dbTables: contentTables, request: {},
       record: { id: 99 },
-      secondaries: { info: [{ langId: 1, title: 'it' }, { langId: 2, title: 'en' }] },
+      upsert: { info: [{ langId: 1, title: 'it' }, { langId: 2, title: 'en' }] },
     });
 
     const infoRows = mockPg.calls
@@ -172,7 +172,7 @@ describe('upsert by the primary key', () => {
       insertEngine({
         db, tableConf: contentTables.content, dbTables: contentTables, request: {},
         record: { id: 99 },
-        secondaries: { info: [{ langId: 1, title: 'a' }, { langId: 1, title: 'b' }] },
+        upsert: { info: [{ langId: 1, title: 'a' }, { langId: 1, title: 'b' }] },
       }),
       is400(/"content_info".*index 0 and 1/),
     );

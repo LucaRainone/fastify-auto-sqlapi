@@ -1,6 +1,6 @@
 import { snakecaseRecord } from '../../naming.js';
 import { removeWriteExcluded } from '../../write-access.js';
-import { processSecondaries, processDeletions, assertWriteJoinAliases } from '../write-helpers.js';
+import { processSecondaries, processDeletions, assertWriteJoinAliases, hasAliases } from '../write-helpers.js';
 import {
   stripTenantColumn,
   assertTenantOwnership,
@@ -50,7 +50,8 @@ async function assertRecordExists(
 }
 
 export async function updateEngine(params: UpdateParams): Promise<UpdateResult> {
-  const { db, tableConf, dbTables, request, record, secondaries, deletions, tenant } = params;
+  const { db, tableConf, dbTables, request, record, upsert, delete: toDelete, replace, tenant } = params;
+  const children = { upsert, replace };
 
   const schema = tableConf.schema;
   // Every primary key field/column: composite PKs must match on ALL columns, otherwise an
@@ -59,7 +60,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
   const pkCols = pkFields.map((f) => schema.col(f));
   const pkValues = pkFields.map((f) => record[f]);
 
-  assertWriteJoinAliases(tableConf, { secondaries, deletions });
+  assertWriteJoinAliases(tableConf, { upsert, delete: toDelete, replace });
 
   const missingIdx = pkValues.findIndex((v) => v == null);
   if (missingIdx !== -1) {
@@ -76,7 +77,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
   const inputRecord: Record<string, unknown> = { ...record };
 
   // 3. Custom validation (camelCase)
-  await runValidation(db, request, tableConf, inputRecord, secondaries);
+  await runValidation(db, request, tableConf, inputRecord, children);
 
   // 4. beforeUpdate hook (camelCase — user can mutate with schema field names)
   if (tableConf.beforeUpdate) {
@@ -100,7 +101,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     await enforceTenantFKOnUpdate(db, tenant, updateFields);
   }
 
-  // Steps 8-10 are atomic: a failure in secondaries or deletions rolls back the main
+  // Steps 8-10 are atomic: a failure in the child rows rolls back the main
   // update too. An adapter without connect() cannot run this at all (ADR 0023).
   return db.withTransaction(async (tx) => {
     // 8. Update main
@@ -127,23 +128,26 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
     // Build the main response (PK-only — every PK field)
     const mainResult = Object.fromEntries(pkFields.map((f, i) => [f, pkValues[i]]));
 
-    // 9. Secondaries (upsert/insert with FK auto-fill — camelCase)
+    // 9. Child rows to write (`upsert` and `replace`, FK auto-filled — camelCase); a `replace`
+    //    also removes the child rows the request left out (ADR 0029)
     let secondaryResults: RowsByAlias | undefined;
-    if (secondaries && Object.keys(secondaries).length > 0) {
+    let replaced: RowsByAlias = {};
+    if (hasAliases(upsert, replace)) {
       const mainForFK = { ...inputRecord };
-      secondaryResults = await processSecondaries(
-        { db: tx, tableConf, dbTables, mainRecord: mainForFK, tenant, request }, secondaries
-      );
+      ({ written: secondaryResults, removed: replaced } = await processSecondaries(
+        { db: tx, tableConf, dbTables, mainRecord: mainForFK, tenant, request }, children
+      ));
     }
 
-    // 10. Deletions (FK auto-fill from main like secondaries)
+    // 10. Child rows to delete (FK auto-fill from main), then the rows a replace removed
     let deletionResults: RowsByAlias | undefined;
-    if (deletions && Object.keys(deletions).length > 0) {
+    if (hasAliases(toDelete)) {
       const mainForFK = { ...inputRecord };
       deletionResults = await processDeletions(
-        { db: tx, tableConf, dbTables, mainRecord: mainForFK, tenant, request }, deletions
+        { db: tx, tableConf, dbTables, mainRecord: mainForFK, tenant, request }, toDelete ?? {}
       );
     }
+    if (Object.keys(replaced).length > 0) deletionResults = { ...deletionResults, ...replaced };
 
     // 11. afterUpdate hook (inside the transaction: throwing rolls everything back)
     if (tableConf.afterUpdate) {

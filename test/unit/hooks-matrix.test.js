@@ -101,8 +101,8 @@ describe('afterUpdate hook', () => {
       dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
-      secondaries: { customer_order: [{ total: 100 }] },
-      deletions: { customer_order: [{ id: 5 }] },
+      upsert: { customer_order: [{ total: 100 }] },
+      delete: { customer_order: [{ id: 5 }] },
     });
 
     assert.ok(hookArgs, 'afterUpdate must be called');

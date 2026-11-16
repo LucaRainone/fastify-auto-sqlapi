@@ -10,7 +10,7 @@ import { resolveJoinTableConf } from '../table-helpers.js';
  * Build a PK-only schema for response shapes (single or composite PK).
  * Falls back to `fallback` field if tableConf is undefined.
  */
-export function pkSchema(tableConf: TableConfig | undefined, schema: SchemaDefinition, fallback: string): Record<string, TSchema> {
+export function pkSchema(tableConf: TableConfig | undefined, schema: SchemaDefinition, fallback: string | string[]): Record<string, TSchema> {
   const pk = tableConf?.primary || fallback;
   const fields = Array.isArray(pk) ? pk : [pk];
   const result: Record<string, TSchema> = {};
@@ -142,12 +142,13 @@ function buildJoinAliasMap(
   tableConf: TableConfig,
   dbTables: DbTables,
   build: JoinFieldsBuilder,
-  options: { itemsPartial?: boolean; strictItems?: boolean } = {}
+  options: { itemsPartial?: boolean; strictItems?: boolean; include?: (join: JoinDefinition) => boolean } = {}
 ): Record<string, TSchema> {
   const out: Record<string, TSchema> = {};
   if (!tableConf.writeJoins?.length) return out;
   const objOpts = options.strictItems ? { additionalProperties: false } : {};
   for (const j of tableConf.writeJoins) {
+    if (options.include && !options.include(j)) continue;
     const sc = resolveJoinTableConf(dbTables, j);
     const item = Type.Object(build(j, sc), objOpts);
     // Partial rebuilds the object and drops the source's options: hand them over again.
@@ -156,58 +157,78 @@ function buildJoinAliasMap(
   return out;
 }
 
+/** An alias map as an Optional, open object: see `attachRequestSections`. */
+function aliasSection(map: Record<string, TSchema>): TSchema {
+  return Type.Optional(Type.Partial(Type.Object(map)));
+}
+
+/** A relation `replace` can address: one with an `upsertKey` to tell its rows apart (ADR 0029). */
+const replaceable = (join: JoinDefinition): boolean => join.upsertKey !== undefined;
+
 /**
- * Attach `secondaries` (and optionally `deletions`) sections to the given target object,
- * iterating once over `tableConf.writeJoins`. Mutates `target` in-place.
- * Used by body and response schema builders for insert/update/bulk-upsert.
+ * Attach the child-row sections of a write request to a body schema, in place: `upsert` for
+ * every write join, `delete` (update and bulk upsert, `withDelete`) with every field Optional —
+ * the engine fills in the FK, the client names the key — and `replace` for the relations with
+ * an `upsertKey`, omitted when none has one.
  *
- * Deletions are emitted with every field Optional (Type.Partial) because the engine
- * auto-injects the FK to main and the consumer typically just provides the PK (or a small
- * subset of fields) to identify which child rows to delete.
+ * Every alias container stays open: an alias the table does not declare, or one `replace`
+ * cannot address, must reach the engine, which refuses it with a 400 at that alias
+ * (`assertWriteJoinAliases`). Closed, Fastify's default Ajv (`removeAdditional`) would strip
+ * it, and the write would answer success with the child rows unwritten.
  */
-export function attachWriteJoinSections(
+export function attachRequestSections(
   target: Record<string, TSchema>,
   tableConf: TableConfig,
   dbTables: DbTables,
-  options: { withDeletions: boolean; secondaryFields: JoinFieldsBuilder; strictItems?: boolean }
+  options: { withDelete: boolean }
 ): void {
   if (!tableConf.writeJoins?.length) return;
+  const strict = { strictItems: true };
+  target.upsert = aliasSection(buildJoinAliasMap(tableConf, dbTables, writeJoinBodyFields, strict));
+  if (options.withDelete) {
+    target.delete = aliasSection(
+      buildJoinAliasMap(tableConf, dbTables, ({ joinSchema }) => joinSchema.fields, { itemsPartial: true })
+    );
+  }
+  if (tableConf.writeJoins.some(replaceable)) {
+    target.replace = aliasSection(
+      buildJoinAliasMap(tableConf, dbTables, writeJoinBodyFields, { ...strict, include: replaceable })
+    );
+  }
+}
 
-  // The alias container stays open: an alias the table does not declare must reach the engine,
-  // which refuses it with a 400 `unknown_field` at that alias (`assertWriteJoinAliases`).
-  // Closed, Fastify's default Ajv (`removeAdditional`) would strip it, and the write would
-  // answer success with the child rows unwritten.
-
-  target.secondaries = Type.Optional(
-    Type.Partial(
-      Type.Object(
-        buildJoinAliasMap(tableConf, dbTables, options.secondaryFields, { strictItems: options.strictItems })
-      )
-    )
-  );
-  if (options.withDeletions) {
-    target.deletions = Type.Optional(
-      Type.Partial(
-        Type.Object(
-          buildJoinAliasMap(
-            tableConf,
-            dbTables,
-            ({ joinSchema }) => joinSchema.fields,
-            { itemsPartial: true },
-          )
-        )
-      )
+/**
+ * Attach the outcome sections of a write response, in place: `secondaries`, the key of every
+ * child row written, and `deletions`, the child rows removed. `deletions` lists every write
+ * join (`'all'`, update and bulk upsert) or only those a `replace` can address (`'replaced'`,
+ * insert — the only removals an insert makes), and is omitted when none qualifies.
+ */
+export function attachOutcomeSections(
+  target: Record<string, TSchema>,
+  tableConf: TableConfig,
+  dbTables: DbTables,
+  options: { deletions: 'all' | 'replaced' }
+): void {
+  if (!tableConf.writeJoins?.length) return;
+  target.secondaries = aliasSection(buildJoinAliasMap(tableConf, dbTables, writeJoinResponseFields));
+  const include = options.deletions === 'all' ? undefined : replaceable;
+  if (!include || tableConf.writeJoins.some(include)) {
+    target.deletions = aliasSection(
+      buildJoinAliasMap(tableConf, dbTables, ({ joinSchema }) => joinSchema.fields, { itemsPartial: true, include })
     );
   }
 }
 
 /** JoinFieldsBuilder for body schemas: includes all join fields with FK + excluded made Optional. */
-export const writeJoinBodyFields: JoinFieldsBuilder = (j, sc) =>
+const writeJoinBodyFields: JoinFieldsBuilder = (j, sc) =>
   buildSecondaryFields(j.joinSchema, j.joinField, sc);
 
-/** JoinFieldsBuilder for response schemas: PK only. */
-export const writeJoinResponseFields: JoinFieldsBuilder = (j, sc) =>
-  pkSchema(sc, j.joinSchema, j.joinField);
+/**
+ * JoinFieldsBuilder for response schemas: the child's primary key — its table config's, else
+ * its Schema's, else the join field, as the engine reports it.
+ */
+const writeJoinResponseFields: JoinFieldsBuilder = (j, sc) =>
+  pkSchema(sc, j.joinSchema, j.joinSchema.primaryKey ?? j.joinField);
 
 /** Schema fields minus the ones hidden by `readExclude`. */
 export function readableFields(

@@ -126,7 +126,7 @@ describe('bulkUpsertEngine - items with different fields', () => {
       db, tableConf: dbTables.customer, dbTables: dbTables, request: {},
       items: [{
         main: { name: 'Mario' },
-        secondaries: { customer_order: [{ total: 50 }, { total: 75, status: 'shipped' }] },
+        upsert: { customer_order: [{ total: 50 }, { total: 75, status: 'shipped' }] },
       }],
     });
 
@@ -148,7 +148,7 @@ describe('insertEngine - secondaries with different fields', () => {
     await insertEngine({
       db, tableConf: dbTables.customer, dbTables: dbTables, request: {},
       record: { name: 'Mario' },
-      secondaries: { customer_order: [{ total: 50, status: 'shipped' }, { total: 75 }] },
+      upsert: { customer_order: [{ total: 50, status: 'shipped' }, { total: 75 }] },
     });
 
     assert.deepEqual(

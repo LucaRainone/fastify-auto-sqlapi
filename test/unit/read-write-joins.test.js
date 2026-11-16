@@ -54,7 +54,7 @@ describe('readJoins and writeJoins', () => {
     };
     const pool = createMockPool();
     const sqlApi = createSqlApi(pool, dbTables, { dialect: 'postgres' });
-    await sqlApi.insert('customer', { main: { name: 'Mario' }, secondaries: { orders: [{ total: 5 }] } });
+    await sqlApi.insert('customer', { main: { name: 'Mario' }, upsert: { orders: [{ total: 5 }] } });
     assert.ok(pool.calls.some((sql) => /^INSERT INTO "customer_order"/.test(sql)), pool.calls.join('\n'));
   });
 
@@ -74,10 +74,10 @@ describe('readJoins and writeJoins', () => {
     await app.register(fastifyAutoSqlApi, { dbTables });
     const res = await app.inject({
       method: 'POST', url: '/rest/customer',
-      payload: { main: { name: 'Mario' }, secondaries: { orders: [{ total: 5 }] } },
+      payload: { main: { name: 'Mario' }, upsert: { orders: [{ total: 5 }] } },
     });
     assert.equal(res.statusCode, 400, res.payload);
-    assert.deepEqual(res.json().fields.map((f) => [f.path, f.code]), [['secondaries.orders', 'unknown_field']]);
+    assert.deepEqual(res.json().fields.map((f) => [f.path, f.code]), [['upsert.orders', 'unknown_field']]);
     assert.equal(pool.calls.length, 0);
     await app.close();
   });

@@ -208,7 +208,7 @@ describe('updateEngine - composite PK secondaries', () => {
       dbTables: dbTables,
       request: mockRequest,
       record: { id: 14, name: 'Updated' },
-      secondaries: {
+      upsert: {
         link: [{ teamId: 2 }],
       },
     });
@@ -293,7 +293,7 @@ describe('updateEngine - secondaries', () => {
       dbTables: dbTables,
       request: mockRequest,
       record: { id: 42, name: 'Mario' },
-      secondaries: {
+      upsert: {
         customer_order: [{ total: 100, status: 'pending' }],
       },
     });
@@ -322,7 +322,7 @@ describe('updateEngine - deletions', () => {
       dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
-      deletions: {
+      delete: {
         customer_order: [{ id: 5 }],
       },
     });
@@ -347,11 +347,11 @@ describe('updateEngine - deletions', () => {
         dbTables: dbTables,
         request: mockRequest,
         record: { id: 1, name: 'Mario' },
-        deletions: {
+        delete: {
           customer_order: [{ id: 5 }],
         },
       }),
-      (err) => err.statusCode === 400 && err.validationErrors[0].path === 'deletions.customer_order'
+      (err) => err.statusCode === 400 && err.validationErrors[0].path === 'delete.customer_order'
         && err.validationErrors[0].code === 'unknown_field'
     );
     assert.equal(mockPg.calls.length, 0);
@@ -374,10 +374,10 @@ describe('updateEngine - deletions', () => {
       dbTables: dbTables,
       request: mockRequest,
       record: { id: 1, name: 'Mario' },
-      secondaries: {
+      upsert: {
         customer_order: [{ total: 200, status: 'new' }],
       },
-      deletions: {
+      delete: {
         customer_order: [{ id: 5 }],
       },
     });

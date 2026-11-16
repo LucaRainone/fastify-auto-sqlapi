@@ -5,10 +5,9 @@ import { writableFields, insertExcludedFields } from '../write-access.js';
 import {
   pkSchema,
   applySchemaOverrides,
-  attachWriteJoinSections,
+  attachRequestSections,
+  attachOutcomeSections,
   relaxTenantColumns,
-  writeJoinBodyFields,
-  writeJoinResponseFields,
   WriteActionSchema,
 } from './helpers.js';
 
@@ -36,11 +35,7 @@ export function InsertTableBody(dbTables: DbTables, tableName: string): TObject 
     main: Type.Object(mainFields, { additionalProperties: false }),
   };
 
-  attachWriteJoinSections(bodyProperties, tableConf, dbTables, {
-    withDeletions: false,
-    secondaryFields: writeJoinBodyFields,
-    strictItems: true,
-  });
+  attachRequestSections(bodyProperties, tableConf, dbTables, { withDelete: false });
 
   return Type.Object(bodyProperties);
 }
@@ -53,10 +48,7 @@ export function InsertTableResponse(dbTables: DbTables, tableName: string): TObj
     action: WriteActionSchema,
   };
 
-  attachWriteJoinSections(responseProperties, tableConf, dbTables, {
-    withDeletions: false,
-    secondaryFields: writeJoinResponseFields,
-  });
+  attachOutcomeSections(responseProperties, tableConf, dbTables, { deletions: 'replaced' });
 
   return Type.Object(responseProperties);
 }

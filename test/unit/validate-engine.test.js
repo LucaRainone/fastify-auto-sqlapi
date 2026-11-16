@@ -149,8 +149,8 @@ describe('validate - insertEngine', () => {
     let receivedSecondaries = null;
     const mockPg = createMockPg([]);
     const { dbTables, db } = createTestDbTables(mockPg, {
-      validate: ({ secondaries }) => {
-        receivedSecondaries = secondaries;
+      validate: ({ upsert }) => {
+        receivedSecondaries = upsert;
         return [{ path: 'test', code: 'stop' }];
       },
     });
@@ -168,7 +168,7 @@ describe('validate - insertEngine', () => {
         dbTables: dbTables,
         request: mockRequest,
         record: { name: 'S1' },
-        secondaries: secs,
+        upsert: secs,
       }),
     );
 
@@ -194,7 +194,7 @@ describe('validate - insertEngine', () => {
         request: mockRequest,
         // Pass camelCase field names
         record: { name: 'S1' },
-        secondaries: {
+        upsert: {
           period: [{ startDate: '2024-01-01', endDate: '2024-01-10' }],
         },
       }),
@@ -309,8 +309,8 @@ describe('validate - updateEngine', () => {
     let receivedSecondaries = null;
     const mockPg = createMockPg([]);
     const { dbTables, db } = createTestDbTables(mockPg, {
-      validate: ({ secondaries }) => {
-        receivedSecondaries = secondaries;
+      validate: ({ upsert }) => {
+        receivedSecondaries = upsert;
         return [{ path: 'test', code: 'stop' }];
       },
     });
@@ -329,7 +329,7 @@ describe('validate - updateEngine', () => {
         dbTables: dbTables,
         request: mockRequest,
         record: { id: 1, name: 'S1' },
-        secondaries: secs,
+        upsert: secs,
       }),
     );
 
@@ -390,8 +390,8 @@ describe('validate - bulkUpsertEngine', () => {
         dbTables: dbTables,
         request: mockRequest,
         items: [
-          { main: { name: 'S1' }, secondaries: { period: [{ startDate: '2024-01-01', endDate: '2024-01-31' }] } },
-          { main: { name: 'S2' }, secondaries: { period: [{ startDate: '2024-01-15', endDate: '2024-02-15' }] } },
+          { main: { name: 'S1' }, upsert: { period: [{ startDate: '2024-01-01', endDate: '2024-01-31' }] } },
+          { main: { name: 'S2' }, upsert: { period: [{ startDate: '2024-01-15', endDate: '2024-02-15' }] } },
         ],
       }),
       (err) => {
@@ -404,8 +404,8 @@ describe('validate - bulkUpsertEngine', () => {
 
     assert.ok(receivedItems);
     assert.equal(receivedItems.length, 2);
-    assert.ok(receivedItems[0].secondaries);
-    assert.ok(receivedItems[1].secondaries);
+    assert.ok(receivedItems[0].upsert);
+    assert.ok(receivedItems[1].upsert);
   });
 
   it('uses validateBulk instead of per-item validate when both defined', async () => {

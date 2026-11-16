@@ -56,50 +56,50 @@ const fieldsOf = (res) => res.json().fields.map((f) => [f.path, f.code]);
 describe('an undeclared write alias is a 400 unknown_field, over HTTP', () => {
   it('insert: a typo in a secondaries alias', async () => {
     const { res, pool } = await http(dbTables(), 'POST', '/rest/customer',
-      { main: { name: 'Mario' }, secondaries: { order: [{ total: 100 }] } });
+      { main: { name: 'Mario' }, upsert: { order: [{ total: 100 }] } });
     assert.equal(res.statusCode, 400, res.payload);
-    assert.deepEqual(fieldsOf(res), [['secondaries.order', 'unknown_field']]);
+    assert.deepEqual(fieldsOf(res), [['upsert.order', 'unknown_field']]);
     assert.equal(pool.calls.length, 0);
   });
 
   it('insert: an alias granted for reading only', async () => {
     const { res, pool } = await http(dbTables(), 'POST', '/rest/customer',
-      { main: { name: 'Mario' }, secondaries: { notes: [{ body: 'hi' }] } });
+      { main: { name: 'Mario' }, upsert: { notes: [{ body: 'hi' }] } });
     assert.equal(res.statusCode, 400, res.payload);
-    assert.deepEqual(fieldsOf(res), [['secondaries.notes', 'unknown_field']]);
+    assert.deepEqual(fieldsOf(res), [['upsert.notes', 'unknown_field']]);
     assert.equal(pool.calls.length, 0);
   });
 
   it('insert: secondaries on a table with no write join', async () => {
     const { res, pool } = await http(dbTables({}), 'POST', '/rest/customer',
-      { main: { name: 'Mario' }, secondaries: { orders: [{ total: 100 }] } });
+      { main: { name: 'Mario' }, upsert: { orders: [{ total: 100 }] } });
     assert.equal(res.statusCode, 400, res.payload);
-    assert.deepEqual(fieldsOf(res), [['secondaries.orders', 'unknown_field']]);
+    assert.deepEqual(fieldsOf(res), [['upsert.orders', 'unknown_field']]);
     assert.equal(pool.calls.length, 0);
   });
 
   it('update: an undeclared deletions alias', async () => {
     const { res, pool } = await http(dbTables(), 'PUT', '/rest/customer',
-      { main: { id: 1, name: 'Mario' }, deletions: { order: [{ id: 5 }] } });
+      { main: { id: 1, name: 'Mario' }, delete: { order: [{ id: 5 }] } });
     assert.equal(res.statusCode, 400, res.payload);
-    assert.deepEqual(fieldsOf(res), [['deletions.order', 'unknown_field']]);
+    assert.deepEqual(fieldsOf(res), [['delete.order', 'unknown_field']]);
     assert.equal(pool.calls.length, 0);
   });
 
   it('bulk upsert: the item and alias are named, and no item is written', async () => {
     const { res, pool } = await http(dbTables(), 'PUT', '/bulk/customer', [
-      { main: { name: 'A' }, secondaries: { orders: [{ id: 1, total: 1 }] } },
-      { main: { name: 'B' }, secondaries: { order: [{ total: 2 }] } },
+      { main: { name: 'A' }, upsert: { orders: [{ id: 1, total: 1 }] } },
+      { main: { name: 'B' }, upsert: { order: [{ total: 2 }] } },
     ]);
     assert.equal(res.statusCode, 400, res.payload);
-    assert.deepEqual(fieldsOf(res), [['1.secondaries.order', 'unknown_field']]);
+    assert.deepEqual(fieldsOf(res), [['1.upsert.order', 'unknown_field']]);
     assert.equal(pool.calls.length, 0);
   });
 
   it('a declared alias, even with no rows, and an empty section still pass', async () => {
-    const a = await http(dbTables(), 'POST', '/rest/customer', { main: { name: 'Mario' }, secondaries: { orders: [] } });
+    const a = await http(dbTables(), 'POST', '/rest/customer', { main: { name: 'Mario' }, upsert: { orders: [] } });
     assert.equal(a.res.statusCode, 201, a.res.payload);
-    const b = await http(dbTables(), 'POST', '/rest/customer', { main: { name: 'Mario' }, secondaries: {} });
+    const b = await http(dbTables(), 'POST', '/rest/customer', { main: { name: 'Mario' }, upsert: {} });
     assert.equal(b.res.statusCode, 201, b.res.payload);
   });
 });
@@ -114,9 +114,9 @@ describe('an undeclared write alias is a 400 unknown_field, through sqlApi', () 
   it('insert, update and bulkUpsert', async () => {
     const pool = createMockPool();
     const sqlApi = createSqlApi(pool, dbTables(), { dialect: 'postgres' });
-    await rejects(() => sqlApi.insert('customer', { main: { name: 'M' }, secondaries: { order: [{ total: 1 }] } }));
-    await rejects(() => sqlApi.update('customer', { main: { id: 1, name: 'M' }, deletions: { order: [{ id: 5 }] } }));
-    await rejects(() => sqlApi.bulkUpsert('customer', [{ main: { name: 'M' }, secondaries: { order: [] } }]));
+    await rejects(() => sqlApi.insert('customer', { main: { name: 'M' }, upsert: { order: [{ total: 1 }] } }));
+    await rejects(() => sqlApi.update('customer', { main: { id: 1, name: 'M' }, delete: { order: [{ id: 5 }] } }));
+    await rejects(() => sqlApi.bulkUpsert('customer', [{ main: { name: 'M' }, upsert: { order: [] } }]));
     assert.equal(pool.calls.length, 0);
   });
 });

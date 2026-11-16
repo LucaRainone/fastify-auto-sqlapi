@@ -3,7 +3,7 @@ import type { QueryClient } from '../lib/db.js';
 import type { TableConfig, DbTables } from './table.js';
 import type { TenantContext } from './tenant.js';
 import type { RowsByAlias } from './db.js';
-import type { WriteAction, PrimaryKeyValue } from './db.js';
+import type { WriteAction, PrimaryKeyValue, WriteJoinSections } from './db.js';
 
 interface DmlBaseParams {
   db: QueryClient;
@@ -19,29 +19,31 @@ interface DmlWriteBaseParams extends DmlBaseParams {
 
 // ─── Insert ──────────────────────────────────────────────────
 
-export interface InsertParams extends DmlWriteBaseParams {
+export interface InsertParams extends DmlWriteBaseParams, Omit<WriteJoinSections, 'delete'> {
   record: Record<string, unknown>;
-  secondaries?: RowsByAlias;
 }
 
 export interface InsertResult {
   main: Record<string, unknown>;
   /** `'updated'` when an upsert rule landed the write on an existing row, else `'inserted'`. */
   action: WriteAction;
+  /** The child rows written, by alias: those of `upsert` and of `replace`. */
   secondaries?: RowsByAlias;
+  /** The child rows a `replace` removed, by alias (ADR 0029). */
+  deletions?: RowsByAlias;
 }
 
 // ─── Update ──────────────────────────────────────────────────
 
-export interface UpdateParams extends DmlWriteBaseParams {
+export interface UpdateParams extends DmlWriteBaseParams, WriteJoinSections {
   record: Record<string, unknown>;
-  secondaries?: RowsByAlias;
-  deletions?: RowsByAlias;
 }
 
 export interface UpdateResult {
   main: Record<string, unknown>;
+  /** The child rows written, by alias: those of `upsert` and of `replace`. */
   secondaries?: RowsByAlias;
+  /** The child rows removed, by alias: those of `delete`, and those a `replace` left out. */
   deletions?: RowsByAlias;
 }
 
@@ -70,10 +72,8 @@ export interface DeleteResult {
 
 // ─── Bulk Upsert ─────────────────────────────────────────────
 
-export interface BulkUpsertItem {
+export interface BulkUpsertItem extends WriteJoinSections {
   main: Record<string, unknown>;
-  secondaries?: RowsByAlias;
-  deletions?: RowsByAlias;
 }
 
 export interface BulkUpsertParams extends DmlWriteBaseParams {
@@ -84,7 +84,9 @@ export interface BulkUpsertResult {
   main: Record<string, unknown>;
   /** What the statement did to this item's main row; `'inserted'` for every item without an upsert rule. */
   action: WriteAction;
+  /** The child rows written, by alias: those of `upsert` and of `replace`. */
   secondaries?: RowsByAlias;
+  /** The child rows removed, by alias: those of `delete`, and those a `replace` left out. */
   deletions?: RowsByAlias;
 }
 

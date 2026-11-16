@@ -95,8 +95,8 @@ describe('insert body: the tenant column of a scoped table is offered, not requi
 });
 
 describe('secondaries items: the child tenant column is offered, not required', () => {
-  const childItem = (body) => body.properties.secondaries.properties.customer_order.items;
-  const bulkChildItem = (body) => body.items.properties.secondaries.properties.customer_order.items;
+  const childItem = (body) => body.properties.upsert.properties.customer_order.items;
+  const bulkChildItem = (body) => body.items.properties.upsert.properties.customer_order.items;
 
   it('insert body', () => {
     const item = childItem(InsertTableBody(createDbTables({ scope: DIRECT, childScope: DIRECT }), 'customer'));
@@ -145,7 +145,7 @@ describe('HTTP insert on a scoped table', () => {
   });
 
   it('a secondary may omit it too, and gets the same injection', async () => {
-    const { res, mockPg } = await post(() => 7, { main: { name: 'Mario' }, secondaries: { customer_order: [{ total: 5 }] } });
+    const { res, mockPg } = await post(() => 7, { main: { name: 'Mario' }, upsert: { customer_order: [{ total: 5 }] } });
     assert.equal(res.statusCode, 201, res.body);
     assert.ok(mockPg.calls[1].values.includes(7), JSON.stringify(mockPg.calls[1]));
   });

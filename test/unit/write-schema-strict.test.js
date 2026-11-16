@@ -63,7 +63,7 @@ describe('write body schemas reject unknown properties (mass-assignment guard)',
 
   it('secondaries items are additionalProperties:false on write bodies', () => {
     const schema = InsertTableBody(createDbTables(), 'customer');
-    const secondaryItem = schema.properties.secondaries.properties.customer_order.items;
+    const secondaryItem = schema.properties.upsert.properties.customer_order.items;
     assert.equal(secondaryItem.additionalProperties, false);
   });
 });

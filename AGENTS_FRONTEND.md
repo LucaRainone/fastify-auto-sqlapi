@@ -13,10 +13,10 @@ This is the request GRAMMAR. The vocabulary (this deployment's tables, fields, j
 ```
 POST {p}/search/{table} body=search request → {table, main:[...], ...}
 GET {p}/rest/{table}/:id → {main:{...}} | 404
-POST {p}/rest/{table} body={main, secondaries?} → 201 {main:{id}, action, secondaries?} // action: "inserted" | "updated" (upsert tables)
-PUT {p}/rest/{table} body={main(+PK), secondaries?, deletions?} → {main:{id}, secondaries?, deletions?}
+POST {p}/rest/{table} body={main, upsert?, replace?} → 201 {main:{id}, action, secondaries?, deletions?} // action: "inserted" | "updated" (upsert tables); deletions: only from a replace
+PUT {p}/rest/{table} body={main(+PK), upsert?, delete?, replace?} → {main:{id}, secondaries?, deletions?}
 DELETE {p}/rest/{table}/:id → {main:{id}} | 404
-PUT {p}/bulk/{table} body=[{main, secondaries?, deletions?}, ...] → [{main:{id}, action}, ...]
+PUT {p}/bulk/{table} body=[{main, upsert?, delete?, replace?}, ...] → [{main:{id}, action, secondaries?, deletions?}, ...]
 POST {p}/bulk/{table}/delete body={ids:[1, 2]} → [{main:{id:1}}, ...] // only the rows actually deleted; main key = the table's PK field
 // composite PK: one object per key, every key field: body={ids:[{postId:1, tagId:2}]} → [{main:{postId:1, tagId:2}}, ...]
 ```
@@ -105,23 +105,35 @@ An unknown field or method, or `params` that is not an array or is too short →
 ```jsonc
 // POST {p}/rest/customer — insert; omit auto-generated PKs
 { "main": { "name": "Mario", "email": "m@t.it" },
-  "secondaries": { "orders": [{ "total": 50, "status": "pending" }] } } // child FK auto-filled from the new main PK
+  "upsert": { "orders": [{ "total": 50, "status": "pending" }] } } // child FK auto-filled from the new main PK
 // → 201 { "main": { "id": 1 }, "action": "inserted", "secondaries": { "orders": [{ "id": 10 }] } }
 
 // PUT {p}/rest/customer — update; main MUST include the PK; send only the fields to change; null sets NULL
 { "main": { "id": 1, "email": "new@t.it" },
-  "secondaries": { "orders": [{ "total": 75 }] }, // insert (or upsert) children, FK auto-filled
-  "deletions": { "orders": [{ "id": 10 }] } } // delete children by PK, only children of this main
+  "upsert": { "orders": [{ "total": 75 }] }, // insert (or upsert) children, FK auto-filled; the others stay
+  "delete": { "orders": [{ "id": 10 }] } } // delete children by PK, only children of this main
 // → 200 { "main": { "id": 1 }, "secondaries": { "orders": [{ "id": 20 }] }, "deletions": { "orders": [{ "id": 10 }] } }
 
 // PUT {p}/bulk/customer — bulk upsert; items need not share keys: an omitted field keeps the stored value (update) or takes the column default (insert)
-[ { "main": { "name": "Mario" }, "secondaries": { "orders": [{ "total": 50 }] } },
+[ { "main": { "name": "Mario" }, "upsert": { "orders": [{ "total": 50 }] } },
   { "main": { "name": "Luigi" } } ]
 // → 200 [ { "main": { "id": 1 }, "action": "updated", "secondaries": {...} }, { "main": { "id": 2 }, "action": "inserted" } ]
-// action: what the statement did to the main row. "updated" when an upsert rule matched an existing row (also with nothing left to change), "inserted" otherwise; tables without a rule always say "inserted". Secondaries report PKs only.
+// action: what the statement did to the main row. "updated" when an upsert rule matched an existing row (also with nothing left to change), "inserted" otherwise; tables without a rule always say "inserted".
+// The request says what to do with child rows (upsert, delete, replace); the response says what happened: secondaries = rows written (PKs only), deletions = rows removed.
 ```
 
-`secondaries` and `deletions` accept only the write aliases of the table (manifest): any other alias, including one that is readable but not writable, is a 400 `unknown_field` at `secondaries.<alias>` (`<i>.secondaries.<alias>` in a bulk), and nothing is written.
+Child rows go in one section per action, by write alias (manifest):
+- `upsert`: write these rows; the other children stay.
+- `delete` (update and bulk): delete these rows, named by their key; only children of this main.
+- `replace`: these are all the children — the rows sent are upserted, every other child row of the main row is deleted. `[]` deletes them all. Only for a write alias with an `upsertKey` in the manifest.
+
+```jsonc
+// post 1 has tags 1 and 2
+PUT {p}/rest/post { "main": { "id": 1 }, "replace": { "tags": [{ "tagId": 2 }, { "tagId": 3 }] } }
+// → 200 { "main": { "id": 1 }, "secondaries": { "tags": [...] }, "deletions": { "tags": [{ "postId": 1, "tagId": 1 }] } }
+```
+
+400, and nothing is written: an alias the table does not write (including one only readable), or `replace` on an alias without `upsertKey` → `unknown_field` at `<section>.<alias>` (`<i>.<section>.<alias>` in a bulk); one alias in `replace` and in `upsert` or `delete` too → `conflicting_alias` at `replace.<alias>`; the pre-1.0 `secondaries` / `deletions` keys → `retired_key`.
 
 Upsert tables (see manifest):
 - Every row, main or child, carries its conflict key: missing, null, or shared by two rows of one request → 400.
@@ -138,8 +150,8 @@ Every error has one shape. `error` is the HTTP reason phrase; `requestId` is the
 ```
 
 - 400 always carries `fields`, whether the request failed the schema, the backend's business validation or the engine. Map `fields[].path` to form fields; when `fields` is empty, show `message`.
-  - `path` is the dot path of the offending value in the request: body keys from the root (`main.name`, `secondaries.orders.0.total`, `filters.status`, `conditions.2.params`, `joinGroup.orders.by`, `joinMultiple.orders.select.1`), path parameters and retired querystring keys by name (`id`, `orderBy`). `""` when the error is not attributable to one input.
-  - `code` is stable: an Ajv keyword (`required`, `type`, `maximum`, `additionalProperties`, `enum`…), a code the backend chose in its own validation, or an engine code: `unknown_field`, `not_readable`, `unknown_alias`, `wrong_join_family`, `invalid_method`, `invalid_params`, `invalid_order_by`, `invalid_paginator`, `invalid_aggregation`, `undeclared_aggregation`, `bound_values_not_allowed`, `extra_filter_not_allowed`, `limit_exceeded`, `retired_key` (a key the API no longer reads, e.g. `selectComputed`, a join's `selection`, the search querystring), `missing_key`, `duplicate_key`, `ambiguous_tenant`. The engine's `message` repeats the field's.
+  - `path` is the dot path of the offending value in the request: body keys from the root (`main.name`, `upsert.orders.0.total`, `filters.status`, `conditions.2.params`, `joinGroup.orders.by`, `joinMultiple.orders.select.1`), path parameters and retired querystring keys by name (`id`, `orderBy`). `""` when the error is not attributable to one input.
+  - `code` is stable: an Ajv keyword (`required`, `type`, `maximum`, `additionalProperties`, `enum`…), a code the backend chose in its own validation, or an engine code: `unknown_field`, `not_readable`, `unknown_alias`, `wrong_join_family`, `invalid_method`, `invalid_params`, `invalid_order_by`, `invalid_paginator`, `invalid_aggregation`, `undeclared_aggregation`, `bound_values_not_allowed`, `extra_filter_not_allowed`, `limit_exceeded`, `retired_key` (a key the API no longer reads, e.g. `selectComputed`, a join's `selection`, the search querystring, `secondaries`/`deletions` in a write), `conflicting_alias`, `missing_key`, `duplicate_key`, `ambiguous_tenant`. The engine's `message` repeats the field's.
   - `message`, when present, is a low-level description for the developer (Ajv's or the engine's, in English). A backend validation and a mapped DB error carry none: the code is the whole answer. Show the user a translation of `code`, never `message`.
 - 403: tenant violation. 404: record not found, or outside your tenant. No `fields`, except a mapped DB error (below).
 - 500: DB errors (e.g. constraint violations): `message` is fixed, the detail is in the server log under `requestId`. The backend may answer some of them with another status instead (typically 409 on a duplicate): same envelope, plus `fields: [{ path: "", code }]` with a backend-chosen code to translate.

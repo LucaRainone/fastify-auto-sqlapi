@@ -7,7 +7,7 @@ import type { HookContext } from './hooks.js';
  * the request schema, from a table's `validate`/`validateBulk`, or from the engine.
  *
  * - `path`: dot path of the offending value inside the request — body keys from the root
- *   (`main.name`, `secondaries.orders.0.total`, `filters.status`, `conditions.2.params`,
+ *   (`main.name`, `upsert.orders.0.total`, `filters.status`, `conditions.2.params`,
  *   `joinMultiple.orders.select.1`), querystring and path parameters by name (`orderBy`,
  *   `itemsPerPage`, `id`). The empty string when the error is not attributable to one input.
  * - `code`: machine-readable and stable — an Ajv keyword (`required`, `type`, `maximum`…),
@@ -23,16 +23,20 @@ export interface ValidationField {
   message?: string;
 }
 
-/** `validate`: the camelCase main record of an insert or update, and its secondaries by alias. */
+/**
+ * `validate`: the camelCase main record of an insert or update, and the child rows it writes,
+ * by alias, under the request's own section names — so an error's `path` is the request's.
+ */
 export interface ValidateContext<F extends Record<string, TSchema> = Record<string, TSchema>> extends HookContext {
   main: { [K in keyof F]?: Static<F[K]> };
-  secondaries?: RowsByAlias;
+  upsert?: RowsByAlias;
+  replace?: RowsByAlias;
 }
 
 /**
  * What a `validate`/`validateBulk` hook returns: one `{ path, code }` per problem, rendered as
  * a field of the 400 — `path` in the grammar of `ValidationField.path` (`main.name`,
- * `secondaries.orders.0.total`; in `validateBulk`, `items.3.main.code`), `code` the stable
+ * `upsert.orders.0.total`; in `validateBulk`, `items.3.main.code`), `code` the stable
  * code the client translates (`required`, `overlap`, `unique`). An empty array lets the write
  * through.
  */
@@ -42,9 +46,12 @@ export type ValidatorFn<F extends Record<string, TSchema> = Record<string, TSche
   ctx: ValidateContext<F>
 ) => Promise<ValidatorResult> | ValidatorResult;
 
+/** One item of a bulk upsert, as the request sent it. */
 export interface BulkValidatorItem<F extends Record<string, TSchema> = Record<string, TSchema>> {
   main: { [K in keyof F]?: Static<F[K]> };
-  secondaries?: RowsByAlias;
+  upsert?: RowsByAlias;
+  delete?: RowsByAlias;
+  replace?: RowsByAlias;
 }
 
 /** `validateBulk`: every item of a bulk upsert, once. */

@@ -174,7 +174,7 @@ A plain rename; the semantics do not change.
 
 ### `upsertKey` replaces `upsertMap`
 
-The key of the main rows sits on the table; the key of the secondaries on the write relation
+The key of the main rows sits on the table; the key of the child rows on the write relation
 that writes them. `buildUpsertRule` and `buildUpsertRules` are gone.
 
 ```ts
@@ -242,7 +242,7 @@ Every hook and validator receives `{ db, req, ...data }` instead of positional p
 
 | Hook | Before | After |
 |---|---|---|
-| `validate` | `(db, req, main, secondaries)` | `({ db, req, main, secondaries })` |
+| `validate` | `(db, req, main, secondaries)` | `({ db, req, main, upsert, replace })` — the request's sections, see section 5 |
 | `validateBulk` | `(db, req, items)` | `({ db, req, items })` |
 | `beforeInsert`, `beforeUpdate` | `(db, req, record)` | `({ db, req, record })` |
 | `afterInsert` | `(db, req, record, secondaryRecords)` | `({ db, req, record, secondaries })` |
@@ -309,7 +309,8 @@ await app.sqlApi.insert('customer', { main: { name: 'Mario' } }, req);
 await app.sqlApi.insert('customer', req.body, req); // a body for POST /rest/customer, as is
 ```
 
-`record` throws a `TypeError` naming `main`. Hooks keep `record`.
+`record` throws a `TypeError` naming `main`. Hooks keep `record`. The child rows go under
+`upsert`, `delete` and `replace`, as in the HTTP body (section 5).
 
 ### `sqlApi.bulkDelete` takes `{ ids }`
 
@@ -461,18 +462,35 @@ fetch('/api/bulk/agent/delete', { method: 'POST', body: JSON.stringify({ ids: [7
 
 The same body for every table, whatever its primary key is called; the ids are typed as it.
 
+### Child rows: `upsert`, `delete`, `replace`
+
+```jsonc
+// before
+PUT /rest/post { "main": { "id": 1 }, "secondaries": { "tags": [{ "tagId": 3 }] }, "deletions": { "tags": [{ "tagId": 1 }] } }
+// after
+PUT /rest/post { "main": { "id": 1 }, "upsert": { "tags": [{ "tagId": 3 }] }, "delete": { "tags": [{ "tagId": 1 }] } }
+// new: the complete set, the tags left out are deleted (the alias needs an upsertKey)
+PUT /rest/post { "main": { "id": 1 }, "replace": { "tags": [{ "tagId": 2 }, { "tagId": 3 }] } }
+```
+
+The request names an action per section; the response keeps its nouns, `secondaries` for the
+rows written and `deletions` for the rows removed, and so do `afterInsert`/`afterUpdate`.
+`validate` receives `{ main, upsert, replace }`, and its paths start with those names
+(`upsert.tags.0.tagId`). `secondaries` or `deletions` in a request is a 400 `retired_key`.
+The same holds in a bulk upsert item and in `sqlApi.insert`/`update`/`bulkUpsert` (ADR 0029).
+
 ### An undeclared write alias is a 400
 
 ```jsonc
 // writeJoins declares "orders"
 POST /rest/customer
-{ "main": { "name": "Mario" }, "secondaries": { "order": [{ "total": 100 }] } }
+{ "main": { "name": "Mario" }, "upsert": { "order": [{ "total": 100 }] } }
 // before: 201 — the customer is written, the order is not, nothing says so
-// after:  400 { "fields": [ { "path": "secondaries.order", "code": "unknown_field" } ] }, nothing written
+// after:  400 { "fields": [ { "path": "upsert.order", "code": "unknown_field" } ] }, nothing written
 ```
 
-The same for `deletions`, for an alias the table only reads, and in a bulk upsert
-(`<i>.secondaries.<alias>`, no item written).
+The same for `delete` and `replace`, for an alias the table only reads, and in a bulk upsert
+(`<i>.upsert.<alias>`, no item written).
 
 ### One error envelope
 

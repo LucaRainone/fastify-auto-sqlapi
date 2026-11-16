@@ -43,6 +43,7 @@ not by editing history.
 | [0026](./0026-update-carries-its-primary-key-in-main.md) | An update carries its primary key in `main` — `PUT /rest/:table` has no `:id` |
 | [0027](./0027-the-1-0-contract.md) | The 1.0 contract — what is public, how it changes, and the rules the API keeps (supersedes 0022) |
 | [0028](./0028-select-star-is-the-default-projection.md) | `'*'` in `select` is the default projection — a computed field is asked for without copying the readable set |
+| [0029](./0029-a-write-names-its-child-rows-by-action.md) | A write names its child rows by action — `upsert`, `delete`, `replace` — and answers with what happened (narrows 0003 for one item's children) |
 
 ## When to write one
 

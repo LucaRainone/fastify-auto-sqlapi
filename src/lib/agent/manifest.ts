@@ -23,6 +23,11 @@ export interface ManifestJoin {
   table: string;
   /** '1:N' → usable in joinMustExist/joinMultiple/joinGroup; 'N:1' → usable in joinLeft. */
   kind: '1:N' | 'N:1';
+  /**
+   * On a write join: the key its child rows upsert on. Present, the alias also takes `replace`
+   * — the complete set of child rows, the ones left out deleted (ADR 0029).
+   */
+  upsertKey?: string[];
 }
 
 export interface ManifestTable {
@@ -115,6 +120,7 @@ function manifestJoins(joins: JoinDefinition[] | undefined): ManifestJoin[] {
     alias: j.alias,
     table: j.joinSchema.tableName,
     kind: j.unique ? 'N:1' : '1:N',
+    ...(j.upsertKey ? { upsertKey: [...j.upsertKey] } : {}),
   }));
 }
 
@@ -182,7 +188,8 @@ export function renderAgentManifestMd(manifest: AgentManifest): string {
       '`(readOnly)`=returned by reads, refused by every write (omit it from write payloads).',
     'serverGenerated fields: omit on insert (values from client are ignored).',
     'readJoins aliases: `1:N` → joinMustExist/joinMultiple/joinGroup; `N:1` → joinLeft.',
-    'writeJoins aliases: keys for `secondaries`/`deletions` in writes.',
+    'writeJoins aliases: keys for `upsert`/`delete` in writes. `[key]`: the upsert key; such an ' +
+      'alias also takes `replace`, the complete set of child rows (a row left out is deleted).',
     'filters: unknown keys are rejected (400), never ignored. extraFilters do not apply ' +
       'under joinLeft — use joinMustExist on the same relation.',
     '',
@@ -231,7 +238,8 @@ function renderTableMd(t: ManifestTable): string[] {
     lines.push(`readJoins: ${readJoins.join(', ')}`);
   }
   if (t.writeJoins) {
-    const writeJoins = t.writeJoins.map((j) => `${j.alias}→${j.table}`);
+    const keyOf = (j: ManifestJoin): string => (j.upsertKey ? '[' + j.upsertKey.join('+') + ']' : '');
+    const writeJoins = t.writeJoins.map((j) => `${j.alias}→${j.table}${keyOf(j)}`);
     lines.push(`writeJoins: ${writeJoins.join(', ')}`);
   }
   if (t.defaultOrder) lines.push(`defaultOrder: ${t.defaultOrder}`);

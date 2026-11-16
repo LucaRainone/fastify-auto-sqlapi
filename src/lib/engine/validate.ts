@@ -4,7 +4,7 @@ import type {
   TableConfig,
   ValidationField,
   BulkValidatorItem,
-  RowsByAlias,
+  WriteJoinSections,
 } from '../../types.js';
 
 /**
@@ -38,11 +38,12 @@ export async function runValidation(
   request: ApiRequest | undefined,
   tableConf: TableConfig,
   main: Record<string, unknown>,
-  secondaries?: RowsByAlias
+  children: Pick<WriteJoinSections, 'upsert' | 'replace'> = {}
 ): Promise<void> {
   if (!tableConf.validate) return;
 
-  const fields = toResponseFields('validate', await tableConf.validate({ db, req: request, main, secondaries }));
+  const ctx = { db, req: request, main, upsert: children.upsert, replace: children.replace };
+  const fields = toResponseFields('validate', await tableConf.validate(ctx));
   if (fields.length > 0) throwValidationError(fields);
 }
 
