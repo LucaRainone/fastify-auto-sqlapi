@@ -31,6 +31,7 @@ spenders first."* No resolver, no query builder, no one-off endpoint:
   "filters": { "status": "active" },
   "joinGroup": {
     "orders": {
+      "by": "customerId",
       "filters": { "status": "completed" },
       "sum": ["total"], "count": ["id"]
     }
@@ -50,8 +51,9 @@ Writes read the same way — *"sync these clients and their tags: update the one
     "upsert": { "tags": [{ "tag": "vip" }, { "tag": "newsletter" }] } },
   { "main": { "email": "luigi@acme.it", "name": "Luigi" } }
 ]
-// → 200 [{ "main": { "id": 1 }, "secondaries": { "tags": [{ "id": 10 }, { "id": 11 }] } },
-//        { "main": { "id": 2 } }]
+// → 200 [{ "main": { "id": 1 }, "action": "inserted", "secondaries": { "tags": [{ "id": 10 }, { "id": 11 }] } },
+//        { "main": { "id": 2 }, "action": "inserted" }]
+// sent again → the same ids, each with "action": "updated"
 ```
 
 Conflict keys are declared server-side (`upsertKey` on the table for the main rows, here customer on `email`, and on the write relation for its child rows, here tags on `(customerId, tag)`) and checked at startup against the unique keys the database enforces, so re-sending the same payload updates rows instead of duplicating them and never touches a row through any other key — client-side sync without hand-written diffing. Send `replace` instead of `upsert` and the tags become exactly these: the ones left out are deleted, in the same transaction.
