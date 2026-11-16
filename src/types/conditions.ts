@@ -1,4 +1,7 @@
-import type { ConditionBuilder as CB } from 'node-condition-builder';
+import type { ConditionBuilder as CB, ConditionValueOrUndefined } from 'node-condition-builder';
+
+/** Search filters by field name, as the request and `extendedCondition` see them. */
+export type FilterRecord = Record<string, ConditionValueOrUndefined>;
 
 // Methods that accept (field, value)
 type SingleValueMethods =

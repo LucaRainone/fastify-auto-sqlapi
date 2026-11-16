@@ -276,11 +276,13 @@ Search before writing: `npm run find-similar -- "<what you need>"`.
 - `ComputedFieldFn = (ctx: ComputedFieldContext) => ComputedFieldExpr` *type, public*
 ### src/types/conditions.ts
 - `ConditionMethod = SingleValueMethods | BetweenMethods | InMethods | NullMethods` *type, public*
+- `FilterRecord = Record<string, ConditionValueOrUndefined>` *type, public* — Search filters by field name, as the request and `extendedCondition` see them.
 - `SearchCondition = { [M in ConditionMethod]: { field: F; method: M; params: ConditionParam…` *type, public*
 ### src/types/db.ts
 - `DbRecord = Record<string, DbRecordValue>` *type, public*
 - `DbRecordValue = | string | number | boolean | null | Date | Expression` *type, public* — A value the QueryClient binds.
 - `Queryable` *interface, public*
+- `RowsByAlias = Record<string, Record<string, unknown>[]>` *type, public* — Rows grouped by relation alias: `secondaries` and `deletions` in a write, the rows written or remov…
 - `SelectOptions` *interface, public*
 - `SqlResult` *interface, public*
 - `TransactionQueryable` *interface, public* — A dedicated connection checked out from a pool, used to run a transaction.
@@ -316,7 +318,6 @@ Search before writing: `npm run find-similar -- "<what you need>"`.
 - `JoinFetchRequest` *interface* — Per-request override of the relation's default projection.
 - `JoinGroupRequest` *interface, public* — One `joinGroup` entry: the optional GROUP BY and the aggregate functions, beside the filters and co…
 - `JoinRefFilter` *interface* — Reference filter for join-based existential filtering (joinMustExist), virtual joins data fetching …
-- `RowsByAlias = Record<string, Record<string, unknown>[]>` *type, public* — Rows grouped by relation alias: `secondaries` and `deletions` in a write, the rows written or remov…
 ### src/types/plugin.ts
 - `DbErrorMapping` *interface, public* — One `dbErrors` entry: the HTTP status and the stable code the client translates.
 - `DEFAULT_MAX_BULK_ITEMS` *const*
@@ -340,7 +341,6 @@ Search before writing: `npm run find-similar -- "<what you need>"`.
 ### src/types/table.ts
 - `DbTables = Record<string, TableConfig<any>>` *type, public*
 - `ExtendedConditionFn = (condition: ConditionBuilder, filters: FilterRecord) => void` *type, public*
-- `FilterRecord = Record<string, ConditionValueOrUndefined>` *type, public*
 - `isCompositePrimary(pk: string | string[]): boolean` *function* — True when the primary key spans more than one column.
 - `primaryAsCols(pk: string | string[], colFn: (f: string) => string): string | string[]` *function*
 - `primaryAsString(pk: string | string[]): string` *function*

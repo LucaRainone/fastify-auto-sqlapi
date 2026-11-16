@@ -2,7 +2,7 @@ import type { ApiRequest } from './request.js';
 import type { QueryClient } from '../lib/db.js';
 import type { TableConfig, DbTables } from './table.js';
 import type { TenantContext } from './tenant.js';
-import type { RowsByAlias } from './join.js';
+import type { RowsByAlias } from './db.js';
 import type { WriteAction } from './db.js';
 
 interface DmlBaseParams {

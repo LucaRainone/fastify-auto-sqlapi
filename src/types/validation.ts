@@ -1,5 +1,5 @@
 import type { TSchema, Static } from 'typebox';
-import type { RowsByAlias } from './join.js';
+import type { RowsByAlias } from './db.js';
 import type { HookContext } from './hooks.js';
 
 /**

@@ -1,7 +1,8 @@
-import type { ConditionBuilder, ConditionValueOrUndefined } from 'node-condition-builder';
+import type { ConditionBuilder } from 'node-condition-builder';
 import type { TSchema, TObject } from 'typebox';
 import type { ApiRequest, ApiReply } from './request.js';
 import type { SchemaDefinition } from './schema.js';
+import type { FilterRecord } from './conditions.js';
 import type { ComputedFieldFn } from './computed.js';
 import type { JoinDefinition } from './join.js';
 import type { TenantScope } from './tenant.js';
@@ -30,7 +31,6 @@ export const TABLE_OPERATIONS: readonly TableOperation[] = [
   'search', 'get', 'insert', 'update', 'delete', 'bulkUpsert', 'bulkDelete',
 ];
 
-export type FilterRecord = Record<string, ConditionValueOrUndefined>;
 export type ExtendedConditionFn = (condition: ConditionBuilder, filters: FilterRecord) => void;
 
 export interface TableConfig<F extends Record<string, TSchema> = Record<string, TSchema>> {

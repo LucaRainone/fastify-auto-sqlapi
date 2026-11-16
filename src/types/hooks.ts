@@ -2,7 +2,7 @@ import type { TSchema, Static } from 'typebox';
 import type { Expression } from 'node-condition-builder';
 import type { ApiRequest } from './request.js';
 import type { QueryClient } from '../lib/db.js';
-import type { RowsByAlias } from './join.js';
+import type { RowsByAlias } from './db.js';
 
 /**
  * What every hook and validator of a table config receives: one object, so a new piece of

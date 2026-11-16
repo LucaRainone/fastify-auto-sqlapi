@@ -1,6 +1,6 @@
 import { Expression } from 'node-condition-builder';
 import type { ConditionBuilder } from 'node-condition-builder';
-import type { Queryable, SqlResult, DbRecord, SelectOptions, WrittenRow } from '../types.js';
+import type { Queryable, SqlResult, DbRecord, SelectOptions, WrittenRow } from '../types/db.js';
 import type { SqlDialect } from './dialect.js';
 import { getDialect } from './dialect.js';
 

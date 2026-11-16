@@ -9,26 +9,14 @@
  *   routes/ -> lib/engine/ -> lib/   request handling -> operations -> primitives
  *   types/                           leaf: type declarations only
  */
-// Known-and-accepted findings are silenced by default and surfaced by
-// `npm run depcruise:strict` (DEPCRUISE_STRICT=1), so the default run is zero-tolerance.
-const STRICT = process.env.DEPCRUISE_STRICT === '1';
-const DEFERRED = STRICT ? 'warn' : 'ignore';
 
 export default {
   forbidden: [
     {
-      name: 'no-circular-runtime',
+      name: 'no-circular',
       severity: 'error',
       comment:
-        'A runtime import cycle causes partially-initialised modules at load time. Cycles routed through the src/types.ts barrel are excluded: their edges are `import type` and are erased on emit (verified — the compiled dist/ graph has zero cycles). Those are covered by no-circular-types below.',
-      from: {},
-      to: { circular: true, viaOnly: { pathNot: '^src/types(\\.ts$|/)' } },
-    },
-    {
-      name: 'no-circular-types',
-      severity: DEFERRED,
-      comment:
-        'Type-only cycles through src/types.ts are harmless at runtime but blur the types-are-a-leaf boundary. Pre-existing debt (13), visible under depcruise:strict.',
+        'No import cycle, type-only ones included. A runtime cycle leaves modules partially initialised at load time; a type-only one is erased on emit but blurs the layering, e.g. src/types reaching back to itself through lib/db.ts. A module under lib/ imports its types from the src/types/ file that declares them, not from the src/types.ts barrel.',
       from: {},
       to: { circular: true },
     },
