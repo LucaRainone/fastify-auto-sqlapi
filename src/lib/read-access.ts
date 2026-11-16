@@ -84,11 +84,10 @@ export function assertFiltersReadable(
  * Throws 400 when a filter map carries a key the engine would never visit.
  *
  * Filters are matched against the schema fields, the table's `extraFilters` and its computed
- * fields; anything else used to be dropped without a word, so a mistyped key returned MORE
- * rows than the caller asked for and nothing said so. That is the dangerous direction to fail
- * in — filters are also how consumers narrow visibility — and it contradicted every
- * neighbouring path, where an unknown field in `select`, `conditions`, `orderBy` or an
- * aggregation is already a 400.
+ * fields; anything else is refused. Dropped without a word, a mistyped key would return MORE
+ * rows than the caller asked for and nothing would say so. That is the dangerous direction to
+ * fail in — filters are also how consumers narrow visibility — and every neighbouring path
+ * agrees: an unknown field in `select`, `conditions`, `orderBy` or an aggregation is a 400.
  *
  * `schema` is the schema the relation was declared with, which for a join may be a trimmed
  * copy: a field outside it is unknown here exactly as it is for `select`.

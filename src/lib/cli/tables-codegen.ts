@@ -113,7 +113,7 @@ function detectPrimaryKey(schema: ParsedSchema): DetectedPrimaryKey {
       : { pk: PK_PLACEHOLDER, autoIncrement: false, source: 'unresolved' };
   }
 
-  // Heuristic fallback for hand-written/legacy schema files without primaryKey.
+  // Heuristic fallback for a schema file without primaryKey (written by hand).
   if (schema.fields.includes('id')) {
     return {
       pk: 'id',

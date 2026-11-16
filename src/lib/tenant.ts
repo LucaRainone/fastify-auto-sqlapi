@@ -74,8 +74,8 @@ export async function resolveTenant(
 
   const raw = await options.getTenantId(request);
   // Admin is declared with the sentinel. An absent tenant is NOT an admin: it is the signature
-  // of an auth hook that did not run, a missing claim, a typo in `req.user.<x>` — every one of
-  // them used to be served as a superadmin. Refused before any SQL exists.
+  // of an auth hook that did not run, a missing claim, a typo in `req.user.<x>` — serving any
+  // of them as an admin would hand out every row. Refused before any SQL exists.
   if (raw === TENANT_ADMIN) return undefined;
   if (raw == null) {
     throw httpError(401, 'Unauthorized: no tenant for this request (return TENANT_ADMIN from getTenantId for unrestricted access)');

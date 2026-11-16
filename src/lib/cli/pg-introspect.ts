@@ -59,8 +59,8 @@ export async function introspectTables(
 
     const result = await client.query<PgColumnRow>(
       // The UNION picks up materialized views, which `information_schema` does not describe at
-      // all: they live only in `pg_catalog`, and without this half they were silently absent
-      // from every generation run. Their columns are cast to the same shapes the standard view
+      // all: they live only in `pg_catalog`, and without this half they would be silently
+      // absent from every generation run. Their columns are cast to the same shapes the standard view
       // returns, so the two halves stay union-compatible.
       `SELECT * FROM (
          SELECT c.table_name::text, c.column_name::text, c.udt_name::text,

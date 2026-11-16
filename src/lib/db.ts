@@ -102,8 +102,8 @@ export class QueryClient {
    *
    * Without it the call fails, and nothing runs: a write that asked for atomicity — a main
    * row with its secondaries, deletions and after-hooks — must not be executed as separate
-   * autocommitted statements because the adapter cannot do better. It used to; a custom
-   * adapter without `connect()` silently lost the guarantee (ADR 0023).
+   * autocommitted statements because the adapter cannot do better: a custom adapter without
+   * `connect()` would otherwise lose the guarantee in silence (ADR 0023).
    *
    * Nested calls join the outer transaction: the tx QueryClient wraps the dedicated
    * connection, which has no `connect()` either, so an inner `withTransaction` runs `fn` on
