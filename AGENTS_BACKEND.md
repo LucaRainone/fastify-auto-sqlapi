@@ -218,7 +218,7 @@ readJoins: [
 - **A read join is a read grant on the target.** It runs inside the host's route: the target's `onRequests` and `operations` do not apply, so a table with `operations: []` is still readable through it. The target's `readExclude`, `tenantScope`, `afterRead` and the relation's schema still apply. `fields` narrows that schema, fail-closed: every other field is a 400 in selection, filters, conditions, orderBy and aggregations, and so is a computed field reaching past it. A column added later is not reachable until listed. Use `readExclude` instead to hide a column from the table's own routes too. (ADR 0010, 0011)
 - joinLeft adds a real `LEFT JOIN` only when filters or orderBy need the parent; otherwise it runs a side query.
 - **Owned children** (translations, `*_info`, composite PK like `(product_id, lang)`): make them a write join on the parent, not a `dbTables` entry. The child FK is auto-filled, and an `upsertKey` on the relation (`{ alias: 'translations', upsertKey: ['productId', 'lang'] }`) lets clients send only the child's own fields: `PUT /rest/product { main, upsert: { translations: [{ lang: 'en', name: 'Bike' }] } }`. With that key the client can also send the whole set, `replace: { translations: [...] }`: the rows left out are deleted, in the write's transaction — in a bulk upsert, in the item's own (ADR 0029). Expose a composite-PK table standalone only when it stands on its own (M:N links).
-- **What a write join runs on the child**: its `insertExclude`, `tenantScope` and `beforeInsert`, then the FK auto-fill, which always wins. Not its `validate` or `afterInsert` (ADR 0014).
+- **What a write join runs on the child**: its `insertExclude`, then the FK auto-fill, then its `beforeInsert` (which sees the FK) and `tenantScope`; the FK is filled again after the hook, so it always wins. Not its `validate` or `afterInsert` (ADR 0014): the host's `validate` receives the child rows under `upsert`/`replace`.
 
 ## Computed fields
 
@@ -408,9 +408,9 @@ await app.register(fastifyAutoSqlApi, {
 Everything is imported from `fastify-auto-sqlapi`, so there is nothing else to install:
 
 - `fastifyAutoSqlApi` (the one way to mount the routes), `SqlApi`, `createSqlApi`
-- `defineTable`, `buildRelation`, `Nullable`, `Type`, `Static`
-- for hooks: `httpError`, `TENANT_ADMIN`, `ConditionBuilder`, `Expression`
-- `QueryClient`, `createQueryClient`, `pgQueryable`, `mysqlQueryable`
+- `defineTable`, `buildRelation`, `Nullable`, `Type`, `Static`, and the TypeBox types the signatures name: `TSchema`, `TObject`, `TUnsafe`
+- for hooks: `httpError`, `TENANT_ADMIN`, `ConditionBuilder`, `Expression`, `ConditionValueOrUndefined`
+- `QueryClient`, `createQueryClient`, `pgQueryable`, `mysqlQueryable`, and their parameter types `PgQueryable`, `MysqlQueryable`
 - `agentToolSchemas`, `buildAgentManifest`, `renderAgentManifestMd`
 - Types: those of the config (`DbTables`, `TableDefinition`, `TableConfig`, `JoinDefinition`, `BuildRelationOptions`, `TenantScope`…), of the hooks (`ApiRequest`, `ApiReply`, `ValidationField`, `ValidatorFn`, `ValidatorResult`, `BulkValidatorFn`, `WriteHookContext`, `PrimaryKeyValue`…), of `sqlApi` (`SqlApi*Params`, `JoinFetchRequest`, `JoinRefFilter`, `SearchResult`…), of the QueryClient (`BulkUpsertOptions`…), of the agent manifest (`AgentManifest`, `ManifestTable`, `ManifestField`, `ManifestJoin`) and of the CLI (`CliConfig`). Every type a public signature names is exported, except the building blocks of an exported one
 

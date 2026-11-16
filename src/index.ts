@@ -8,8 +8,8 @@ export { QueryClient, createQueryClient, type BulkUpsertOptions } from './lib/db
 export type { DialectName } from './lib/dialect.js';
 
 // Adapters
-export { pgQueryable } from './lib/adapters/pg-adapter.js';
-export { mysqlQueryable } from './lib/adapters/mysql-adapter.js';
+export { pgQueryable, type PgQueryable } from './lib/adapters/pg-adapter.js';
+export { mysqlQueryable, type MysqlQueryable } from './lib/adapters/mysql-adapter.js';
 
 // Table helpers
 export { defineTable, buildRelation } from './lib/table-helpers.js';
@@ -39,8 +39,8 @@ export type { SqlApiOptions, SqlApiSearchParams, SqlApiInsertParams, SqlApiUpdat
 export { default as fastifyAutoSqlApi } from './routes/auto/plugin.js';
 
 // Re-export deps
-export { Type, type Static } from 'typebox';
-export { ConditionBuilder, Expression } from 'node-condition-builder';
+export { Type, type Static, type TSchema, type TObject, type TUnsafe } from 'typebox';
+export { ConditionBuilder, Expression, type ConditionValueOrUndefined } from 'node-condition-builder';
 
 // Types
 export type {

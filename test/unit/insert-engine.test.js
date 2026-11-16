@@ -636,6 +636,27 @@ describe('insertEngine - secondaries run the child table\'s beforeInsert', () =>
     assert.ok(!bulkCall.values.includes('client-sent'));
   });
 
+  it('hands the child hook the FK to the main row already filled in, over the client\'s value', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 42 }], affectedRows: 1 },
+      { rows: [{ id: 10 }, { id: 11 }], affectedRows: 2 },
+    ]);
+    const { dbTables, db } = createTestDbTables(mockPg);
+    const seen = [];
+    dbTables.customer_order.beforeInsert = async ({ record }) => { seen.push(record.customerId); };
+
+    await insertEngine({
+      db,
+      tableConf: dbTables.customer,
+      dbTables: dbTables,
+      request: mockRequest,
+      record: { name: 'Mario' },
+      upsert: { customer_order: [{ total: 100 }, { total: 200, customerId: 999 }] },
+    });
+
+    assert.deepEqual(seen, [42, 42]);
+  });
+
   it('keeps the engine\'s FK auto-fill authoritative over the child hook', async () => {
     const mockPg = createMockPg([
       { rows: [{ id: 42 }], affectedRows: 1 },

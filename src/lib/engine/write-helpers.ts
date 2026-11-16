@@ -316,8 +316,8 @@ async function writeSecondaryRows(
     : joinSchema.col(childPk);
 
   // Same order as `prepareInsertRecord` (ADR 0005): the client whitelist runs first, then
-  // the child's own `beforeInsert`, then the DB format — so a value the hook assigns to an
-  // excluded field still reaches the INSERT. A secondary is a write like any other, and its
+  // the FK to the main row, then the child's own `beforeInsert`, then the DB format — so a
+  // value the hook assigns to an excluded field still reaches the INSERT. A secondary is a write like any other, and its
   // table's transform has to run here too or a column that table encodes on the way in is
   // stored raw whenever its rows arrive as another table's children.
   const preparedRecords: Record<string, unknown>[] = [];
@@ -325,6 +325,9 @@ async function writeSecondaryRows(
     const camel = { ...rec };
     if (childConf) {
       removeInsertExcluded(camel, childConf);
+      // The hook sees the row as it will be written: the FK to the main row already filled in,
+      // over whatever the client sent. It is filled again below, so the hook cannot move it.
+      camel[joinDef.joinField] = mainValue;
       if (childConf.beforeInsert) {
         await childConf.beforeInsert({ db, req: request, record: camel });
       }
