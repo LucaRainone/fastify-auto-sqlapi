@@ -1,6 +1,6 @@
 # 0014. A secondary runs the child table's transform, not its verdicts
 
-- **Status**: accepted
+- **Status**: accepted — its `validate` row superseded by [0030](./0030-a-child-row-is-validated-by-its-own-table.md)
 - **Date**: 2026-08-23
 
 ## Context

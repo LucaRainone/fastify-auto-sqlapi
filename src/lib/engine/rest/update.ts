@@ -7,7 +7,7 @@ import {
   buildTenantUpdateExtra,
   enforceTenantFKOnUpdate,
 } from '../../tenant.js';
-import { runValidation } from '../validate.js';
+import { runValidation, runChildValidation } from '../validate.js';
 import { httpError } from '../../errors.js';
 import { type ConditionValue, type ConditionBuilder } from 'node-condition-builder';
 import type { QueryClient } from '../../db.js';
@@ -78,6 +78,7 @@ export async function updateEngine(params: UpdateParams): Promise<UpdateResult> 
 
   // 3. Custom validation (camelCase)
   await runValidation(db, request, tableConf, inputRecord, children);
+  await runChildValidation({ db, request, tableConf, dbTables }, record, children);
 
   // 4. beforeUpdate hook (camelCase — user can mutate with schema field names)
   if (tableConf.beforeUpdate) {

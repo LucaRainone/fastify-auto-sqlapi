@@ -518,3 +518,7 @@ Every error is `{ statusCode, error, message, requestId, fields? }`:
   on an integer key is a 400 on `id`, no longer a 500.
 - **Each registration's routes run with its own configuration.** A second registration used
   to serve its routes with the first one's `dbTables`, `getTenantId` and table rules.
+- **A child row is validated by its own table.** Rows sent under `upsert` or `replace` now run
+  the child table's `validate` (or `validateBulk`), with `parent: { alias, main }`; they used to
+  skip it. A child `validate` that requires the FK to the parent refuses an insert whose parent
+  key the database generates: guard it with `if (!parent && !main.<fk>)` (ADR 0030).

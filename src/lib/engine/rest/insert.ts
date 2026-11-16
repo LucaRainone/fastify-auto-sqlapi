@@ -25,7 +25,7 @@ export async function insertEngine(params: InsertParams): Promise<InsertResult> 
 
   // 1. Validate, run beforeInsert hook, snakecase, drop excluded fields.
   const { camel: inputRecord, snake: mainRecord } = await prepareInsertRecord(
-    { db, tableConf, request },
+    { db, tableConf, dbTables, request },
     record,
     children,
   );

@@ -28,7 +28,7 @@ not by editing history.
 | [0011](./0011-join-fields-allowlist.md) | Per-relation field restriction is an allowlist, not a blocklist |
 | [0012](./0012-anti-duplication-tooling.md) | Repository rules are enforced by executable gates, not by documentation |
 | [0013](./0013-sanitized-db-errors.md) | Database error messages are sanitized on the wire by default (narrows 0006) |
-| [0014](./0014-what-follows-a-write-join.md) | A secondary runs the child table's transform, not its verdicts |
+| [0014](./0014-what-follows-a-write-join.md) | A secondary runs the child table's transform, not its verdicts (its `validate` row superseded by 0030) |
 | [0015](./0015-non-writable-columns.md) | A column the database computes is not writable — `writeExclude` (narrows 0004) |
 | [0016](./0016-a-view-is-a-table-config.md) | A view is a table config — the generator refuses to invent its primary key |
 | [0017](./0017-the-schema-is-the-contract.md) | The database schema is the API contract — by default, and only by default |
@@ -44,6 +44,7 @@ not by editing history.
 | [0027](./0027-the-1-0-contract.md) | The 1.0 contract — what is public, how it changes, and the rules the API keeps (supersedes 0022) |
 | [0028](./0028-select-star-is-the-default-projection.md) | `'*'` in `select` is the default projection — a computed field is asked for without copying the readable set |
 | [0029](./0029-a-write-names-its-child-rows-by-action.md) | A write names its child rows by action — `upsert`, `delete`, `replace` — and answers with what happened (narrows 0003 for one item's children) |
+| [0030](./0030-a-child-row-is-validated-by-its-own-table.md) | A child row is validated by its own table — a write join runs the child's `validate`, with `parent` (supersedes part of 0014) |
 
 ## When to write one
 

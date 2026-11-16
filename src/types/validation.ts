@@ -24,13 +24,28 @@ export interface ValidationField {
 }
 
 /**
+ * The main row a child row is written with, as the child table's `validate`/`validateBulk` sees
+ * it when its rows arrive through another table's write join (ADR 0030): the alias they were
+ * sent under and that table's main row, camelCase, as the request sent it.
+ */
+export interface ValidateParent {
+  alias: string;
+  main: Record<string, unknown>;
+}
+
+/**
  * `validate`: the camelCase main record of an insert or update, and the child rows it writes,
  * by alias, under the request's own section names — so an error's `path` is the request's.
+ *
+ * When the table's rows arrive as another table's child rows, `main` is one of them — with the
+ * FK to that table's main row when the request names its key — and `parent` names that table's
+ * main row; on the table's own routes `parent` is absent (ADR 0030).
  */
 export interface ValidateContext<F extends Record<string, TSchema> = Record<string, TSchema>> extends HookContext {
   main: { [K in keyof F]?: Static<F[K]> };
   upsert?: RowsByAlias;
   replace?: RowsByAlias;
+  parent?: ValidateParent;
 }
 
 /**
@@ -54,9 +69,14 @@ export interface BulkValidatorItem<F extends Record<string, TSchema> = Record<st
   replace?: RowsByAlias;
 }
 
-/** `validateBulk`: every item of a bulk upsert, once. */
+/**
+ * `validateBulk`: every item of a bulk upsert, once — or, when the table's rows arrive as
+ * another table's child rows, the rows of one alias as `{ main }` items, with `parent`
+ * (ADR 0030).
+ */
 export interface BulkValidateContext<F extends Record<string, TSchema> = Record<string, TSchema>> extends HookContext {
   items: BulkValidatorItem<F>[];
+  parent?: ValidateParent;
 }
 
 export type BulkValidatorFn<F extends Record<string, TSchema> = Record<string, TSchema>> = (

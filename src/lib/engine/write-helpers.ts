@@ -2,7 +2,7 @@ import type { ApiRequest } from '../../types/request.js';
 import { camelcaseObject, snakecaseRecord } from '../naming.js';
 import { buildKeyMatch, type QueryClient } from '../db.js';
 import { ConditionBuilder, type ConditionValue } from 'node-condition-builder';
-import { runValidation } from './validate.js';
+import { runValidation, runChildValidation } from './validate.js';
 import { removeWriteExcluded, insertExcludedFields } from '../write-access.js';
 import { resolveJoinTableConf } from '../table-helpers.js';
 import { httpError } from '../errors.js';
@@ -208,13 +208,15 @@ function resolveWriteJoinTarget(
 interface PrepareCtx {
   db: QueryClient;
   tableConf: TableConfig;
+  dbTables: DbTables;
   request: ApiRequest | undefined;
 }
 
 /**
  * Prepare a single record for INSERT/UPSERT:
  *   1. shallow camelCase copy of `input`
- *   2. runValidation (camelCase — sees the client payload as sent)
+ *   2. runValidation (camelCase — sees the client payload as sent), then the child tables'
+ *      own `validate` on the child rows (ADR 0030) — both before the hook and any SQL
  *   3. drop insertExclude fields (client-input whitelist; applied BEFORE the
  *      hook so values it assigns — e.g. a server-generated id — reach the INSERT)
  *   4. beforeInsert hook (caller can mutate the camelCase copy)
@@ -225,19 +227,21 @@ interface PrepareCtx {
  * Returns both `camel` (input + hook mutations, used for FK auto-fill / afterInsert) and
  * `snake` (DB-ready record). The original `input` is left intact.
  *
- * Pass the request's `upsert`/`replace` sections so the validate hook receives them; set
- * `skipValidate` when a bulk-level validator already ran.
+ * Pass the request's `upsert`/`replace` sections so the validate hooks receive them; set
+ * `skipValidate` when a bulk-level validator already ran for the host (the child tables still
+ * validate their rows), and `at` to the bulk item's index for the error paths.
  */
 export async function prepareInsertRecord(
   ctx: PrepareCtx,
   input: Record<string, unknown>,
   children: Pick<WriteJoinSections, 'upsert' | 'replace'> = {},
-  options?: { skipValidate?: boolean }
+  options?: { skipValidate?: boolean; at?: string }
 ): Promise<{ camel: Record<string, unknown>; snake: Record<string, unknown> }> {
   const camel: Record<string, unknown> = { ...input };
   if (!options?.skipValidate) {
     await runValidation(ctx.db, ctx.request, ctx.tableConf, camel, children);
   }
+  await runChildValidation(ctx, input, children, options?.at);
   removeInsertExcluded(camel, ctx.tableConf);
   if (ctx.tableConf.beforeInsert) {
     await ctx.tableConf.beforeInsert({ db: ctx.db, req: ctx.request, record: camel });

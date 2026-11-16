@@ -1,8 +1,12 @@
 import type { ApiRequest } from '../../types/request.js';
 import type { QueryClient } from '../db.js';
+import { resolveJoinTableConf } from '../table-helpers.js';
 import type {
   TableConfig,
+  DbTables,
+  JoinDefinition,
   ValidationField,
+  ValidateParent,
   BulkValidatorItem,
   WriteJoinSections,
 } from '../../types.js';
@@ -45,6 +49,94 @@ export async function runValidation(
   const ctx = { db, req: request, main, upsert: children.upsert, replace: children.replace };
   const fields = toResponseFields('validate', await tableConf.validate(ctx));
   if (fields.length > 0) throwValidationError(fields);
+}
+
+/** Where a child validation runs: the host table's write, and the bulk item it belongs to. */
+interface ChildValidationCtx {
+  db: QueryClient;
+  request: ApiRequest | undefined;
+  tableConf: TableConfig;
+  dbTables: DbTables;
+}
+
+/**
+ * Run each child table's `validate` on the child rows a write sends under `upsert` and
+ * `replace` (ADR 0030), after the host's own validation and before any SQL. The child sees its
+ * row as `main` — with the FK to the host's main row when `hostMain` carries the key it is read
+ * from — and `parent: { alias, main: hostMain }`. A child declaring `validateBulk` gets the rows
+ * of one alias at once instead. Every child row is checked, and all their errors answer one
+ * 400 at the request's paths: `<at>.<section>.<alias>.<i>.<field>`.
+ */
+export async function runChildValidation(
+  ctx: ChildValidationCtx,
+  hostMain: Record<string, unknown>,
+  sections: Pick<WriteJoinSections, 'upsert' | 'replace'>,
+  at = ''
+): Promise<void> {
+  const fields: ValidationField[] = [];
+  for (const section of ['upsert', 'replace'] as const) {
+    for (const [alias, rows] of Object.entries(sections[section] ?? {})) {
+      const join = ctx.tableConf.writeJoins?.find((j) => j.alias === alias);
+      const child = join && resolveJoinTableConf(ctx.dbTables, join);
+      if (!join || !child || !rows?.length || (!child.validate && !child.validateBulk)) continue;
+
+      const prefix = [at, section, alias].filter(Boolean).join('.');
+      const parent: ValidateParent = { alias, main: hostMain };
+      const mains = rows.map((row) => withParentKey(row, join, hostMain));
+      fields.push(...await validateChildRows(ctx, child, mains, parent, prefix));
+    }
+  }
+  if (fields.length > 0) throwValidationError(fields);
+}
+
+/** The child row as sent, with the FK to the host's main row when the host's key is known. */
+function withParentKey(row: Record<string, unknown>, join: JoinDefinition, hostMain: Record<string, unknown>): Record<string, unknown> {
+  const mainField = Array.isArray(join.mainField) ? join.mainField[0] : join.mainField;
+  const key = hostMain[mainField];
+  return key == null ? { ...row } : { ...row, [join.joinField]: key };
+}
+
+/** One child table's verdict on the rows of one alias, its paths re-rooted at `prefix`. */
+async function validateChildRows(
+  ctx: ChildValidationCtx,
+  child: TableConfig,
+  mains: Record<string, unknown>[],
+  parent: ValidateParent,
+  prefix: string
+): Promise<ValidationField[]> {
+  const table = child.schema.tableName;
+  const { db, request: req } = ctx;
+  if (child.validateBulk) {
+    const hook = `${table}'s validateBulk`;
+    const items = mains.map((main) => ({ main }));
+    return toResponseFields(hook, await child.validateBulk({ db, req, items, parent }))
+      .map((f) => ({ ...f, path: rerootBulkPath(hook, f.path, prefix) }));
+  }
+  const fields: ValidationField[] = [];
+  for (const [i, main] of mains.entries()) {
+    const hook = `${table}'s validate`;
+    fields.push(...toResponseFields(hook, await child.validate!({ db, req, main, parent }))
+      .map((f) => ({ ...f, path: rerootRowPath(hook, f.path, `${prefix}.${i}`) })));
+  }
+  return fields;
+}
+
+/**
+ * A child row's path in its own grammar (`main.<field>`, `main`, `''`) as a path of the
+ * request (`<row>.<field>`, `<row>`). Anything else is the hook's bug: a 500 naming it.
+ */
+function rerootRowPath(hook: string, path: string, row: string): string {
+  if (path === '' || path === 'main') return row;
+  if (path.startsWith('main.')) return `${row}${path.slice('main'.length)}`;
+  throw new Error(`${hook}, run on a child row, returned path '${path}': expected main.<field> or ''`);
+}
+
+/** A child `validateBulk` path (`items.<j>.main.<field>`, `items.<j>`, `''`) as a path of the request. */
+function rerootBulkPath(hook: string, path: string, alias: string): string {
+  if (path === '') return alias;
+  const m = /^items\.(\d+)(?:\.main(\..+)?)?$/.exec(path);
+  if (m) return `${alias}.${m[1]}${m[2] ?? ''}`;
+  throw new Error(`${hook}, run on child rows, returned path '${path}': expected items.<i>.main.<field>, items.<i> or ''`);
 }
 
 export async function runBulkValidation(

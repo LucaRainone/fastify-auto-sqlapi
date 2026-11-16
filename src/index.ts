@@ -100,6 +100,7 @@ export type {
   TenantScopeAnyOf,
   ValidationField,
   ValidateContext,
+  ValidateParent,
   BulkValidateContext,
   HookContext,
   WriteRecord,

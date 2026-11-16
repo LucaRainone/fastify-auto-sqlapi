@@ -108,7 +108,7 @@ async function writeItemChildren(
 }
 
 export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUpsertResult[]> {
-  const { db, tableConf, request, items, tenant } = params;
+  const { db, tableConf, dbTables, request, items, tenant } = params;
   if (!items.length) return [];
 
   const schema = tableConf.schema;
@@ -125,12 +125,12 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
 
   // 2. For each item: validate (unless validateBulk ran) → beforeInsert → snake → remove excluded.
   const prepared = await Promise.all(
-    items.map((item) =>
+    items.map((item, i) =>
       prepareInsertRecord(
-        { db, tableConf, request },
+        { db, tableConf, dbTables, request },
         item.main,
         { upsert: item.upsert, replace: item.replace },
-        { skipValidate: !!tableConf.validateBulk },
+        { skipValidate: !!tableConf.validateBulk, at: String(i) },
       ),
     ),
   );

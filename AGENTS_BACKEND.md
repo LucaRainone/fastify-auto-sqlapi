@@ -157,7 +157,7 @@ export const TableCustomer = defineTable({
   // Every hook and validator receives ONE context object: { db, req, ...data }. db = the client the
   // operation runs on (inside a write, the transaction's); req = the request, undefined when sqlApi.*
   // is called without one (guard req?.user). Data keys: record, secondaries, deletions, rows, id, ids, main, upsert, replace, items.
-  validate: async ({ db, req, main, upsert, replace }) => { // camelCase, the request's child-row sections keyed by alias
+  validate: async ({ db, req, main, upsert, replace, parent }) => { // camelCase, the request's child-row sections keyed by alias; parent: { alias, main } when this row arrives as another table's child (ADR 0030), absent on this table's own routes
     const errors: ValidatorResult = []; // { path, code }[], the fields of the 400, as is (no message: no prose, the client translates the code). path = dot path in the request body: main.<field>, upsert.<alias>.<i>.<field>, replace.<alias>.<i>.<field>, '' when not attributable. Anything else (a tuple, a message) → 500
     if (!main.name) errors.push({ path: 'main.name', code: 'required' });
     (upsert?.orders ?? []).forEach((o, i) => {
@@ -218,7 +218,7 @@ readJoins: [
 - **A read join is a read grant on the target.** It runs inside the host's route: the target's `onRequests` and `operations` do not apply, so a table with `operations: []` is still readable through it. The target's `readExclude`, `tenantScope`, `afterRead` and the relation's schema still apply. `fields` narrows that schema, fail-closed: every other field is a 400 in selection, filters, conditions, orderBy and aggregations, and so is a computed field reaching past it. A column added later is not reachable until listed. Use `readExclude` instead to hide a column from the table's own routes too. (ADR 0010, 0011)
 - joinLeft adds a real `LEFT JOIN` only when filters or orderBy need the parent; otherwise it runs a side query.
 - **Owned children** (translations, `*_info`, composite PK like `(product_id, lang)`): make them a write join on the parent, not a `dbTables` entry. The child FK is auto-filled, and an `upsertKey` on the relation (`{ alias: 'translations', upsertKey: ['productId', 'lang'] }`) lets clients send only the child's own fields: `PUT /rest/product { main, upsert: { translations: [{ lang: 'en', name: 'Bike' }] } }`. With that key the client can also send the whole set, `replace: { translations: [...] }`: the rows left out are deleted, in the write's transaction — in a bulk upsert, in the item's own (ADR 0029). Expose a composite-PK table standalone only when it stands on its own (M:N links).
-- **What a write join runs on the child**: its `insertExclude`, then the FK auto-fill, then its `beforeInsert` (which sees the FK) and `tenantScope`; the FK is filled again after the hook, so it always wins. Not its `validate` or `afterInsert` (ADR 0014): the host's `validate` receives the child rows under `upsert`/`replace`.
+- **What a write join runs on the child** (rows of `upsert` and `replace`): its `validate` — or its `validateBulk`, once per alias — before any SQL, after the host's, with `parent: { alias, main }` and its paths answered at `upsert.<alias>.<i>.<field>`; then its `insertExclude`, the FK auto-fill, its `beforeInsert` (which sees the FK), the FK again, so it always wins, and its `tenantScope`. Not its `afterInsert` (ADR 0014, 0030). The child's `validate` sees the FK only when the request names the parent's key: guard a required-FK rule with `!parent`.
 
 ## Computed fields
 

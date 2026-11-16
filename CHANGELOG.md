@@ -136,6 +136,11 @@ Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
   - A write names its child rows by action: `secondaries` is `upsert`, `deletions` is `delete`,
     and the old keys are a 400 `retired_key`; the response keeps `secondaries` and `deletions`
     for what was written and removed. `validate` receives `{ main, upsert, replace }` (ADR 0029).
+  - A child row written through a write join is validated by its own table: the child's
+    `validate` (or `validateBulk`, once per alias) runs before any SQL, with
+    `parent: { alias, main }`, and its errors answer at `upsert.<alias>.<i>.<field>`. A
+    required-FK rule guards on `!parent`: the FK is known only when the request names the
+    parent's key (ADR 0030).
   - An alias under `upsert`, `delete` or `replace` not declared in `writeJoins` is a 400
     `unknown_field`, and nothing is written: it was dropped in silence.
   - `error` in an error response is the HTTP reason phrase for every status.
