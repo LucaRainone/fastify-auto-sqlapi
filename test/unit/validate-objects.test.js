@@ -1,6 +1,6 @@
 // `validate` and `validateBulk` return the same objects a 400 carries in `fields`: `{ path,
-// code }`. The code is what the client translates, so a hook writes no prose — `message`
-// mirrors the code. The pre-1.0 tuples (`[path, code, message?]`) are refused as a programming
+// code }`. The code is what the client translates, so a hook writes no prose — the field
+// carries no `message`. The pre-1.0 tuples (`[path, code, message?]`) are refused as a programming
 // error naming the new shape, never read positionally, and nothing is written.
 
 import { describe, it } from 'node:test';
@@ -39,11 +39,11 @@ const insert = (sqlApi) => sqlApi.insert('customer', { main: { name: '' } });
 const bulkUpsert = (sqlApi) => sqlApi.bulkUpsert('customer', [{ main: { name: '' } }]);
 
 describe('validate and validateBulk return { path, code } objects', () => {
-  it('validate: each object is a field of the 400, message mirroring the code', async () => {
+  it('validate: each object is a field of the 400, as is: no message', async () => {
     const { sqlApi, pool } = api({ validate: () => [{ path: 'main.name', code: 'required' }] });
     await assert.rejects(() => insert(sqlApi), (err) => {
       assert.equal(err.statusCode, 400);
-      assert.deepEqual(err.validationErrors, [{ path: 'main.name', code: 'required', message: 'required' }]);
+      assert.deepEqual(err.validationErrors, [{ path: 'main.name', code: 'required' }]);
       return true;
     });
     assert.equal(pool.calls.length, 0);
@@ -53,7 +53,7 @@ describe('validate and validateBulk return { path, code } objects', () => {
     const { sqlApi, pool } = api({ validateBulk: () => [{ path: 'items.0.main.name', code: 'empty' }] });
     await assert.rejects(() => bulkUpsert(sqlApi), (err) => {
       assert.equal(err.statusCode, 400);
-      assert.deepEqual(err.validationErrors, [{ path: 'items.0.main.name', code: 'empty', message: 'empty' }]);
+      assert.deepEqual(err.validationErrors, [{ path: 'items.0.main.name', code: 'empty' }]);
       return true;
     });
     assert.equal(pool.calls.length, 0);

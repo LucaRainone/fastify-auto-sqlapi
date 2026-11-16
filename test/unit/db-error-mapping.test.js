@@ -63,7 +63,7 @@ describe('dbErrors maps driver error codes to an HTTP status and a code', () => 
     assert.equal(body.error, 'Conflict');
     assert.equal(body.message, 'Conflict');
     assert.equal(typeof body.requestId, 'string');
-    assert.deepEqual(body.fields, [{ path: '', code: 'duplicate', message: 'Conflict' }]);
+    assert.deepEqual(body.fields, [{ path: '', code: 'duplicate' }]);
     assertNoDriverDetail(res);
     await app.close();
   });
@@ -75,7 +75,7 @@ describe('dbErrors maps driver error codes to an HTTP status and a code', () => 
 
     const res = await search(app);
     assert.equal(res.statusCode, 400, res.body);
-    assert.deepEqual(res.json().fields, [{ path: '', code: 'check_failed', message: 'Bad Request' }]);
+    assert.deepEqual(res.json().fields, [{ path: '', code: 'check_failed' }]);
     await app.close();
   });
 

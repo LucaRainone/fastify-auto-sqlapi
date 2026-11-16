@@ -8,10 +8,10 @@ import type {
 } from '../../types.js';
 
 /**
- * The fields of the 400 for what a `validate`/`validateBulk` hook returned: `{ path, code }`
- * objects, `message` mirroring the code. Anything else is the hook's bug, not the client's —
- * a plain Error (500), never a 400 — and the pre-1.0 tuples are named, so they are not read
- * positionally into the wrong fields. A `message` is refused: the client translates the code.
+ * The fields of the 400 for what a `validate`/`validateBulk` hook returned: the `{ path, code }`
+ * objects as they are, with no `message` — a hook writes no prose, the client translates the
+ * code. Anything else is the hook's bug, not the client's — a plain Error (500), never a 400 —
+ * and the pre-1.0 tuples are named, so they are not read positionally into the wrong fields.
  */
 function toResponseFields(hook: string, errors: unknown): ValidationField[] {
   if (!Array.isArray(errors)) {
@@ -29,7 +29,7 @@ function toResponseFields(hook: string, errors: unknown): ValidationField[] {
     }
     if (typeof path !== 'string') throw new Error(`${at}: path must be a string ('' when not attributable)`);
     if (typeof code !== 'string' || !code) throw new Error(`${at}: code must be a non-empty string`);
-    return { path, code, message: code };
+    return { path, code };
   });
 }
 

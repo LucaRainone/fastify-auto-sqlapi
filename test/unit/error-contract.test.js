@@ -4,7 +4,7 @@
 //
 // - `error` is the HTTP reason phrase of the status (never the JS error's class name).
 // - `requestId` is on every error, not only on 500s: it is the log line's `reqId`.
-// - every 400 carries `fields`, an array of { path, code, message }, whether the 400 comes
+// - every 400 carries `fields`, an array of { path, code, message? }, whether the 400 comes
 //   from the request schema (Ajv), from a table's `validate`, or from the engine. `path` is
 //   the dot path into the request (`main.name`, `filters.status`, `conditions.0.params`,
 //   `orderBy`), or '' when the error is not attributable to one input. `code` is stable.
@@ -66,14 +66,14 @@ describe('error envelope — 400 from the request schema (Ajv)', () => {
 });
 
 describe('error envelope — 400 from a table validate hook', () => {
-  it('renders the returned objects as fields, message mirroring the code', async () => {
+  it('renders the returned objects as fields, as is: no message', async () => {
     const app = await createApp();
     const res = await app.inject({ method: 'POST', url: '/rest/item', payload: { main: { name: 'bad' } } });
     assert.equal(res.statusCode, 400, res.payload);
     const body = res.json();
     assertEnvelope(body, 400, 'Bad Request');
     assert.equal(body.message, 'Validation failed');
-    assert.deepEqual(body.fields, [{ path: 'main.name', code: 'custom', message: 'custom' }]);
+    assert.deepEqual(body.fields, [{ path: 'main.name', code: 'custom' }]);
     await app.close();
   });
 });

@@ -96,7 +96,6 @@ describe('validate - insertEngine', () => {
         assert.equal(err.validationErrors.length, 1);
         assert.equal(err.validationErrors[0].path, 'name');
         assert.equal(err.validationErrors[0].code, 'required');
-        assert.equal(err.validationErrors[0].message, 'required');
         return true;
       }
     );
@@ -105,7 +104,7 @@ describe('validate - insertEngine', () => {
     assert.equal(mockPg.calls.length, 0);
   });
 
-  it('message mirrors the code: a hook writes no prose', async () => {
+  it('a hook entry carries no message: a hook writes no prose, the code is the whole answer', async () => {
     const mockPg = createMockPg([]);
     const { dbTables, db } = createTestDbTables(mockPg, {
       validate: () => [{ path: 'name', code: 'required' }],
@@ -120,9 +119,7 @@ describe('validate - insertEngine', () => {
         record: {},
       }),
       (err) => {
-        assert.equal(err.validationErrors[0].path, 'name');
-        assert.equal(err.validationErrors[0].code, 'required');
-        assert.equal(err.validationErrors[0].message, 'required');
+        assert.deepEqual(err.validationErrors, [{ path: 'name', code: 'required' }]);
         return true;
       }
     );
@@ -250,7 +247,6 @@ describe('validate - insertEngine', () => {
       (err) => {
         assert.equal(err.validationErrors[0].path, 'name');
         assert.equal(err.validationErrors[0].code, 'async_error');
-        assert.equal(err.validationErrors[0].message, 'async_error');
         return true;
       }
     );
@@ -402,7 +398,6 @@ describe('validate - bulkUpsertEngine', () => {
         assert.equal(err.statusCode, 400);
         assert.equal(err.validationErrors[0].path, 'periods');
         assert.equal(err.validationErrors[0].code, 'overlap');
-        assert.equal(err.validationErrors[0].message, 'overlap');
         return true;
       }
     );

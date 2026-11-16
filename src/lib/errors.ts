@@ -16,7 +16,8 @@ export interface HttpErrorField {
  * A 400 should also say what was wrong with the input: `field` is rendered as the single
  * entry of the response's `fields` array, so an engine rejection reaches the client in the
  * same shape as a schema or `validate` error. Another status takes a `field` only where the
- * client must read a code, as a `dbErrors` answer does (ADR 0024).
+ * client must read a code, e.g. a 409 a hook raises. `message` is copied into the field: a
+ * caller with nothing to say beyond the code sets `validationErrors` itself (`dbErrors`).
  *
  * Using a function instead of a custom class keeps the throw sites lightweight
  * and matches the existing convention across the codebase.
@@ -72,12 +73,16 @@ export function sanitizeRouteError(err: unknown, policy: RouteErrorPolicy = {}):
 
   const mapped = mapDbError(err, policy.dbErrors);
   const safe = (mapped
-    ? httpError(mapped.status, STATUS_CODES[mapped.status] ?? 'Error', { code: mapped.code })
+    ? httpError(mapped.status, STATUS_CODES[mapped.status] ?? 'Error')
     : httpError(500, 'Internal Server Error')) as Error & {
     statusCode: number;
     requestId?: string;
     debugInfo?: Record<string, unknown>;
+    validationErrors?: ValidationField[];
   };
+  // The consumer's code is the whole answer: the reason phrase is already the envelope's
+  // `message`, repeating it in the field would say nothing more.
+  if (mapped) safe.validationErrors = [{ path: '', code: mapped.code }];
   safe.cause = err;
   if (policy.requestId) safe.requestId = policy.requestId;
   if (policy.exposeDebugInfo) safe.debugInfo = describeError(err);

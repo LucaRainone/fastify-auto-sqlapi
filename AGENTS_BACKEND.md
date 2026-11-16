@@ -157,7 +157,7 @@ export const TableCustomer = defineTable({
   // operation runs on (inside a write, the transaction's); req = the request, undefined when sqlApi.*
   // is called without one (guard req?.user). Data keys: record, secondaries, deletions, rows, id, ids, main, items.
   validate: async ({ db, req, main, secondaries }) => { // camelCase, secondaries keyed by alias
-    const errors: Pick<ValidationField, 'path' | 'code'>[] = []; // { path, code }, the fields of the 400 (message = code: no prose, the client translates). path = dot path in the request body: main.<field>, secondaries.<alias>.<i>.<field>, '' when not attributable. Anything else (a tuple, a message) → 500
+    const errors: Pick<ValidationField, 'path' | 'code'>[] = []; // { path, code }, the fields of the 400, as is (no message: no prose, the client translates the code). path = dot path in the request body: main.<field>, secondaries.<alias>.<i>.<field>, '' when not attributable. Anything else (a tuple, a message) → 500
     if (!main.name) errors.push({ path: 'main.name', code: 'required' });
     (secondaries?.orders ?? []).forEach((o, i) => {
       if (o.total < 0) errors.push({ path: `secondaries.orders.${i}.total`, code: 'min' });

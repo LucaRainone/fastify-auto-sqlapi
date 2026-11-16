@@ -91,6 +91,8 @@ Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
     `undefined`.
   - `validate` and `validateBulk` return `{ path, code }` objects; tuples, a `message`, or a
     result that is not an array are a programming error. `ValidationError` is gone.
+  - `ValidationField.message` is optional: absent on the fields a validator returned and on a
+    `dbErrors` answer, where it only repeated the code or the reason phrase.
 - **`sqlApi` and the QueryClient**
   - `sqlApi.insert` / `update` take `{ main, … }`, the HTTP body; `record` throws.
   - `sqlApi.bulkDelete` takes `{ ids }`.

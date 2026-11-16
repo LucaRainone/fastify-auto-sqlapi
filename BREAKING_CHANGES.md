@@ -282,8 +282,8 @@ validate: async ({ main }) => {
 }
 ```
 
-- The objects become the `fields` of the 400; their `message` is the code. A hook writes no
-  user-facing text: move it to the client, keyed by the code.
+- The objects become the `fields` of the 400 as they are, without a `message`. A hook writes
+  no user-facing text: move it to the client, keyed by the code.
 - A tuple, an object with a `message`, or a result that is not an array is a programming
   error (a 500 naming the hook and the entry), and nothing is written.
 - `ValidationError` is no longer exported. The same applies to `validateBulk`, whose paths
@@ -481,9 +481,10 @@ Every error is `{ statusCode, error, message, requestId, fields? }`:
 - `error` is the HTTP reason phrase (`Bad Request`, `Not Found`) for every status; the
   engine's 4xx used to say `Error`.
 - `requestId` is on every error, and matches the server log's `reqId`.
-- every 400 carries `fields: [{ path, code, message }]`, the engine's rejections included.
+- every 400 carries `fields: [{ path, code, message? }]`, the engine's rejections included.
   Map `path` to a form field and translate `code`; `message` is a description for the
-  developer, not for the user.
+  developer, not for the user, and is absent on a backend validation and a `dbErrors` answer,
+  where the code says everything.
 
 ---
 

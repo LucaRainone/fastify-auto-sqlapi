@@ -13,15 +13,14 @@ import type { HookContext } from './hooks.js';
  * - `code`: machine-readable and stable — an Ajv keyword (`required`, `type`, `maximum`…),
  *   the code a `validate` hook returned, or one of the engine's codes (`unknown_field`,
  *   `not_readable`, `unknown_alias`, `invalid_params`…, see AGENTS_FRONTEND.md).
- * - `message`: Ajv's or the engine's description, for a developer; the code itself on an
- *   entry a hook returned — a hook writes no prose, the client translates the code.
- *
- * `validate` and `validateBulk` return these objects without `message`: `{ path, code }`.
+ * - `message`: Ajv's, the engine's or an `httpError`'s description, for a developer. Absent
+ *   when there is nothing to say beyond the code: on an entry `validate`/`validateBulk`
+ *   returned (a hook writes no prose) and on a `dbErrors` answer.
  */
 export interface ValidationField {
   path: string;
   code: string;
-  message: string;
+  message?: string;
 }
 
 /** `validate`: the camelCase main record of an insert or update, and its secondaries by alias. */
