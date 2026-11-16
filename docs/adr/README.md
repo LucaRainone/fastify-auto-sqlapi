@@ -42,6 +42,7 @@ not by editing history.
 | [0025](./0025-validatebulk-replaces-validate-in-a-bulk-upsert.md) | `validateBulk` replaces `validate` in a bulk upsert — one call for the batch, not one per item |
 | [0026](./0026-update-carries-its-primary-key-in-main.md) | An update carries its primary key in `main` — `PUT /rest/:table` has no `:id` |
 | [0027](./0027-the-1-0-contract.md) | The 1.0 contract — what is public, how it changes, and the rules the API keeps (supersedes 0022) |
+| [0028](./0028-select-star-is-the-default-projection.md) | `'*'` in `select` is the default projection — a computed field is asked for without copying the readable set |
 
 ## When to write one
 

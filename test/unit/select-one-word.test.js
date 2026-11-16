@@ -117,6 +117,62 @@ describe('select lists schema fields and computed fields alike', () => {
   });
 });
 
+describe('select "*": the default projection, plus the computed fields listed next to it', () => {
+  it('projects every readable column, as a search without select does, plus the computed field', async () => {
+    const plain = createMockPool([MAIN]);
+    await search({}, plain);
+    const pool = createMockPool([MAIN]);
+    const res = await search({ select: ['*', 'loudTitle'] }, pool);
+
+    assert.equal(res.statusCode, 200, res.body);
+    assert.equal(
+      selectList(pool.calls[0].text),
+      `${selectList(plain.calls[0].text)}, UPPER("conversation"."title") AS "loudTitle"`,
+    );
+    assert.equal(res.json().main[0].loudTitle, 'HELLO');
+  });
+
+  it('keeps readExclude out, as the default projection does', async () => {
+    const tables = dbTables();
+    tables.chat = defineTable({ ...tables.chat, readExclude: ['creatorId'] });
+    const pool = createMockPool([MAIN]);
+    const res = await search({ select: ['*', 'loudTitle'] }, pool, tables);
+
+    assert.equal(res.statusCode, 200, res.body);
+    assert.doesNotMatch(selectList(pool.calls[0].text), /creator_id/);
+  });
+
+  it('may stand anywhere in the list, and a schema field next to it adds nothing', async () => {
+    const first = createMockPool([MAIN]);
+    await search({ select: ['*', 'loudTitle'] }, first);
+    const pool = createMockPool([MAIN]);
+    const res = await search({ select: ['loudTitle', 'title', '*'] }, pool);
+
+    assert.equal(res.statusCode, 200, res.body);
+    assert.equal(selectList(pool.calls[0].text), selectList(first.calls[0].text));
+  });
+
+  it('still validates every other name at its index', async () => {
+    const res = await search({ select: ['*', 'nope'] });
+    assert.equal(res.statusCode, 400, res.body);
+    assert.deepEqual(fieldErrors(res), [['select.1', 'unknown_field']]);
+  });
+
+  it('is the main projection only: in a join select it is an unknown field', async () => {
+    const res = await search({ joinMultiple: { messages: { select: ['*'] } } }, createMockPool([MAIN]));
+    assert.equal(res.statusCode, 400, res.body);
+    assert.deepEqual(fieldErrors(res), [['joinMultiple.messages.select.0', 'unknown_field']]);
+  });
+
+  it('sqlApi.search takes it too', async () => {
+    const pool = createMockPool([MAIN]);
+    const sqlApi = createSqlApi(pool, dbTables(), { dialect: 'postgres' });
+    const result = await sqlApi.search('chat', { select: ['*', 'loudTitle'] });
+    assert.match(selectList(pool.calls[0].text), /AS "loudTitle"/);
+    assert.equal(result.main[0].loudTitle, 'HELLO');
+  });
+});
+
 describe('select on a join reference and in buildRelation', () => {
   it('joinMultiple takes select', async () => {
     const pool = createMockPool([MAIN, { rows: [{ id: 10, conversation_id: 1, body: 'hi' }], rowCount: 1 }]);

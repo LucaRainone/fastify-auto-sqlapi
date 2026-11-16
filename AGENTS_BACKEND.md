@@ -221,7 +221,7 @@ readJoins: [
 
 ## Computed fields
 
-A computed field is a SQL expression usable like a field in `filters`, `conditions`, `orderBy`, `compute` and `joinGroup.<alias>.by`. It is projected only when listed in the request's `select`.
+A computed field is a SQL expression usable like a field in `filters`, `conditions`, `orderBy`, `compute` and `joinGroup.<alias>.by`. It is projected only when listed in the request's `select`: `select: ['*', 'fullName']` returns every readable field plus it (ADR 0028).
 
 ```ts
 computedFields: {
@@ -307,7 +307,7 @@ app.get('/billing/:customerId', async (request) =>
   }, request)); // pass `request` for tenant + hooks; without it: no tenant filter, hooks get undefined
 
 sqlApi.search(table, { filters, conditions, joinMustExist, joinMultiple, joinGroup, joinLeft, select, orderBy, paginator, compute, maxRows }, req?)
-// select: main fields to project; the PK, the requested joins' keys and (with distinctResults) the ORDER BY fields are always added
+// select: main fields to project, '*' for every readable one; the PK, the requested joins' keys and (with distinctResults) the ORDER BY fields are always added
 // compute: { sum: ['total'], count: ['id'] } → result.computed, over every matching row; min|max|sum|avg|count|distinctCount; no paginator needed
 sqlApi.get(table, id, req?)
 sqlApi.insert(table, { main, secondaries? }, req?) // the POST /rest body: app.sqlApi.insert('customer', req.body, req)

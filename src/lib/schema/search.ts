@@ -205,9 +205,9 @@ export function SearchTableBodyPost(
   const bodyProperties: Record<string, unknown> = {
     filters: filtersSchema,
     conditions: Type.Optional(Type.Array(conditionItemSchema, { maxItems: MAX_CONDITIONS })),
-    // Main projection, schema and computed fields alike. Names are validated by the engine
-    // (readExclude included), not here: a closed enum would be stripped by `removeAdditional`
-    // the same way a closed filters map is.
+    // Main projection, schema and computed fields alike, '*' for every readable field. Names
+    // are validated by the engine (readExclude included), not here: a closed enum would be
+    // stripped by `removeAdditional` the same way a closed filters map is.
     select: Type.Optional(SelectSchema),
     // Ordering, paging and aggregates belong with the rest of the request, in the body only.
     orderBy: orderByField(),

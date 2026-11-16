@@ -51,7 +51,7 @@ export function rejectRetiredKey(input: object | undefined, key: string, at: str
  * folded into `select`, the one-field `computeMin/Max/Sum/Avg` into `compute`.
  */
 export function rejectRetiredSearchKeys(params: object): void {
-  rejectRetiredKey(params, 'selectComputed', 'selectComputed', `list computed fields in 'select'`);
+  rejectRetiredKey(params, 'selectComputed', 'selectComputed', `list computed fields in 'select', next to '*' for every readable field`);
   for (const fn of ['Min', 'Max', 'Sum', 'Avg']) {
     const key = `compute${fn}`;
     rejectRetiredKey(params, key, key, `use 'compute': { ${fn.toLowerCase()}: [field] }`);
@@ -256,11 +256,19 @@ export function buildJoinSelectColumns(
     .join(', ');
 }
 
+/** In the main `select`, the default projection: every readable column. Not a field name. */
+const SELECT_ALL = '*';
+
 /**
  * The main query's column list for a request `select`: the listed schema fields, validated one
  * by one (unknown or `readExclude`d → 400 at `select.<i>`), then `required` ones the request did
  * not list — the primary key, join correlation keys, DISTINCT's ORDER BY fields — when readable.
  * Computed fields in `select` are skipped here: `executeMainQuery` projects them.
+ *
+ * {@link SELECT_ALL} in the list stands for the default projection — every readable column, as
+ * a search without `select` returns — so a client asks for a computed field without copying the
+ * readable set: `['*', 'fullName']`. The other names are still validated; a schema field next
+ * to it adds nothing. See ADR 0028.
  */
 export function buildMainSelectColumns(
   select: string[],
@@ -272,10 +280,11 @@ export function buildMainSelectColumns(
   const table = db.qi(schema.tableName);
   const fields: string[] = [];
   for (const [i, name] of select.entries()) {
-    if (ownField(tableConf.computedFields, name)) continue;
+    if (name === SELECT_ALL || ownField(tableConf.computedFields, name)) continue;
     validateSchemaField(name, schema, tableConf, `select.${i}`);
     if (!fields.includes(name)) fields.push(name);
   }
+  if (select.includes(SELECT_ALL)) return readableSelectColumns(tableConf, schema, db);
   const readable = readableFieldNames(tableConf, schema);
   for (const name of required) {
     if (!fields.includes(name) && readable.includes(name)) fields.push(name);

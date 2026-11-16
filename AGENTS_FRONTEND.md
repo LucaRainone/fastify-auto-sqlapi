@@ -37,7 +37,7 @@ Everything travels in the body, and only there; all keys are optional and combin
     { "field": "status", "method": "isIn", "params": [["active", "pending"]] },
     { "field": "orders.count.id", "method": "isGreaterOrEqual", "params": [4] } // alias.fn.field, HAVING-style: needs the matching joinGroup below
   ],
-  "select": ["id", "name", "displayName"], // main fields to return, computed ones included; default: every readable field and no computed one. The PK and the keys of the requested joins are always included. Unknown or hidden name → 400
+  "select": ["id", "name", "displayName"], // main fields to return, computed ones included; default: every readable field and no computed one. "*" = that default: ["*", "fullName"] adds a computed field without listing the rest (main select only). The PK and the keys of the requested joins are always included. Unknown or hidden name → 400
   "joinMustExist": { // EXISTS on children: decides WHICH main rows return; fetches nothing
     "labels": { "filters": { "labelId": 1 }, "conditions": [] }
   },

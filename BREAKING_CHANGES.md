@@ -414,8 +414,8 @@ POST /search/orders
 ```
 
 `select` takes schema and computed fields alike. `selectComputed` alone used to mean "every
-column plus these": list the columns you read next to the computed field. `selectComputed` and
-a join's `selection` are a 400 `retired_key`.
+column plus these": that is now `"select": ["*", "displayName"]`, `*` standing for every
+readable field. `selectComputed` and a join's `selection` are a 400 `retired_key`.
 
 ### `compute` answers in `computed`, with or without a paginator
 

@@ -38,7 +38,8 @@ which supersedes ADR 0022.
   owning `app.sqlApi`.
 - **`select` in search**: the fields to project, schema and computed alike, over HTTP and in
   `sqlApi.search()`. The primary key, the keys the requested joins correlate on and, with
-  `distinctResults`, the ORDER BY fields are always projected.
+  `distinctResults`, the ORDER BY fields are always projected. `'*'` stands for every readable
+  field: `['*', 'fullName']` adds a computed field without listing the others.
 - **`compute` in search**: `{ min, max, sum, avg, count, distinctCount }`, several fields per
   function, answered in a top-level `computed` over every matching row, with or without a
   paginator.

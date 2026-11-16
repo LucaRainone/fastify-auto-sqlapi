@@ -121,6 +121,7 @@ const SHAPES = [
   ['pagination + filter + computed', 'customer', { filters: { name: 'Mario', tier: 'vip' }, paginator: { page: 1, itemsPerPage: 5 } }],
   ['compute min/max', 'customer', { paginator: { page: 1, itemsPerPage: 5 }, compute: { min: ['id'], max: ['id'] } }],
   ['select with a computed field', 'customer', { select: ['id', 'name', 'upperName'] }],
+  ['select "*" with a computed field', 'customer', { select: ['*', 'upperName'] }],
   ['maxRows cap', 'customer', { maxRows: 10 }],
 
   ['joinMultiple', 'customer', { joinMultiple: { orders: {} } }],

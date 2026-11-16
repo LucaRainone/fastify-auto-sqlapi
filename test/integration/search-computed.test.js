@@ -114,6 +114,20 @@ describe(`[${DIALECT}] computed fields integration`, () => {
     assert.equal(body.main[1].productTier, 'premium');
   });
 
+  it('select "*" returns every readable column plus the computed fields listed next to it', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auto/search/product',
+      payload: { orderBy: 'name ASC', select: ['*', 'label'] },
+    });
+    assert.equal(res.statusCode, 200, res.payload);
+    const [first] = JSON.parse(res.payload).main;
+    assert.equal(first.name, 'Basic Tea');
+    assert.equal(first.label, 'Basic Tea - Black tea');
+    assert.equal(first.productTier, undefined, 'a computed field not listed was projected');
+    assert.ok('id' in first && 'description' in first, JSON.stringify(first));
+  });
+
   it('conditions with operator on computed (isLike on label)', async () => {
     const res = await app.inject({
       method: 'POST',
