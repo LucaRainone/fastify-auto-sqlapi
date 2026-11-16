@@ -1,5 +1,5 @@
-import type { ConditionValue } from 'node-condition-builder';
-import { buildTenantDeleteWhere, assertTenantOwnsAll } from '../../tenant.js';
+import { ConditionBuilder, type ConditionValue } from 'node-condition-builder';
+import { buildTenantRowGuard, assertTenantOwnsAll } from '../../tenant.js';
 import { buildKeyMatch } from '../../db.js';
 import { httpError } from '../../errors.js';
 import type { BulkDeleteParams, BulkDeleteResult, PrimaryKeyValue } from '../../../types.js';
@@ -29,16 +29,15 @@ export async function bulkDeleteEngine(params: BulkDeleteParams): Promise<BulkDe
     await tableConf.beforeBulkDelete({ db, req: request, ids });
   }
 
-  let where: string;
-  let values: unknown[];
-
-  if (tenant) {
-    ({ where, values } = buildTenantDeleteWhere(db, tableName, pkCols, (cols) => buildKeyMatch(db, cols, keys), tenant));
-  } else {
-    const match = buildKeyMatch(db, pkCols.map((c) => db.qi(c)), keys);
-    where = match.build(1, db.ph);
-    values = match.getValues();
-  }
+  // The keys, and the tenant's guard when the table is scoped: a row the caller does not own
+  // is not deleted, and is left out of the answer like a missing one.
+  const keyMatch = buildKeyMatch(db, pkCols.map((c) => db.qi(c)), keys);
+  const guard = buildTenantRowGuard(db, tenant, tableName);
+  const condition = guard
+    ? new ConditionBuilder('AND', db.cbDialect).append(keyMatch).append(guard)
+    : keyMatch;
+  const where = condition.build(1, db.ph);
+  const values = condition.getValues();
 
   const quotedPkCols = pkCols.map((c) => db.qi(c)).join(', ');
   let results: BulkDeleteResult[];

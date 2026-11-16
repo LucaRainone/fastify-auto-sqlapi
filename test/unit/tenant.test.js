@@ -599,8 +599,9 @@ describe('delete engines with indirect tenant', () => {
     ids: [42],
     scope: { column: 'organization_id', through: { schema: customerSchema, localField: 'customer_id', foreignField: 'id' } },
   };
-  // The outer `DELETE ... WHERE "id" IN (SELECT ...)` is single-table: its bare pk is legitimate,
-  // but the harness sees the JOIN inside the subquery and would flag it.
+  // The DELETE tests the parent through a correlated EXISTS, never a subquery on the table it
+  // deletes from (MySQL error 1093). Its bare pk is legitimate in a single-table statement, but
+  // the ownership probe's JOIN would make the harness flag it.
   const opts = { checkQualification: false };
 
   it('deleteEngine restricts the row through the parent tenant column', async () => {
@@ -611,8 +612,9 @@ describe('delete engines with indirect tenant', () => {
 
     const del = mockPg.calls.find((c) => c.text.startsWith('DELETE FROM "customer_order"'));
     assert.ok(del, mockPg.calls.map((c) => c.text).join('\n'));
-    assert.ok(del.text.includes('INNER JOIN "customer"'), del.text);
+    assert.ok(del.text.includes('EXISTS (SELECT 1 FROM "customer" WHERE "customer"."id" = "customer_order"."customer_id"'), del.text);
     assert.ok(del.text.includes('"customer"."organization_id" IN'), del.text);
+    assert.ok(!/FROM "customer_order"/.test(del.text.slice('DELETE FROM "customer_order"'.length)), 'the DELETE must not read its own table');
     assert.ok(del.values.includes(42));
   });
 
@@ -625,8 +627,11 @@ describe('delete engines with indirect tenant', () => {
 
     await bulkDeleteEngine({ db, tableConf, ids: [1, 2], request: {}, tenant });
 
+    const del = mockPg.calls.find((c) => c.text.startsWith('DELETE FROM "customer_order"'));
+    assert.ok(del, mockPg.calls.map((c) => c.text).join('\n'));
+    assert.ok(del.text.includes('EXISTS (SELECT 1 FROM "customer" WHERE "customer"."id" = "customer_order"."customer_id"'), del.text);
+    assert.ok(!/FROM "customer_order"/.test(del.text.slice('DELETE FROM "customer_order"'.length)), 'the DELETE must not read its own table');
     for (const call of mockPg.calls) {
-      assert.ok(call.text.includes('INNER JOIN "customer"'), call.text);
       assert.ok(call.text.includes('"customer"."organization_id" IN'), call.text);
       assert.ok(call.values.includes(42));
     }

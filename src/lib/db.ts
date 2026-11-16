@@ -635,7 +635,7 @@ export class QueryClient {
  * The predicate matching one row by its key: `col = ?` for every key column. `cols` are quoted
  * (and qualified, when the statement needs it); `key` holds one value per column, in order.
  */
-export function buildKeyEquals(db: QueryClient, cols: string[], key: ConditionValue[]): ConditionBuilder {
+function buildKeyEquals(db: QueryClient, cols: string[], key: ConditionValue[]): ConditionBuilder {
   const cb = new ConditionBuilder('AND', db.cbDialect);
   cols.forEach((col, i) => cb.isEqual(col, key[i]));
   return cb;

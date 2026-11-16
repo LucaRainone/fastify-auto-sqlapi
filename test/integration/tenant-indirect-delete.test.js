@@ -1,8 +1,8 @@
 // Deletes under an indirect tenant scope, on a real database. The row to delete is owned
-// through its parent (customer_order → customer.organization_id), so the DELETE names its rows
-// through a subquery joining the parent. MySQL refuses a DELETE whose subquery reads the table
-// being deleted from (error 1093) unless that subquery is materialized: these tests lock the
-// statement down on both dialects, for the single delete and the bulk one.
+// through its parent (customer_order → customer.organization_id), so the DELETE tests the
+// parent with a correlated EXISTS. MySQL refuses a DELETE whose subquery reads the table being
+// deleted from (error 1093): these tests lock the statement down on both dialects, for the
+// single delete and the bulk one.
 
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';

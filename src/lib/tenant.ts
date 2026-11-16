@@ -142,9 +142,11 @@ export function tenantForTable(
 
 /**
  * Tenant guard as a self-contained boolean fragment, for the positions where the scope cannot
- * be expressed as an extra INNER JOIN: a child DELETE, a LEFT JOIN's ON clause, and the
- * correlated subquery of an aggregation. A direct scope compares the table's own column; an
- * indirect one tests the through table with a correlated EXISTS rather than a join.
+ * be expressed as an extra INNER JOIN: a DELETE (of the addressed table or of a child), a LEFT
+ * JOIN's ON clause, and the correlated subquery of an aggregation. A direct scope compares the
+ * table's own column; an indirect one tests the through table with a correlated EXISTS rather
+ * than a join — which also keeps a DELETE from reading the table it deletes from, a statement
+ * MySQL and MariaDB refuse (error 1093).
  *
  * `tableRef` is the name the scoped rows go by in that statement — the table name in a DELETE,
  * the join alias in an ON clause, the subquery alias inside a correlated SELECT. Returns
@@ -277,48 +279,6 @@ export async function validateTenantFK(
   if (result.rows.length > 0) {
     throw httpError(403, 'Access denied: records do not belong to tenant');
   }
-}
-
-/**
- * Build WHERE clause for DELETE with tenant filtering.
- * Handles both direct (simple AND) and indirect (subquery via JOIN) scopes; a tenant whose
- * addressed table declares no scope yields the plain primary-key clause. `pkCols` are the key
- * columns; `keyMatch` builds the caller's predicate over them, quoted and qualified as the
- * statement needs (`buildKeyEquals` for one row, `buildKeyMatch` for a set).
- */
-export function buildTenantDeleteWhere(
-  db: QueryClient,
-  tableName: string,
-  pkCols: string[],
-  keyMatch: (cols: string[]) => ConditionBuilder,
-  tenant: TenantContext
-): { where: string; values: unknown[] } {
-  const scope = tenant.scope;
-
-  if (scope && isIndirect(scope)) {
-    const qualified = pkCols.map((c) => `${db.qi(tableName)}.${db.qi(c)}`);
-    const innerCb = new ConditionBuilder('AND', db.cbDialect);
-    innerCb.append(keyMatch(qualified));
-    innerCb.append(buildTenantCondition(db, scope, tenant.ids, tableName));
-    const innerWhere = innerCb.build(1, db.ph);
-    const values = innerCb.getValues();
-    const joinSql = buildTenantJoin(db, scope, tableName);
-    // A composite key compares as a row value: `(a, b) IN (SELECT a, b …)`. The subquery reads
-    // the table being deleted from, which MySQL and MariaDB refuse (error 1093) unless it is
-    // materialized: wrapping it in a derived table does that, and PostgreSQL accepts it as is.
-    const outer = pkCols.map((c) => db.qi(c)).join(', ');
-    const target = pkCols.length > 1 ? `(${outer})` : outer;
-    const owned = `SELECT ${qualified.join(', ')} FROM ${db.qi(tableName)} ${joinSql} WHERE ${innerWhere}`;
-    const where = `${target} IN (SELECT ${outer} FROM (${owned}) AS ${db.qi('sqlapi_owned')})`;
-    return { where, values };
-  }
-
-  const cb = new ConditionBuilder('AND', db.cbDialect);
-  cb.append(keyMatch(pkCols.map((c) => db.qi(c))));
-  if (scope) cb.append(buildTenantCondition(db, scope, tenant.ids, tableName));
-  const where = cb.build(1, db.ph);
-  const values = cb.getValues();
-  return { where, values };
 }
 
 /**

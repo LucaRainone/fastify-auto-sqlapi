@@ -1,5 +1,4 @@
-import { buildTenantDeleteWhere, assertTenantOwnsAll } from '../../tenant.js';
-import { buildKeyEquals } from '../../db.js';
+import { buildTenantRowGuard, assertTenantOwnsAll } from '../../tenant.js';
 import { httpError } from '../../errors.js';
 import { primaryAsString, isCompositePrimary } from '../../../types.js';
 import type { DeleteParams, DeleteResult } from '../../../types.js';
@@ -24,19 +23,10 @@ export async function deleteEngine(params: DeleteParams): Promise<DeleteResult> 
     await tableConf.beforeDelete({ db, req: request, id });
   }
 
-  if (!tenant) {
-    const affectedRows = await db.delete(tableName, { [pkCol]: id });
-    if (affectedRows === 0) throw httpError(404, `Record not found: ${id}`);
-  } else {
-    const { where, values } = buildTenantDeleteWhere(db, tableName, [pkCol], (cols) => buildKeyEquals(db, cols, [id]), tenant);
-
-    const result = await db.query(
-      `DELETE FROM ${db.qi(tableName)} WHERE ${where}`,
-      values
-    );
-
-    if (result.affectedRows === 0) throw httpError(404, `Record not found: ${id}`);
-  }
+  // The tenant's guard, when the table is scoped, joins the key in the same DELETE: a row the
+  // caller does not own is not deleted, and answers 404 like a missing one.
+  const affectedRows = await db.delete(tableName, { [pkCol]: id }, buildTenantRowGuard(db, tenant, tableName));
+  if (affectedRows === 0) throw httpError(404, `Record not found: ${id}`);
 
   if (tableConf.afterDelete) {
     await tableConf.afterDelete({ db, req: request, id });

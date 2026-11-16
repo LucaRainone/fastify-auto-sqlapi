@@ -51,6 +51,7 @@ export type {
   DbRecordValue,
   WriteAction,
   WrittenRow,
+  PrimaryKeyValue,
   SelectOptions,
   SchemaDefinition,
   JoinDefinition,

@@ -22,8 +22,9 @@ which supersedes ADR 0022.
 
 - **Bulk delete on a composite primary key.** `POST /bulk/:table/delete` and
   `sqlApi.bulkDelete()` take one object per key, `{ ids: [{ postId: 1, tagId: 2 }] }`, matched
-  on every key column; the hooks receive the same objects. A link table (M:N) no longer needs
-  a custom route. `get` and `delete` by `:id` stay unavailable on such a table.
+  on every key column; the hooks receive the same objects, typed `PrimaryKeyValue`. A link
+  table (M:N) no longer needs a custom route. `get` and `delete` by `:id` stay unavailable on
+  such a table.
 - **`dbErrors`**: driver error codes the consumer answers with an HTTP status and a code of
   its own instead of the sanitized 500, keyed by `err.code` as the driver raises it:
   `dbErrors: { '23505': { status: 409, code: 'duplicate' } }` (`'ER_DUP_ENTRY'` on
@@ -124,8 +125,9 @@ Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
 ### Fixed
 
 - **A delete under an indirect tenant scope failed on MySQL and MariaDB** (error 1093): the
-  DELETE named its rows through a subquery reading the same table. The subquery is now
-  materialized in a derived table; `DELETE /rest/:table/:id` and bulk delete both work.
+  DELETE named its rows through a subquery reading the same table. It now tests the parent
+  with a correlated `EXISTS`, as the deletions of a write join already did;
+  `DELETE /rest/:table/:id` and bulk delete both work.
 - **A search without a paginator was paginated.** The querystring schema declared a default
   `itemsPerPage`, which Ajv injected before the handler: every search ran a `COUNT(*)` and
   answered page 1 of 500 rows. It now returns up to `maxItemsPerPage` rows, without
