@@ -158,7 +158,8 @@ export interface TableConfig<F extends Record<string, TSchema> = Record<string, 
   afterDelete?: (ctx: DeleteHookContext) => void | Promise<void>;
   /**
    * Bulk counterpart of `beforeDelete`, invoked ONCE with all ids before a bulk delete
-   * (POST /bulk/:table/delete): `{ db, req, ids }`. Called once — not per id — to preserve the
+   * (POST /bulk/:table/delete): `{ db, req, ids }`, the ids as the request sent them — values,
+   * or `{ <field>: value }` objects on a composite primary key. Called once — not per id — to preserve the
    * single-query optimization. Throw to abort the whole batch. `beforeDelete` is NOT called
    * for bulk deletes; configure this hook if you need a guard there.
    */
@@ -238,8 +239,9 @@ export function primaryAsString(pk: string | string[]): string {
 
 /**
  * True when the primary key spans more than one column. Operations that address a
- * record by a single PK value (get, delete, bulkDelete) cannot work on such tables:
- * matching on the first column alone would hit every row sharing that value.
+ * record by a single PK value in the path (get, delete) cannot work on such tables:
+ * matching on the first column alone would hit every row sharing that value. Bulk delete
+ * takes one object per key instead.
  */
 export function isCompositePrimary(pk: string | string[]): boolean {
   return Array.isArray(pk) && pk.length > 1;

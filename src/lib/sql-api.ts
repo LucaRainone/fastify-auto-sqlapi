@@ -31,6 +31,7 @@ import type {
   BulkUpsertItem,
   BulkUpsertResult,
   BulkDeleteResult,
+  PrimaryKeyValue,
   GetTenantId,
   TenantContext,
   RowsByAlias,
@@ -68,16 +69,19 @@ export interface SqlApiUpdateParams {
   deletions?: RowsByAlias;
 }
 
-/** The body of `POST /bulk/:table/delete`: the primary key values to delete. */
+/**
+ * The body of `POST /bulk/:table/delete`: the primary keys to delete — values for a
+ * single-column key, objects naming every key field for a composite one.
+ */
 export interface SqlApiBulkDeleteParams {
-  ids: (string | number)[];
+  ids: PrimaryKeyValue[];
 }
 
 /**
  * The ids of a bulk delete's params. A JavaScript caller can still pass the pre-1.0 bare
  * array: refused, naming the key, before any SQL.
  */
-function idsOf(tableName: string, params: { ids?: unknown }): (string | number)[] {
+function idsOf(tableName: string, params: { ids?: unknown }): PrimaryKeyValue[] {
   const ids = Array.isArray(params) ? undefined : params?.ids;
   if (!Array.isArray(ids)) {
     throw new TypeError(
@@ -85,7 +89,7 @@ function idsOf(tableName: string, params: { ids?: unknown }): (string | number)[
       (Array.isArray(params) ? ' (a bare array was the pre-1.0 form)' : '')
     );
   }
-  return ids as (string | number)[];
+  return ids as PrimaryKeyValue[];
 }
 
 /**

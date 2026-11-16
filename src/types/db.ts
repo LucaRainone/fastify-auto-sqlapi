@@ -41,6 +41,12 @@ export type DbRecordValue =
 
 export type DbRecord = Record<string, DbRecordValue>;
 
+/**
+ * A primary key as a request names a row: the value itself for a single-column key, an object
+ * naming every key field for a composite one (`{ postId: 1, tagId: 2 }`).
+ */
+export type PrimaryKeyValue = string | number | Record<string, string | number>;
+
 /** What a write that may be an upsert did to a row. */
 export type WriteAction = 'inserted' | 'updated';
 

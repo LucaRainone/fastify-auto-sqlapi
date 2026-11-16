@@ -24,8 +24,8 @@ export interface SqlApiPluginOptions {
    * exposes what its config allows. A read-only surface beside a full one is a second
    * registration with `operations: ['search', 'get']`, its own `prefix` and `decorate: false`.
    *
-   * Unlike a table's `operations`, naming a single-PK operation (`get`, `delete`,
-   * `bulkDelete`) here does not refuse a composite-PK table: the table is skipped for it.
+   * Unlike a table's `operations`, naming a single-PK operation (`get`, `delete`) here does
+   * not refuse a composite-PK table: the table is skipped for it.
    */
   operations?: TableOperation[];
   onRequests?: ((request: ApiRequest, reply: ApiReply) => Promise<void | ApiReply>)[];

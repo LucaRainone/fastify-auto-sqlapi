@@ -1,27 +1,31 @@
-import { ConditionBuilder } from 'node-condition-builder';
+import type { ConditionValue } from 'node-condition-builder';
 import { buildTenantDeleteWhere, assertTenantOwnsAll } from '../../tenant.js';
-import { primaryAsString, isCompositePrimary } from '../../../types.js';
+import { buildKeyMatch } from '../../db.js';
 import { httpError } from '../../errors.js';
-import type { BulkDeleteParams, BulkDeleteResult } from '../../../types.js';
+import type { BulkDeleteParams, BulkDeleteResult, PrimaryKeyValue } from '../../../types.js';
 
+/**
+ * Delete rows by primary key. A single-column key takes the values themselves; a composite key
+ * takes one object per row naming every key field, and each row is matched on all of its key
+ * columns together — never on one column alone, which would reach every row sharing it.
+ */
 export async function bulkDeleteEngine(params: BulkDeleteParams): Promise<BulkDeleteResult[]> {
   const { db, tableConf, ids, tenant, request } = params;
-  if (isCompositePrimary(tableConf.primary)) {
-    throw httpError(
-      400,
-      `Table "${tableConf.schema.tableName}" has a composite primary key: bulk delete matches on "${primaryAsString(tableConf.primary)}" alone and could remove multiple rows per id. Use a custom query.`
-    );
-  }
-  if (!ids.length) return [];
+  const pkFields = Array.isArray(tableConf.primary) ? tableConf.primary : [tableConf.primary];
+  const keys = keyValues(ids, pkFields);
+  if (!keys.length) return [];
 
-  const pk = primaryAsString(tableConf.primary);
-  const pkCol = tableConf.schema.col(pk);
+  const pkCols = pkFields.map((f) => tableConf.schema.col(f));
   const tableName = tableConf.schema.tableName;
+  const single = pkFields.length === 1;
+  /** A deleted row's key, as the response and `afterBulkDelete` name it. */
+  const keyOf = (values: unknown[]): Record<string, unknown> =>
+    Object.fromEntries(pkFields.map((f, i) => [f, values[i]]));
 
   if (tableConf.beforeBulkDelete) {
     // Enforce tenant ownership of every id before the hook (single batched SELECT), so it
     // never runs for rows the tenant cannot access. Called once with all ids — no loop.
-    await assertTenantOwnsAll(db, tenant, tableName, pkCol, ids);
+    await assertTenantOwnsAll(db, tenant, tableName, pkCols, keys);
     await tableConf.beforeBulkDelete({ db, req: request, ids });
   }
 
@@ -29,34 +33,35 @@ export async function bulkDeleteEngine(params: BulkDeleteParams): Promise<BulkDe
   let values: unknown[];
 
   if (tenant) {
-    ({ where, values } = buildTenantDeleteWhere(db, tableName, pkCol, ids, tenant));
+    ({ where, values } = buildTenantDeleteWhere(db, tableName, pkCols, (cols) => buildKeyMatch(db, cols, keys), tenant));
   } else {
-    const cb = new ConditionBuilder('AND', db.cbDialect);
-    cb.isIn(db.qi(pkCol), ids);
-    where = cb.build(1, db.ph);
-    values = cb.getValues();
+    const match = buildKeyMatch(db, pkCols.map((c) => db.qi(c)), keys);
+    where = match.build(1, db.ph);
+    values = match.getValues();
   }
 
+  const quotedPkCols = pkCols.map((c) => db.qi(c)).join(', ');
   let results: BulkDeleteResult[];
 
   if (db.supportsReturning) {
     const result = await db.query(
-      `DELETE FROM ${db.qi(tableName)} WHERE ${where}${db.returningPk(db.qi(pkCol))}`,
+      `DELETE FROM ${db.qi(tableName)} WHERE ${where}${db.returningPk(quotedPkCols)}`,
       values
     );
 
     // Happy path: everything requested was deleted
-    if (result.affectedRows === ids.length) {
-      results = ids.map((id) => ({ main: { [pk]: id } }));
+    if (result.affectedRows === keys.length) {
+      results = keys.map((k) => ({ main: keyOf(k) }));
     } else {
       // Partial delete: RETURNING tells exactly which rows went away
-      results = result.rows.map((r) => ({ main: { [pk]: r[pkCol] } }));
+      results = result.rows.map((r) => ({ main: keyOf(pkCols.map((c) => r[c])) }));
     }
   } else {
     // No RETURNING (mysql): affectedRows alone cannot tell WHICH ids were deleted on a
     // partial match, so look up the rows visible through the same WHERE before deleting.
-    const existing = await db.query<{ pk: unknown }>(
-      `SELECT ${db.qi(pkCol)} AS pk FROM ${db.qi(tableName)} WHERE ${where}`,
+    const keyList = single ? `${quotedPkCols} AS pk` : quotedPkCols;
+    const existing = await db.query(
+      `SELECT ${keyList} FROM ${db.qi(tableName)} WHERE ${where}`,
       values
     );
 
@@ -65,14 +70,44 @@ export async function bulkDeleteEngine(params: BulkDeleteParams): Promise<BulkDe
       values
     );
 
-    results = existing.rows.map((r) => ({ main: { [pk]: r.pk } }));
+    results = existing.rows.map((r) => ({ main: keyOf(single ? [r.pk] : pkCols.map((c) => r[c])) }));
   }
 
   // Called once with the ACTUALLY deleted ids (possibly a subset of the requested ones)
   if (tableConf.afterBulkDelete && results.length > 0) {
-    const deletedIds = results.map((r) => r.main[pk] as string | number);
+    const deletedIds = results.map((r) => (single ? r.main[pkFields[0]] : r.main) as PrimaryKeyValue);
     await tableConf.afterBulkDelete({ db, req: request, ids: deletedIds });
   }
 
   return results;
+}
+
+/**
+ * One value per key column for each id, in `pkFields` order. The HTTP body schema already
+ * enforces this shape; `sqlApi` runs no body schema, so it is checked here too, as a 400 at the
+ * same paths: an object for a single-column key, or a composite id that is not an object, is a
+ * `type` at `ids.<i>`; a missing key field a `required`, a field outside the key an
+ * `additionalProperties` at `ids.<i>.<field>`.
+ */
+function keyValues(ids: PrimaryKeyValue[], pkFields: string[]): ConditionValue[][] {
+  return ids.map((id, i) => {
+    const isObject = id !== null && typeof id === 'object' && !Array.isArray(id);
+    if (pkFields.length === 1) {
+      if (isObject) throw httpError(400, `ids.${i}: a single-column key takes its value, not an object`, { code: 'type', path: `ids.${i}` });
+      return [id as ConditionValue];
+    }
+    if (!isObject) {
+      throw httpError(400, `ids.${i}: a composite key takes an object naming ${pkFields.join(', ')}`, { code: 'type', path: `ids.${i}` });
+    }
+    const key = id as Record<string, unknown>;
+    const extra = Object.keys(key).find((f) => !pkFields.includes(f));
+    if (extra !== undefined) {
+      throw httpError(400, `ids.${i}.${extra} is not a primary key field`, { code: 'additionalProperties', path: `ids.${i}.${extra}` });
+    }
+    const missing = pkFields.find((f) => key[f] == null);
+    if (missing !== undefined) {
+      throw httpError(400, `ids.${i}.${missing} is required`, { code: 'required', path: `ids.${i}.${missing}` });
+    }
+    return pkFields.map((f) => key[f] as ConditionValue);
+  });
 }

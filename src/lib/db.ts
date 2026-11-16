@@ -1,5 +1,5 @@
-import { Expression } from 'node-condition-builder';
-import type { ConditionBuilder } from 'node-condition-builder';
+import { Expression, ConditionBuilder } from 'node-condition-builder';
+import type { ConditionValue } from 'node-condition-builder';
 import type { Queryable, SqlResult, DbRecord, SelectOptions, WrittenRow } from '../types/db.js';
 import type { SqlDialect } from './dialect.js';
 import { getDialect } from './dialect.js';
@@ -629,6 +629,30 @@ export class QueryClient {
     const result = await this.query<T>(parts.join('\n'), values);
     return result.rows;
   }
+}
+
+/**
+ * The predicate matching one row by its key: `col = ?` for every key column. `cols` are quoted
+ * (and qualified, when the statement needs it); `key` holds one value per column, in order.
+ */
+export function buildKeyEquals(db: QueryClient, cols: string[], key: ConditionValue[]): ConditionBuilder {
+  const cb = new ConditionBuilder('AND', db.cbDialect);
+  cols.forEach((col, i) => cb.isEqual(col, key[i]));
+  return cb;
+}
+
+/**
+ * The predicate matching a set of rows by their keys: `col IN (…)` for a single column, and for
+ * several an OR of one {@link buildKeyEquals} group per key, so each key binds all of its columns
+ * together — never one column alone, which would reach every row sharing that value.
+ */
+export function buildKeyMatch(db: QueryClient, cols: string[], keys: ConditionValue[][]): ConditionBuilder {
+  if (cols.length === 1) {
+    return new ConditionBuilder('AND', db.cbDialect).isIn(cols[0], keys.map((k) => k[0]));
+  }
+  const match = new ConditionBuilder('OR', db.cbDialect);
+  for (const key of keys) match.append(buildKeyEquals(db, cols, key));
+  return match;
 }
 
 export function createQueryClient(

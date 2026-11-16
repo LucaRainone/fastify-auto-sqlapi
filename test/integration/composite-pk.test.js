@@ -145,4 +145,79 @@ describe(`[${DIALECT}] composite primary key — end-to-end`, () => {
       assert.ok(item.main.lang === 'en' || item.main.lang === 'it', 'each item must carry its lang');
     }
   });
+
+  it('POST bulk delete removes exactly the keys named, matching every pk column', async () => {
+    await seedRows(db, 'product_translation', [
+      { product_id: productId, lang: 'en', name: 'EN' },
+      { product_id: productId, lang: 'it', name: 'IT' },
+      { product_id: productId, lang: 'de', name: 'DE' },
+    ], 'product_id');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auto/bulk/product_translation/delete',
+      payload: { ids: [{ productId, lang: 'en' }, { productId, lang: 'it' }, { productId, lang: 'fr' }] },
+    });
+
+    assert.equal(res.statusCode, 200, `body: ${res.body}`);
+    const deleted = res.json().map((r) => r.main.lang).sort();
+    assert.deepEqual(deleted, ['en', 'it'], 'only the rows that existed are reported');
+    for (const r of res.json()) assert.equal(r.main.productId, productId);
+
+    const left = await db.query(`SELECT lang FROM ${db.qi('product_translation')}`, []);
+    assert.deepEqual(left.rows.map((r) => r.lang), ['de'], 'a sibling sharing product_id must survive');
+  });
+});
+
+describe(`[${DIALECT}] composite primary key — bulk delete under an indirect tenant scope`, () => {
+  let app;
+  let db;
+  let mine;
+  let theirs;
+
+  // The tenant is the product name, reached through product_translation.product_id: enough to
+  // exercise the `(a, b) IN (SELECT … INNER JOIN …)` DELETE on a real database.
+  const scoped = {
+    ...dbTables,
+    product_translation: {
+      ...dbTables.product_translation,
+      tenantScope: { column: 'name', through: { schema: productSchema, localField: 'product_id', foreignField: 'id' } },
+    },
+  };
+
+  before(async () => {
+    ({ app, db } = await createTestApp(scoped, { prefix: '/auto', getTenantId: () => 'Mine' }));
+    await cleanTables(db, ['product_translation', 'product']);
+    [mine] = await seedRows(db, 'product', [{ name: 'Mine', price: 1 }], 'id');
+    [theirs] = await seedRows(db, 'product', [{ name: 'Theirs', price: 1 }], 'id');
+    await seedRows(db, 'product_translation', [
+      { product_id: mine.id, lang: 'en', name: 'mine EN' },
+      { product_id: mine.id, lang: 'it', name: 'mine IT' },
+      { product_id: theirs.id, lang: 'en', name: 'theirs EN' },
+    ], 'product_id');
+  });
+
+  after(async () => {
+    await cleanTables(db, ['product_translation', 'product']);
+    await app.close();
+  });
+
+  it('deletes the caller\'s keys and leaves another tenant\'s row alone', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auto/bulk/product_translation/delete',
+      payload: { ids: [{ productId: mine.id, lang: 'en' }, { productId: theirs.id, lang: 'en' }] },
+    });
+
+    assert.equal(res.statusCode, 200, `body: ${res.body}`);
+    assert.deepEqual(res.json(), [{ main: { productId: mine.id, lang: 'en' } }]);
+
+    const left = await db.query(
+      `SELECT product_id, lang FROM ${db.qi('product_translation')} ORDER BY product_id, lang`, []
+    );
+    assert.deepEqual(
+      left.rows.map((r) => [Number(r.product_id), r.lang]),
+      [[mine.id, 'it'], [theirs.id, 'en']],
+    );
+  });
 });

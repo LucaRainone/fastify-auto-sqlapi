@@ -6,7 +6,7 @@ This is the request GRAMMAR. The vocabulary (this deployment's tables, fields, j
 - `{p}` = deployment prefix (e.g. `/api`). `{table}` = the table's key in the manifest, which may differ from the DB table name (one table can be exposed under several keys, each with its own rules).
 - Join keys are backend-declared ALIASES (default: the joined table name).
 - Write responses return PKs only. Send only real schema fields in write bodies: unknown ones are dropped or rejected (400), depending on the server.
-- Composite-PK tables have no get/delete/bulk-delete routes (404): use search / update.
+- Composite-PK tables have no get/delete-by-`:id` routes (404): read with search, write with update, delete with bulk delete, one object per key.
 
 ## Endpoints
 
@@ -18,6 +18,7 @@ PUT {p}/rest/{table} body={main(+PK), secondaries?, deletions?} → {main:{id}, 
 DELETE {p}/rest/{table}/:id → {main:{id}} | 404
 PUT {p}/bulk/{table} body=[{main, secondaries?, deletions?}, ...] → [{main:{id}, action}, ...]
 POST {p}/bulk/{table}/delete body={ids:[1, 2]} → [{main:{id:1}}, ...] // only the rows actually deleted; main key = the table's PK field
+// composite PK: one object per key, every key field: body={ids:[{postId:1, tagId:2}]} → [{main:{postId:1, tagId:2}}, ...]
 ```
 
 ## Search

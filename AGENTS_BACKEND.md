@@ -70,7 +70,7 @@ app.addHook('onClose', () => pool.end());
 await app.register(fastifyAutoSqlApi, { dbTables, dialect: 'mysql' });
 
 // Several surfaces: register the plugin again under another prefix with `decorate: false` (app.sqlApi belongs to one registration; a second one without it fails at startup). Each registration's routes run with its own options.
-// `operations` narrows a registration: intersected with each table's own (a composite-PK table is skipped for get/delete/bulkDelete, not refused).
+// `operations` narrows a registration: intersected with each table's own (a composite-PK table is skipped for get/delete, not refused).
 await app.register(fastifyAutoSqlApi, {
   dbTables: publicTables, prefix: '/public', decorate: false,
   operations: ['search', 'get'], // read-only: no insert/update/delete/bulk
@@ -99,7 +99,7 @@ import type { ValidationField } from 'fastify-auto-sqlapi';
 import { SchemaCustomer as Schema } from '../schemas/SchemaCustomer';
 
 export const TableCustomer = defineTable({
-  primary: 'id', // or ['agentId', 'teamId']. Composite PK: no get/delete/bulkDelete routes (listing them in `operations` throws, sqlApi.* → 400); use search, update (matches all PK columns), or a custom route.
+  primary: 'id', // or ['agentId', 'teamId']. Composite PK: no get/delete-by-`:id` routes (listing them in `operations` throws, sqlApi.* → 400); read with search, write with update (matches all PK columns), delete with bulkDelete, `{ ids: [{ agentId, teamId }] }`.
 
   schema: Schema, // required: the generated Schema. Column filters (`col = value`, null → IS NULL) come from it.
 
@@ -182,7 +182,7 @@ export const TableCustomer = defineTable({
   afterUpdate: async ({ db, req, record, secondaries, deletions }) => {}, // inside the transaction: throw = rollback
   beforeDelete: async ({ db, req, id }) => {}, // throw aborts; runs after tenant ownership is verified
   afterDelete: async ({ db, req, id }) => {}, // not called on 404
-  beforeBulkDelete: async ({ db, req, ids }) => {}, // once; throw aborts the whole batch
+  beforeBulkDelete: async ({ db, req, ids }) => {}, // once; throw aborts the whole batch. ids: values, or { <field>: value } on a composite PK
   afterBulkDelete: async ({ db, req, ids }) => {}, // once, only the ids actually deleted
   afterRead: async ({ db, req, rows, source, alias }) => { // see afterRead
     for (const row of rows) if (row.ssn != null) row.ssn = decrypt(row.ssn);
@@ -314,7 +314,7 @@ sqlApi.insert(table, { main, secondaries? }, req?) // the POST /rest body: app.s
 sqlApi.update(table, { main, secondaries?, deletions? }, req?) // the PUT /rest body, PK in main
 sqlApi.delete(table, id, req?)
 sqlApi.bulkUpsert(table, items, req?) // each item writes only its own fields; items need not share keys
-sqlApi.bulkDelete(table, { ids }, req?) // the POST /bulk/:table/delete body
+sqlApi.bulkDelete(table, { ids }, req?) // the POST /bulk/:table/delete body; composite PK: ids are { <field>: value } objects
 // table: a key of dbTables. createSqlApi infers them, so a typo fails at compile time; at runtime an unknown name throws (a programming error, not a 400)
 
 // Standalone (jobs, scripts, tests). One source for the dialect:

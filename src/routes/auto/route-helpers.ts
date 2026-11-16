@@ -36,7 +36,7 @@ export interface AutoRouteSpec {
   /** Operation key matched against `TableConfig.operations` to decide whether to register the route. */
   operation: TableOperation;
   /**
-   * Set when the route addresses records by a single PK value (get, delete, bulkDelete).
+   * Set when the route addresses records by a single PK value in its path (get, delete).
    * Tables with a composite primary key skip these routes: matching on the first PK column
    * alone would touch every row sharing that value. Explicitly listing the operation in
    * `TableConfig.operations` for such a table throws at registration.
@@ -91,7 +91,7 @@ function isTableRoutable(
     throw new Error(
       `Table "${tableName}" has a composite primary key (${(tableConf.primary as string[]).join(', ')}): ` +
       `operation "${spec.operation}" addresses records by a single PK value and cannot be exposed. ` +
-      `Remove it from "operations", or handle the table via search/update or a custom route.`
+      `Remove it from "operations": read it with search, write it with update, delete it with bulkDelete.`
     );
   }
   return false;

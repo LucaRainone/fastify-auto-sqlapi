@@ -1,6 +1,6 @@
 import type { ApiRequest } from '../types/request.js';
-import type { QueryClient } from './db.js';
-import { ConditionBuilder, type ConditionValue, type ConditionValueOrUndefined } from 'node-condition-builder';
+import { buildKeyMatch, type QueryClient } from './db.js';
+import { ConditionBuilder, type ConditionValue } from 'node-condition-builder';
 import { httpError } from './errors.js';
 import { resolveJoinTableConf } from './table-helpers.js';
 import { TENANT_ADMIN } from '../types.js';
@@ -282,34 +282,39 @@ export async function validateTenantFK(
 /**
  * Build WHERE clause for DELETE with tenant filtering.
  * Handles both direct (simple AND) and indirect (subquery via JOIN) scopes; a tenant whose
- * addressed table declares no scope yields the plain primary-key clause.
+ * addressed table declares no scope yields the plain primary-key clause. `pkCols` are the key
+ * columns; `keyMatch` builds the caller's predicate over them, quoted and qualified as the
+ * statement needs (`buildKeyEquals` for one row, `buildKeyMatch` for a set).
  */
 export function buildTenantDeleteWhere(
   db: QueryClient,
   tableName: string,
-  pkCol: string,
-  pkValue: ConditionValueOrUndefined | ConditionValue[],
+  pkCols: string[],
+  keyMatch: (cols: string[]) => ConditionBuilder,
   tenant: TenantContext
 ): { where: string; values: unknown[] } {
   const scope = tenant.scope;
 
   if (scope && isIndirect(scope)) {
+    const qualified = pkCols.map((c) => `${db.qi(tableName)}.${db.qi(c)}`);
     const innerCb = new ConditionBuilder('AND', db.cbDialect);
-    innerCb.isIn(`${db.qi(tableName)}.${db.qi(pkCol)}`, (Array.isArray(pkValue) ? pkValue : [pkValue]) as ConditionValue[]);
+    innerCb.append(keyMatch(qualified));
     innerCb.append(buildTenantCondition(db, scope, tenant.ids, tableName));
     const innerWhere = innerCb.build(1, db.ph);
     const values = innerCb.getValues();
     const joinSql = buildTenantJoin(db, scope, tableName);
-    const where = `${db.qi(pkCol)} IN (SELECT ${db.qi(tableName)}.${db.qi(pkCol)} FROM ${db.qi(tableName)} ${joinSql} WHERE ${innerWhere})`;
+    // A composite key compares as a row value: `(a, b) IN (SELECT a, b …)`. The subquery reads
+    // the table being deleted from, which MySQL and MariaDB refuse (error 1093) unless it is
+    // materialized: wrapping it in a derived table does that, and PostgreSQL accepts it as is.
+    const outer = pkCols.map((c) => db.qi(c)).join(', ');
+    const target = pkCols.length > 1 ? `(${outer})` : outer;
+    const owned = `SELECT ${qualified.join(', ')} FROM ${db.qi(tableName)} ${joinSql} WHERE ${innerWhere}`;
+    const where = `${target} IN (SELECT ${outer} FROM (${owned}) AS ${db.qi('sqlapi_owned')})`;
     return { where, values };
   }
 
   const cb = new ConditionBuilder('AND', db.cbDialect);
-  if (Array.isArray(pkValue)) {
-    cb.isIn(db.qi(pkCol), pkValue);
-  } else {
-    cb.isEqual(db.qi(pkCol), pkValue);
-  }
+  cb.append(keyMatch(pkCols.map((c) => db.qi(c))));
   if (scope) cb.append(buildTenantCondition(db, scope, tenant.ids, tableName));
   const where = cb.build(1, db.ph);
   const values = cb.getValues();
@@ -544,31 +549,32 @@ export async function assertTenantOwnership(
 }
 
 /**
- * Assert that EVERY pk in `ids` exists and belongs to the tenant, for both direct and indirect
- * scopes. Throws 404 if any id is missing or not owned. No-op when `tenant` is undefined or `ids`
- * is empty. Used by the delete engines to enforce tenant ownership BEFORE running a `beforeDelete`/
- * `beforeBulkDelete` hook, so user code never runs against rows the caller cannot access.
+ * Assert that EVERY key in `keys` exists and belongs to the tenant, for both direct and indirect
+ * scopes. Throws 404 if any key is missing or not owned. No-op when `tenant` is undefined or
+ * `keys` is empty. Used by the delete engines to enforce tenant ownership BEFORE running a
+ * `beforeDelete`/`beforeBulkDelete` hook, so user code never runs against rows the caller cannot
+ * access. `keys` holds one value per column of `pkCols` for each row (see `buildKeyMatch`).
  */
 export async function assertTenantOwnsAll(
   db: QueryClient,
   tenant: TenantContext | undefined,
   tableName: string,
-  pkCol: string,
-  ids: ConditionValue[]
+  pkCols: string[],
+  keys: ConditionValue[][]
 ): Promise<void> {
   const scope = tenant?.scope;
-  if (!tenant || !scope || !ids.length) return;
+  if (!tenant || !scope || !keys.length) return;
 
-  const qualifiedPk = `${db.qi(tableName)}.${db.qi(pkCol)}`;
+  const qualified = pkCols.map((c) => `${db.qi(tableName)}.${db.qi(c)}`);
   const cb = new ConditionBuilder('AND', db.cbDialect);
-  cb.isIn(qualifiedPk, ids);
+  cb.append(buildKeyMatch(db, qualified, keys));
   cb.append(buildTenantCondition(db, scope, tenant.ids, tableName));
 
   const join = isIndirect(scope) ? ` ${buildTenantJoin(db, scope, tableName)}` : '';
-  const sql = `SELECT DISTINCT ${qualifiedPk} AS pk FROM ${db.qi(tableName)}${join} WHERE ${cb.build(1, db.ph)}`;
-  const r = await db.query<{ pk: unknown }>(sql, cb.getValues());
+  const sql = `SELECT DISTINCT ${qualified.join(', ')} FROM ${db.qi(tableName)}${join} WHERE ${cb.build(1, db.ph)}`;
+  const r = await db.query(sql, cb.getValues());
 
-  const uniqueRequested = new Set(ids.map((v) => String(v))).size;
+  const uniqueRequested = new Set(keys.map((k) => k.map(String).join('\0'))).size;
   if (r.rows.length < uniqueRequested) {
     throw httpError(404, 'Record not found');
   }

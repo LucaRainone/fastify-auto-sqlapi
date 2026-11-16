@@ -3,7 +3,7 @@ import type { QueryClient } from '../lib/db.js';
 import type { TableConfig, DbTables } from './table.js';
 import type { TenantContext } from './tenant.js';
 import type { RowsByAlias } from './db.js';
-import type { WriteAction } from './db.js';
+import type { WriteAction, PrimaryKeyValue } from './db.js';
 
 interface DmlBaseParams {
   db: QueryClient;
@@ -91,7 +91,7 @@ export interface BulkUpsertResult {
 // ─── Bulk Delete ─────────────────────────────────────────────
 
 export interface BulkDeleteParams extends DmlBaseParams {
-  ids: (string | number)[];
+  ids: PrimaryKeyValue[];
   request?: ApiRequest;
 }
 

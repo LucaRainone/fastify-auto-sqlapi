@@ -4,7 +4,7 @@ import type { DbTables, TableConfig, JoinDefinition, TableOperation } from '../.
 import { extraFilterFields } from '../read-access.js';
 import { writeExcludedFields, insertExcludedFields } from '../write-access.js';
 
-const SINGLE_PK_OPERATIONS = new Set<TableOperation>(['get', 'delete', 'bulkDelete']);
+const SINGLE_PK_OPERATIONS = new Set<TableOperation>(['get', 'delete']);
 
 interface ManifestField {
   type: string;

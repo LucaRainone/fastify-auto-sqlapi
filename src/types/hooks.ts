@@ -2,7 +2,7 @@ import type { TSchema, Static } from 'typebox';
 import type { Expression } from 'node-condition-builder';
 import type { ApiRequest } from './request.js';
 import type { QueryClient } from '../lib/db.js';
-import type { RowsByAlias } from './db.js';
+import type { RowsByAlias, PrimaryKeyValue } from './db.js';
 
 /**
  * What every hook and validator of a table config receives: one object, so a new piece of
@@ -59,8 +59,9 @@ export interface DeleteHookContext extends HookContext {
 
 /**
  * `beforeBulkDelete` / `afterBulkDelete`: the primary keys — those requested before the delete,
- * those actually deleted after it (a subset when some rows did not exist).
+ * those actually deleted after it (a subset when some rows did not exist). Values for a
+ * single-column key, `{ <field>: value }` objects for a composite one.
  */
 export interface BulkDeleteHookContext extends HookContext {
-  ids: (string | number)[];
+  ids: PrimaryKeyValue[];
 }

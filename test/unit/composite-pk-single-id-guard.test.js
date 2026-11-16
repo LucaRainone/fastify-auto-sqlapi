@@ -1,7 +1,8 @@
-// Composite-PK tables cannot be addressed by a single PK value: get/delete/bulkDelete
-// would match on the first PK column alone and (for deletes) remove every row sharing
-// that value. The routes are skipped at registration (or fail loudly when explicitly
-// requested via `operations`), and the engines guard programmatic sqlApi.* calls.
+// Composite-PK tables cannot be addressed by a single PK value: get/delete by `:id` would
+// match on the first PK column alone and (for delete) remove every row sharing that value.
+// The routes are skipped at registration (or fail loudly when explicitly requested via
+// `operations`), and the engines guard programmatic sqlApi.* calls. Bulk delete takes one
+// object per key instead, see bulk-delete-composite-pk.test.js.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -46,7 +47,7 @@ const ROUTES = {
 };
 
 describe('composite PK - route registration', () => {
-  it('skips get/delete/bulkDelete by default, keeps the other operations', async () => {
+  it('skips get/delete by default, keeps the other operations', async () => {
     const app = Fastify();
     await app.register(fastifyAutoSqlApi, {
       dbTables: { agent_team: createCompositeTable(undefined) },
@@ -55,12 +56,12 @@ describe('composite PK - route registration', () => {
 
     assert.equal(app.hasRoute(ROUTES.get), false, 'get must NOT be registered');
     assert.equal(app.hasRoute(ROUTES.delete), false, 'delete must NOT be registered');
-    assert.equal(app.hasRoute(ROUTES.bulkDelete), false, 'bulkDelete must NOT be registered');
 
     assert.equal(app.hasRoute(ROUTES.search), true, 'search must be registered');
     assert.equal(app.hasRoute(ROUTES.insert), true, 'insert must be registered');
     assert.equal(app.hasRoute(ROUTES.update), true, 'update must be registered');
     assert.equal(app.hasRoute(ROUTES.bulkUpsert), true, 'bulkUpsert must be registered');
+    assert.equal(app.hasRoute(ROUTES.bulkDelete), true, 'bulkDelete must be registered');
 
     await app.close();
   });
@@ -99,11 +100,11 @@ describe('composite PK - engine guards (programmatic sqlApi.*)', () => {
     assert.equal(mockPg.calls.length, 0, 'no SQL must be issued');
   });
 
-  it('bulkDeleteEngine rejects with 400 before touching the DB', async () => {
+  it('bulkDeleteEngine rejects a single value per id with 400 before touching the DB', async () => {
     const mockPg = createMockPg([]);
     await assert.rejects(
       () => bulkDeleteEngine({ db: new QueryClient(mockPg), tableConf: createCompositeTable(), ids: [1, 2] }),
-      (err) => err.statusCode === 400 && /composite primary key/.test(err.message)
+      (err) => err.statusCode === 400 && /composite key/.test(err.message)
     );
     assert.equal(mockPg.calls.length, 0, 'no SQL must be issued');
   });

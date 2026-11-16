@@ -1,4 +1,5 @@
 import { buildTenantDeleteWhere, assertTenantOwnsAll } from '../../tenant.js';
+import { buildKeyEquals } from '../../db.js';
 import { httpError } from '../../errors.js';
 import { primaryAsString, isCompositePrimary } from '../../../types.js';
 import type { DeleteParams, DeleteResult } from '../../../types.js';
@@ -19,7 +20,7 @@ export async function deleteEngine(params: DeleteParams): Promise<DeleteResult> 
     // Enforce tenant ownership before the hook so it never runs for rows the tenant
     // cannot access. (When no hook is defined, the tenant-scoped DELETE below already
     // prevents deleting non-owned rows, so the extra SELECT is skipped.)
-    await assertTenantOwnsAll(db, tenant, tableName, pkCol, [id]);
+    await assertTenantOwnsAll(db, tenant, tableName, [pkCol], [[id]]);
     await tableConf.beforeDelete({ db, req: request, id });
   }
 
@@ -27,7 +28,7 @@ export async function deleteEngine(params: DeleteParams): Promise<DeleteResult> 
     const affectedRows = await db.delete(tableName, { [pkCol]: id });
     if (affectedRows === 0) throw httpError(404, `Record not found: ${id}`);
   } else {
-    const { where, values } = buildTenantDeleteWhere(db, tableName, pkCol, id, tenant);
+    const { where, values } = buildTenantDeleteWhere(db, tableName, [pkCol], (cols) => buildKeyEquals(db, cols, [id]), tenant);
 
     const result = await db.query(
       `DELETE FROM ${db.qi(tableName)} WHERE ${where}`,
