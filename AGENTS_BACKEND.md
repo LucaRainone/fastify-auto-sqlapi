@@ -34,7 +34,7 @@ npx sqlapi-generate-tables --all # existing files are skipped, never overwritten
 ```
 
 - The generated table files detect PKs, `*Id` foreign keys as relations, and put every other key in as commented code.
-- The schema CLI prints what it could not decide for you: read that output. It covers database-generated columns (`GENERATED ALWAYS AS`, put in the Schema's `generatedFields` and never writable) and identity/auto-increment PKs (made optional and listed in `insertExclude`). It also prints each view's inferred PK (see Views).
+- The schema CLI prints what it could not decide for you: read that output. It names database-generated columns (`GENERATED ALWAYS AS`, put in the Schema's `generatedFields` and never writable) and views, whose PK the table generator infers or leaves as a TODO (see Views). Identity/auto-increment PKs need no action: the Schema makes them optional and the table generator lists them in `insertExclude`.
 - Schema files import `Type` from `fastify-auto-sqlapi`; do the same for `schemaOverrides`, computed fields and extra filters. Any `typebox` 1.x schema works too, but one built with the legacy `@sinclair/typebox` 0.x loses its markers here: its `Type.Optional` fields silently become required. Their default export (`addSchema`) is optional, only for Swagger `$ref`.
 
 ## Server setup
@@ -96,8 +96,10 @@ Every key except `primary` and `schema` is optional. There is no `tableName` key
 
 ```ts
 import { defineTable, buildRelation, ConditionBuilder, Type } from 'fastify-auto-sqlapi';
-import type { ValidationField } from 'fastify-auto-sqlapi';
-import { SchemaCustomer as Schema } from '../schemas/SchemaCustomer';
+import type { ValidatorResult } from 'fastify-auto-sqlapi';
+import { SchemaCustomer as Schema } from '../schemas/SchemaCustomer.js';
+import { SchemaOrder } from '../schemas/SchemaOrder.js';
+import { decrypt } from '../../crypto.js'; // yours
 
 export const TableCustomer = defineTable({
   primary: 'id', // or ['agentId', 'teamId']. Composite PK: no get/delete-by-`:id` routes (listing them in `operations` throws, sqlApi.* → 400); read with search, write with update (matches all PK columns), delete with bulkDelete, `{ ids: [{ agentId, teamId }] }`.
@@ -126,7 +128,7 @@ export const TableCustomer = defineTable({
   }],
 
   // --- field visibility ---
-  insertExclude: ['id', 'createdAt'], // MUST list auto-increment PKs (CLI does it). Strips CLIENT input on insert only: beforeInsert and the FK auto-fill may still set it. Not a security tool: every field stays updatable (ADR 0004).
+  insertExclude: ['id', 'createdAt'], // MUST list auto-increment PKs (CLI does it). Strips CLIENT input on insert only: beforeInsert and the FK auto-fill may still set it. A field of the upsertKey is kept: it names an existing row, never a new one (no such row → 400 not_found, ADR 0031). Not a security tool: every field stays updatable (ADR 0004).
   readExclude: ['passwordHash'], // never projected (search, get, default join projection); naming it in filters/conditions/orderBy/aggregations/select → 400. Still writable. Static, applies to admins too. PK not allowed.
   writeExclude: ['searchVector'], // dropped from insert/update/bulk bodies and in the engines; still readable. For trigger-owned columns; GENERATED columns need nothing. Runs after hooks. Not PK, not also in readExclude (that is excludeColumns).
   schemaOverrides: { email: Type.String({ format: 'email' }) }, // stricter type for WRITE bodies only (responses and filters keep the generated type: stored rows predate the rule). Taken verbatim: no Optional → mandatory, no Nullable → null rejected.
@@ -137,7 +139,7 @@ export const TableCustomer = defineTable({
 
   // --- upsert: the main row's INSERT (POST /rest, bulk upsert) becomes INSERT … ON CONFLICT (key) DO UPDATE ---
   upsertKey: ['email'], // exactly the PK or one of the Schema's uniqueKeys, checked at startup (old Schemas: regenerate). Views: none. Main rows only; child rows use the relation's upsertKey. Absent: plain INSERT.
-  // Each upserted row must carry its key (natural key non-null; PK whole, or absent = plain insert), no two rows of a request may share it → 400. A row must still be insertable (PG: NOT NULL without default is required even for an existing row). Another row's unique value = DB error, never a hijack.
+  // Each upserted row must carry its key (natural key non-null; PK whole, or absent = plain insert), no two rows of a request may share it → 400. A key field in insertExclude (the generated PK) only names an existing row: none → 400 not_found. A row must still be insertable (PG: NOT NULL without default is required even for an existing row). Another row's unique value = DB error, never a hijack.
 
   // --- tenant (see Tenant scope) ---
   tenantScope: { column: 'organization_id' }, // REAL column name
@@ -156,12 +158,12 @@ export const TableCustomer = defineTable({
   // --- validation: after schema validation, before hooks and SQL. Any error → 400, nothing written ---
   // Every hook and validator receives ONE context object: { db, req, ...data }. db = the client the
   // operation runs on (inside a write, the transaction's); req = the request, undefined when sqlApi.*
-  // is called without one (guard req?.user). Data keys: record, secondaries, deletions, rows, id, ids, main, upsert, replace, items.
+  // is called without one (guard req?.user). Data keys: record, secondaries, deletions, rows, id, ids, main, upsert, replace, parent, items.
   validate: async ({ db, req, main, upsert, replace, parent }) => { // camelCase, the request's child-row sections keyed by alias; parent: { alias, main } when this row arrives as another table's child (ADR 0030), absent on this table's own routes
     const errors: ValidatorResult = []; // { path, code }[], the fields of the 400, as is (no message: no prose, the client translates the code). path = dot path in the request body: main.<field>, upsert.<alias>.<i>.<field>, replace.<alias>.<i>.<field>, '' when not attributable. Anything else (a tuple, a message) → 500
     if (!main.name) errors.push({ path: 'main.name', code: 'required' });
-    (upsert?.orders ?? []).forEach((o, i) => {
-      if (o.total < 0) errors.push({ path: `upsert.orders.${i}.total`, code: 'min' });
+    (upsert?.orders ?? []).forEach((o, i) => { // child rows are untyped: they follow the joined table's schema
+      if (Number(o.total) < 0) errors.push({ path: `upsert.orders.${i}.total`, code: 'min' });
     });
     return errors;
   },
@@ -186,7 +188,7 @@ export const TableCustomer = defineTable({
   beforeBulkDelete: async ({ db, req, ids }) => {}, // once; throw aborts the whole batch. ids: values, or { <field>: value } on a composite PK
   afterBulkDelete: async ({ db, req, ids }) => {}, // once, only the ids actually deleted
   afterRead: async ({ db, req, rows, source, alias }) => { // see afterRead
-    for (const row of rows) if (row.ssn != null) row.ssn = decrypt(row.ssn);
+    for (const row of rows) if (typeof row.ssn === 'string') row.ssn = decrypt(row.ssn);
   },
 });
 ```
@@ -300,7 +302,7 @@ All names in a scope are real columns. Naming a camelCase field whose column dif
 Same code path, bodies and results as the HTTP routes (AGENTS_FRONTEND.md): a request body can be handed over as is. Validation, hooks, computed fields and tenant scope all run.
 
 ```ts
-app.get('/billing/:customerId', async (request) =>
+app.get<{ Params: { customerId: string } }>('/billing/:customerId', async (request) =>
   app.sqlApi.search('subscription', {
     filters: { customerId: Number(request.params.customerId), status: 'active' },
     joinMustExist: { orders: { filters: { status: 'pending' } } },
@@ -364,8 +366,8 @@ Example: atomically claiming a row, i.e. a guarded state transition or optimisti
 
 ```ts
 const db = createQueryClient(pgQueryable(fastify.pg), 'postgres');
-fastify.post('/requests/:id/claim', async (req, reply) => {
-  const col = (f: string) => SchemaRequest.col(f);
+fastify.post<{ Params: { id: string } }>('/requests/:id/claim', async (req, reply) => {
+  const col = SchemaRequest.col;
   const guard = new ConditionBuilder('AND', db.cbDialect)
     .isNull(db.qi(col('inProgressSince')), true) // the precondition
     .isEqual(db.qi(col('organizationId')), req.user.orgId); // tenant: db applies none

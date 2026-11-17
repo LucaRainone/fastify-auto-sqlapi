@@ -522,3 +522,6 @@ Every error is `{ statusCode, error, message, requestId, fields? }`:
   the child table's `validate` (or `validateBulk`), with `parent: { alias, main }`; they used to
   skip it. A child `validate` that requires the FK to the parent refuses an insert whose parent
   key the database generates: guard it with `if (!parent && !main.<fk>)` (ADR 0030).
+- **An upsert key under `insertExclude` names an existing row.** With `upsertKey: ['id']` and
+  `insertExclude: ['id']`, a row sent with an id used to be inserted again under a new id. It
+  now updates the row with that id; an id naming no row is a 400 `not_found` (ADR 0031).

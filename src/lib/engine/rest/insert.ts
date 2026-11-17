@@ -1,6 +1,7 @@
 import { camelcaseObject } from '../../naming.js';
 import {
   processSecondaries, prepareInsertRecord, assertUpsertKeys, assertWriteJoinAliases, hasAliases,
+  assertExcludedKeysExist, insertExcludedKeyFields,
 } from '../write-helpers.js';
 import { enforceTenantOnWrites, assertTenantOwnsConflicts } from '../../tenant.js';
 import { primaryAsCols } from '../../../types.js';
@@ -42,6 +43,10 @@ export async function insertEngine(params: InsertParams): Promise<InsertResult> 
     if (upsertKeys) {
       const conflictCols = upsertKeys.map((k) => schema.col(k));
       assertUpsertKeys(schema, conflictCols, [pkCol].flat(), [mainRecord]);
+      await assertExcludedKeysExist(
+        tx, schema, conflictCols, insertExcludedKeyFields(tableConf, upsertKeys), [mainRecord], [record],
+        (_, field) => `main.${field}`
+      );
       // Tenant isolation: a conflicting upsert must not overwrite a row owned by another tenant.
       await assertTenantOwnsConflicts(tx, tenant, schema.tableName, conflictCols, [mainRecord]);
       written = await tx.upsert(

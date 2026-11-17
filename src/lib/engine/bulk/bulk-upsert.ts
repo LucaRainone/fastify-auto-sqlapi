@@ -4,6 +4,8 @@ import {
   processDeletions,
   prepareInsertRecord,
   assertUpsertKeys,
+  assertExcludedKeysExist,
+  insertExcludedKeyFields,
   assertWriteJoinAliases,
   hasAliases,
 } from '../write-helpers.js';
@@ -40,6 +42,10 @@ async function upsertMains(
 
   const conflictCols = upsertKeys.map((k) => schema.col(k));
   assertUpsertKeys(schema, conflictCols, [pkCol].flat(), preparedMains);
+  await assertExcludedKeysExist(
+    db, schema, conflictCols, insertExcludedKeyFields(tableConf, upsertKeys), preparedMains,
+    params.items.map((item) => item.main), (i, field) => `${i}.main.${field}`
+  );
   // Tenant isolation: a conflicting upsert must not overwrite rows owned by another tenant, nor
   // re-assign the owner of a row it legitimately updates.
   await assertTenantOwnsConflicts(db, tenant, schema.tableName, conflictCols, preparedMains);
@@ -56,17 +62,19 @@ async function upsertMains(
  */
 function finalizeUpsertedItem(
   params: BulkUpsertParams,
+  at: number,
   item: BulkUpsertItem,
   inputMain: Record<string, unknown>,
   written: WrittenRow
 ): Promise<BulkUpsertResult> {
   return hasAliases(item.replace)
-    ? params.db.withTransaction((tx) => writeItemChildren({ ...params, db: tx }, item, inputMain, written))
-    : writeItemChildren(params, item, inputMain, written);
+    ? params.db.withTransaction((tx) => writeItemChildren({ ...params, db: tx }, at, item, inputMain, written))
+    : writeItemChildren(params, at, item, inputMain, written);
 }
 
 async function writeItemChildren(
   params: BulkUpsertParams,
+  at: number,
   item: BulkUpsertItem,
   inputMain: Record<string, unknown>,
   written: WrittenRow
@@ -84,7 +92,8 @@ async function writeItemChildren(
   let removed: RowsByAlias = {};
   if (hasAliases(item.upsert, item.replace)) {
     const outcome = await processSecondaries(
-      { db, tableConf, dbTables, mainRecord: mainForFK, tenant, request }, { upsert: item.upsert, replace: item.replace }
+      { db, tableConf, dbTables, mainRecord: mainForFK, tenant, request, at: String(at) },
+      { upsert: item.upsert, replace: item.replace }
     );
     if (Object.keys(outcome.written).length > 0) result.secondaries = outcome.written;
     removed = outcome.removed;
@@ -147,7 +156,7 @@ export async function bulkUpsertEngine(params: BulkUpsertParams): Promise<BulkUp
   //      observe the same order the caller sent, and errors surface on the first bad item.
   const results: BulkUpsertResult[] = [];
   for (let i = 0; i < items.length; i++) {
-    results.push(await finalizeUpsertedItem(params, items[i], inputMains[i], written[i]));
+    results.push(await finalizeUpsertedItem(params, i, items[i], inputMains[i], written[i]));
   }
 
   return results;

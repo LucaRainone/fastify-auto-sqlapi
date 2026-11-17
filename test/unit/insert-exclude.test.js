@@ -121,3 +121,74 @@ describe('excludeFromCreation, the name insertExclude had before 0.6.0', () => {
     );
   });
 });
+
+// The CLI lists every generated primary key under `insertExclude`, so `upsertKey: ['id']` on a
+// generated table meets it: the key there names the row to update, and stripping it as client
+// input turned every update into the insert of a copy. The key stays, but may only name a row
+// that exists — the client still never picks the key of a new row.
+describe('an upsert key under insertExclude addresses an existing row', () => {
+  const upsertById = () => createDbTables({ customer: { insertExclude: ['id'], upsertKey: ['id'] } });
+  const isProbe = (call) => /^SELECT "id" FROM "customer" WHERE/.test(call.text);
+
+  it('keeps the client key, so the upsert updates the row it names', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 7 }], affectedRows: 1 },
+      { rows: [{ id: 7, __inserted: false }], affectedRows: 1 },
+    ]);
+
+    const result = await insertCustomer(upsertById(), mockPg, { record: { id: 7, name: 'Ada' } });
+
+    assert.ok(isProbe(mockPg.calls[0]), mockPg.calls[0].text);
+    assert.deepEqual(insertedRows(mockPg.calls[1]), [{ id: 7, name: 'Ada' }]);
+    assert.deepEqual(result, { main: { id: 7 }, action: 'updated' });
+  });
+
+  it('answers 400 not_found at main.<key> when no row has it, before the upsert runs', async () => {
+    const mockPg = createMockPg([{ rows: [], affectedRows: 0 }]);
+
+    await assert.rejects(
+      insertCustomer(upsertById(), mockPg, { record: { id: 999, name: 'Ada' } }),
+      (err) => err.statusCode === 400
+        && err.validationErrors.length === 1
+        && err.validationErrors[0].path === 'main.id'
+        && err.validationErrors[0].code === 'not_found'
+    );
+    assert.equal(mockPg.calls.length, 1, 'only the probe ran');
+  });
+
+  it('inserts a row without the key, unprobed', async () => {
+    const mockPg = createMockPg([{ rows: [{ id: 8, __inserted: true }], affectedRows: 1 }]);
+
+    await insertCustomer(upsertById(), mockPg, { record: { name: 'Ada' } });
+
+    assert.deepEqual(insertedRows(mockPg.calls[0]), [{ name: 'Ada' }]);
+  });
+
+  it('does not probe a key beforeInsert assigned: it names a new row', async () => {
+    const mockPg = createMockPg([{ rows: [{ id: 42, __inserted: true }], affectedRows: 1 }]);
+    const dbTables = upsertById();
+    dbTables.customer.beforeInsert = ({ record }) => { record.id = 42; };
+
+    await insertCustomer(dbTables, mockPg, { record: { name: 'Ada' } });
+
+    assert.equal(mockPg.calls.length, 1, mockPg.calls.map((c) => c.text).join('\n'));
+    assert.deepEqual(insertedRows(mockPg.calls[0]), [{ id: 42, name: 'Ada' }]);
+  });
+
+  it('applies to a child row, at upsert.<alias>.<i>.<key>', async () => {
+    const mockPg = createMockPg([
+      { rows: [{ id: 1 }], affectedRows: 1 },
+      { rows: [], affectedRows: 0 },
+    ]);
+    const dbTables = createDbTables({ order: { insertExclude: ['id'] } });
+    dbTables.customer.writeJoins = [
+      buildRelation(customerSchema, 'id', orderSchema, 'customerId', { upsertKey: ['id'] }),
+    ];
+
+    await assert.rejects(
+      insertCustomer(dbTables, mockPg, { record: { name: 'Ada' }, upsert: { customer_order: [{ id: 999, total: 5 }] } }),
+      (err) => err.validationErrors?.[0]?.path === 'upsert.customer_order.0.id'
+        && err.validationErrors[0].code === 'not_found'
+    );
+  });
+});

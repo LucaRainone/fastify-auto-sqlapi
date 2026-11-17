@@ -47,7 +47,7 @@ Everything travels in the body, and only there; all keys are optional and combin
   },
   "joinGroup": { // aggregates child rows of the returned main rows
     "orders": {
-      "by": "status", // optional GROUP BY (field or computed)
+      "by": "customerId", // optional GROUP BY (field or computed); absent or the FK when alias.fn.field is in orderBy or conditions
       "sum": ["total"], "min": ["total"], "max": ["total"], "avg": ["total"], "count": ["id"], "distinctCount": ["status"], // at least one
       "filters": { "status": "active" }, "conditions": [] // narrow children before aggregating
     }
@@ -66,7 +66,7 @@ Response; each section is present only if requested:
   "main": [{ "id": 1, "name": "Mario", "creatorId": 7, "displayName": "..." }],
   "joinMultiple": { "orders": [{ "id": 10, "customerId": 1, "total": 50 }] }, // flat list for all mains: group client-side by FK
   "joinGroup": { "orders": { "rows": [ // always rows, [] when no main matched
-    { "by": "pending", "sum": { "total": 100 }, "count": { "id": 2 } } // with "by": one row per group; by = FK field gives per-main values
+    { "by": 1, "sum": { "total": 100 }, "count": { "id": 2 } } // with "by": one row per group; by = FK field gives per-main values
   ]}}, // without "by": ONE row, no "by", over the children of ALL returned mains
   "joinLeft": { "creator": [{ "id": 7, "name": "Alice" }] }, // deduplicated: match main.creatorId === creator.id
   "computed": { "sum": { "total": 999 }, "count": { "id": 25 } }, // only when compute is sent: one entry per function and field
@@ -112,10 +112,10 @@ An unknown field or method, or `params` that is not an array or is too short →
 { "main": { "id": 1, "email": "new@t.it" },
   "upsert": { "orders": [{ "total": 75 }] }, // insert (or upsert) children, FK auto-filled; the others stay
   "delete": { "orders": [{ "id": 10 }] } } // delete children by PK, only children of this main
-// → 200 { "main": { "id": 1 }, "secondaries": { "orders": [{ "id": 20 }] }, "deletions": { "orders": [{ "id": 10 }] } }
+// → 200 { "main": { "id": 1 }, "secondaries": { "orders": [{ "id": 20 }] }, "deletions": { "orders": [{ "id": 10, "customerId": 1 }] } }
 
 // PUT {p}/bulk/customer — bulk upsert; items need not share keys: an omitted field keeps the stored value (update) or takes the column default (insert)
-[ { "main": { "name": "Mario" }, "upsert": { "orders": [{ "total": 50 }] } },
+[ { "main": { "id": 1, "name": "Mario" }, "upsert": { "orders": [{ "total": 50 }] } }, // customer upserts on its id
   { "main": { "name": "Luigi" } } ]
 // → 200 [ { "main": { "id": 1 }, "action": "updated", "secondaries": {...} }, { "main": { "id": 2 }, "action": "inserted" } ]
 // action: what the statement did to the main row. "updated" when an upsert rule matched an existing row (also with nothing left to change), "inserted" otherwise; tables without a rule always say "inserted".
@@ -137,7 +137,7 @@ PUT {p}/rest/post { "main": { "id": 1 }, "replace": { "tags": [{ "tagId": 2 }, {
 
 Upsert tables (see manifest):
 - Every row, main or child, carries its conflict key: missing, null, or shared by two rows of one request → 400.
-- When the key is the id, rows without an id are inserted.
+- When the key is the id, rows without an id are inserted. If the server generates ids (`serverGenerated` in the manifest), an id must name an existing row: none → 400 `not_found` at its path, nothing written.
 - Bulk arrays are capped (default 1000): chunk client-side.
 
 ## Errors
@@ -151,7 +151,7 @@ Every error has one shape. `error` is the HTTP reason phrase; `requestId` is the
 
 - 400 always carries `fields`, whether the request failed the schema, the backend's business validation or the engine. Map `fields[].path` to form fields; when `fields` is empty, show `message`.
   - `path` is the dot path of the offending value in the request: body keys from the root (`main.name`, `upsert.orders.0.total`, `filters.status`, `conditions.2.params`, `joinGroup.orders.by`, `joinMultiple.orders.select.1`), path parameters and retired querystring keys by name (`id`, `orderBy`). `""` when the error is not attributable to one input.
-  - `code` is stable: an Ajv keyword (`required`, `type`, `maximum`, `additionalProperties`, `enum`…), a code the backend chose in its own validation, or an engine code: `unknown_field`, `not_readable`, `unknown_alias`, `wrong_join_family`, `invalid_method`, `invalid_params`, `invalid_order_by`, `invalid_paginator`, `invalid_aggregation`, `undeclared_aggregation`, `bound_values_not_allowed`, `extra_filter_not_allowed`, `limit_exceeded`, `retired_key` (a key the API no longer reads, e.g. `selectComputed`, a join's `selection`, the search querystring, `secondaries`/`deletions` in a write), `conflicting_alias`, `missing_key`, `duplicate_key`, `ambiguous_tenant`. The engine's `message` repeats the field's.
+  - `code` is stable: an Ajv keyword (`required`, `type`, `maximum`, `additionalProperties`, `enum`…), a code the backend chose in its own validation, or an engine code: `unknown_field`, `not_readable`, `unknown_alias`, `wrong_join_family`, `invalid_method`, `invalid_params`, `invalid_order_by`, `invalid_paginator`, `invalid_aggregation`, `undeclared_aggregation`, `bound_values_not_allowed`, `extra_filter_not_allowed`, `limit_exceeded`, `retired_key` (a key the API no longer reads, e.g. `selectComputed`, a join's `selection`, the search querystring, `secondaries`/`deletions` in a write), `conflicting_alias`, `missing_key`, `duplicate_key`, `not_found`, `ambiguous_tenant`. The engine's `message` repeats the field's.
   - `message`, when present, is a low-level description for the developer (Ajv's or the engine's, in English). A backend validation and a mapped DB error carry none: the code is the whole answer. Show the user a translation of `code`, never `message`.
 - 403: tenant violation. 404: record not found, or outside your tenant. No `fields`, except a mapped DB error (below).
 - 500: DB errors (e.g. constraint violations): `message` is fixed, the detail is in the server log under `requestId`. The backend may answer some of them with another status instead (typically 409 on a duplicate): same envelope, plus `fields: [{ path: "", code }]` with a backend-chosen code to translate.

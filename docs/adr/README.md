@@ -45,6 +45,7 @@ not by editing history.
 | [0028](./0028-select-star-is-the-default-projection.md) | `'*'` in `select` is the default projection — a computed field is asked for without copying the readable set |
 | [0029](./0029-a-write-names-its-child-rows-by-action.md) | A write names its child rows by action — `upsert`, `delete`, `replace` — and answers with what happened (narrows 0003 for one item's children) |
 | [0030](./0030-a-child-row-is-validated-by-its-own-table.md) | A child row is validated by its own table — a write join runs the child's `validate`, with `parent` (supersedes part of 0014) |
+| [0031](./0031-an-insert-excluded-upsert-key-addresses-an-existing-row.md) | An upsert key under `insertExclude` addresses an existing row — it never names a new one |
 
 ## When to write one
 

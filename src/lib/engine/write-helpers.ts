@@ -2,7 +2,7 @@ import type { ApiRequest } from '../../types/request.js';
 import { camelcaseObject, snakecaseRecord } from '../naming.js';
 import { buildKeyMatch, type QueryClient } from '../db.js';
 import { ConditionBuilder, type ConditionValue } from 'node-condition-builder';
-import { runValidation, runChildValidation } from './validate.js';
+import { runValidation, runChildValidation, throwValidationError } from './validate.js';
 import { removeWriteExcluded, insertExcludedFields } from '../write-access.js';
 import { resolveJoinTableConf } from '../table-helpers.js';
 import { httpError } from '../errors.js';
@@ -70,6 +70,64 @@ export function assertUpsertKeys(
     }
     seen.set(key, i);
   });
+}
+
+/**
+ * The fields of an upsert key the client may not set on insert (`insertExclude`). Such a key
+ * is kept on the rows that carry it — it names the row to update — but it may not name a new
+ * row: the client never picks a value `insertExclude` reserves to the server.
+ */
+export function insertExcludedKeyFields(tableConf: TableConfig | undefined, upsertKey: readonly string[]): string[] {
+  const excluded = insertExcludedFields(tableConf);
+  return upsertKey.filter((f) => excluded.includes(f));
+}
+
+/**
+ * Every row carrying an upsert key that `insertExclude` reserves to the server must name an
+ * existing row: such a key addresses a row, it cannot create one (see
+ * `insertExcludedKeyFields`). One SELECT for the rows whose key the client sent (`sent`, the
+ * rows as the request carried them, camelCase); each one no row matches is a 400 `not_found`
+ * at `pathOf(i)`, before the upsert runs. Rows without the key are plain inserts and are not
+ * probed, nor is a key a `beforeInsert` assigned. `records` and `conflictCols` are DB column
+ * names.
+ */
+export async function assertExcludedKeysExist(
+  db: QueryClient,
+  schema: SchemaDefinition,
+  conflictCols: string[],
+  excludedKeyFields: string[],
+  records: Record<string, unknown>[],
+  sent: Record<string, unknown>[],
+  pathOf: (i: number, field: string) => string
+): Promise<void> {
+  if (!excludedKeyFields.length) return;
+  // Only the rows whose key the CLIENT sent: a key a `beforeInsert` assigned names a new row.
+  const carrying = records
+    .map((record, i) => ({ i, key: conflictCols.map((c) => record[c]) }))
+    .filter(({ i, key }) => excludedKeyFields.every((f) => sent[i]?.[f] != null) && key.every((v) => v != null));
+  if (!carrying.length) return;
+
+  const match = buildKeyMatch(db, conflictCols.map((c) => db.qi(c)), carrying.map(({ key }) => key as ConditionValue[]));
+  const found = await db.select({
+    tableName: schema.tableName,
+    columns: conflictCols.map((c) => db.qi(c)).join(', '),
+    where: match.build(1, db.ph),
+    values: match.getValues(),
+  });
+  // Compared as strings: the driver may hand a bigint or numeric key back as a string.
+  const tupleOf = (key: unknown[]): string => JSON.stringify(key.map((v) => String(v)));
+  const existing = new Set(found.map((row) => tupleOf(conflictCols.map((c) => row[c]))));
+
+  const field = excludedKeyFields[0];
+  const missing = carrying.filter(({ key }) => !existing.has(tupleOf(key)));
+  if (missing.length) {
+    throwValidationError(missing.map(({ i, key }) => ({
+      path: pathOf(i, field),
+      code: 'not_found',
+      message: `No "${schema.tableName}" row has the key (${key.join(', ')}): ` +
+        `${field} is set by the server on insert, so it can only name an existing row`,
+    })));
+  }
 }
 
 /**
@@ -146,14 +204,17 @@ export function assertWriteJoinAliases(tableConf: TableConfig, sections: WriteJo
  *
  * Exclusion is a whitelist on CLIENT input: call this on the client payload only, BEFORE any
  * server-side value is assigned (beforeInsert mutations, FK auto-fill), so engine- and
- * hook-generated values on those fields reach the SQL (ADR 0005).
+ * hook-generated values on those fields reach the SQL (ADR 0005). The fields of the row's
+ * `upsertKey` stay: there they name the row to update, and `assertExcludedKeysExist` refuses
+ * one that would name a new row.
  */
 function removeInsertExcluded(
   record: Record<string, unknown>,
-  tableConf: TableConfig
+  tableConf: TableConfig,
+  upsertKey: readonly string[] = []
 ): void {
   for (const field of insertExcludedFields(tableConf)) {
-    delete record[field];
+    if (!upsertKey.includes(field)) delete record[field];
   }
 }
 
@@ -170,6 +231,8 @@ export interface WriteJoinPass {
   tenant?: TenantContext;
   /** The request that triggered the write, handed to the child table's `beforeInsert`. */
   request: ApiRequest | undefined;
+  /** The bulk item's index, prefixed to the paths of a child row's errors; absent on a single write. */
+  at?: string;
 }
 
 /** Everything both `processSecondaries` and `processDeletions` need to write one alias. */
@@ -218,7 +281,8 @@ interface PrepareCtx {
  *   2. runValidation (camelCase — sees the client payload as sent), then the child tables'
  *      own `validate` on the child rows (ADR 0030) — both before the hook and any SQL
  *   3. drop insertExclude fields (client-input whitelist; applied BEFORE the
- *      hook so values it assigns — e.g. a server-generated id — reach the INSERT)
+ *      hook so values it assigns — e.g. a server-generated id — reach the INSERT), except
+ *      those of the table's upsertKey, which name the row to update
  *   4. beforeInsert hook (caller can mutate the camelCase copy)
  *   5. drop non-writable fields (generated columns, writeExclude) — AFTER the hook, because
  *      the database refuses those values whoever assigned them
@@ -242,7 +306,7 @@ export async function prepareInsertRecord(
     await runValidation(ctx.db, ctx.request, ctx.tableConf, camel, children);
   }
   await runChildValidation(ctx, input, children, options?.at);
-  removeInsertExcluded(camel, ctx.tableConf);
+  removeInsertExcluded(camel, ctx.tableConf, ctx.tableConf.upsertKey);
   if (ctx.tableConf.beforeInsert) {
     await ctx.tableConf.beforeInsert({ db: ctx.db, req: ctx.request, record: camel });
   }
@@ -284,7 +348,8 @@ export async function processSecondaries(
     if (!joinDef || (!records?.length && !replace)) continue;
 
     const target = resolveWriteJoinTarget(joinDef, pass.dbTables, pass.mainRecord, pass.tenant);
-    const sent = records?.length ? await writeSecondaryRows(pass, records, target, joinDef) : [];
+    const section = replace ? 'replace' : 'upsert';
+    const sent = records?.length ? await writeSecondaryRows(pass, records, target, joinDef, section) : [];
     if (records?.length) outcome.written[alias] = sent.map((r) => camelcaseObject(r.pk, target.joinSchema));
 
     if (replace) {
@@ -309,7 +374,8 @@ async function writeSecondaryRows(
   pass: WriteJoinPass,
   records: Record<string, unknown>[],
   target: WriteJoinTarget,
-  joinDef: JoinDefinition
+  joinDef: JoinDefinition,
+  section: 'upsert' | 'replace'
 ): Promise<{ pk: Record<string, unknown>; record: Record<string, unknown> }[]> {
   const { db, request } = pass;
   const { joinSchema, joinCol, mainValue, childConf, childTenant } = target;
@@ -328,7 +394,7 @@ async function writeSecondaryRows(
   for (const rec of records) {
     const camel = { ...rec };
     if (childConf) {
-      removeInsertExcluded(camel, childConf);
+      removeInsertExcluded(camel, childConf, joinDef.upsertKey);
       // The hook sees the row as it will be written: the FK to the main row already filled in,
       // over whatever the client sent. It is filled again below, so the hook cannot move it.
       camel[joinDef.joinField] = mainValue;
@@ -355,6 +421,11 @@ async function writeSecondaryRows(
     assertUpsertKeys(
       joinSchema, conflictCols, (joinSchema.primaryKey ?? [childPk].flat()).map((f) => joinSchema.col(f)),
       preparedRecords
+    );
+    const prefix = [pass.at, section, joinDef.alias].filter(Boolean).join('.');
+    await assertExcludedKeysExist(
+      db, joinSchema, conflictCols, insertExcludedKeyFields(childConf, upsertKeys), preparedRecords, records,
+      (i, field) => `${prefix}.${i}.${field}`
     );
     // A conflicting upsert must not overwrite — or re-parent — a child row owned by
     // another tenant, which the ON CONFLICT key alone would happily match.

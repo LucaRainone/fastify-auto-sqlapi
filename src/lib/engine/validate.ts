@@ -151,7 +151,7 @@ export async function runBulkValidation(
   if (fields.length > 0) throwValidationError(fields);
 }
 
-function throwValidationError(fields: ValidationField[]): never {
+export function throwValidationError(fields: ValidationField[]): never {
   const error = new Error('Validation failed') as Error & {
     statusCode: number;
     validationErrors: ValidationField[];
