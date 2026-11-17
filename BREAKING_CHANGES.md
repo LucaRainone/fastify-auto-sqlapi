@@ -242,8 +242,8 @@ Every hook and validator receives `{ db, req, ...data }` instead of positional p
 
 | Hook | Before | After |
 |---|---|---|
-| `validate` | `(db, req, main, secondaries)` | `({ db, req, main, upsert, replace })` — the request's sections, see section 5 |
-| `validateBulk` | `(db, req, items)` | `({ db, req, items })` |
+| `validate` | `(db, req, main, secondaries)` | `({ db, req, main, upsert, replace, parent })` — the request's sections, see section 5; `parent` is set on a child row, see section 6 |
+| `validateBulk` | `(db, req, items)` | `({ db, req, items, parent })` — `parent` as for `validate` |
 | `beforeInsert`, `beforeUpdate` | `(db, req, record)` | `({ db, req, record })` |
 | `afterInsert` | `(db, req, record, secondaryRecords)` | `({ db, req, record, secondaries })` |
 | `afterUpdate` | `(db, req, record, secondaryRecords, deletionRecords)` | `({ db, req, record, secondaries, deletions })` |
