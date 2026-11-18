@@ -156,6 +156,11 @@ Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
   every row sent with an id was inserted again under a new one — main rows and the child rows
   of a write join alike. The key now updates the row it names; a key naming no row is a 400
   `not_found` at its path, and a row without the key is inserted as before.
+- **`pgQueryable(new pg.Pool())` and `pgQueryable(fastify.pg)` did not compile** (TS2345): the
+  type of `connect()` required the checked-out client to have a `connect()` of the same type,
+  which pg's `PoolClient` does not. The checked-out client now needs only `query` and
+  `release`; `mysqlQueryable` is aligned. A `pg.Client` stays refused: its `connect()` opens
+  the connection, it does not check one out.
 - **A delete under an indirect tenant scope failed on MySQL and MariaDB** (error 1093): the
   DELETE named its rows through a subquery reading the same table. It now tests the parent
   with a correlated `EXISTS`, as the deletions of a write join already did;

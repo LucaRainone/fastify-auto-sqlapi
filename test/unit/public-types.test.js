@@ -114,3 +114,39 @@ describe('public types', () => {
     assert.deepEqual(errors, []);
   });
 });
+
+describe('the adapters take the drivers as they are', () => {
+  it('pgQueryable takes a pg Pool and the @fastify/postgres decorator', () => {
+    const errors = diagnosticsOf(`
+      import Fastify from 'fastify';
+      import '@fastify/postgres';
+      import pg from 'pg';
+      import { pgQueryable } from '../../dist/index.js';
+      const app = Fastify();
+      export const fromPool = pgQueryable(new pg.Pool());
+      export const fromPlugin = pgQueryable(app.pg);
+    `);
+    assert.deepEqual(errors, []);
+  });
+
+  it('pgQueryable refuses a pg Client: its connect() opens the connection, it checks none out', () => {
+    const errors = diagnosticsOf(`
+      import pg from 'pg';
+      import { pgQueryable } from '../../dist/index.js';
+      export const fromClient = pgQueryable(new pg.Client());
+    `);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /Property 'release' is missing in type 'Client'/);
+  });
+
+  it('mysqlQueryable takes a mysql2 promise pool and one of its connections', () => {
+    const errors = diagnosticsOf(`
+      import mysql from 'mysql2/promise';
+      import { mysqlQueryable } from '../../dist/index.js';
+      const pool = mysql.createPool({});
+      export const fromPool = mysqlQueryable(pool);
+      export const fromConnection = async () => mysqlQueryable(await pool.getConnection());
+    `);
+    assert.deepEqual(errors, []);
+  });
+});

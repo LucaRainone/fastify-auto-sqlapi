@@ -5,11 +5,14 @@ export interface MysqlQueryable {
     sql: string,
     values?: unknown[]
   ): Promise<[T[] & { affectedRows?: number; insertId?: number }, unknown]>;
-  /** Present on mysql2 promise pools (and @fastify/mysql): checks out a dedicated connection. */
-  getConnection?(): Promise<MysqlQueryable & { release(): void }>;
+  /**
+   * Present on mysql2 promise pools (and @fastify/mysql): checks out a dedicated connection. Only
+   * its `query` and `release` are used.
+   */
+  getConnection?(): Promise<Pick<MysqlQueryable, 'query'> & { release(): void }>;
 }
 
-function wrapQuery(client: MysqlQueryable): Queryable['query'] {
+function wrapQuery(client: Pick<MysqlQueryable, 'query'>): Queryable['query'] {
   return async <T = Record<string, unknown>>(
     text: string,
     values?: unknown[]

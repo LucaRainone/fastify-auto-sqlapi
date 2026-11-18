@@ -5,11 +5,14 @@ export interface PgQueryable {
     text: string,
     values?: unknown[]
   ): Promise<{ rows: T[]; rowCount: number | null }>;
-  /** Present on pg.Pool (and @fastify/postgres): checks out a dedicated client. */
-  connect?(): Promise<PgQueryable & { release(): void }>;
+  /**
+   * Present on pg.Pool (and @fastify/postgres): checks out a dedicated client. Only its `query`
+   * and `release` are used — a PoolClient's own `connect()` is not a checkout.
+   */
+  connect?(): Promise<Pick<PgQueryable, 'query'> & { release(): void }>;
 }
 
-function wrapQuery(client: PgQueryable): Queryable['query'] {
+function wrapQuery(client: Pick<PgQueryable, 'query'>): Queryable['query'] {
   return async <T = Record<string, unknown>>(
     text: string,
     values?: unknown[]
