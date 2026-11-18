@@ -43,7 +43,7 @@ Everything travels in the body, and only there; all keys are optional and combin
     "labels": { "filters": { "labelId": 1 }, "conditions": [] }
   },
   "joinMultiple": { // side query: child rows of the returned main rows
-    "orders": { "filters": { "status": "pending" }, "conditions": [], "select": ["id", "total", "status"] } // default set by the backend
+    "orders": { "filters": { "status": "pending" }, "conditions": [], "select": ["customerId", "id", "total", "status"] } // default set by the backend; a select returns only what it lists — include the FK (customerId) to tell which main row a child belongs to
   },
   "joinGroup": { // aggregates child rows of the returned main rows
     "orders": {
@@ -66,10 +66,10 @@ Response; each section is present only if requested:
   "main": [{ "id": 1, "name": "Mario", "creatorId": 7, "displayName": "..." }],
   "joinMultiple": { "orders": [{ "id": 10, "customerId": 1, "total": 50 }] }, // flat list for all mains: group client-side by FK
   "joinGroup": { "orders": { "rows": [ // always rows, [] when no main matched
-    { "by": 1, "sum": { "total": 100 }, "count": { "id": 2 } } // with "by": one row per group; by = FK field gives per-main values
+    { "by": 1, "sum": { "total": "100.00" }, "count": { "id": "2" } } // with "by": one row per group; by = FK field gives per-main values. Aggregates come as the database returns them: often strings, exact — parse them
   ]}}, // without "by": ONE row, no "by", over the children of ALL returned mains
   "joinLeft": { "creator": [{ "id": 7, "name": "Alice" }] }, // deduplicated: match main.creatorId === creator.id
-  "computed": { "sum": { "total": 999 }, "count": { "id": 25 } }, // only when compute is sent: one entry per function and field
+  "computed": { "sum": { "total": "999.00" }, "count": { "id": "25" } }, // only when compute is sent: one entry per function and field; values as in joinGroup
   "pagination": { // only when page or itemsPerPage is sent
     "total": 25, "pages": 3,
     "paginator": { "page": 1, "itemsPerPage": 20 }

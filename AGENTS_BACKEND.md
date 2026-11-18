@@ -88,7 +88,7 @@ pg.types.setTypeParser(pg.types.builtins.DATE, (v) => v);
 pg.types.setTypeParser(pg.types.builtins.TIMESTAMP, (v) => v);
 ```
 
-HTTP responses coerce `"42"` to a number anyway. The parsers matter for `sqlApi.*` results and for hook arithmetic.
+HTTP responses coerce a schema field (`"42"` → `42`) through the response schema. The `joinGroup` and `compute` aggregates are not coerced: they reach the client as the driver returns them — strings on `pg` (`"300.00"`, `"4"`), exact for any size. The parsers matter for those, for `sqlApi.*` results and for hook arithmetic; a parsed value beyond `Number.MAX_SAFE_INTEGER` (2^53 − 1) or with more significant digits than a double holds is no longer exact.
 
 ## defineTable
 

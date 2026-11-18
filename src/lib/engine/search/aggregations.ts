@@ -81,7 +81,9 @@ export function buildAggOrderExpr(
   const { joinSchema, joinField } = joinDef;
 
   if (groupReq.by && groupReq.by !== joinField) {
-    err400('invalid_aggregation', at, `Cannot order by aggregation on joinGroup with 'by' clause on non-FK column: ${alias} (grouped by '${groupReq.by}', correlation FK is '${joinField}')`);
+    // One value per main row is needed: with `by` on a non-FK column a main row has several.
+    const clause = at === 'orderBy' ? 'orderBy' : 'a condition';
+    err400('invalid_aggregation', at, `Cannot use aggregation ${alias}.${fn}.${field} in ${clause}: joinGroup '${alias}' groups by the non-FK column '${groupReq.by}', not by the correlation FK '${joinField}'`);
   }
 
   // Pass the join table's conf: without it validateSchemaField skips the readExclude

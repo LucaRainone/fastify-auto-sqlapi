@@ -594,3 +594,29 @@ describe('executeJoinGroups - avg and count', () => {
     assert.equal(result.joinGroup.session.rows[0].count.id, 5);
   });
 });
+
+describe('an aggregation reference names the clause it is in', () => {
+  it('a condition on an aggregation grouped by a non-FK column is refused as a condition, at its path', async () => {
+    const mockPg = createMockPg([]);
+    const { dbTables, db } = createTestDbTables(mockPg);
+
+    await assert.rejects(
+      () => searchEngine(dbTables, {
+        db,
+        tableConf: dbTables.user,
+        conditions: [{ field: 'session.sum.duration', method: 'isGreater', params: [10] }],
+        joinGroup: { session: { sum: ['duration'], by: 'status' } },
+      }),
+      (err) => {
+        assert.equal(err.statusCode, 400);
+        assert.deepEqual(err.validationErrors.map(({ path, code }) => ({ path, code })), [
+          { path: 'conditions.0.field', code: 'invalid_aggregation' },
+        ]);
+        assert.match(err.message, /non-FK column/);
+        assert.match(err.message, /condition/);
+        assert.doesNotMatch(err.message, /order by/i);
+        return true;
+      }
+    );
+  });
+});

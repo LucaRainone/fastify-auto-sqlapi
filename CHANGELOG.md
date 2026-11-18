@@ -164,6 +164,8 @@ Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
 - **`app.sqlApi` was untyped for a consumer** (TS2339): the `FastifyInstance` augmentation sat
   in a module the package's declarations reached only through a type-only import, which the
   emitted `.d.ts` drops. It is now declared in the plugin module itself.
+- **The 400 for an aggregation grouped by a non-FK column said "Cannot order by" in a condition
+  too**: its message now names the clause it was found in (path and code were already right).
 - **A delete under an indirect tenant scope failed on MySQL and MariaDB** (error 1093): the
   DELETE named its rows through a subquery reading the same table. It now tests the parent
   with a correlated `EXISTS`, as the deletions of a write join already did;
