@@ -31,7 +31,21 @@ export const TABLE_OPERATIONS: readonly TableOperation[] = [
   'search', 'get', 'insert', 'update', 'delete', 'bulkUpsert', 'bulkDelete',
 ];
 
-export type ExtendedConditionFn = (condition: ConditionBuilder, filters: FilterRecord) => void;
+/** The third argument of `extendedCondition`. */
+export interface ExtendedConditionContext<F extends Record<string, TSchema> = Record<string, TSchema>> {
+  /**
+   * The column of a schema field, quoted for the dialect and qualified the way the statement the
+   * condition lands in needs: the table name in the main search and in a side query, the alias
+   * inside a correlated subquery. A name that is not a field of the schema throws.
+   */
+  col(field: string & keyof F): string;
+}
+
+export type ExtendedConditionFn = (
+  condition: ConditionBuilder,
+  filters: FilterRecord,
+  ctx: ExtendedConditionContext,
+) => void;
 
 export interface TableConfig<F extends Record<string, TSchema> = Record<string, TSchema>> {
   primary: (string & keyof F) | (string & keyof F)[];
@@ -45,8 +59,9 @@ export interface TableConfig<F extends Record<string, TSchema> = Record<string, 
   extraFilters?: Record<string, TSchema> | TObject;
   /**
    * Add to the search WHERE: receives the ConditionBuilder already holding the column
-   * equality filters, and every filter value — columns and `extraFilters` alike. Column names
-   * go straight to SQL: prefix them with the table name, the query may carry joins.
+   * equality filters, every filter value — columns and `extraFilters` alike — and `{ col }`.
+   * Name every column with `col(field)`: the same condition runs in the main search and inside
+   * join subqueries, where only `col` knows the qualifier.
    */
   extendedCondition?: ExtendedConditionFn;
   /**

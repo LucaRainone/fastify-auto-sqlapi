@@ -75,6 +75,7 @@ export type {
   ComputedResult,
   PaginationResult,
   ExtendedConditionFn,
+  ExtendedConditionContext,
   FilterRecord,
   AggregationRequest,
   JoinGroupRequest,

@@ -29,6 +29,6 @@ This has two consequences:
 - camelCase schema field names everywhere: request/response bodies, `defineTable` keys (`tenantScope` included), `buildRelation`, hooks, validators, `sqlApi.*`.
 - Real DB column names only where you address the database yourself:
   - `db.*` (QueryClient) record keys, `where` and `conflictKeys`, plus the real table name `Schema.tableName`;
-  - SQL you write (`extendedCondition`, computed `expr`), where columns come from `Schema.col('field')` / `qiCol('field')` and are never typed literally.
+  - SQL you write: in `extendedCondition` columns come from its `col('field')`, in a computed `expr` from `qiCol('field')`, both quoted and qualified for you; never typed literally.
 
 The generated Schema maps between the two, whether the DB uses snake_case or camelCase. Clients always send camelCase, including when anchoring an `anyOf` tenant write.

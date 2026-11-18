@@ -20,6 +20,12 @@ which supersedes ADR 0022.
 
 ### Added
 
+- **`extendedCondition` receives `{ col }`**, its third argument: `col(field)` is the column
+  quoted for the dialect and qualified for the statement the condition lands in — the table in
+  the main search and in a side query, the alias inside a join's correlated subquery. A bare
+  `Schema.col()` was unquoted (a camelCase column failed on PostgreSQL) and a table-name prefix
+  bound to the outer row inside a self-relation's subquery. Typed by the schema's fields; a
+  name that is not one throws. Type `ExtendedConditionContext`.
 - **`replace` in a write request** ([ADR 0029](./docs/adr/0029-a-write-names-its-child-rows-by-action.md)):
   the complete set of child rows of an alias — the rows sent are upserted, every other child
   row of the main row is deleted and reported under `deletions`, in the response and to

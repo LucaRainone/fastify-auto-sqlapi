@@ -4,7 +4,7 @@ Setting up the plugin and configuring tables. Client request grammar: AGENTS_FRO
 
 ## Rules
 
-- Everything is a camelCase **schema field name** (request/response bodies, `defineTable` keys — `tenantScope` included —, hooks, `validate`, `sqlApi.*`, `buildRelation`). **Real DB column names** only where you talk to the database yourself: `db.*` (QueryClient) and any SQL string you write. Get them with `Schema.col('field')` / `qiCol('field')`, never type them: columns may be snake_case or camelCase, the generated Schema knows which.
+- Everything is a camelCase **schema field name** (request/response bodies, `defineTable` keys — `tenantScope` included —, hooks, `validate`, `sqlApi.*`, `buildRelation`). **Real DB column names** only where you talk to the database yourself: `db.*` (QueryClient) and any SQL string you write. Get them with `col('field')` in `extendedCondition`, `qiCol('field')` in a computed field, `Schema.col('field')` (unquoted) for `db.*`, never type them: columns may be snake_case or camelCase, the generated Schema knows which.
 - `sqlApi` = high-level (camelCase, validation, hooks, tenant, joins, computed). `db` = the SQL layer under it (real names, none of that). Not interchangeable.
 - **The routes answer their errors with their own handler: an application `app.setErrorHandler` never sees them** and cannot reshape the envelope. To log or report them, add `app.addHook('onError', async (req, reply, error) => …)` before registering the plugin: it runs for every route error, a 500 carrying the driver error under `error.cause`. To change what the client gets, throw `httpError` from a hook or map driver codes in `dbErrors` (the error envelope paragraph under defineTable).
 - Do not read `node_modules/fastify-auto-sqlapi/dist/`: internal, unstable, not documentation. If this file does not answer, say so.
@@ -111,15 +111,16 @@ export const TableCustomer = defineTable({
 
   // Extra filters: non-column search filters (a record of fields or a Type.Object). Not applied as `col = value`, only via extendedCondition. Not usable under joinLeft (400); use joinMustExist.
   extraFilters: { q: Type.String(), dateFrom: Type.String(), dateTo: Type.String() },
-  extendedCondition: (condition, filters) => { // `filters` is typed with schema + extra keys
+  extendedCondition: (condition, filters, { col }) => { // `filters` is typed with schema + extra keys
+    // col(field): the column quoted and qualified for where this runs (main search, or a join's subquery under its alias). Always use it: a bare Schema.col() is unquoted and unqualified
     if (filters.q) {
       const or = new ConditionBuilder('OR');
-      or.isILike(Schema.col('name'), `%${filters.q}%`);
-      or.isILike(Schema.col('email'), `%${filters.q}%`);
+      or.isILike(col('name'), `%${filters.q}%`);
+      or.isILike(col('email'), `%${filters.q}%`);
       condition.append(or);
     }
     // undefined values are skipped; a missing bound turns isBetween into >= / <=
-    condition.isBetween(Schema.col('orderDate'), filters.dateFrom, filters.dateTo);
+    condition.isBetween(col('orderDate'), filters.dateFrom, filters.dateTo);
   },
   // Unknown filter keys (not a field, extra filter or computed) are 400, on main and every join, over HTTP and sqlApi alike.
 

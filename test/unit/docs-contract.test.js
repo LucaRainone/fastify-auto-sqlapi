@@ -231,7 +231,7 @@ describe('docs contract: every key of the public config and context types is doc
 
   const TYPES = [
     'CliConfig', 'SqlApiPluginOptions', 'SwaggerOptions', 'DbErrorMapping', 'SqlApiOptions',
-    'TableDefinition', 'BuildRelationOptions', 'TenantScope',
+    'TableDefinition', 'ExtendedConditionContext', 'BuildRelationOptions', 'TenantScope',
     'ComputedFieldContext', 'ComputedFieldExpr',
     'ValidateContext', 'ValidateParent', 'BulkValidateContext', 'BulkValidatorItem',
     'WriteHookContext', 'AfterInsertContext', 'AfterReadContext', 'DeleteHookContext', 'BulkDeleteHookContext',

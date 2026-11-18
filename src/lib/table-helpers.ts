@@ -7,6 +7,7 @@ import type {
   TableConfig,
   DbTables,
   TenantScope,
+  ExtendedConditionContext,
 } from '../types.js';
 import { getDialect } from './dialect.js';
 import { hasOwnField, extraFilterFields } from './read-access.js';
@@ -34,7 +35,8 @@ export type TableDefinition<
   extraFilters?: EF;
   extendedCondition?: (
     condition: ConditionBuilder,
-    filters: { [K in keyof F | keyof ExtraProps<EF>]?: ConditionValueOrUndefined }
+    filters: { [K in keyof F | keyof ExtraProps<EF>]?: ConditionValueOrUndefined },
+    ctx: ExtendedConditionContext<F>,
   ) => void;
 };
 
@@ -62,9 +64,10 @@ export function buildTableFilters(
   // statement may carry joins (LEFT JOIN parents, tenant through-joins), and a bare column
   // shared with a joined table would be ambiguous.
   const table = qi(qualifier ?? schema.tableName, dialect);
+  const columnOf = (field: string): string => `${table}.${qi(schema.col(field), dialect)}`;
   for (const field of Object.keys(schema.fields)) {
     if (!(field in filterValues) || filterValues[field] === undefined) continue;
-    const col = `${table}.${qi(schema.col(field), dialect)}`;
+    const col = columnOf(field);
     // An explicit null filters by IS NULL: equality with NULL never matches, and silently
     // dropping the filter would return unfiltered results for a request that asked for
     // "field is null".
@@ -76,7 +79,21 @@ export function buildTableFilters(
     }
   }
 
-  if (extendedCondition) extendedCondition(condition, filterValues);
+  // `col` is the qualifier this statement needs, which the consumer cannot know: the same
+  // condition runs in the main search and inside aliased join subqueries.
+  if (extendedCondition) {
+    extendedCondition(condition, filterValues, {
+      col: (field: string) => {
+        if (!hasOwnField(schema.fields, field)) {
+          throw new Error(
+            `extendedCondition of table '${schema.tableName}': col('${field}') names no field of ` +
+            `its schema. Fields: ${Object.keys(schema.fields).join(', ')}`
+          );
+        }
+        return columnOf(field);
+      },
+    });
+  }
   return condition;
 }
 
