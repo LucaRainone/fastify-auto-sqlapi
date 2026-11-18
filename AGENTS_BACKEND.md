@@ -1,6 +1,6 @@
 # fastify-auto-sqlapi — backend reference (LLM)
 
-Setting up the plugin and configuring tables. Client request grammar: AGENTS_FRONTEND.md. Upgrading from 0.x: BREAKING_CHANGES.md.
+Setting up the plugin and configuring tables. Client request grammar: AGENTS_FRONTEND.md. Upgrading from 0.x: docs/upgrading/1.0.md (index: BREAKING_CHANGES.md).
 
 ## Rules
 

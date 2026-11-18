@@ -7,7 +7,7 @@ A Fastify plugin that generates REST CRUD endpoints (search, get, insert, update
 - Calling the API (fetch, list page, form, agent tool): AGENTS_FRONTEND.md, whole file. It is the complete request grammar.
 - This deployment's tables, fields and join aliases: `GET {prefix}/agent/manifest.md` (when `agentManifest` is on) or Swagger. The docs give the grammar, the manifest gives the vocabulary.
 - Setting up the plugin, configuring tables, joins, tenant scope, hooks, validation, querying from custom routes/scripts/jobs (`sqlApi`), raw SQL in hooks (`db`): AGENTS_BACKEND.md.
-- Upgrading from 0.x: BREAKING_CHANGES.md (0.6 → 1.0), docs/breaking-changes-0.x.md for older releases.
+- Upgrading from 0.x: docs/upgrading/1.0.md (0.6 → 1.0), docs/upgrading/0.x.md for older releases; BREAKING_CHANGES.md indexes them.
 - A behavior that looks wrong: docs/adr/ first. These include open-by-default `operations`, non-transactional bulk, always-updatable fields, sanitized DB errors mapped only through `dbErrors`, and joins not running the target's route guards. They are recorded decisions, not gaps.
 - The routes answer errors with their own handler: an application `setErrorHandler` never sees them, an `onError` hook does (AGENTS_BACKEND.md, Rules).
 

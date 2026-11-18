@@ -44,4 +44,5 @@ it lives on.** A name that schema does not carry is a column as written.
   documented form.
 - A misspelled field is not caught at startup: it is taken as a column, and the first query on
   the table fails with a 500 naming it, as a misspelled column did before.
-- The docs, the CLI template and the upgrade guide use field names.
+- The docs and the CLI template use field names. The upgrade guide has no entry: a scope
+  naming columns needs no edit.

@@ -6,15 +6,15 @@ All notable changes to this project are documented here. This project follows
 ([ADR 0027](./docs/adr/0027-the-1-0-contract.md)). Through 0.x, a breaking change bumped the
 minor and never the patch ([ADR 0022](./docs/adr/0022-stay-on-0x-while-every-consumer-is-first-party.md)).
 
-Migration instructions: **[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)** from 0.6 to 1.0;
-[docs/breaking-changes-0.x.md](./docs/breaking-changes-0.x.md) for the 0.x releases, which the
-"See BREAKING_CHANGES.md" of the entries below 1.0.0 refer to.
+Migration instructions, one guide per release line, indexed in
+[BREAKING_CHANGES.md](./BREAKING_CHANGES.md): **[docs/upgrading/1.0.md](./docs/upgrading/1.0.md)**
+from 0.6 to 1.0, [docs/upgrading/0.x.md](./docs/upgrading/0.x.md) for the 0.x releases.
 
 ## [1.0.0] - Unreleased
 
 The API made coherent in one breaking release: one name and one place for each concept, one
 shape for each result, every retired key refused rather than ignored. **Upgrading from 0.6:
-[BREAKING_CHANGES.md](./BREAKING_CHANGES.md)**, one guide for the whole release. The contract
+[docs/upgrading/1.0.md](./docs/upgrading/1.0.md)**, one guide for the whole release. The contract
 of 1.0 — what is public, how it changes — is [ADR 0027](./docs/adr/0027-the-1-0-contract.md),
 which supersedes ADR 0022.
 
@@ -94,7 +94,7 @@ which supersedes ADR 0022.
 
 ### Changed
 
-Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
+Every entry below is breaking; [docs/upgrading/1.0.md](./docs/upgrading/1.0.md) has the migration for each.
 
 - **Plugin and `createSqlApi`**
   - The plugin option `DbTables` is `dbTables`.
@@ -209,14 +209,14 @@ Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
   their `Type.Optional` fields silently become required. Schemas from any `typebox` 1.x
   copy, such as the one `@fastify/type-provider-typebox` 6 brings in, now mix freely with this
   package's. See
-  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--typebox-1x-replaces-sinclairtypebox).
+  [docs/upgrading/0.x.md](./docs/upgrading/0.x.md#breaking-change--typebox-1x-replaces-sinclairtypebox).
 - **BREAKING: `excludeFromCreation` is renamed `insertExclude`**, aligned with
   `readExclude` / `writeExclude` and with the library's "insert" vocabulary. Same behaviour:
   client input dropped on insert, field Optional in the insert body, hooks and FK auto-fill
   may still set it. The table generator writes `insertExclude`. `defineTable` refuses the old
   key instead of ignoring it, so a table still using it fails at startup rather than letting
   clients write the fields it protected. See
-  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--api-cleanup-ahead-of-10).
+  [docs/upgrading/0.x.md](./docs/upgrading/0.x.md#breaking-change--api-cleanup-ahead-of-10).
 - **BREAKING: the `ITable` type is renamed `TableConfig`**, as the glossary calls the
   concept. Type-level only.
 - **Hook types.** `beforeInsert` and `afterInsert` may return `void`, like every other hook
@@ -228,7 +228,7 @@ Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
 
 - **BREAKING: `escapeIdent`**, deprecated since `db.qi()` replaced it. It escaped Postgres
   identifiers only, so it was wrong on MySQL. See
-  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--api-cleanup-ahead-of-10).
+  [docs/upgrading/0.x.md](./docs/upgrading/0.x.md#breaking-change--api-cleanup-ahead-of-10).
 - **BREAKING: `SearchTableQueryString`**: use `SearchTableQuery()`, which also takes the
   configured `maxItemsPerPage` instead of always describing the default cap.
 - The fourth parameter of `beforeUpdate` (`secondaryFieldsFetcher?: unknown`), which the
@@ -241,7 +241,7 @@ Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
 - **BREAKING: Node.js 22 or newer is required** (`engines.node` is now `>=22`, was `>=18`).
   Node 18 and 20 are end-of-life, and Fastify 5 never supported Node 18. CI now runs the
   full gate on Node 22, 24 and 26. See
-  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--nodejs-22-or-newer-is-required).
+  [docs/upgrading/0.x.md](./docs/upgrading/0.x.md#breaking-change--nodejs-22-or-newer-is-required).
 
 ### Security
 
@@ -261,7 +261,7 @@ Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
   numeric columns, such mains now sort where the database puts NULL (PostgreSQL: last in ASC,
   first in DESC; MySQL/MariaDB: first in ASC, last in DESC) instead of as 0, and a condition
   like `max < 5` no longer matches them (`isNull` does). See
-  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--min-max-and-avg-of-a-main-row-without-children-are-null).
+  [docs/upgrading/0.x.md](./docs/upgrading/0.x.md#breaking-change--min-max-and-avg-of-a-main-row-without-children-are-null).
 
 ### Fixed
 
@@ -291,7 +291,7 @@ Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
   - the exported `SqlDialect` type loses `upsertSql()` and `upsertUpdateSet()`, replaced by
     `onConflict?: { sql(), updateSet() }`, present on PostgreSQL only.
   Regenerate the schemas; see
-  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--an-upsert-targets-a-unique-key-verified-at-startup).
+  [docs/upgrading/0.x.md](./docs/upgrading/0.x.md#breaking-change--an-upsert-targets-a-unique-key-verified-at-startup).
 
 ### Fixed
 
@@ -345,7 +345,7 @@ Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
   manifest advertised a URL that did not exist. Routes are now `/search/<key>`,
   `/rest/<key>`, `/bulk/<key>`, and the search response's `table` names the key too. Configs
   generated by `sqlapi-generate-tables` use the table name as key and are unaffected. See
-  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--the-route-url-is-the-dbtables-key).
+  [docs/upgrading/0.x.md](./docs/upgrading/0.x.md#breaking-change--the-route-url-is-the-dbtables-key).
 - **`fastify-plugin` 5 → 6.** The only runtime dependency bump: v6 renames its entry files and
   drops the long-deprecated `PluginOptions` type (now `PluginMetadata`), neither of which this
   library uses. No change for consumers; still Fastify 5.
@@ -634,7 +634,7 @@ Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
   one; it is still never called when nothing scoped is in reach. Tables that already declared
   their own scope emit unchanged SQL. Migration — including the `getTenantId` body that now needs
   to tolerate an unauthenticated request — in
-  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--the-tenant-follows-the-request-not-the-table-it-addresses).
+  [docs/upgrading/0.x.md](./docs/upgrading/0.x.md#breaking-change--the-tenant-follows-the-request-not-the-table-it-addresses).
 
 - **Database errors no longer reach clients verbatim.** Any error escaping an auto-generated
   route that the plugin did not raise itself now answers `{"statusCode":500,"error":"Internal
@@ -675,7 +675,7 @@ Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
   1024-character cap on the `orderBy` string), so Swagger advertises exactly what the engine
   enforces. Both are exported as `MAX_CONDITIONS` and `MAX_ORDER_BY_PARTS`, and both are checked
   **in the engine**, which is what covers `sqlApi.search()` — no schema validates a programmatic
-  caller. See [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--request-limits-condition-arity-and-tenant-scope-inside-subqueries).
+  caller. See [docs/upgrading/0.x.md](./docs/upgrading/0.x.md#breaking-change--request-limits-condition-arity-and-tenant-scope-inside-subqueries).
 
 - **BREAKING: `paginator` is validated at runtime.** `page` and `itemsPerPage` are rendered
   straight into `LIMIT`/`OFFSET`, and `Paginator` is a compile-time type only: nothing stopped a
@@ -751,7 +751,7 @@ Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
   and aggregations, which have always answered 400. The check lives in the engine, so it
   covers `sqlApi.search()` as well as the HTTP routes. `undefined` values still mean "filter
   not supplied" and are ignored; an explicit `null` still filters by `IS NULL`. See
-  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--unknown-filter-keys-are-rejected).
+  [docs/upgrading/0.x.md](./docs/upgrading/0.x.md#breaking-change--unknown-filter-keys-are-rejected).
 
 - **`joinLeft.<alias>.filters` no longer advertises the parent's `extraFilters`.** They were
   present in the generated body schema and in Swagger, but `buildLeftJoinClauses` never runs
@@ -819,7 +819,7 @@ Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
   bulk upsert are unaffected — they already handled every PK column. If your composite table's
   first PK column happens to be unique, these endpoints previously worked for you and are now
   gone — see
-  [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--by-single-id-operations-disabled-for-composite-primary-keys)
+  [docs/upgrading/0.x.md](./docs/upgrading/0.x.md#breaking-change--by-single-id-operations-disabled-for-composite-primary-keys)
   for the migration paths.
 
 ### Fixed
@@ -954,7 +954,7 @@ Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
   error. Computed fields that declare **no** bound values are unaffected — the majority case
   (JSON extraction, `CONCAT`, `dateTrunc`, arithmetic) needs no change, and a literal `?` such
   as the PostgreSQL jsonb operator keeps working.
-  See [BREAKING_CHANGES.md](./BREAKING_CHANGES.md#breaking-change--computed-field-placeholders-use--markers).
+  See [docs/upgrading/0.x.md](./docs/upgrading/0.x.md#breaking-change--computed-field-placeholders-use--markers).
 
 ### Added
 
@@ -1005,7 +1005,7 @@ Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
 ## [0.1.3] and earlier
 
 Released before this changelog was kept. See the git history for details: notable entries are
-the join API redesign (documented in [BREAKING_CHANGES.md](./BREAKING_CHANGES.md)), composite
+the join API redesign (documented in [docs/upgrading/0.x.md](./docs/upgrading/0.x.md)), composite
 primary key support in updates, transactional insert/update with secondaries, the hook matrix,
 and bulk operations.
 
