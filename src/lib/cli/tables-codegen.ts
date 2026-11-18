@@ -253,8 +253,8 @@ function schemaOverridesLine(schema: ParsedSchema, pk: string | string[]): strin
 /** Indirect scope when the table hangs off a parent, direct scope otherwise. */
 function tenantScopeLine(childRels: DetectedRelation[]): string {
   const rel = childRels[0];
-  if (!rel) return `  // tenantScope: { column: 'tenant_col' },`;
-  return `  // tenantScope: { column: 'tenant_col', through: { schema: ${rel.parentSchemaName}, localField: '${rel.childField}', foreignField: '${rel.parentField}' } },`;
+  if (!rel) return `  // tenantScope: { column: 'organizationId' },`;
+  return `  // tenantScope: { column: 'organizationId', through: { schema: ${rel.parentSchemaName}, localField: '${rel.childField}', foreignField: '${rel.parentField}' } },`;
 }
 
 function readJoinsLines(parentRels: DetectedRelation[]): string[] {

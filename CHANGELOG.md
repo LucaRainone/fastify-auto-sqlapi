@@ -85,6 +85,12 @@ which supersedes ADR 0022.
 - **ADRs 0023–0027**: a write runs in a transaction or not at all; `dbErrors`; `validateBulk`
   replaces `validate` in a bulk upsert; an update carries its primary key in `main`; the 1.0
   contract.
+- **`tenantScope` names schema fields**, like every other key of a table config
+  ([ADR 0032](./docs/adr/0032-tenant-scope-names-schema-fields.md)): `column`, `anyOf` and
+  `through.localField` resolve through the table's schema, the indirect `column` and
+  `through.foreignField` through `through.schema`. A name the schema does not carry is taken as
+  a column, so a scope naming columns keeps working. The startup error for a field name is gone,
+  and the CLI `tables` template, which already wrote `localField` as a field, is now correct.
 
 ### Changed
 

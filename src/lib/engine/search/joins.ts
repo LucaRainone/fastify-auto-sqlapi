@@ -9,7 +9,7 @@ import { ConditionBuilder } from 'node-condition-builder';
 import type { QueryClient } from '../../db.js';
 import { buildTenantCondition, buildTenantJoin } from '../../tenant.js';
 import { assertFiltersReadable, assertKnownFilterKeys } from '../../read-access.js';
-import { resolveJoinTableConf } from '../../table-helpers.js';
+import { resolveJoinTableConf, resolvedTenantScope } from '../../table-helpers.js';
 import { err400 } from './fields.js';
 import type {
   DbTables,
@@ -36,7 +36,7 @@ export function appendJoinTenantScope(
   cb: ConditionBuilder,
   joins?: string[]
 ): void {
-  const scope = joinTableConf?.tenantScope;
+  const scope = resolvedTenantScope(joinTableConf);
   if (!tenant || !scope) return;
   cb.append(buildTenantCondition(db, scope, tenant.ids, joinTableRef));
   if ('through' in scope) {

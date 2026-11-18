@@ -20,15 +20,25 @@ export type TenantAdmin = typeof TENANT_ADMIN;
 export type TenantResolution = TenantId | TenantId[] | TenantAdmin | null | undefined;
 export type GetTenantId = (request: ApiRequest) => TenantResolution | Promise<TenantResolution>;
 
+/**
+ * The names of a scope are schema fields, like every other key of a table config, each resolved
+ * to its column through the schema of the table it lives on. A name that schema does not carry
+ * is taken as a column, as written (ADR 0032).
+ */
 export interface TenantScopeDirect {
+  /** The tenant field of this table. */
   column: string;
 }
 
 export interface TenantScopeIndirect {
+  /** The tenant field of the parent table, `through.schema`. */
   column: string;
   through: {
+    /** The parent table's schema. */
     schema: SchemaDefinition;
+    /** The FK field of this table that names the parent row. */
     localField: string;
+    /** The field of the parent table the FK points at. */
     foreignField: string;
   };
 }
@@ -40,7 +50,7 @@ export interface TenantScopeIndirect {
  *
  * Writes cannot auto-inject a tenant the way a single-column scope does — the plugin has no way
  * to know which party the caller is meant to be — so the payload must anchor the row itself:
- * see `assertTenantAnchor`. Columns are DB column names, like `TenantScopeDirect.column`.
+ * see `assertTenantAnchor`. The entries are fields of this table, like `TenantScopeDirect.column`.
  *
  * Not combinable with `column`/`through`: an entry reached through a parent FK would need its
  * own join per entry, and is rejected at `defineTable` time rather than half-supported.
@@ -58,7 +68,7 @@ export type TenantScope = TenantScopeDirect | TenantScopeIndirect | TenantScopeA
  * the request touches. `scope` is table-level and therefore **optional**: the addressed table may
  * declare no scope of its own while a table it reaches through a relation does. Absent `scope`
  * means "no filtering on this table", never "no tenant" — `tenantForTable` re-targets the same
- * ids onto a related table's own scope.
+ * ids onto a related table's own scope. Its names are already resolved to columns.
  */
 export interface TenantContext {
   ids: TenantId[];

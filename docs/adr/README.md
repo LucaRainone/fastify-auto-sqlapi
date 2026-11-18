@@ -46,6 +46,7 @@ not by editing history.
 | [0029](./0029-a-write-names-its-child-rows-by-action.md) | A write names its child rows by action — `upsert`, `delete`, `replace` — and answers with what happened (narrows 0003 for one item's children) |
 | [0030](./0030-a-child-row-is-validated-by-its-own-table.md) | A child row is validated by its own table — a write join runs the child's `validate`, with `parent` (supersedes part of 0014) |
 | [0031](./0031-an-insert-excluded-upsert-key-addresses-an-existing-row.md) | An upsert key under `insertExclude` addresses an existing row — it never names a new one |
+| [0032](./0032-tenant-scope-names-schema-fields.md) | `tenantScope` names schema fields, resolved to their columns |
 
 ## When to write one
 

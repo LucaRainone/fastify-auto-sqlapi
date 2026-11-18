@@ -4,7 +4,7 @@ import type { TableConfig, SchemaDefinition, DbTables, JoinDefinition } from '..
 import { readableFieldNames } from '../read-access.js';
 import { writableFields, insertExcludedFields } from '../write-access.js';
 import { tenantOwnColumns } from '../tenant.js';
-import { resolveJoinTableConf } from '../table-helpers.js';
+import { resolveJoinTableConf, resolvedTenantScope } from '../table-helpers.js';
 
 /**
  * Build a PK-only schema for response shapes (single or composite PK).
@@ -44,14 +44,14 @@ export function pkParams(tableConf: TableConfig): TObject {
  * Make the tenant column(s) of a scoped table Optional in a write body. The engine injects the
  * value for a single-tenant caller and validates the one a multi-tenant or `anyOf` caller sends,
  * so the body must offer the field without demanding it — the same reason a secondary's FK is
- * Optional. `tenantScope` names real DB columns; the schema field is found through `col()`.
+ * Optional. The scope is resolved to its columns, and each field matched through `col()`.
  */
 export function relaxTenantColumns(
   fields: Record<string, TSchema>,
   tableConf: TableConfig | undefined,
   schema: SchemaDefinition
 ): void {
-  const columns = tenantOwnColumns(tableConf?.tenantScope);
+  const columns = tenantOwnColumns(resolvedTenantScope(tableConf));
   if (columns.length === 0) return;
   for (const field of Object.keys(fields)) {
     if (columns.includes(schema.col(field))) fields[field] = Type.Optional(fields[field]);

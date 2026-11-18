@@ -4,7 +4,7 @@ Setting up the plugin and configuring tables. Client request grammar: AGENTS_FRO
 
 ## Rules
 
-- Everything is a camelCase **schema field name** (request/response bodies, `defineTable` keys, hooks, `validate`, `sqlApi.*`, `buildRelation`). **Real DB column names** only where you talk to the database yourself: `db.*` (QueryClient), `tenantScope`, and any SQL string you write. Get them with `Schema.col('field')` / `qiCol('field')`, never type them: columns may be snake_case or camelCase, the generated Schema knows which.
+- Everything is a camelCase **schema field name** (request/response bodies, `defineTable` keys — `tenantScope` included —, hooks, `validate`, `sqlApi.*`, `buildRelation`). **Real DB column names** only where you talk to the database yourself: `db.*` (QueryClient) and any SQL string you write. Get them with `Schema.col('field')` / `qiCol('field')`, never type them: columns may be snake_case or camelCase, the generated Schema knows which.
 - `sqlApi` = high-level (camelCase, validation, hooks, tenant, joins, computed). `db` = the SQL layer under it (real names, none of that). Not interchangeable.
 - **The routes answer their errors with their own handler: an application `app.setErrorHandler` never sees them** and cannot reshape the envelope. To log or report them, add `app.addHook('onError', async (req, reply, error) => …)` before registering the plugin: it runs for every route error, a 500 carrying the driver error under `error.cause`. To change what the client gets, throw `httpError` from a hook or map driver codes in `dbErrors` (the error envelope paragraph under defineTable).
 - Do not read `node_modules/fastify-auto-sqlapi/dist/`: internal, unstable, not documentation. If this file does not answer, say so.
@@ -142,7 +142,7 @@ export const TableCustomer = defineTable({
   // Each upserted row must carry its key (natural key non-null; PK whole, or absent = plain insert), no two rows of a request may share it → 400. A key field in insertExclude (the generated PK) only names an existing row: none → 400 not_found. A row must still be insertable (PG: NOT NULL without default is required even for an existing row). Another row's unique value = DB error, never a hijack.
 
   // --- tenant (see Tenant scope) ---
-  tenantScope: { column: 'organization_id' }, // REAL column name
+  tenantScope: { column: 'organizationId' }, // schema field, like every key here
 
   // --- computed fields (see Computed fields) ---
   computedFields: {
@@ -279,13 +279,13 @@ getTenantId: (req) => (req.user?.isSuperadmin ? TENANT_ADMIN : req.user?.organiz
 ```
 
 ```ts
-tenantScope: { column: 'organization_id' } // direct
-tenantScope: { column: 'organization_id', // indirect, via parent FK
-  through: { schema: SchemaCustomer, localField: 'customer_id', foreignField: 'id' } }
-tenantScope: { anyOf: ['requester_agent_id', 'target_agent_id'] } // row owned by either party
+tenantScope: { column: 'organizationId' } // direct
+tenantScope: { column: 'organizationId', // indirect, via parent FK: column and foreignField are fields of SchemaCustomer
+  through: { schema: SchemaCustomer, localField: 'customerId', foreignField: 'id' } }
+tenantScope: { anyOf: ['requesterAgentId', 'targetAgentId'] } // row owned by either party
 ```
 
-All names in a scope are real columns. Naming a camelCase field whose column differs throws at startup. `anyOf` cannot be combined with `column`/`through` (throws). Clients still send the camelCase field.
+All names in a scope are schema fields: `column`, `anyOf` and `localField` of this table, the indirect `column` and `foreignField` of `through.schema`. A name the schema does not carry is taken as a real column, so a tenant column a hand-written schema omits still works. `anyOf` cannot be combined with `column`/`through` (throws).
 
 | | direct | indirect | anyOf |
 |---|---|---|---|

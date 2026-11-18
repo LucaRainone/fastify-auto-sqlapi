@@ -218,6 +218,19 @@ defaultOrder: 'nameLower, id'        // computedFields: { nameLower: ({ qiCol })
 
 A dotted notation (`alias.field`) is refused: the default applies to requests without joins.
 
+### `tenantScope` names schema fields
+
+Like every other key of a table config. No edit is required: a name the schema does not carry
+is taken as a real column, so a 0.6 scope naming columns keeps working
+([ADR 0032](./docs/adr/0032-tenant-scope-names-schema-fields.md)).
+
+```ts
+// before
+tenantScope: { column: 'organization_id', through: { schema: SchemaCustomer, localField: 'customer_id', foreignField: 'id' } }
+// after
+tenantScope: { column: 'organizationId', through: { schema: SchemaCustomer, localField: 'customerId', foreignField: 'id' } }
+```
+
 ### `buildRelation`: `select`, and `target` when a table sits under several keys
 
 - `selection` is `select`, an array only: `{ selection: 'id, total' }` → `{ select: ['id', 'total'] }`.

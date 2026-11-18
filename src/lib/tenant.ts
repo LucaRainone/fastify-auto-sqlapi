@@ -2,7 +2,7 @@ import type { ApiRequest } from '../types/request.js';
 import { buildKeyMatch, type QueryClient } from './db.js';
 import { ConditionBuilder, type ConditionValue } from 'node-condition-builder';
 import { httpError } from './errors.js';
-import { resolveJoinTableConf } from './table-helpers.js';
+import { resolveJoinTableConf, resolvedTenantScope } from './table-helpers.js';
 import { TENANT_ADMIN } from '../types.js';
 import type {
   DbTables,
@@ -90,7 +90,7 @@ export async function resolveTenant(
   }
   // `scope` stays undefined for an unscoped host: the ids still travel, so the tables it reaches
   // enforce their own scopes, while the host itself keeps no filter.
-  return { ids, scope: tableConf.tenantScope };
+  return { ids, scope: resolvedTenantScope(tableConf) };
 }
 
 /**
@@ -135,7 +135,7 @@ export function tenantForTable(
   tenant: TenantContext | undefined,
   tableConf: TableConfig | undefined
 ): TenantContext | undefined {
-  const scope = tableConf?.tenantScope;
+  const scope = resolvedTenantScope(tableConf);
   if (!tenant || !scope) return undefined;
   return { ids: tenant.ids, scope };
 }

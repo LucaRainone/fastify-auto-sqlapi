@@ -178,7 +178,7 @@ describe('generateSingleTableFile', () => {
     const customer = parseSchemaFile(customerSchemaContent);
     const output = generateSingleTableFile(customer, [customer]);
 
-    assert.ok(output.includes("// tenantScope: { column: 'tenant_col' },"));
+    assert.ok(output.includes("// tenantScope: { column: 'organizationId' },"));
   });
 
   it('suggests indirect tenantScope for child table', () => {
@@ -186,7 +186,7 @@ describe('generateSingleTableFile', () => {
     const order = parseSchemaFile(orderSchemaContent);
     const output = generateSingleTableFile(order, [customer, order]);
 
-    assert.ok(output.includes("// tenantScope: { column: 'tenant_col', through: { schema: SchemaCustomer, localField: 'customerId', foreignField: 'id' } },"));
+    assert.ok(output.includes("// tenantScope: { column: 'organizationId', through: { schema: SchemaCustomer, localField: 'customerId', foreignField: 'id' } },"));
   });
 });
 

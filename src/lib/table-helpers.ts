@@ -6,7 +6,7 @@ import type {
   FilterRecord,
   TableConfig,
   DbTables,
-  TenantScopeIndirect,
+  TenantScope,
 } from '../types.js';
 import { getDialect } from './dialect.js';
 import { hasOwnField, extraFilterFields } from './read-access.js';
@@ -95,7 +95,6 @@ export function defineTable<
   validateWriteExclude(config as unknown as TableConfig);
   rejectExcludeFromCreation(config as unknown as TableConfig);
   validateTenantScope(config as unknown as TableConfig);
-  validateTenantColumnNames(config as unknown as TableConfig);
   validateUpsertKeys(config as unknown as TableConfig);
   refuseUpsertKeyOnReadJoins(config as unknown as TableConfig);
   validateDefaultOrder(config as unknown as TableConfig);
@@ -182,47 +181,45 @@ function assertTableShape(config: TableConfig, where: string): void {
 }
 
 /**
+ * The column a `tenantScope` name stands for: a field of `schema` resolves through its `col()`,
+ * any other name is a column as written — a hand-written schema may omit the tenant column, and
+ * a scope that already names real columns keeps working (ADR 0032). With no schema to look in,
+ * every name is taken as written.
+ */
+function scopeColumn(schema: SchemaDefinition | undefined, name: string): string {
+  return schema && hasOwnField(schema.fields, name) ? schema.col(name) : name;
+}
+
+/**
+ * A table's `tenantScope` with every name resolved to its column, the form the SQL needs. Each
+ * name goes through the schema of the table it lives on: `column`, `anyOf` and
+ * `through.localField` through the table's own; the `column` and `through.foreignField` of an
+ * indirect scope through `through.schema`, the parent's.
+ */
+export function resolvedTenantScope(tableConf: TableConfig | undefined): TenantScope | undefined {
+  const scope = tableConf?.tenantScope;
+  if (!scope) return undefined;
+  const own = tableConf.schema;
+  if ('anyOf' in scope) return { anyOf: scope.anyOf.map((name) => scopeColumn(own, name)) };
+  if (!('through' in scope)) return { column: scopeColumn(own, scope.column) };
+  const { through } = scope;
+  return {
+    column: scopeColumn(through.schema, scope.column),
+    through: {
+      schema: through.schema,
+      localField: scopeColumn(own, through.localField),
+      foreignField: scopeColumn(through.schema, through.foreignField),
+    },
+  };
+}
+
+/**
  * `tenantScope` has three forms and they do not mix: `{ column }`, `{ column, through }`, and
  * `{ anyOf }`. A config naming more than one form is ambiguous rather than additive — an `anyOf`
  * entry reached through a parent FK would need its own join per entry — and an empty `anyOf`
  * would fail closed on every row, which looks like a broken deployment rather than a rule.
- *
- * The columns it names are **real DB column names**, not camelCase schema fields — the one place
- * in `defineTable` where the convention flips. That is not an oversight: a scope is applied to
- * the SQL, after the payload has already been converted, and `through.foreignField` belongs to a
- * parent table that may have no config, no `colMap`, or no generated schema at all. It is the
- * same category as `db.*` and `extendedCondition`: names that go straight to the database.
- *
- * So existence cannot be checked — a hand-written schema may legitimately omit the column. What
- * *is* checked is the mistake that exception invites: naming the schema **field** whose real
- * column is something else. Left alone that surfaces as `column "organizationId" does not exist`
- * on every request to the table — an opaque 500 (ADR 0006), failing closed but saying nothing.
+ * Its names are schema fields, like every other key of a table config (ADR 0032).
  */
-/**
- * Reject a tenant column that is really a schema field name mapping to a different column.
- *
- * The check is deliberately narrow, and it self-adjusts: on a camelCase database `col()` is the
- * identity, so a camelCase name raises nothing. A name the schema does not carry raises nothing
- * either — that is the hand-written-schema case, and there is nothing to compare it against.
- */
-function assertNamesColumn(
-  schema: SchemaDefinition,
-  name: string,
-  where: string,
-  table: string
-): void {
-  if (!hasOwnField(schema.fields, name)) return;
-  const column = schema.col(name);
-  if (column === name) return;
-
-  throw new Error(
-    `defineTable: tenantScope ${where} on table '${table}' names '${name}', which is a ` +
-    `schema field, not a column: its column is '${column}'. tenantScope names real DB ` +
-    `columns — the scope is applied to the SQL, after the payload has been converted — so ` +
-    `write '${column}' here. Clients keep sending '${name}'.`
-  );
-}
-
 function validateTenantScope(config: TableConfig): void {
   const scope = config.tenantScope;
   if (!scope) return;
@@ -251,19 +248,19 @@ function validateTenantScope(config: TableConfig): void {
     if (!Array.isArray(anyOf) || !anyOf.length) {
       throw new Error(
         `defineTable: tenantScope 'anyOf' on table '${table}' must be a non-empty array of ` +
-        `column names. An empty list would hide every row of the table.`
+        `field names. An empty list would hide every row of the table.`
       );
     }
     if (anyOf.some((c) => typeof c !== 'string' || !c)) {
       throw new Error(
-        `defineTable: tenantScope 'anyOf' on table '${table}' must contain column names as ` +
+        `defineTable: tenantScope 'anyOf' on table '${table}' must contain field names as ` +
         `non-empty strings.`
       );
     }
-    if (new Set(anyOf).size !== anyOf.length) {
+    if (new Set(anyOf.map((name: string) => scopeColumn(config.schema, name))).size !== anyOf.length) {
       throw new Error(
         `defineTable: tenantScope 'anyOf' on table '${table}' repeats a column. ` +
-        `Each owner column must appear once.`
+        `Each owner column must appear once, by its field or by its column name.`
       );
     }
     return;
@@ -274,37 +271,6 @@ function validateTenantScope(config: TableConfig): void {
       `defineTable: tenantScope on table '${table}' declares neither 'column' nor 'anyOf'. ` +
       `A scope with no owner column would filter nothing.`
     );
-  }
-}
-
-/**
- * Every column a scope names, checked against the schema it belongs to. Runs after
- * `validateTenantScope`, so the shape is already known to be one of the three valid forms.
- */
-function validateTenantColumnNames(config: TableConfig): void {
-  const scope = config.tenantScope;
-  if (!scope) return;
-  const table = config.schema.tableName;
-
-  if ('anyOf' in scope) {
-    for (const entry of scope.anyOf) {
-      assertNamesColumn(config.schema, entry, "'anyOf'", table);
-    }
-    return;
-  }
-
-  const direct = scope as TenantScopeIndirect;
-  assertNamesColumn(config.schema, direct.column, "'column'", table);
-
-  // `through.localField` is a column of THIS table; `through.foreignField` one of the parent's,
-  // which is why the parent schema travels in the scope.
-  const through = direct.through;
-  if (!through || typeof through !== 'object') return;
-  if (typeof through.localField === 'string') {
-    assertNamesColumn(config.schema, through.localField, "'through.localField'", table);
-  }
-  if (typeof through.foreignField === 'string' && typeof through.schema?.col === 'function') {
-    assertNamesColumn(through.schema, through.foreignField, "'through.foreignField'", table);
   }
 }
 

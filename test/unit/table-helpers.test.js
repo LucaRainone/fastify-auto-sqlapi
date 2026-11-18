@@ -250,13 +250,11 @@ describe('defineTable - alias uniqueness', () => {
   });
 });
 
-// `tenantScope` names real DB columns, not camelCase schema fields: the scope is applied to the
-// SQL after the payload has been converted, and `through.foreignField` belongs to a parent table
-// that may have no config of its own. That exception is the one place in `defineTable` where the
-// naming convention flips, so the most likely mistake — writing the schema field name — is
-// caught here rather than surfacing as `column "organizationId" does not exist`, a bare 500 on
-// every request to the table.
-describe('defineTable - tenantScope names columns, not schema fields', () => {
+// `tenantScope` names schema fields, like every other key of a table config, and each name is
+// resolved to its column through the schema it belongs to (ADR 0032). A name the schema does
+// not carry is taken as written: a scope naming real columns, or a column a hand-written schema
+// omits, keeps working. What the SQL then says is pinned in tenant-scope-field-names.test.js.
+describe('defineTable - tenantScope names schema fields, or columns the schema maps no field to', () => {
   const snakeSchema = createMockSchema('customer', {
     id: Type.Number(),
     name: Type.String(),
@@ -274,16 +272,13 @@ describe('defineTable - tenantScope names columns, not schema fields', () => {
     tableName: 'userAccount',
   };
 
-  it('rejects a schema field name whose real column is different', async () => {
+  it('accepts a schema field name whose real column is different', async () => {
     const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
-    assert.throws(
-      () => defineTable({
-        primary: 'id',
-        schema: snakeSchema,
-        tenantScope: { column: 'organizationId' },
-      }),
-      /tenantScope.*'organizationId'.*schema field.*organization_id/s
-    );
+    assert.doesNotThrow(() => defineTable({
+      primary: 'id',
+      schema: snakeSchema,
+      tenantScope: { column: 'organizationId' },
+    }));
   });
 
   it('accepts the real column name', async () => {
@@ -316,50 +311,41 @@ describe('defineTable - tenantScope names columns, not schema fields', () => {
     }));
   });
 
-  it('checks every entry of an anyOf scope', async () => {
+  it('accepts an anyOf scope mixing a field and a column', async () => {
     const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
-    assert.throws(
-      () => defineTable({
-        primary: 'id',
-        schema: snakeSchema,
-        tenantScope: { anyOf: ['owner_id', 'otherOwnerId'] },
-      }),
-      /'otherOwnerId'.*other_owner_id/s
-    );
+    assert.doesNotThrow(() => defineTable({
+      primary: 'id',
+      schema: snakeSchema,
+      tenantScope: { anyOf: ['owner_id', 'otherOwnerId'] },
+    }));
   });
 
-  it('checks the through FK on this table', async () => {
+  it('accepts the through FK on this table by its field', async () => {
     const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
-    assert.throws(
-      () => defineTable({
-        primary: 'id',
-        schema: snakeSchema,
-        tenantScope: {
-          column: 'organization_id',
-          through: { schema: snakeSchema, localField: 'customerId', foreignField: 'id' },
-        },
-      }),
-      /'customerId'.*customer_id/s
-    );
+    assert.doesNotThrow(() => defineTable({
+      primary: 'id',
+      schema: snakeSchema,
+      tenantScope: {
+        column: 'organization_id',
+        through: { schema: snakeSchema, localField: 'customerId', foreignField: 'id' },
+      },
+    }));
   });
 
-  it('checks the through column against the parent schema, not this one', async () => {
+  it('accepts the parent column by its field in the parent schema', async () => {
     const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
     const parent = createMockSchema('organization', {
       id: Type.Number(),
       ownerId: Type.Number(),
     });
-    assert.throws(
-      () => defineTable({
-        primary: 'id',
-        schema: snakeSchema,
-        tenantScope: {
-          column: 'organization_id',
-          through: { schema: parent, localField: 'customer_id', foreignField: 'ownerId' },
-        },
-      }),
-      /'ownerId'.*owner_id/s
-    );
+    assert.doesNotThrow(() => defineTable({
+      primary: 'id',
+      schema: snakeSchema,
+      tenantScope: {
+        column: 'organization_id',
+        through: { schema: parent, localField: 'customer_id', foreignField: 'ownerId' },
+      },
+    }));
   });
 
   it('accepts a fully spelled-out indirect scope', async () => {
