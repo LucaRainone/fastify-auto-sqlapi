@@ -18,7 +18,7 @@ has to own your database, no migrations, no repository layout to adopt. **One ta
 installation.**
 
 Related tables need no endpoints of their own: reads reach them through joins, writes through
-nested children, so a whole subgraph can live behind a single exposed table.
+child rows sent with the main row, so a whole subgraph can live behind a single exposed table.
 
 ## See what that buys you
 
@@ -72,18 +72,18 @@ No endpoint written by hand, no resolvers, no query language on the server — a
 
 ## What you get
 
-**Reads** — filters and equality shortcuts · advanced conditions (18 operators) · pagination
+**Reads** — filters and equality shortcuts · advanced conditions (20 operators) · pagination
 with caps · four explicit relation families (`joinMustExist` for EXISTS filtering,
 `joinMultiple` for child rows, `joinGroup` for aggregations, `joinLeft` for N:1 parents) ·
 aggregations with HAVING-style conditions · ordering by related and computed values · computed
 fields declared as SQL expressions (JSON extraction, derived strings, date bucketing)
 
-**Writes** — validated inserts and updates · nested child records with foreign keys filled in
-from the parent · child deletions, or the full set replaced, in the same request · bulk upsert and bulk delete ·
+**Writes** — validated inserts and updates · child rows with foreign keys filled in
+from the main row · child deletions, or the full set replaced, in the same request · bulk upsert and bulk delete ·
 transactions, so a write and its children commit or roll back together
 
 **Production** — multi-tenant row isolation from one `getTenantId`, enforced on reads *and*
-writes · hooks before and after every operation, plus `afterRead` · field-level and
+writes · hooks before and after every write, plus `afterRead` on reads · field-level and
 cross-entity validation returning structured `400`s · per-table route whitelists · read and
 write column visibility · Swagger from the same schemas · request-size and pagination caps ·
 plain parameterized SQL you can print with `debug: true`
@@ -95,7 +95,8 @@ endpoint looks like a table.
 
 ### N+1 is structurally absent
 
-A request runs the main select plus one query per requested join alias — a number fixed by the
+A request runs the main select plus at most one query per requested join alias (`joinLeft` and
+`joinMustExist` live inside the main select; `joinMultiple` and `joinGroup` add one each) — a number fixed by the
 request, **never by the number of rows returned**. There are no lazy relations to accidentally
 loop over, so N+1 is not something you have to remember to avoid.
 
@@ -140,21 +141,24 @@ which is what makes this different from adding an ORM to a project that already 
   nothing to wire.
 - **It stays inside its prefix.** `prefix: '/api/auto'` and your existing routes never meet it.
   You can narrow a registration to some operations (`operations: ['search', 'get']`), or
-  mount the same tables twice under different prefixes with different auth.
+  mount the same tables twice under different prefixes with different auth (the second
+  registration passes `decorate: false`: one owns `app.sqlApi`).
 - **Generated files go where you say** (`outputDir`), and the `Table*.ts` files are yours: the
-  generator never overwrites one that exists, so re-running it only adds files for new tables.
+  generator never overwrites one that exists, so re-running it only adds files for new tables
+  (`dbTables.ts` is written once: add a new table to it yourself, the generator says so).
 
 So a realistic first step on an existing back-office is: generate two tables, register the
 plugin under a new prefix behind your existing auth hook, move one list screen onto it, and
 leave everything else exactly where it is. `operations` keeps any table off the auto routes, and
-a table with no routes at all can still be reached through a join or written as a nested child.
+a table with no routes at all can still be reached through a join or written as a child row of another table.
 Expose the CRUD that is CRUD, hand-write the rest.
 
 ## Get a REST API in 60 seconds
 
 ```bash
-npm install fastify-auto-sqlapi fastify @fastify/postgres
-# MySQL / MariaDB: npm install fastify-auto-sqlapi fastify mysql2
+npm install fastify-auto-sqlapi fastify @fastify/postgres pg @fastify/swagger @fastify/swagger-ui
+# MySQL / MariaDB: @fastify/mysql mysql2 instead of @fastify/postgres pg, and `dialect: 'mysql'`
+# (or 'mariadb') on the plugin. The two Swagger packages are only for `swagger: true`.
 ```
 
 Point the generator at your database, once: a `DATABASE_URL` in the environment or in the
@@ -173,10 +177,12 @@ npx sqlapi-generate-tables --all   # one defineTable() template per table → <o
 
 An optional `sqlapi.config.ts` (CLI only, never read at runtime) sets the output directory, the
 tables or columns to leave out, and the connection when your variable has another name:
-`connection: process.env.SHOP_DB_URL`. `--url` runs once against another database.
+`connection: process.env.SHOP_DB_URL`. `--url` runs once against another database. A `.ts`
+config needs Node >= 22.18 (type stripping); `sqlapi.config.mjs` / `.js` work on any version.
 
 Schema files are regenerated on every run and should not be edited. **Table files are yours**:
-the generator never overwrites one that exists, so re-running only adds files for new tables.
+the generator never overwrites one that exists, so re-running only adds files for new tables;
+`dbTables.ts` is written once, and a table added later goes into it by hand.
 
 ```typescript
 import Fastify from 'fastify';
@@ -196,8 +202,8 @@ For a table called `customer` you now have:
 |--------|-----|---|
 | `POST` | `/api/search/customer` | search with filters, pagination, joins, aggregations |
 | `GET` | `/api/rest/customer/:id` | get one by primary key |
-| `POST` | `/api/rest/customer` | insert (+ nested children) |
-| `PUT` | `/api/rest/customer` | update (+ nested children and deletions) |
+| `POST` | `/api/rest/customer` | insert (+ child rows) |
+| `PUT` | `/api/rest/customer` | update (+ child rows written or deleted) |
 | `DELETE` | `/api/rest/customer/:id` | delete by primary key |
 | `PUT` | `/api/bulk/customer` | bulk upsert |
 | `POST` | `/api/bulk/customer/delete` | bulk delete |
@@ -286,7 +292,7 @@ table. It is where `jwtVerify()` and your role checks go.
 answer 404. It gates HTTP only: your own code still reaches everything through `app.sqlApi.*`.
 
 **3. A declared join is a read grant.** Neither of the two above follows a join: a join is
-resolved inside the *host* table's query, so the target's hooks never run and its `operations`
+resolved inside the *main* table's query, so the target's hooks never run and its `operations`
 whitelist does not apply. A table with `operations: []` is still fully readable through any
 relation pointing at it. `readJoins` is therefore a security decision — and
 `buildRelation(..., { fields: ['id', 'name'] })` narrows what a relation exposes, fail-closed.
@@ -298,7 +304,8 @@ for inserts, not a security mechanism, and it deliberately does not apply to upd
 `isAdmin`, roles, ownership and state columns *will* be accepted by the generated update route
 if they are in the Schema. Whether a field may change is a product decision the plugin cannot
 make for you — encode it in `beforeUpdate` (silent strip) or `validate` (loud 400), or keep the
-privileged transition off the auto routes entirely.
+privileged transition off the auto routes entirely. A column no request may ever write goes in
+`writeExclude`, which applies to updates too.
 ([ADR 0004](./docs/adr/0004-updates-always-open.md))
 
 **5. What leaves the server.** Any error the plugin did not raise itself becomes a bare `500`
@@ -327,8 +334,8 @@ default rather than rejecting it.
 |---|---|
 | [AGENTS_BACKEND.md](./AGENTS_BACKEND.md) | **The reference.** Setup, plugin options, every `defineTable()` key, joins, computed fields, hooks, validation, multi-tenancy, views, `SqlApi`, `QueryClient`, Swagger, patterns, FAQ. Opens with a section map — jump, don't scan. |
 | [AGENTS_FRONTEND.md](./AGENTS_FRONTEND.md) | **The client contract.** Every endpoint's request and response shape, the four join families, conditions, ordering, pagination, error shapes. |
-| [docs/adr/](./docs/adr/README.md) | **Why it behaves like this.** Open-by-default, non-transactional bulk, always-updatable fields, raw DB errors, the schema-as-contract bet. Read the relevant one before filing an issue that proposes changing one of these. |
-| [CHANGELOG.md](./CHANGELOG.md) · [BREAKING_CHANGES.md](./BREAKING_CHANGES.md) | What changed, and how to migrate: one upgrade guide per release line, under [docs/upgrading/](./docs/upgrading/). |
+| [docs/adr/](./docs/adr/README.md) | **Why it behaves like this.** Open-by-default, non-transactional bulk, always-updatable fields, DB errors as a sanitized 500 unless you map them, the schema-as-contract bet. Read the relevant one before filing an issue that proposes changing one of these. |
+| [CHANGELOG.md](./CHANGELOG.md) · [BREAKING_CHANGES.md](./BREAKING_CHANGES.md) | What changed, and how to migrate: one upgrade guide per release line; from 0.6, [docs/upgrading/1.0.md](./docs/upgrading/1.0.md). |
 
 The two `AGENTS_*` files are named for their other audience — they ship inside the npm package
 so a coding agent finds them after `npm install` — but they are the reference documentation for
@@ -345,7 +352,7 @@ request says exactly what to fix.
 ## Requirements
 
 - Node.js >= 22, Fastify >= 5 (peer dependency)
-- **PostgreSQL** + `pg` + `@fastify/postgres`, or **MySQL** / **MariaDB** + `mysql2`
+- **PostgreSQL** + `pg` + `@fastify/postgres`, or **MySQL** / **MariaDB** + `mysql2` + `@fastify/mysql`
 - Optional: `@fastify/swagger` + `@fastify/swagger-ui` for Swagger UI
 
 ## License
