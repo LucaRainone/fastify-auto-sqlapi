@@ -335,7 +335,7 @@ default rather than rejecting it.
 | [AGENTS_BACKEND.md](./AGENTS_BACKEND.md) | **The reference.** Setup, plugin options, every `defineTable()` key, joins, computed fields, hooks, validation, multi-tenancy, views, `SqlApi`, `QueryClient`, Swagger, patterns, FAQ. Opens with a section map — jump, don't scan. |
 | [AGENTS_FRONTEND.md](./AGENTS_FRONTEND.md) | **The client contract.** Every endpoint's request and response shape, the four join families, conditions, ordering, pagination, error shapes. |
 | [docs/adr/](./docs/adr/README.md) | **Why it behaves like this.** Open-by-default, non-transactional bulk, always-updatable fields, DB errors as a sanitized 500 unless you map them, the schema-as-contract bet. Read the relevant one before filing an issue that proposes changing one of these. |
-| [CHANGELOG.md](./CHANGELOG.md) · [BREAKING_CHANGES.md](./BREAKING_CHANGES.md) | What changed, and how to migrate: one upgrade guide per release line; from 0.6, [docs/upgrading/1.0.md](./docs/upgrading/1.0.md). |
+| [CHANGELOG.md](./CHANGELOG.md) · [BREAKING_CHANGES.md](./BREAKING_CHANGES.md) | What changed, and how to migrate: one upgrade guide per release line; from 0.5, [docs/upgrading/1.0.md](./docs/upgrading/1.0.md). |
 
 The two `AGENTS_*` files are named for their other audience — they ship inside the npm package
 so a coding agent finds them after `npm install` — but they are the reference documentation for

@@ -295,7 +295,7 @@ const eitherParty: TenantScope = { anyOf: ['requesterAgentId', 'targetAgentId'] 
 // on the table: defineTable({ …, tenantScope: direct })
 ```
 
-All names in a scope are schema fields: `column`, `anyOf` and `localField` of this table, the indirect `column` and `foreignField` of `through.schema`. The column of a field is accepted too (a 0.6 scope naming columns keeps working); any other name fails `defineTable` at startup. The tenant column must therefore be in the schema: hide it with `readExclude`, never `excludeColumns`. `anyOf` cannot be combined with `column`/`through` (throws).
+All names in a scope are schema fields: `column`, `anyOf` and `localField` of this table, the indirect `column` and `foreignField` of `through.schema`. The column of a field is accepted too (a 0.x scope naming columns keeps working); any other name fails `defineTable` at startup. The tenant column must therefore be in the schema: hide it with `readExclude`, never `excludeColumns`. `anyOf` cannot be combined with `column`/`through` (throws).
 
 | | direct | indirect | anyOf |
 |---|---|---|---|

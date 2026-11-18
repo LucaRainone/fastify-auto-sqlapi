@@ -199,7 +199,7 @@ function assertTableShape(config: TableConfig, where: string): void {
 
 /**
  * The column a `tenantScope` name stands for: a field of `schema` resolves through its `col()`,
- * any other name is already a column (a 0.6 scope names real columns). `defineTable` has refused
+ * any other name is already a column (a 0.x scope names real columns). `defineTable` has refused
  * a name that is neither (`checkScopeName`, ADR 0032); a config built without it, or with no
  * schema to look in, gets every other name as written.
  */
@@ -407,7 +407,7 @@ function validatePrimary(config: TableConfig): void {
 }
 
 /**
- * `excludeFromCreation` is what `insertExclude` was called until 0.6.0. The type no longer
+ * `excludeFromCreation` is what `insertExclude` was called before 1.0. The type no longer
  * has it, but a JavaScript consumer, or a cast, can still pass it: ignoring it would let
  * clients write the fields it was meant to protect, so it is refused with the new name.
  */
@@ -415,7 +415,7 @@ function rejectExcludeFromCreation(config: TableConfig): void {
   if (!('excludeFromCreation' in config)) return;
   throw new Error(
     `defineTable: table '${config.schema.tableName}' sets excludeFromCreation, which was ` +
-    `renamed to insertExclude in 0.6.0 with the same behaviour. Rename the key.`
+    `renamed to insertExclude in 1.0.0 with the same behaviour. Rename the key.`
   );
 }
 

@@ -42,7 +42,7 @@ omitted column but the one test written to pin it. A scope now names what its sc
 
 - **Keep columns, fix only the CLI template** — rejected: it keeps the one exception to the
   naming rule, the one that produced the template's mistake.
-- **Fields only, refusing a name that is not a field** — rejected: every 0.6 scope naming
+- **Fields only, refusing a name that is not a field** — rejected: every 0.x scope naming
   columns would have to be rewritten, for no gain in safety over accepting the columns of fields.
 - **Any name the schema lacks taken as a column** — the first version of this decision, replaced:
   it caught no misspelling, for a case (a schema omitting the tenant column) nothing relied on.
@@ -51,6 +51,6 @@ omitted column but the one test written to pin it. A scope now names what its sc
 
 - The startup check refusing a field name whose column differs is gone: that name is now the
   documented form.
-- A misspelled field or column is caught at startup, as it was not in 0.6.
+- A misspelled field or column is caught at startup, as it was not in 0.x.
 - The docs and the CLI template use field names. A scope naming the columns of its fields needs no
   edit; one naming a column its schema omits does, and the upgrade guide says so.

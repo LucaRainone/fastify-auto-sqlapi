@@ -8,15 +8,18 @@ minor and never the patch ([ADR 0022](./docs/adr/0022-stay-on-0x-while-every-con
 
 Migration instructions, one guide per release line, indexed in
 [BREAKING_CHANGES.md](./BREAKING_CHANGES.md): **[docs/upgrading/1.0.md](./docs/upgrading/1.0.md)**
-from 0.6 to 1.0, [docs/upgrading/0.x.md](./docs/upgrading/0.x.md) for the 0.x releases.
+from 0.5 to 1.0, [docs/upgrading/0.x.md](./docs/upgrading/0.x.md) for the 0.x releases.
 
-## [1.0.0] - Unreleased
+## [1.0.0] - 2026-11-18
 
 The API made coherent in one breaking release: one name and one place for each concept, one
-shape for each result, every retired key refused rather than ignored. **Upgrading from 0.6:
+shape for each result, every retired key refused rather than ignored. **Upgrading from 0.5:
 [docs/upgrading/1.0.md](./docs/upgrading/1.0.md)**, one guide for the whole release. The contract
 of 1.0 — what is public, how it changes — is [ADR 0027](./docs/adr/0027-the-1-0-contract.md),
 which supersedes ADR 0022.
+
+1.0.0 follows 0.5.1. The 0.6.0 prepared after it, TypeBox 1.x and a first cleanup of the public
+names, was never published: its changes are listed here and covered by the same guide.
 
 ### Added
 
@@ -106,6 +109,13 @@ which supersedes ADR 0022.
 
 Every entry below is breaking; [docs/upgrading/1.0.md](./docs/upgrading/1.0.md) has the migration for each.
 
+- **TypeBox 1.x** ([`typebox`](https://www.npmjs.com/package/typebox)) replaces
+  `@sinclair/typebox` 0.34. `Type` and `Static` re-exported by this package now come from it.
+  Code that imports `Type` from `fastify-auto-sqlapi`, as the generated schema files do, needs
+  no change. Schemas built with `@sinclair/typebox` directly must move to `typebox` 1.x, or
+  their `Type.Optional` fields silently become required. Schemas from any `typebox` 1.x copy,
+  such as the one `@fastify/type-provider-typebox` 6 brings in, now mix freely with this
+  package's.
 - **Plugin and `createSqlApi`**
   - The plugin option `DbTables` is `dbTables`.
   - `getTenantId` returning `null`/`undefined` is a 401 on every table with a tenant scope in
@@ -121,6 +131,9 @@ Every entry below is breaking; [docs/upgrading/1.0.md](./docs/upgrading/1.0.md) 
   - `defineTable({ primary, schema, extraFilters, extendedCondition, … })` replaces the spread
     of `exportTableInfo()`; the config carries `schema`, not `Schema`.
   - `allowedReadJoins` / `allowedWriteJoins` are `readJoins` / `writeJoins`.
+  - `excludeFromCreation` is `insertExclude`, aligned with `readExclude` / `writeExclude`. Same
+    behaviour; the table generator writes the new name.
+  - The type `ITable` is `TableConfig`, as the glossary calls the concept.
   - `upsertMap` and `buildUpsertRule(s)` are replaced by `upsertKey`.
   - `defaultOrder` has the 1-part `orderBy` grammar, checked at startup; no raw SQL.
   - `buildRelation({ selection })` is `{ select: [...] }`, checked against the joined schema.
@@ -135,6 +148,9 @@ Every entry below is breaking; [docs/upgrading/1.0.md](./docs/upgrading/1.0.md) 
     result that is not an array are a programming error. `ValidationError` is gone.
   - `ValidationField.message` is optional: absent on the fields a validator returned and on a
     `dbErrors` answer, where it only repeated the code or the reason phrase.
+  - `beforeInsert` and `afterInsert` may return `void`, like every other hook; the secondaries
+    and deletions given to `afterInsert` and `afterUpdate` are typed `RowsByAlias`, not
+    `unknown`. Type-level only.
 - **`sqlApi` and the QueryClient**
   - `sqlApi.insert` / `update` take `{ main, … }`, the HTTP body; `record` throws.
   - `sqlApi.bulkDelete` takes `{ ids }`.
@@ -143,9 +159,10 @@ Every entry below is breaking; [docs/upgrading/1.0.md](./docs/upgrading/1.0.md) 
     `bulkUpsert` takes `{ chunkSize, immutableCols }`. `insertOrUpdate`,
     `bulkInsertOrUpdate` and their `*WithAction` versions are gone.
 - **Exports**: the package entry exports the public API only. Gone: the engines, the schema
-  builders, `SearchTableQuery`, the naming helpers, `getDialect`/`SqlDialect`,
-  `resolveTenant`/`TenantContext`, the engine parameter types, `ColumnInfo`, `TableMap`.
-  `SqlApiConfig` is `CliConfig`.
+  builders, `SearchTableQuery` and `SearchTableQueryString`, the naming helpers,
+  `getDialect`/`SqlDialect`, `resolveTenant`/`TenantContext`, the engine parameter types,
+  `ColumnInfo`, `TableMap`, and `escapeIdent`, which escaped PostgreSQL identifiers only and was
+  wrong on MySQL (`db.qi()` replaces it). `SqlApiConfig` is `CliConfig`.
 - **CLI**
   - `sqlapi-generate-schema` connects through one URL whose scheme names the dialect, from
     `--url`, `connection` in `sqlapi.config`, or `DATABASE_URL`, in this order; the `.env` of
@@ -219,47 +236,19 @@ Every entry below is breaking; [docs/upgrading/1.0.md](./docs/upgrading/1.0.md) 
 - **`GET|DELETE /rest/:table/:id` validate `:id` against the primary key's type**: a 400 on
   `id` instead of a 500, and the value reaches SQL with the key's type.
 
-## [0.6.0]
+## [0.5.1]
 
-### Added
+### Fixed
 
-- **`RowsByAlias`**, the exported type of rows grouped by relation alias: secondaries and
-  deletions in a write, the `afterInsert`/`afterUpdate` arguments, `joinMultiple` and
-  `joinLeft` in a search result.
-
-### Changed
-
-- **BREAKING: TypeBox 1.x** ([`typebox`](https://www.npmjs.com/package/typebox)) replaces
-  `@sinclair/typebox` 0.34. `Type` and `Static` re-exported by this package now come from it.
-  Code that imports `Type` from `fastify-auto-sqlapi`, as the generated schema files do, needs
-  no change. Schemas built with `@sinclair/typebox` directly must move to `typebox` 1.x, or
-  their `Type.Optional` fields silently become required. Schemas from any `typebox` 1.x
-  copy, such as the one `@fastify/type-provider-typebox` 6 brings in, now mix freely with this
-  package's. See
-  [docs/upgrading/0.x.md](./docs/upgrading/0.x.md#breaking-change--typebox-1x-replaces-sinclairtypebox).
-- **BREAKING: `excludeFromCreation` is renamed `insertExclude`**, aligned with
-  `readExclude` / `writeExclude` and with the library's "insert" vocabulary. Same behaviour:
-  client input dropped on insert, field Optional in the insert body, hooks and FK auto-fill
-  may still set it. The table generator writes `insertExclude`. `defineTable` refuses the old
-  key instead of ignoring it, so a table still using it fails at startup rather than letting
-  clients write the fields it protected. See
-  [docs/upgrading/0.x.md](./docs/upgrading/0.x.md#breaking-change--api-cleanup-ahead-of-10).
-- **BREAKING: the `ITable` type is renamed `TableConfig`**, as the glossary calls the
-  concept. Type-level only.
-- **Hook types.** `beforeInsert` and `afterInsert` may return `void`, like every other hook
-  (they required a `Promise`). The secondaries and deletions passed to `afterInsert` and
-  `afterUpdate` are typed `RowsByAlias` instead of `unknown`. The record argument of
-  `beforeUpdate` is named `record`, as in `beforeInsert`. Type-level only.
-
-### Removed
-
-- **BREAKING: `escapeIdent`**, deprecated since `db.qi()` replaced it. It escaped Postgres
-  identifiers only, so it was wrong on MySQL. See
-  [docs/upgrading/0.x.md](./docs/upgrading/0.x.md#breaking-change--api-cleanup-ahead-of-10).
-- **BREAKING: `SearchTableQueryString`**: use `SearchTableQuery()`, which also takes the
-  configured `maxItemsPerPage` instead of always describing the default cap.
-- The fourth parameter of `beforeUpdate` (`secondaryFieldsFetcher?: unknown`), which the
-  engine never passed.
+- **A search with `selectComputed` and a JOIN on the main query returned the joined table's
+  columns in the main rows.** A filtered or ordered `joinLeft`, or a tenant scope with
+  `through`, adds a JOIN to the main statement; the `selectComputed` path built its
+  projection as a bare `*, <expr> AS "x"`, which bypassed the qualification `db.select`
+  applies to a plain `*`. On a column name shared with the joined table (`id`, `name`,
+  `createdAt`…) the driver keeps the last value read, so every main row carried the parent's
+  id and its extra columns. The main projection is now always `"table".*` or the table's
+  readable columns, qualified, whatever else is projected. Searches without `selectComputed`
+  were not affected.
 
 ## [0.5.0]
 
@@ -1036,8 +1025,9 @@ the join API redesign (documented in [docs/upgrading/0.x.md](./docs/upgrading/0.
 primary key support in updates, transactional insert/update with secondaries, the hook matrix,
 and bulk operations.
 
-[Unreleased]: https://github.com/LucaRainone/fastify-auto-sqlapi/compare/v0.6.0...HEAD
-[0.6.0]: https://github.com/LucaRainone/fastify-auto-sqlapi/releases/tag/v0.6.0
+[Unreleased]: https://github.com/LucaRainone/fastify-auto-sqlapi/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/LucaRainone/fastify-auto-sqlapi/compare/v0.5.1...v1.0.0
+[0.5.1]: https://github.com/LucaRainone/fastify-auto-sqlapi/releases/tag/v0.5.1
 [0.5.0]: https://github.com/LucaRainone/fastify-auto-sqlapi/releases/tag/v0.5.0
 [0.4.1]: https://github.com/LucaRainone/fastify-auto-sqlapi/releases/tag/v0.4.1
 [0.4.0]: https://github.com/LucaRainone/fastify-auto-sqlapi/releases/tag/v0.4.0
