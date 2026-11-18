@@ -11,6 +11,7 @@ import {
   REGISTRATION_SQL_API,
   type RegistrationOptions,
 } from '../sql-api-decorator.js';
+import type { SqlApi } from '../../lib/sql-api.js';
 import { setupSwagger } from '../setup-swagger.js';
 import searchRoutes from './search.routes.js';
 import getRoutes from './get.routes.js';
@@ -22,6 +23,15 @@ import bulkDeleteRoutes from './bulk-delete.routes.js';
 import agentManifestRoutes from './agent-manifest.routes.js';
 import { TABLE_OPERATIONS } from '../../types.js';
 import type { SqlApiPluginOptions, ValidationField } from '../../types.js';
+
+// Declared here, in the module the package's entry point exports, so that a consumer's
+// `app.sqlApi` is typed: a type-only import of another module is dropped from the emitted
+// declarations, and its augmentation with it. Absent at runtime with `decorate: false`.
+declare module 'fastify' {
+  interface FastifyInstance {
+    sqlApi: SqlApi;
+  }
+}
 
 type AjvValidationErrors = NonNullable<FastifyError['validation']>;
 

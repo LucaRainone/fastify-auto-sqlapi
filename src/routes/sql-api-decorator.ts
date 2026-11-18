@@ -5,12 +5,6 @@ import { mysqlQueryable } from '../lib/adapters/mysql-adapter.js';
 import { createSqlApi, type SqlApi } from '../lib/sql-api.js';
 import type { SqlApiPluginOptions } from '../types.js';
 
-declare module 'fastify' {
-  interface FastifyInstance {
-    sqlApi: SqlApi;
-  }
-}
-
 /** Resolves a registration's SqlApi on first use (the pool may be decorated after registration). */
 export type SqlApiGetter = () => SqlApi;
 

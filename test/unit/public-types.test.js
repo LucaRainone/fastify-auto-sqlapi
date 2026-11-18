@@ -150,3 +150,17 @@ describe('the adapters take the drivers as they are', () => {
     assert.deepEqual(errors, []);
   });
 });
+
+describe('the plugin types its decorator', () => {
+  it('app.sqlApi is typed as SqlApi for a consumer importing the package', () => {
+    const errors = diagnosticsOf(`
+      import Fastify from 'fastify';
+      import { fastifyAutoSqlApi, type SqlApi } from '../../dist/index.js';
+      const app = Fastify();
+      await app.register(fastifyAutoSqlApi, { dbTables: {} });
+      export const api: SqlApi = app.sqlApi;
+      export const rows = () => app.sqlApi.search('customer', {});
+    `);
+    assert.deepEqual(errors, []);
+  });
+});

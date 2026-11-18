@@ -161,6 +161,9 @@ Every entry below is breaking; BREAKING_CHANGES.md has the migration for each.
   which pg's `PoolClient` does not. The checked-out client now needs only `query` and
   `release`; `mysqlQueryable` is aligned. A `pg.Client` stays refused: its `connect()` opens
   the connection, it does not check one out.
+- **`app.sqlApi` was untyped for a consumer** (TS2339): the `FastifyInstance` augmentation sat
+  in a module the package's declarations reached only through a type-only import, which the
+  emitted `.d.ts` drops. It is now declared in the plugin module itself.
 - **A delete under an indirect tenant scope failed on MySQL and MariaDB** (error 1093): the
   DELETE named its rows through a subquery reading the same table. It now tests the parent
   with a correlated `EXISTS`, as the deletions of a write join already did;
