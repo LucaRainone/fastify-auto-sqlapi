@@ -13,22 +13,21 @@ Setting up the plugin and configuring tables. Client request grammar: AGENTS_FRO
 ## CLI: generate Schemas and tables
 
 ```ts
-// sqlapi.config.ts — CLI only, never read at runtime. These six keys are all that exist, all optional.
+// sqlapi.config.ts — CLI only, never read at runtime. These five keys are all that exist, all optional; any other key fails the run.
 import type { CliConfig } from 'fastify-auto-sqlapi';
 export default {
+  connection: process.env.SHOP_DB_URL, // the database to introspect; omit it to use DATABASE_URL. Keep the password in .env, not here
   outputDir: './src/db', // default './src/db'
-  schema: 'public', // PostgreSQL only
-  dialect: 'postgres', // 'postgres' | 'mysql' | 'mariadb'; or --dialect flag
-  envFile: '.env', // relative to cwd; useful in monorepos
+  schema: 'public', // PostgreSQL only; MySQL/MariaDB introspect the URL's database
   excludeTables: ['knex_*'], // DB table names or * globs: no schema generated, old one removed
   excludeColumns: ['*.password_hash', 'user.internal_*'], // "<table>.<column>" DB names, * globs. The column does not exist for the API at all (no read, write, filter, manifest). Cannot exclude a PK; a pattern leaving a table with no columns fails the run.
 } satisfies CliConfig;
 ```
 
-Connection comes from env (a `.env` in cwd is loaded, set vars win): `DATABASE_URL`, or `POSTGRES_HOST|PORT|USER|PASSWORD|DB` / `MYSQL_HOST|PORT|USER|PASSWORD|DB`.
+The connection is one URL whose scheme names the dialect: `postgres://` (or `postgresql://`), `mysql://`, `mariadb://`. First found wins: `--url`, then `connection` in the config, then `DATABASE_URL`. The `.env` in cwd is loaded before the config (a variable already set wins), so with `DATABASE_URL` in `.env` the commands take no argument. No URL → the run fails saying so; there is no default database. A `connection` key whose variable is unset fails too, rather than falling back to `DATABASE_URL`. Another env file: `process.loadEnvFile('.env.local')` at the top of the config. The schema CLI prints the database it introspects, password masked.
 
 ```bash
-npx sqlapi-generate-schema [--dialect mysql] # src/db/schemas/Schema*.ts — generated, NEVER edit (overwritten)
+npx sqlapi-generate-schema # src/db/schemas/Schema*.ts — generated, NEVER edit (overwritten); --url <url> for a one-off database
 npx sqlapi-generate-tables customer order # src/db/tables/Table*.ts + dbTables.ts — yours to edit
 npx sqlapi-generate-tables --all # existing files are skipped, never overwritten
 ```

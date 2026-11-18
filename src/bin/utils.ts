@@ -1,33 +1,3 @@
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
-
-/**
- * Load .env file from cwd if it exists.
- * Does not override already-set environment variables.
- */
-export function loadEnvFile(envFile?: string): void {
-  const envPath = resolve(process.cwd(), envFile || '.env');
-  if (!existsSync(envPath)) return;
-
-  const content = readFileSync(envPath, 'utf-8');
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eqIndex = trimmed.indexOf('=');
-    if (eqIndex === -1) continue;
-    const key = trimmed.slice(0, eqIndex).trim();
-    let value = trimmed.slice(eqIndex + 1).trim();
-    // Strip surrounding quotes
-    if ((value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-    if (!(key in process.env)) {
-      process.env[key] = value;
-    }
-  }
-}
-
 export const CONSOLE_COLORS = {
   black: 30,
   gray: 90,
@@ -71,8 +41,14 @@ type ArgValue<S extends ArgSpec> =
   S['type'] extends 'list' ? string[] :
   string | undefined;
 
+/** Options retired in 1.0, each with what replaces it. */
+const RETIRED_OPTIONS: Readonly<Record<string, string>> = {
+  dialect: 'the dialect is the scheme of the connection URL (postgres://, mysql://, mariadb://)',
+};
+
 /**
- * Tiny declarative argv parser for the bundled CLIs.
+ * Tiny declarative argv parser for the bundled CLIs. An option not in `spec` is an error: left
+ * unread, its value would be taken for a positional table name.
  * - `value`  → recognized as `--name X`, last value wins
  * - `flag`   → recognized as `--name`, default false
  * - `list`   → comma-separated `--name a,b,c`; can also accept positional comma-/space- separated tokens
@@ -123,8 +99,14 @@ function readOption(
   i: number
 ): number {
   const name = argv[i].slice(2);
+  if (!Object.hasOwn(spec, name)) {
+    if (Object.hasOwn(RETIRED_OPTIONS, name)) {
+      throw new Error(`--${name} was removed in 1.0: ${RETIRED_OPTIONS[name]}`);
+    }
+    const known = Object.keys(spec).map((n) => '--' + n).join(', ');
+    throw new Error(`unknown option --${name}. Known options: ${known}`);
+  }
   const def = spec[name];
-  if (!def) return 0;
 
   const hasNext = i + 1 < argv.length;
   if (def.type === 'flag') {

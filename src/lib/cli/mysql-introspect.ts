@@ -54,24 +54,23 @@ interface MysqlColumnRow {
   table_type?: string;
 }
 
-export function buildMysqlConnectionConfig(): MysqlConnectionConfig {
-  if (process.env.DATABASE_URL) {
-    const url = new URL(process.env.DATABASE_URL);
-    return {
-      host: url.hostname,
-      port: parseInt(url.port || '3306', 10),
-      user: url.username,
-      password: url.password,
-      database: url.pathname.replace('/', ''),
-    };
+/**
+ * The driver config of a `mysql://` or `mariadb://` URL. Credentials are percent-decoded, as a
+ * URL carries a password holding `@` or `/` encoded. The database is required: it is also the
+ * schema MySQL introspects.
+ */
+export function buildMysqlConnectionConfig(connectionUrl: string): MysqlConnectionConfig {
+  const url = new URL(connectionUrl);
+  const database = decodeURIComponent(url.pathname.replace(/^\//, ''));
+  if (!database) {
+    throw new Error('the MySQL/MariaDB connection URL names no database (…@host:3306/<database>)');
   }
-
   return {
-    host: process.env.MYSQL_HOST || '127.0.0.1',
-    port: parseInt(process.env.MYSQL_PORT || '3306', 10),
-    user: process.env.MYSQL_USER || 'test',
-    password: process.env.MYSQL_PASSWORD || 'test',
-    database: process.env.MYSQL_DB || 'testdb',
+    host: url.hostname,
+    port: parseInt(url.port || '3306', 10),
+    user: decodeURIComponent(url.username),
+    password: decodeURIComponent(url.password),
+    database,
   };
 }
 

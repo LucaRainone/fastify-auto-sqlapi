@@ -157,12 +157,23 @@ npm install fastify-auto-sqlapi fastify @fastify/postgres
 # MySQL / MariaDB: npm install fastify-auto-sqlapi fastify mysql2
 ```
 
-Create `sqlapi.config.ts` in the project root (used by the CLI only, not at runtime), then:
+Point the generator at your database, once: a `DATABASE_URL` in the environment or in the
+`.env` of the project root (the scheme names the dialect: `postgres://`, `mysql://`,
+`mariadb://`). Then, with no arguments:
+
+```bash
+# .env
+DATABASE_URL=postgres://user:pass@localhost:5432/mydb
+```
 
 ```bash
 npx sqlapi-generate-schema     # one TypeBox schema per table → <outputDir>/schemas/
 npx sqlapi-generate-tables --all   # one defineTable() template per table → <outputDir>/tables/
 ```
+
+An optional `sqlapi.config.ts` (CLI only, never read at runtime) sets the output directory, the
+tables or columns to leave out, and the connection when your variable has another name:
+`connection: process.env.SHOP_DB_URL`. `--url` runs once against another database.
 
 Schema files are regenerated on every run and should not be edited. **Table files are yours**:
 the generator never overwrites one that exists, so re-running only adds files for new tables.

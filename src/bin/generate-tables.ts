@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { loadConfig } from '../lib/cli/config.js';
 import { parseSchemaFile, generateSingleTableFile, generateDbTablesIndex } from '../lib/cli/tables-codegen.js';
 import type { ParsedSchema } from '../lib/cli/tables-codegen.js';
-import { loadEnvFile, CONSOLE_COLORS, display, displayAsTableRow, error, parseArgs, runCli } from './utils.js';
+import { CONSOLE_COLORS, display, displayAsTableRow, error, parseArgs, runCli } from './utils.js';
 
 function printHelp(): void {
   console.log('');
@@ -135,7 +135,6 @@ await runCli('fastify-auto-sqlapi: generating tables template', async () => {
   }
 
   const config = await loadConfig();
-  loadEnvFile(config.envFile);
   const outputDir = path.resolve(process.cwd(), cliArgs.output || config.outputDir);
   const schemasDir = path.join(outputDir, 'schemas');
   const tablesDir = path.join(outputDir, 'tables');

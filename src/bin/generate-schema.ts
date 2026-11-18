@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { loadConfig } from '../lib/cli/config.js';
-import { buildConnectionString, introspectTables } from '../lib/cli/pg-introspect.js';
+import { loadConfig, maskPassword, resolveConnection, type DbConnection } from '../lib/cli/config.js';
+import { introspectTables } from '../lib/cli/pg-introspect.js';
 import { buildMysqlConnectionConfig, introspectMysqlTables } from '../lib/cli/mysql-introspect.js';
 import {
   applyExcludeColumns, applyExcludeTables, buildTableMap, generateSchemaFile,
 } from '../lib/cli/schema-codegen.js';
-import { loadEnvFile, CONSOLE_COLORS, display, displayAsTableRow, parseArgs, runCli } from './utils.js';
-import type { ColumnInfo, DialectName, TableMap } from '../types.js';
+import { CONSOLE_COLORS, display, displayAsTableRow, parseArgs, runCli } from './utils.js';
+import type { ColumnInfo, TableMap } from '../types.js';
 
 // Helpers are declared before the top-level `await runCli(...)` below: that call runs
 // immediately, so anything it reaches must already be initialised.
@@ -30,12 +30,12 @@ interface WriteReport {
   files: Set<string>;
 }
 
-function introspect(dialect: DialectName, schema: string): Promise<ColumnInfo[]> {
-  if (dialect === 'mysql' || dialect === 'mariadb') {
-    const connConfig = buildMysqlConnectionConfig();
+function introspect(connection: DbConnection, schema: string): Promise<ColumnInfo[]> {
+  if (connection.dialect === 'mysql' || connection.dialect === 'mariadb') {
+    const connConfig = buildMysqlConnectionConfig(connection.url);
     return introspectMysqlTables(connConfig, connConfig.database);
   }
-  return introspectTables(buildConnectionString(), schema);
+  return introspectTables(connection.url, schema);
 }
 
 /** Narrow the map to the `--tables` selection. Returns false when nothing matched. */
@@ -175,14 +175,13 @@ function reportOutcome(report: WriteReport): void {
 
 await runCli('fastify-auto-sqlapi: generating schemas', async () => {
   const cliArgs = parseArgs({
-    output:  { type: 'value' },
-    tables:  { type: 'list'  },
-    dialect: { type: 'value' },
+    output: { type: 'value' },
+    tables: { type: 'list'  },
+    url:    { type: 'value' },
   });
   const config = await loadConfig();
-  loadEnvFile(config.envFile);
-  const dialect = (cliArgs.dialect || config.dialect || 'postgres') as DialectName;
-  const schema = config.schema || 'public';
+  const connection = resolveConnection({ url: cliArgs.url, config, env: process.env });
+  const schema = config.schema;
   const outputDir = path.resolve(process.cwd(), cliArgs.output || config.outputDir);
   const schemasDir = path.join(outputDir, 'schemas');
 
@@ -191,7 +190,8 @@ await runCli('fastify-auto-sqlapi: generating schemas', async () => {
     display(`Created directory: ${schemasDir}`, CONSOLE_COLORS.green);
   }
 
-  const rows = await introspect(dialect, schema);
+  display(`Introspecting ${maskPassword(connection.url)}`, CONSOLE_COLORS.gray);
+  const rows = await introspect(connection, schema);
   if (rows.length === 0) {
     display(`No tables found in schema "${schema}".`, CONSOLE_COLORS.magenta);
     return;

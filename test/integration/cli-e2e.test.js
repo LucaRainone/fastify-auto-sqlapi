@@ -11,24 +11,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 const CLI_PATH = path.join(ROOT, 'dist/bin/generate-schema.js');
 
-// Dialect-specific env and config
-const DIALECT_ENV = DIALECT === 'postgres'
-  ? {
-      POSTGRES_HOST: '127.0.0.1',
-      POSTGRES_PORT: '5433',
-      POSTGRES_USER: 'test',
-      POSTGRES_PASSWORD: 'test',
-      POSTGRES_DB: 'testdb',
-    }
-  : {
-      MYSQL_HOST: '127.0.0.1',
-      MYSQL_PORT: '3307',
-      MYSQL_USER: 'test',
-      MYSQL_PASSWORD: 'test',
-      MYSQL_DB: 'testdb',
-    };
+// The CLI reads its database from DATABASE_URL; the scheme names the dialect.
+const DATABASE_URL = DIALECT === 'postgres'
+  ? 'postgres://test:test@127.0.0.1:5433/testdb'
+  : 'mysql://test:test@127.0.0.1:3307/testdb';
 
-const TEST_ENV = { ...process.env, ...DIALECT_ENV };
+const TEST_ENV = { ...process.env, DATABASE_URL };
 
 const CONFIG_SCHEMA = DIALECT === 'postgres' ? 'public' : 'testdb';
 
@@ -51,7 +39,7 @@ describe(`[${DIALECT}] CLI generate-schema`, () => {
     // CLI appends /schemas/ to outputDir, so point config at tmpDir
     fs.writeFileSync(
       path.join(tmpDir, 'sqlapi.config.js'),
-      `export default { outputDir: ${JSON.stringify(tmpDir)}, schema: '${CONFIG_SCHEMA}', dialect: '${DIALECT}' };\n`
+      `export default { outputDir: ${JSON.stringify(tmpDir)}, schema: '${CONFIG_SCHEMA}' };\n`
     );
   });
 
@@ -105,7 +93,7 @@ describe(`[${DIALECT}] CLI generate-schema with excludeColumns`, () => {
     fs.writeFileSync(
       path.join(tmpDir, 'sqlapi.config.js'),
       `export default { outputDir: ${JSON.stringify(tmpDir)}, schema: '${CONFIG_SCHEMA}', ` +
-      `dialect: '${DIALECT}', excludeColumns: ${JSON.stringify(excludeColumns)} };\n`
+      `excludeColumns: ${JSON.stringify(excludeColumns)} };\n`
     );
   }
 

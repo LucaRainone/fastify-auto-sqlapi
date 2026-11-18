@@ -134,6 +134,15 @@ Every entry below is breaking; [docs/upgrading/1.0.md](./docs/upgrading/1.0.md) 
   builders, `SearchTableQuery`, the naming helpers, `getDialect`/`SqlDialect`,
   `resolveTenant`/`TenantContext`, the engine parameter types, `ColumnInfo`, `TableMap`.
   `SqlApiConfig` is `CliConfig`.
+- **CLI**
+  - `sqlapi-generate-schema` connects through one URL whose scheme names the dialect, from
+    `--url`, `connection` in `sqlapi.config`, or `DATABASE_URL`, in this order; the `.env` of
+    the current directory is loaded before the config. `POSTGRES_*` / `MYSQL_*` are no longer
+    read, and with no URL the run fails: it used to fall back to the library's test database.
+  - `dialect` and `envFile` in the config and `--dialect` are refused, as is any unknown key or
+    option; a config that fails to load fails the run instead of falling back to the defaults.
+  - The schema CLI prints the database it introspects, password masked; MySQL credentials in
+    the URL are percent-decoded.
 - **HTTP**
   - The search request travels in the body only: `orderBy`, `page`, `itemsPerPage` and
     `computeMin|Max|Sum|Avg` in the querystring are a 400 `retired_key`.

@@ -1,15 +1,20 @@
-import type { DialectName } from '../lib/dialect.js';
-
 /**
  * `sqlapi.config.ts`, read by the CLI only — never at runtime:
- * `export default { outputDir: './src/db' } satisfies CliConfig`. Every key is optional.
+ * `export default { outputDir: './src/db' } satisfies CliConfig`. Every key is optional; an
+ * unknown one is an error. The `.env` of the current directory is loaded before this file.
  */
 export interface CliConfig {
+  /**
+   * The database `sqlapi-generate-schema` introspects, as a URL whose scheme names the dialect:
+   * `postgres://` (or `postgresql://`), `mysql://`, `mariadb://`. Typically read from the
+   * environment, `connection: process.env.SHOP_DB_URL`, so the password stays out of the file.
+   * `--url` wins over it; without either, `DATABASE_URL` is used. Present but empty is an error.
+   */
+  connection?: string;
   /** Where `schemas/` and `tables/` are generated. Default `./src/db`. */
   outputDir?: string;
+  /** The PostgreSQL schema to introspect. Default `public`; MySQL/MariaDB use the URL's database. */
   schema?: string;
-  dialect?: DialectName;
-  envFile?: string;
   /**
    * Tables to skip during schema generation (`sqlapi-generate-schema`).
    * Matched against the DB table name; `*` is a wildcard (e.g. "knex_*").
