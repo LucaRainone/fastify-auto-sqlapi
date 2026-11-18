@@ -32,6 +32,42 @@ interface RouteSchema {
   response?: any;
 }
 
+/** Requests that reached one of the plugin's route handlers. */
+const HANDLER_REACHED = new WeakSet<FastifyRequest>();
+
+/**
+ * Whether this request reached a route handler of the plugin. An error raised from then on is
+ * the route's to answer, even one raised after the handler returned (the serializer refusing a
+ * stored value); one raised before it, by the consumer's `onRequests`, is the consumer's own.
+ */
+export function routeHandlerReached(request: FastifyRequest): boolean {
+  return HANDLER_REACHED.has(request);
+}
+
+/**
+ * Answer an error a route did not raise itself: replace it with one that carries no database
+ * detail (`sanitizeRouteError`, ADR 0013) and log the original under the request's `reqId`.
+ * A 4xx comes back unchanged.
+ */
+export function sanitizeAndLog(
+  err: unknown,
+  request: FastifyRequest,
+  options: Pick<SqlApiPluginOptions, 'exposeDebugInfo' | 'dbErrors'>,
+): unknown {
+  const safe = sanitizeRouteError(err, {
+    requestId: request.id,
+    exposeDebugInfo: options.exposeDebugInfo,
+    dbErrors: options.dbErrors,
+  });
+  if (safe !== err) {
+    // A code the consumer mapped is an expected outcome, not a server fault: the
+    // driver error stays in the log, at a level that does not page anyone.
+    if ((safe as { statusCode: number }).statusCode >= 500) request.log.error({ err }, 'sqlapi: unhandled error');
+    else request.log.info({ err }, 'sqlapi: database error answered through dbErrors');
+  }
+  return safe;
+}
+
 export interface AutoRouteSpec {
   /** Operation key matched against `TableConfig.operations` to decide whether to register the route. */
   operation: TableOperation;
@@ -146,22 +182,12 @@ export async function registerForAllTables(
       schema: buildRouteSchema(tableName, tableConf, spec, schemas),
       onRequest: mergeOnRequests(options, tableConf),
       handler: async (request, reply) => {
+        HANDLER_REACHED.add(request);
         try {
           const result = await spec.handle(getSqlApi(), tableName, tableConf, request, reply);
           if (!reply.sent) reply.status(spec.successStatus).send(result);
         } catch (err) {
-          const safe = sanitizeRouteError(err, {
-            requestId: request.id,
-            exposeDebugInfo: options.exposeDebugInfo,
-            dbErrors: options.dbErrors,
-          });
-          if (safe !== err) {
-            // A code the consumer mapped is an expected outcome, not a server fault: the
-            // driver error stays in the log, at a level that does not page anyone.
-            if ((safe as { statusCode: number }).statusCode >= 500) request.log.error({ err }, 'sqlapi: unhandled error');
-            else request.log.info({ err }, 'sqlapi: database error answered through dbErrors');
-          }
-          throw safe;
+          throw sanitizeAndLog(err, request, options);
         }
       },
     });

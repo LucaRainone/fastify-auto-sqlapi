@@ -171,6 +171,12 @@ Every entry below is breaking; [docs/upgrading/1.0.md](./docs/upgrading/1.0.md) 
 
 ### Fixed
 
+- **A response the Schema could not serialize leaked the stored value**: a column changed in the
+  database after its Schema was generated made the serializer refuse a row, and its message —
+  quoting the value — reached the client as the 500's `message`, unlogged. The error is raised
+  after the route handler, outside its sanitization; it is now the fixed 500 like any other
+  (ADR 0013), with the original in the log under the request's id and, under
+  `exposeDebugInfo`, in `debugInfo`.
 - **An upsert by a key under `insertExclude` duplicated the rows it meant to update**
   ([ADR 0031](./docs/adr/0031-an-insert-excluded-upsert-key-addresses-an-existing-row.md)):
   `upsertKey: ['id']` with the `insertExclude: ['id']` the CLI generates stripped the key, so

@@ -4,7 +4,8 @@ import fp from 'fastify-plugin';
 import { ConditionBuilder } from 'node-condition-builder';
 import { getDialect } from '../../lib/dialect.js';
 import { validateDbTables } from '../../lib/table-helpers.js';
-import { assertDbErrors } from '../../lib/errors.js';
+import { assertDbErrors, isSanitized } from '../../lib/errors.js';
+import { routeHandlerReached, sanitizeAndLog } from './route-helpers.js';
 import {
   createRegistrationSqlApi,
   decorateSqlApi,
@@ -134,7 +135,13 @@ export default fp(async function fastifyAutoSqlApi(
     // empty array when the rejection is not attributable to one input. A driver error the
     // consumer mapped through `dbErrors` carries its code there too, whatever its status
     // (ADR 0024). `debugInfo` is additive, under `exposeDebugInfo` only (ADR 0013).
-    instance.setErrorHandler((error: FastifyError, request, reply) => {
+    instance.setErrorHandler((raised: FastifyError, request, reply) => {
+      // An error raised after a route handler ran, outside its catch — the serializer refusing a
+      // stored value the Schema no longer describes, quoting it — is sanitized here like any
+      // other route error. One raised before (the consumer's onRequests) is left as it is.
+      const error = routeHandlerReached(request) && !isSanitized(raised)
+        ? sanitizeAndLog(raised, request, options) as FastifyError
+        : raised;
       const carried = error as FastifyError & CarriedErrorInfo;
       const statusCode = error.validation ? 400 : (error.statusCode || 500);
       const fields = error.validation ? normalizeAjvErrors(error.validation) : carried.validationErrors;

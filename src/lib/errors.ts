@@ -33,6 +33,14 @@ export function httpError(
   return err;
 }
 
+/** The errors `sanitizeRouteError` produced: already safe, never sanitized twice. */
+const SANITIZED = new WeakSet<object>();
+
+/** Whether `err` is the safe replacement `sanitizeRouteError` built for another error. */
+export function isSanitized(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && SANITIZED.has(err);
+}
+
 /** How a route answers an error it did not raise itself: the plugin options that decide it. */
 export interface RouteErrorPolicy {
   /** The request's id, rendered as `requestId` so the client can name the log line. */
@@ -86,6 +94,7 @@ export function sanitizeRouteError(err: unknown, policy: RouteErrorPolicy = {}):
   safe.cause = err;
   if (policy.requestId) safe.requestId = policy.requestId;
   if (policy.exposeDebugInfo) safe.debugInfo = describeError(err);
+  SANITIZED.add(safe);
   return safe;
 }
 
