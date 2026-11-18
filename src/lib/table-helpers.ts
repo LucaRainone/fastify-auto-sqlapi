@@ -182,9 +182,9 @@ function assertTableShape(config: TableConfig, where: string): void {
 
 /**
  * The column a `tenantScope` name stands for: a field of `schema` resolves through its `col()`,
- * any other name is a column as written — a hand-written schema may omit the tenant column, and
- * a scope that already names real columns keeps working (ADR 0032). With no schema to look in,
- * every name is taken as written.
+ * any other name is already a column (a 0.6 scope names real columns). `defineTable` has refused
+ * a name that is neither (`checkScopeName`, ADR 0032); a config built without it, or with no
+ * schema to look in, gets every other name as written.
  */
 function scopeColumn(schema: SchemaDefinition | undefined, name: string): string {
   return schema && hasOwnField(schema.fields, name) ? schema.col(name) : name;
@@ -263,6 +263,7 @@ function validateTenantScope(config: TableConfig): void {
         `Each owner column must appear once, by its field or by its column name.`
       );
     }
+    checkScopeNames(config);
     return;
   }
 
@@ -272,6 +273,40 @@ function validateTenantScope(config: TableConfig): void {
       `A scope with no owner column would filter nothing.`
     );
   }
+  checkScopeNames(config);
+}
+
+/**
+ * Refuse a `tenantScope` name its schema does not know: each must be a field of the schema it
+ * belongs to, or the column of one. Taken as a column, a misspelled name would pass startup
+ * and fail as a 500 on the first request (ADR 0032).
+ */
+function checkScopeNames(config: TableConfig): void {
+  const scope = config.tenantScope;
+  if (!scope) return;
+  const own = config.schema;
+  if ('anyOf' in scope) {
+    for (const name of scope.anyOf) checkScopeName(own, 'anyOf', name);
+    return;
+  }
+  if (!('through' in scope)) {
+    checkScopeName(own, 'column', scope.column);
+    return;
+  }
+  const { through } = scope;
+  checkScopeName(own, 'through.localField', through.localField);
+  checkScopeName(through.schema, 'column', scope.column, own.tableName);
+  checkScopeName(through.schema, 'through.foreignField', through.foreignField, own.tableName);
+}
+
+function checkScopeName(schema: SchemaDefinition, key: string, name: string, scopedTable?: string): void {
+  const fields = Object.keys(schema.fields);
+  if (hasOwnField(schema.fields, name) || fields.some((f) => schema.col(f) === name)) return;
+  const whose = scopedTable ? ` (the parent of '${scopedTable}', through.schema)` : '';
+  throw new Error(
+    `defineTable: tenantScope '${key}' on table '${schema.tableName}'${whose} names '${name}', ` +
+    `neither a field of its schema nor the column of one. Fields: ${fields.join(', ')}`
+  );
 }
 
 /**

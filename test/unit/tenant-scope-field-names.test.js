@@ -1,8 +1,8 @@
 // `tenantScope` names schema fields, like every other key of a table config: each name is
 // resolved to its column through the schema it belongs to — `column`, `anyOf` and
 // `through.localField` through the table's own schema, the `column` and `through.foreignField`
-// of an indirect scope through `through.schema`. A name the schema does not carry is taken as
-// written, so a scope naming the real columns keeps working. Checked on a snake_case database,
+// of an indirect scope through `through.schema`. The column of a field is accepted as written,
+// so a scope naming the real columns keeps working. Checked on a snake_case database,
 // where a field and its column differ.
 
 import { describe, it } from 'node:test';
@@ -124,7 +124,7 @@ describe('tenantScope names schema fields, resolved to their columns', () => {
     assert.match(side, /"organization_id" IN/);
   });
 
-  it('a name the schema does not carry is taken as written: a scope naming the real columns keeps working', async () => {
+  it('the column of a field is taken as written: a scope naming the real columns keeps working', async () => {
     const legacy = {
       ...dbTables,
       customer: defineTable({ primary: 'id', schema: customerSchema, defaultOrder: 'id', tenantScope: { column: 'organization_id' } }),

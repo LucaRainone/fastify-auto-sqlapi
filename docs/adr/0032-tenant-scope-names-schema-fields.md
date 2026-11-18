@@ -21,12 +21,20 @@ the mistake it guarded against: the CLI's own `tables` template wrote the FK fie
 ## Decision
 
 **`tenantScope` names schema fields, each resolved to its column through the schema of the table
-it lives on.** A name that schema does not carry is a column as written.
+it lives on.** The column of one of its fields is accepted as written; any other name is refused
+by `defineTable`.
+
+*Amended the same day, before 1.0 shipped:* the first version took any name the schema did not
+carry as a column, to keep a hand-written schema omitting the tenant column working. That let a
+misspelled field pass startup and fail as a 500 on the first request, and nothing relied on the
+omitted column but the one test written to pin it. A scope now names what its schema knows.
 
 - The resolution happens where the scope is read (`resolvedTenantScope`), so a table config
   built without `defineTable` gets it too; the engines see columns, as before.
-- A scope naming real columns keeps working: a column name is not a field, so it is taken as
-  written. A hand-written schema that omits the tenant column works the same way.
+- A scope naming real columns keeps working: the column of a field is taken as written.
+- A name that is neither a field nor the column of one is refused at startup, naming the scope
+  key, the table whose schema was searched and its fields (`checkScopeNames`). The tenant column
+  must be in the schema: to keep it out of responses, use `readExclude`, not `excludeColumns`.
 - An `anyOf` scope that names one column twice — once by its field, once by its column — is
   refused by `defineTable`, like any repeated entry.
 
@@ -34,15 +42,15 @@ it lives on.** A name that schema does not carry is a column as written.
 
 - **Keep columns, fix only the CLI template** — rejected: it keeps the one exception to the
   naming rule, the one that produced the template's mistake.
-- **Fields only, refusing a name that is not a field** — rejected: a hand-written schema may
-  legitimately omit the tenant column, and every 0.6 scope would have to be rewritten for no
-  gain in safety.
+- **Fields only, refusing a name that is not a field** — rejected: every 0.6 scope naming
+  columns would have to be rewritten, for no gain in safety over accepting the columns of fields.
+- **Any name the schema lacks taken as a column** — the first version of this decision, replaced:
+  it caught no misspelling, for a case (a schema omitting the tenant column) nothing relied on.
 
 ## Consequences
 
 - The startup check refusing a field name whose column differs is gone: that name is now the
   documented form.
-- A misspelled field is not caught at startup: it is taken as a column, and the first query on
-  the table fails with a 500 naming it, as a misspelled column did before.
-- The docs and the CLI template use field names. The upgrade guide has no entry: a scope
-  naming columns needs no edit.
+- A misspelled field or column is caught at startup, as it was not in 0.6.
+- The docs and the CLI template use field names. A scope naming the columns of its fields needs no
+  edit; one naming a column its schema omits does, and the upgrade guide says so.

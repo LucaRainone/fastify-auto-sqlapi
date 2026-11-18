@@ -254,7 +254,7 @@ describe('defineTable - alias uniqueness', () => {
 // resolved to its column through the schema it belongs to (ADR 0032). A name the schema does
 // not carry is taken as written: a scope naming real columns, or a column a hand-written schema
 // omits, keeps working. What the SQL then says is pinned in tenant-scope-field-names.test.js.
-describe('defineTable - tenantScope names schema fields, or columns the schema maps no field to', () => {
+describe('defineTable - tenantScope names schema fields, or the columns of their fields', () => {
   const snakeSchema = createMockSchema('customer', {
     id: Type.Number(),
     name: Type.String(),
@@ -301,16 +301,6 @@ describe('defineTable - tenantScope names schema fields, or columns the schema m
     }));
   });
 
-  it('accepts a tenant column the schema does not carry at all', async () => {
-    // A hand-written schema may legitimately omit it; nothing can be checked, and nothing is.
-    const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
-    assert.doesNotThrow(() => defineTable({
-      primary: 'id',
-      schema: snakeSchema,
-      tenantScope: { column: 'tenant_col' },
-    }));
-  });
-
   it('accepts an anyOf scope mixing a field and a column', async () => {
     const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
     assert.doesNotThrow(() => defineTable({
@@ -337,6 +327,7 @@ describe('defineTable - tenantScope names schema fields, or columns the schema m
     const parent = createMockSchema('organization', {
       id: Type.Number(),
       ownerId: Type.Number(),
+      organizationId: Type.Number(),
     });
     assert.doesNotThrow(() => defineTable({
       primary: 'id',
@@ -350,7 +341,7 @@ describe('defineTable - tenantScope names schema fields, or columns the schema m
 
   it('accepts a fully spelled-out indirect scope', async () => {
     const { defineTable } = await import(path.join(ROOT, 'dist/lib/table-helpers.js'));
-    const parent = createMockSchema('organization', { id: Type.Number() });
+    const parent = createMockSchema('organization', { id: Type.Number(), organizationId: Type.Number() });
     assert.doesNotThrow(() => defineTable({
       primary: 'id',
       schema: snakeSchema,

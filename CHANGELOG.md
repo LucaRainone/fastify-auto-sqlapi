@@ -91,8 +91,9 @@ which supersedes ADR 0022.
 - **`tenantScope` names schema fields**, like every other key of a table config
   ([ADR 0032](./docs/adr/0032-tenant-scope-names-schema-fields.md)): `column`, `anyOf` and
   `through.localField` resolve through the table's schema, the indirect `column` and
-  `through.foreignField` through `through.schema`. A name the schema does not carry is taken as
-  a column, so a scope naming columns keeps working. The startup error for a field name is gone,
+  `through.foreignField` through `through.schema`. The column of a field is accepted as written,
+  so a scope naming columns keeps working; any other name fails `defineTable` at startup, where a
+  misspelling used to fail as a 500 on the first query. The startup error for a field name is gone,
   and the CLI `tables` template, which already wrote `localField` as a field, is now correct.
 
 ### Changed
@@ -118,6 +119,8 @@ Every entry below is breaking; [docs/upgrading/1.0.md](./docs/upgrading/1.0.md) 
   - `defaultOrder` has the 1-part `orderBy` grammar, checked at startup; no raw SQL.
   - `buildRelation({ selection })` is `{ select: [...] }`, checked against the joined schema.
   - A relation over a table exposed under several keys must name its `target`.
+  - A `tenantScope` name that is neither a field of its schema nor the column of one fails at
+    startup; it was taken as a column (ADR 0032).
   - Every pre-1.0 key throws at startup, naming its replacement.
 - **Hooks**
   - Every hook and validator receives one context object, `{ db, req, …data }`; `req` may be

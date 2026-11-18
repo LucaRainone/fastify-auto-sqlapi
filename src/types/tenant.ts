@@ -22,8 +22,8 @@ export type GetTenantId = (request: ApiRequest) => TenantResolution | Promise<Te
 
 /**
  * The names of a scope are schema fields, like every other key of a table config, each resolved
- * to its column through the schema of the table it lives on. A name that schema does not carry
- * is taken as a column, as written (ADR 0032).
+ * to its column through the schema of the table it lives on. The column of a field is accepted as
+ * written; any other name is refused by `defineTable` (ADR 0032).
  */
 export interface TenantScopeDirect {
   /** The tenant field of this table. */
