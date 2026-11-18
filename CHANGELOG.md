@@ -26,6 +26,9 @@ which supersedes ADR 0022.
   `afterInsert`/`afterUpdate`. `[]` removes them all. Needs the relation's `upsertKey`, which
   the manifest now reports on each write join. In a bulk upsert, an item with a `replace` runs
   its child rows in a transaction of its own.
+- **The agent manifest reports a table's own `upsertKey`** (JSON and markdown, with its rule in
+  the legend): what every row of an insert or bulk upsert must carry, and that a
+  `serverGenerated` key only names an existing row. It already reported a write join's.
 - **Every type a public signature names is exported**: `ApiReply`, `BuildRelationOptions`,
   `JoinFetchRequest`, `JoinRefFilter`, `BulkUpsertOptions`, `ManifestField`, `ManifestJoin`,
   `ValidatorResult` (what `validate` returns), `PrimaryKeyValue`, `WriteJoinSections`, and the

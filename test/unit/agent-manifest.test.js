@@ -125,6 +125,30 @@ describe('renderAgentManifestMd', () => {
   });
 });
 
+// A table's own upsert key decides what a write must carry: every row its key (else 400
+// missing_key), and a serverGenerated key only for a row that exists (else 400 not_found).
+// Without it in the manifest an agent learns the rule only from the 400s.
+describe('the manifest reports a table\'s upsert key', () => {
+  const withUpsertKey = () => {
+    const dbTables = makeDbTables();
+    dbTables.customer.upsertKey = ['id'];
+    return dbTables;
+  };
+
+  it('as upsertKey on the table, absent when the table has none', () => {
+    const m = buildAgentManifest(withUpsertKey());
+    assert.deepEqual(m.tables.customer.upsertKey, ['id']);
+    assert.equal('upsertKey' in m.tables.readonly, false);
+  });
+
+  it('as an upsertKey line in the markdown, with its rule in the legend', () => {
+    const md = renderAgentManifestMd(buildAgentManifest(withUpsertKey()));
+    assert.match(md, /## customer [^\n]*\n[^#]*upsertKey: id\n/);
+    assert.match(md, /upsertKey: insert and bulkUpsert update the row with that key/);
+    assert.doesNotMatch(md.split('## app_user')[1] ?? '', /upsertKey:/);
+  });
+});
+
 describe('agentManifest routes', () => {
   it('not registered by default', async () => {
     const app = Fastify();

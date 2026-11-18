@@ -38,12 +38,18 @@ export interface ManifestTable {
   fields: Record<string, ManifestField>;
   /** Fields stripped from client input on insert (server-generated: PKs, timestamps). */
   serverGenerated?: string[];
+  /**
+   * The key insert and bulkUpsert upsert on: a row carrying it updates the row it names.
+   * Every row must carry it (400 `missing_key`), except a serverGenerated key: absent, the row
+   * is inserted; present, it must name an existing row (400 `not_found`, ADR 0031).
+   */
+  upsertKey?: string[];
   /** Computed (virtual) fields: usable in filters/conditions/orderBy/compute and listed in select (next to '*' for every readable field). */
   computed?: Record<string, string>;
   /** Extra filter names accepted in `filters` beyond schema fields. */
   extraFilters?: Record<string, string>;
   readJoins?: ManifestJoin[];
-  /** Aliases accepted as `secondaries`/`deletions` keys in writes. */
+  /** Aliases accepted under `upsert`/`delete` in writes, and under `replace` when they carry an `upsertKey`. */
   writeJoins?: ManifestJoin[];
   /** Present (true) when rows are automatically scoped to the caller's tenant. */
   tenantScoped?: boolean;
@@ -146,6 +152,7 @@ function manifestTable(tableConf: TableConfig, allowed: readonly TableOperation[
 
   const serverGenerated = insertExcludedFields(tableConf);
   if (serverGenerated.length) entry.serverGenerated = [...serverGenerated];
+  if (tableConf.upsertKey) entry.upsertKey = [...tableConf.upsertKey];
   if (computed) entry.computed = computed;
   if (extraFilters) entry.extraFilters = extraFilters;
   if (readJoins.length) entry.readJoins = readJoins;
@@ -186,7 +193,10 @@ export function renderAgentManifestMd(manifest: AgentManifest): string {
     '',
     'Notation: `!`=required on insert, `?`=nullable, `(writeOnly)`=writable, never in reads, ' +
       '`(readOnly)`=returned by reads, refused by every write (omit it from write payloads).',
-    'serverGenerated fields: omit on insert (values from client are ignored).',
+    'serverGenerated fields: omit on insert (values from client are ignored), except in the upsertKey.',
+    'upsertKey: insert and bulkUpsert update the row with that key; every row must carry it ' +
+      '(400 missing_key), except a serverGenerated key: absent → new row, present → must name an ' +
+      'existing row (400 not_found).',
     'readJoins aliases: `1:N` → joinMustExist/joinMultiple/joinGroup; `N:1` → joinLeft.',
     'writeJoins aliases: keys for `upsert`/`delete` in writes. `[key]`: the upsert key; such an ' +
       'alias also takes `replace`, the complete set of child rows (a row left out is deleted).',
@@ -231,6 +241,7 @@ function renderTableMd(t: ManifestTable): string[] {
   lines.push(`fields: ${fieldParts.join(', ')}`);
 
   if (t.serverGenerated) lines.push(`serverGenerated: ${t.serverGenerated.join(', ')}`);
+  if (t.upsertKey) lines.push(`upsertKey: ${t.upsertKey.join(', ')}`);
   if (t.computed) lines.push(`computed: ${namedTypes(t.computed)}`);
   if (t.extraFilters) lines.push(`extraFilters: ${namedTypes(t.extraFilters)}`);
   if (t.readJoins) {

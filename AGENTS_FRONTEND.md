@@ -115,7 +115,7 @@ An unknown field or method, or `params` that is not an array or is too short →
 // → 200 { "main": { "id": 1 }, "secondaries": { "orders": [{ "id": 20 }] }, "deletions": { "orders": [{ "id": 10, "customerId": 1 }] } }
 
 // PUT {p}/bulk/customer — bulk upsert; items need not share keys: an omitted field keeps the stored value (update) or takes the column default (insert)
-[ { "main": { "id": 1, "name": "Mario" }, "upsert": { "orders": [{ "total": 50 }] } }, // customer upserts on its id
+[ { "main": { "id": 1, "name": "Mario" }, "upsert": { "orders": [{ "total": 50 }] } }, // customer has upsertKey [id] in the manifest
   { "main": { "name": "Luigi" } } ]
 // → 200 [ { "main": { "id": 1 }, "action": "updated", "secondaries": {...} }, { "main": { "id": 2 }, "action": "inserted" } ]
 // action: what the statement did to the main row. "updated" when an upsert rule matched an existing row (also with nothing left to change), "inserted" otherwise; tables without a rule always say "inserted".
@@ -135,7 +135,7 @@ PUT {p}/rest/post { "main": { "id": 1 }, "replace": { "tags": [{ "tagId": 2 }, {
 
 400, and nothing is written: an alias the table does not write (including one only readable), or `replace` on an alias without `upsertKey` → `unknown_field` at `<section>.<alias>` (`<i>.<section>.<alias>` in a bulk); one alias in `replace` and in `upsert` or `delete` too → `conflicting_alias` at `replace.<alias>`; the pre-1.0 `secondaries` / `deletions` keys → `retired_key`.
 
-Upsert tables (see manifest):
+Upsert tables (`upsertKey` on the table in the manifest; on a write alias, it is the child rows' key):
 - Every row, main or child, carries its conflict key: missing, null, or shared by two rows of one request → 400.
 - When the key is the id, rows without an id are inserted. If the server generates ids (`serverGenerated` in the manifest), an id must name an existing row: none → 400 `not_found` at its path, nothing written.
 - Bulk arrays are capped (default 1000): chunk client-side.
