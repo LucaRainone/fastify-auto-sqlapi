@@ -2,7 +2,7 @@
 
 **Your database already knows its tables, columns and relations. This plugin turns that knowledge into a typed, validated REST API inside your [Fastify](https://fastify.dev/) app.**
 
-```typescript
+```typescript in=app
 await app.register(fastifyAutoSqlApi, { dbTables, swagger: true, prefix: '/api' });
 ```
 
@@ -80,7 +80,7 @@ fields declared as SQL expressions (JSON extraction, derived strings, date bucke
 
 **Writes** — validated inserts and updates · child rows with foreign keys filled in
 from the main row · child deletions, or the full set replaced, in the same request · bulk upsert and bulk delete ·
-transactions, so a write and its children commit or roll back together
+transactions, so a write and its child rows commit or roll back together
 
 **Production** — multi-tenant row isolation from one `getTenantId`, enforced on reads *and*
 writes · hooks before and after every write, plus `afterRead` on reads · field-level and

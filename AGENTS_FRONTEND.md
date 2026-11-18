@@ -39,7 +39,7 @@ Everything travels in the body, and only there; all keys are optional and combin
     { "field": "orders.count.id", "method": "isGreaterOrEqual", "params": [4] } // alias.fn.field, HAVING-style: needs the matching joinGroup below
   ],
   "select": ["id", "name", "displayName"], // main fields to return, computed ones included; default: every readable field and no computed one. "*" = that default: ["*", "fullName"] adds a computed field without listing the rest (main select only). The PK and the keys of the requested joins are always included. Unknown or hidden name → 400
-  "joinMustExist": { // EXISTS on children: decides WHICH main rows return; fetches nothing
+  "joinMustExist": { // EXISTS on child rows: decides WHICH main rows return; fetches nothing
     "labels": { "filters": { "labelId": 1 }, "conditions": [] }
   },
   "joinMultiple": { // side query: child rows of the returned main rows
@@ -49,7 +49,7 @@ Everything travels in the body, and only there; all keys are optional and combin
     "orders": {
       "by": "customerId", // optional GROUP BY (field or computed); absent or the FK when alias.fn.field is in orderBy or conditions
       "sum": ["total"], "min": ["total"], "max": ["total"], "avg": ["total"], "count": ["id"], "distinctCount": ["status"], // at least one
-      "filters": { "status": "active" }, "conditions": [] // narrow children before aggregating
+      "filters": { "status": "active" }, "conditions": [] // narrow the child rows before aggregating
     }
   },
   "joinLeft": { // N:1 parent (alias declared unique by the backend)
@@ -67,10 +67,10 @@ Response; each section is present only if requested:
   "joinMultiple": { "orders": [{ "id": 10, "customerId": 1, "total": 50 }] }, // flat list for all mains: group client-side by FK
   "joinGroup": { "orders": { "rows": [ // always rows, [] when no main matched
     { "by": 1, "sum": { "total": "100.00" }, "count": { "id": "2" } } // with "by": one row per group; by = FK field gives per-main values. Aggregates come as the database returns them: often strings, exact — parse them
-  ]}}, // without "by": ONE row, no "by", over the children of ALL returned mains
+  ]}}, // without "by": ONE row, no "by", over the child rows of ALL returned mains
   "joinLeft": { "creator": [{ "id": 7, "name": "Alice" }] }, // deduplicated: match main.creatorId === creator.id
   "computed": { "sum": { "total": "999.00" }, "count": { "id": "25" } }, // only when compute is sent: one entry per function and field; values as in joinGroup
-  "pagination": { // only when page or itemsPerPage is sent
+  "pagination": { // only when paginator is sent, even {}
     "total": 25, "pages": 3,
     "paginator": { "page": 1, "itemsPerPage": 20 }
   }
@@ -89,7 +89,7 @@ Pagination:
 
 For `alias.fn.field`, in both `orderBy` and conditions, the joinGroup `by` must be absent or equal to the FK (else 400). In `orderBy` it is also a 400 on tables with distinct results.
 
-A main without children (or none left after the joinGroup filters) has `count`, `distinctCount` and `sum` = 0, but `min`, `max` and `avg` = null. Null sorts where the database puts it (PostgreSQL: last in ASC, first in DESC; MySQL/MariaDB: first in ASC, last in DESC) and fails every comparison: `max < 5` excludes such mains; `isNull` selects them.
+A main without child rows (or none left after the joinGroup filters) has `count`, `distinctCount` and `sum` = 0, but `min`, `max` and `avg` = null. Null sorts where the database puts it (PostgreSQL: last in ASC, first in DESC; MySQL/MariaDB: first in ASC, last in DESC) and fails every comparison: `max < 5` excludes such mains; `isNull` selects them.
 
 Condition methods and `params` arity:
 - `[v]`: `isEqual|isNotEqual|isGreater|isGreaterOrEqual|isLess|isLessOrEqual|isNotGreater|isNotGreaterOrEqual|isNotLess|isNotLessOrEqual`
@@ -110,8 +110,8 @@ An unknown field or method, or `params` that is not an array or is too short →
 
 // PUT {p}/rest/customer — update; main MUST include the PK; send only the fields to change; null sets NULL
 { "main": { "id": 1, "email": "new@t.it" },
-  "upsert": { "orders": [{ "total": 75 }] }, // insert (or upsert) children, FK auto-filled; the others stay
-  "delete": { "orders": [{ "id": 10 }] } } // delete children by PK, only children of this main
+  "upsert": { "orders": [{ "total": 75 }] }, // insert (or upsert) child rows, FK auto-filled; the others stay
+  "delete": { "orders": [{ "id": 10 }] } } // delete child rows by PK, only those of this main
 // → 200 { "main": { "id": 1 }, "secondaries": { "orders": [{ "id": 20 }] }, "deletions": { "orders": [{ "id": 10, "customerId": 1 }] } }
 
 // PUT {p}/bulk/customer — bulk upsert; items need not share keys: an omitted field keeps the stored value (update) or takes the column default (insert)
@@ -123,9 +123,9 @@ An unknown field or method, or `params` that is not an array or is too short →
 ```
 
 Child rows go in one section per action, by write alias (manifest):
-- `upsert`: write these rows; the other children stay.
-- `delete` (update and bulk): delete these rows, named by their key; only children of this main.
-- `replace`: these are all the children — the rows sent are upserted, every other child row of the main row is deleted. `[]` deletes them all. Only for a write alias with an `upsertKey` in the manifest.
+- `upsert`: write these rows; the other child rows stay.
+- `delete` (update and bulk): delete these rows, named by their key; only child rows of this main.
+- `replace`: these are all the child rows — the rows sent are upserted, every other child row of the main row is deleted. `[]` deletes them all. Only for a write alias with an `upsertKey` in the manifest.
 
 ```jsonc
 // post 1 has tags 1 and 2
@@ -142,7 +142,7 @@ Upsert tables (`upsertKey` on the table in the manifest; on a write alias, it is
 
 ## Errors
 
-Every error has one shape. `error` is the HTTP reason phrase; `requestId` is the server log's `reqId`, quote it when reporting a problem.
+Every error the plugin's routes raise has one shape (a route the backend did not register, e.g. get/delete on a composite-PK table, is the framework's plain 404, without `requestId`). `error` is the HTTP reason phrase; `requestId` is the server log's `reqId`, quote it when reporting a problem.
 
 ```json
 { "statusCode": 400, "error": "Bad Request", "message": "Validation failed", "requestId": "req-1",
@@ -153,6 +153,6 @@ Every error has one shape. `error` is the HTTP reason phrase; `requestId` is the
   - `path` is the dot path of the offending value in the request: body keys from the root (`main.name`, `upsert.orders.0.total`, `filters.status`, `conditions.2.params`, `joinGroup.orders.by`, `joinMultiple.orders.select.1`), path parameters and retired querystring keys by name (`id`, `orderBy`). `""` when the error is not attributable to one input.
   - `code` is stable: an Ajv keyword (`required`, `type`, `maximum`, `additionalProperties`, `enum`…), a code the backend chose in its own validation, or an engine code: `unknown_field`, `not_readable`, `unknown_alias`, `wrong_join_family`, `invalid_method`, `invalid_params`, `invalid_order_by`, `invalid_paginator`, `invalid_aggregation`, `undeclared_aggregation`, `bound_values_not_allowed`, `extra_filter_not_allowed`, `limit_exceeded`, `retired_key` (a key the API no longer reads, e.g. `selectComputed`, a join's `selection`, the search querystring, `secondaries`/`deletions` in a write), `conflicting_alias`, `missing_key`, `duplicate_key`, `not_found`, `ambiguous_tenant`. The engine's `message` repeats the field's.
   - `message`, when present, is a low-level description for the developer (Ajv's or the engine's, in English). A backend validation and a mapped DB error carry none: the code is the whole answer. Show the user a translation of `code`, never `message`.
-- 403: tenant violation. 404: record not found, or outside your tenant. No `fields`, except a mapped DB error (below).
+- 401: on a table with tenant scope, the request carries no tenant (the backend's auth resolved none). 403: tenant violation. 404: row not found, or outside your tenant. No `fields`, except a mapped DB error (below).
 - 500: DB errors (e.g. constraint violations): `message` is fixed, the detail is in the server log under `requestId`. The backend may answer some of them with another status instead (typically 409 on a duplicate): same envelope, plus `fields: [{ path: "", code }]` with a backend-chosen code to translate.
-- Per search, max 100 `conditions` per section (top level and each join) and max 20 `orderBy` parts (≤ 1024 chars); over either → 400 `limit_exceeded`. Collapse many equality conditions into one `isIn`.
+- Per search, max 100 `conditions` per section (top level and each join): over it → 400 `maxItems` at that `conditions`. `orderBy` takes max 20 `orderBy` parts (→ 400 `limit_exceeded`) in ≤ 1024 chars (→ 400 `maxLength`). Collapse many equality conditions into one `isIn`.

@@ -44,6 +44,11 @@ concept built twice.
 - Gates are **silent by default and zero-tolerance**. Known debt is switched off, not
   demoted to a warning, and shown by `npm run debt`. Shrink that list; never add to it to
   silence a fresh violation. See [ADR 0012](./docs/adr/0012-anti-duplication-tooling.md).
+- The consumer docs (README, AGENTS_*) are checked against the code by
+  `test/unit/docs-contract.test.js`: links, stated numbers, error codes, config keys, CLI
+  options, retired glossary terms, and every ` ```ts ` sample typechecks against `dist/`. A
+  reference listing that is not code is fenced ` ```ts signature `; `in=app` / `in=defineTable`
+  say what context a fragment runs in. A behavior the docs state needs a test of its own.
 - Tests are `.js` importing from `dist/`, so **`npm run build` before running them** —
   `verify` does this for you. Integration tests are not in CI.
 - Architectural boundaries are enforced by `.dependency-cruiser.mjs`, not by convention:

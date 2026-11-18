@@ -120,5 +120,8 @@ export interface SqlApiPluginOptions {
 /** Default row cap for search (page size and no-paginator LIMIT). Override via `maxItemsPerPage`. */
 export const DEFAULT_MAX_ITEMS_PER_PAGE = 1000;
 
+/** Page size of a search whose paginator names a `page` but no `itemsPerPage`, capped by `maxItemsPerPage`. */
+export const DEFAULT_ITEMS_PER_PAGE = 500;
+
 /** Default cap on bulk endpoint array length. Override via `maxBulkItems`. */
 export const DEFAULT_MAX_BULK_ITEMS = 1000;

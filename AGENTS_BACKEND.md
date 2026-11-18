@@ -32,6 +32,8 @@ npx sqlapi-generate-tables customer order # src/db/tables/Table*.ts + dbTables.t
 npx sqlapi-generate-tables --all # existing files are skipped, never overwritten
 ```
 
+Both commands take `--output <dir>` (over the config's `outputDir`) and `--tables a,b` (DB table names; positional names work too). The schema command restricted to some tables neither removes orphan Schemas nor touches the others; without it, a Schema whose table is gone or excluded is deleted. An unknown option fails the run.
+
 - The generated table files detect PKs, `*Id` foreign keys as relations, and put every other key in as commented code.
 - The schema CLI prints what it could not decide for you: read that output. It names database-generated columns (`GENERATED ALWAYS AS`, put in the Schema's `generatedFields` and never writable) and views, whose PK the table generator infers or leaves as a TODO (see Views). Identity/auto-increment PKs need no action: the Schema makes them optional and the table generator lists them in `insertExclude`.
 - Schema files import `Type` from `fastify-auto-sqlapi`; do the same for `schemaOverrides`, computed fields and extra filters. Any `typebox` 1.x schema works too, but one built with the legacy `@sinclair/typebox` 0.x loses its markers here: its `Type.Optional` fields silently become required. Their default export (`addSchema`) is optional, only for Swagger `$ref`.
@@ -71,6 +73,7 @@ await app.register(fastifyAutoSqlApi, { dbTables, dialect: 'mysql' });
 
 // Several surfaces: register the plugin again under another prefix with `decorate: false` (app.sqlApi belongs to one registration; a second one without it fails at startup). Each registration's routes run with its own options.
 // `operations` narrows a registration: intersected with each table's own (a composite-PK table is skipped for get/delete, not refused).
+const publicTables = { customer: dbTables.customer }; // a narrower map of your table configs
 await app.register(fastifyAutoSqlApi, {
   dbTables: publicTables, prefix: '/public', decorate: false,
   operations: ['search', 'get'], // read-only: no insert/update/delete/bulk
@@ -81,6 +84,7 @@ await app.register(fastifyAutoSqlApi, {
 `pg` returns `numeric`/`int8` as strings and shifts `date`/`timestamp` to local time. The plugin leaves `pg.types` alone (global state). If you want numbers and verbatim dates, set this at startup:
 
 ```ts
+import pg from 'pg';
 pg.types.setTypeParser(pg.types.builtins.INT8, (v) => parseInt(v, 10));
 pg.types.setTypeParser(pg.types.builtins.NUMERIC, (v) => parseFloat(v));
 pg.types.setTypeParser(pg.types.builtins.DATE, (v) => v);
@@ -173,14 +177,14 @@ export const TableCustomer = defineTable({
 
   // --- hooks: camelCase records, mutations reach the SQL ---
   beforeInsert: async ({ db, req, record }) => {
-    record.createdBy = req?.user.id;
+    record.createdBy = req?.user?.id;
     record.createdAt = db.expression('NOW()'); // raw SQL value
   },
   beforeUpdate: async ({ db, req, record }) => { // PK present but not in SET
-    if (!req?.user.isAdmin) delete record.isAdmin; // field-level rules: silent strip here, or 400 in validate
+    if (!req?.user?.isAdmin) delete record.isAdmin; // field-level rules: silent strip here, or 400 in validate
     record.updatedAt = db.expression('NOW()');
   },
-  afterInsert: async ({ db, req, record, secondaries, deletions }) => {}, // record = input + generated PK; secondaries: child rows written; deletions: rows a replace removed
+  afterInsert: async ({ db, req, record, secondaries, deletions }) => {}, // record = input + generated PK; secondaries: child rows written; deletions: rows a replace removed, and in a bulk upsert the item's delete
   afterUpdate: async ({ db, req, record, secondaries, deletions }) => {}, // inside the transaction: throw = rollback. deletions: rows of delete and of a replace
   beforeDelete: async ({ db, req, id }) => {}, // throw aborts; runs after tenant ownership is verified
   afterDelete: async ({ db, req, id }) => {}, // not called on 404
@@ -196,11 +200,11 @@ Nullable columns are generated as `Type.Optional(Nullable(T))`, i.e. `{ type: ['
 
 Write bodies are closed (`additionalProperties: false`), so a column that is not in the Schema can never be written (no mass assignment). With Fastify's default `removeAdditional: true`, unknown properties are stripped silently. `Fastify({ ajv: { customOptions: { removeAdditional: false } } })` makes them a 400.
 
-Every error the routes return has one envelope, `{statusCode, error, message, requestId, fields?}` (AGENTS_FRONTEND.md, "Errors"): `error` is the reason phrase, `requestId` the log's `reqId`, and every 400 carries `fields` as `ValidationField[]`. Errors the plugin raises itself are 4xx with client-safe messages. To answer in the same shape from a hook, throw `httpError(400, 'Order is closed', { code: 'closed', path: 'main.status' })` (exported); a thrown error with another `statusCode` is rendered as is, without `fields`. Anything else (a constraint violation, a hook throwing without `statusCode`) returns a fixed `{statusCode:500, error, message:"Internal Server Error", requestId}`: the driver error is logged under that `requestId`. The plugin maps no code of its own (ADR 0006); to answer one with a status, list its driver code in `dbErrors` with a status and a code of yours: the response keeps the envelope, with the reason phrase as `message`, `fields: [{ path: '', code }]` whatever the status, and no driver detail (ADR 0024). An application `setErrorHandler` never sees these errors: the routes' own handler answers first; an application `onError` hook does see them (see Rules). `sqlApi.*` throws the driver error as is. Errors thrown by `onRequests` are unaffected.
+Every error the routes return has one envelope, `{statusCode, error, message, requestId, fields?}` (AGENTS_FRONTEND.md, "Errors"): `error` is the reason phrase, `requestId` the log's `reqId`, and every 400 carries `fields` as `ValidationField[]`. Errors the plugin raises itself are 4xx with client-safe messages. To answer in the same shape from a hook, throw `httpError(400, 'Order is closed', { code: 'closed', path: 'main.status' })` (exported). A thrown 4xx is answered with its status and message, plus `fields` when `httpError` was given a `code`; a thrown 5xx is a server failure like any other and becomes the fixed 500 below, its message only in the log. Anything else (a constraint violation, a hook throwing without `statusCode`) returns a fixed `{statusCode:500, error, message:"Internal Server Error", requestId}`: the driver error is logged under that `requestId`. The plugin maps no code of its own (ADR 0006); to answer one with a status, list its driver code in `dbErrors` with a status and a code of yours: the response keeps the envelope, with the reason phrase as `message`, `fields: [{ path: '', code }]` whatever the status, and no driver detail (ADR 0024). An application `setErrorHandler` never sees these errors: the routes' own handler answers first; an application `onError` hook does see them (see Rules). `sqlApi.*` throws the driver error as is. Errors thrown by `onRequests` are unaffected.
 
 ## Relations
 
-```ts
+```ts signature
 buildRelation(mainSchema, mainField, joinSchema, joinField, {
   alias, // default joinSchema.tableName. Key in requests (upsert, delete, replace), responses (secondaries, deletions), dotted notation. Set it only to join one table twice or for a friendlier name. Duplicate alias → throws.
   select, // default fields of the joined rows, e.g. ['id', 'name', 'total']; absent: every readable field. The request's select overrides it. A name the joined schema lacks → throws
@@ -209,23 +213,25 @@ buildRelation(mainSchema, mainField, joinSchema, joinField, {
   target, // dbTables key whose config governs the joined table (readExclude, tenantScope, afterRead, computed, write rules). Required when several keys expose that table: startup fails until it is set. With one key, that config applies whatever the key is called.
   upsertKey, // write joins only: the child rows upsert on this key of the joined table, e.g. ['productId', 'lang']. Exactly its PK or one of its uniqueKeys, checked by defineTable (ADR 0021). Absent: plain INSERT, and the alias takes no `replace`. On a read join → throws.
 });
+```
 
+```ts in=defineTable
 readJoins: [
   buildRelation(SchemaSession, 'createdBy', SchemaUser, 'id', { alias: 'creator', unique: true }),
   buildRelation(SchemaSession, 'updatedBy', SchemaUser, 'id', { alias: 'updater', unique: true, fields: ['id', 'name'] }),
 ],
 ```
 
-- **A read join is a read grant on the target.** It runs inside the host's route: the target's `onRequests` and `operations` do not apply, so a table with `operations: []` is still readable through it. The target's `readExclude`, `tenantScope`, `afterRead` and the relation's schema still apply. `fields` narrows that schema, fail-closed: every other field is a 400 in selection, filters, conditions, orderBy and aggregations, and so is a computed field reaching past it. A column added later is not reachable until listed. Use `readExclude` instead to hide a column from the table's own routes too. (ADR 0010, 0011)
+- **A read join is a read grant on the target.** It runs inside the main table's route: the target's `onRequests` and `operations` do not apply, so a table with `operations: []` is still readable through it. The target's `readExclude`, `tenantScope`, `afterRead` and the relation's schema still apply. `fields` narrows that schema, fail-closed: every other field is a 400 in `select`, filters, conditions, orderBy and aggregations, and so is a computed field reaching past it. A column added later is not reachable until listed. Use `readExclude` instead to hide a column from the table's own routes too. (ADR 0010, 0011)
 - joinLeft adds a real `LEFT JOIN` only when filters or orderBy need the parent; otherwise it runs a side query.
-- **Owned children** (translations, `*_info`, composite PK like `(product_id, lang)`): make them a write join on the parent, not a `dbTables` entry. The child FK is auto-filled, and an `upsertKey` on the relation (`{ alias: 'translations', upsertKey: ['productId', 'lang'] }`) lets clients send only the child's own fields: `PUT /rest/product { main, upsert: { translations: [{ lang: 'en', name: 'Bike' }] } }`. With that key the client can also send the whole set, `replace: { translations: [...] }`: the rows left out are deleted, in the write's transaction — in a bulk upsert, in the item's own (ADR 0029). Expose a composite-PK table standalone only when it stands on its own (M:N links).
-- **What a write join runs on the child** (rows of `upsert` and `replace`): its `validate` — or its `validateBulk`, once per alias — before any SQL, after the host's, with `parent: { alias, main }` and its paths answered at `upsert.<alias>.<i>.<field>`; then its `insertExclude`, the FK auto-fill, its `beforeInsert` (which sees the FK), the FK again, so it always wins, and its `tenantScope`. Not its `afterInsert` (ADR 0014, 0030). The child's `validate` sees the FK only when the request names the parent's key: guard a required-FK rule with `!parent`.
+- **Owned child rows** (translations, `*_info`, composite PK like `(product_id, lang)`): make them a write join on the parent, not a `dbTables` entry. The child FK is auto-filled, and an `upsertKey` on the relation (`{ alias: 'translations', upsertKey: ['productId', 'lang'] }`) lets clients send only the child's own fields: `PUT /rest/product { main, upsert: { translations: [{ lang: 'en', name: 'Bike' }] } }`. With that key the client can also send the whole set, `replace: { translations: [...] }`: the rows left out are deleted, in the write's transaction — in a bulk upsert, in the item's own (ADR 0029). Expose a composite-PK table standalone only when it stands on its own (M:N links).
+- **What a write join runs on the child** (rows of `upsert` and `replace`): its `validate` — or its `validateBulk`, once per alias — before any SQL, after the main table's, with `parent: { alias, main }`. It answers in its own grammar, `main.<field>`, `main` or `''` (`validateBulk`: `items.<j>.main.<field>`, `items.<j>` or `''`; anything else is a 500), re-rooted to `upsert.<alias>.<i>.<field>` (`replace.…` for those rows, `<item>.` in front in a bulk upsert); then its `insertExclude`, the FK auto-fill, its `beforeInsert` (which sees the FK), the FK again, so it always wins, and its `tenantScope`. Not its `afterInsert` (ADR 0014, 0030). The child's `validate` sees the FK only when the request names the parent's key: guard a required-FK rule with `!parent`.
 
 ## Computed fields
 
 A computed field is a SQL expression usable like a field in `filters`, `conditions`, `orderBy`, `compute` and `joinGroup.<alias>.by`. It is projected only when listed in the request's `select`: `select: ['*', 'fullName']` returns every readable field plus it (ADR 0028).
 
-```ts
+```ts in=defineTable
 computedFields: {
   statusFromMeta: ({ db, qiCol }) => ({ // db: QueryClient (dialectName, dateTrunc, ...)
     expr: db.dialectName === 'postgres'
@@ -271,17 +277,21 @@ The read-side counterpart of `beforeInsert`/`beforeUpdate`: decrypt, unpack, res
 - `null` / `undefined` → 401 on any scoped table, before SQL runs: an absent tenant is a missing or failed auth hook, not an admin
 - `[]` → no tenant at all: 403 on any scoped table, before SQL runs
 
-`0` and `''` are ordinary ids. The tenant belongs to the request, not to the table: a scoped table is also filtered when it is a join target or a secondary of an unscoped host. `getTenantId` is called only when a scoped table is in reach, so an unauthenticated request still reads unscoped tables; on scoped ones `req.user?.organizationId` is enough, the missing user becomes the 401. Tables without `tenantScope` are never filtered.
+`0` and `''` are ordinary ids. The tenant belongs to the request, not to the table: a scoped table is also filtered when it is a join target or a secondary of an unscoped main table. `getTenantId` is called only when a scoped table is in reach, so an unauthenticated request still reads unscoped tables; on scoped ones `req.user?.organizationId` is enough, the missing user becomes the 401. Tables without `tenantScope` are never filtered.
 
-```ts
-getTenantId: (req) => (req.user?.isSuperadmin ? TENANT_ADMIN : req.user?.organizationId),
+```ts in=app
+await app.register(fastifyAutoSqlApi, {
+  dbTables,
+  getTenantId: (req) => (req.user?.isSuperadmin ? TENANT_ADMIN : req.user?.organizationId),
+});
 ```
 
-```ts
-tenantScope: { column: 'organizationId' } // direct
-tenantScope: { column: 'organizationId', // indirect, via parent FK: column and foreignField are fields of SchemaCustomer
-  through: { schema: SchemaCustomer, localField: 'customerId', foreignField: 'id' } }
-tenantScope: { anyOf: ['requesterAgentId', 'targetAgentId'] } // row owned by either party
+```ts in=app
+const direct: TenantScope = { column: 'organizationId' };
+const indirect: TenantScope = { column: 'organizationId', // via parent FK: column and foreignField are fields of SchemaCustomer
+  through: { schema: SchemaCustomer, localField: 'customerId', foreignField: 'id' } };
+const eitherParty: TenantScope = { anyOf: ['requesterAgentId', 'targetAgentId'] }; // row owned by either party
+// on the table: defineTable({ …, tenantScope: direct })
 ```
 
 All names in a scope are schema fields: `column`, `anyOf` and `localField` of this table, the indirect `column` and `foreignField` of `through.schema`. A name the schema does not carry is taken as a real column, so a tenant column a hand-written schema omits still works. `anyOf` cannot be combined with `column`/`through` (throws).
@@ -294,20 +304,22 @@ All names in a scope are schema fields: `column`, `anyOf` and `localField` of th
 | bulk upsert | injected on every row; `upsertKey` conflict owned by another tenant → 403 | as insert | anchor rule per item, even for updates; listed columns never in UPDATE SET; conflict with a row outside scope → 403 |
 | joins | filtered | filtered | predicate applied in every join family (joinLeft: in the ON clause) |
 
-`anyOf` children written as secondaries follow the anchor rule: the auto-filled parent FK is not an owner.
+`anyOf` child rows written as secondaries follow the anchor rule: the auto-filled parent FK is not an owner.
 
 ## sqlApi (application code)
 
 Same code path, bodies and results as the HTTP routes (AGENTS_FRONTEND.md): a request body can be handed over as is. Validation, hooks, computed fields and tenant scope all run.
 
-```ts
+```ts in=app
 app.get<{ Params: { customerId: string } }>('/billing/:customerId', async (request) =>
   app.sqlApi.search('subscription', {
     filters: { customerId: Number(request.params.customerId), status: 'active' },
     joinMustExist: { orders: { filters: { status: 'pending' } } },
     paginator: { page: 1, itemsPerPage: 50 },
   }, request)); // pass `request` for tenant + hooks; without it: no tenant filter, hooks get undefined
+```
 
+```ts signature
 sqlApi.search(table, { filters, conditions, joinMustExist, joinMultiple, joinGroup, joinLeft, select, orderBy, paginator, compute, maxRows }, req?)
 // select: main fields to project, '*' for every readable one; the PK, the requested joins' keys and (with distinctResults) the ORDER BY fields are always added
 // compute: { sum: ['total'], count: ['id'] } → result.computed, over every matching row; min|max|sum|avg|count|distinctCount; no paginator needed
@@ -318,9 +330,11 @@ sqlApi.delete(table, id, req?)
 sqlApi.bulkUpsert(table, items, req?) // each item writes only its own fields; items need not share keys
 sqlApi.bulkDelete(table, { ids }, req?) // the POST /bulk/:table/delete body; composite PK: ids are { <field>: value } objects
 // table: a key of dbTables. createSqlApi infers them, so a typo fails at compile time; at runtime an unknown name throws (a programming error, not a 400)
+```
 
-// Standalone (jobs, scripts, tests). One source for the dialect:
-const sqlApi = createSqlApi(mysqlQueryable(pool), dbTables, { dialect: 'mysql' }); // raw pool: the option, postgres when omitted
+```ts in=app
+// Standalone (jobs, scripts, tests). Tenant scope needs its own getTenantId, as on the plugin: without it a request passed in scopes nothing. One source for the dialect:
+const sqlApi = createSqlApi(mysqlQueryable(pool), dbTables, { dialect: 'mysql', getTenantId: (req) => req.user?.organizationId }); // raw pool: the option, postgres when omitted
 const sqlApi2 = createSqlApi(createQueryClient(mysqlQueryable(pool), 'mysql'), dbTables); // QueryClient: its own dialect; a `dialect` option beside it throws
 ```
 
@@ -330,7 +344,7 @@ Limits: the engine enforces at most 100 `conditions` per section, 20 `orderBy` p
 
 `db` is the hook parameter, or `createQueryClient(pgQueryable(pool) | mysqlQueryable(pool), dialect)`. Use it only for what sqlApi cannot express. It takes real table and column names (`Schema.tableName`, `Schema.col()`), and a camelCase name here is a runtime SQL error. It runs no hooks, no validation and no tenant scope.
 
-```ts
+```ts signature
 db.insert(table, record, pkCol) // → PK row
 db.upsert(table, record, conflictKeys, pkCol) // → { pk, action: 'inserted' | 'updated' }
 db.bulkInsert(table, records, pkCol, chunkSize?) // → PK rows in input order
@@ -349,7 +363,7 @@ db.qi(name); db.dialectName; db.cbDialect // quoting, dialect, ConditionBuilder 
 - `action` comes from the statement on PG (`(xmax = 0)` in RETURNING; on `DO NOTHING`, the rows RETURNING names are the inserted ones) and from the probe on MySQL/MariaDB. No extra statement either way.
 - Called directly, none of the `defineTable` checks apply.
 
-```ts
+```ts signature
 const cb = new ConditionBuilder('AND', db.cbDialect); // or 'OR'. Operands are raw SQL: db.qi() them.
 cb.isEqual(col, v); // also isNotEqual, is[Not]Greater[OrEqual], is[Not]Less[OrEqual]
 cb.isLike(col, '%v%'); // also isNotLike, isILike, isNotILike
@@ -363,9 +377,10 @@ cb.append(otherBuilder); // nesting; backend only
 
 Example: atomically claiming a row, i.e. a guarded state transition or optimistic lock. There is no auto route for this (ADR 0020). The check and the write must be one UPDATE:
 
-```ts
+```ts in=app
 const db = createQueryClient(pgQueryable(fastify.pg), 'postgres');
 fastify.post<{ Params: { id: string } }>('/requests/:id/claim', async (req, reply) => {
+  if (!req.user) return reply.code(401).send(); // never let an undefined tenant reach the guard: isEqual would skip it
   const col = SchemaRequest.col;
   const guard = new ConditionBuilder('AND', db.cbDialect)
     .isNull(db.qi(col('inProgressSince')), true) // the precondition
@@ -393,7 +408,7 @@ A view (materialized ones included) is an ordinary table config (ADR 0016).
 
 A read-only surface for LLM agents, with the plugin as the enforcement layer:
 
-```ts
+```ts in=app
 await app.register(fastifyAutoSqlApi, {
   dbTables, prefix: '/ai', decorate: false, onRequests: [agentAuth],
   operations: ['search', 'get'],

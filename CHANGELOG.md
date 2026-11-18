@@ -82,9 +82,12 @@ which supersedes ADR 0022.
   fails at compile time.
 - **Types** `TableDefinition` (what `defineTable` takes), `ValidationField`, `ComputeFn`,
   `ComputeRequest`, `ComputedResult`, `RowsByAlias`, `SqlApiBulkDeleteParams`, `CliConfig`.
-- **ADRs 0023–0027**: a write runs in a transaction or not at all; `dbErrors`; `validateBulk`
+- **ADRs 0023–0032**: a write runs in a transaction or not at all; `dbErrors`; `validateBulk`
   replaces `validate` in a bulk upsert; an update carries its primary key in `main`; the 1.0
-  contract.
+  contract; `*` is the default projection
+  ([0028](./docs/adr/0028-select-star-is-the-default-projection.md)); a write names its child
+  rows by action; a child row is validated by its own table; an insert-excluded upsert key
+  addresses an existing row; tenant scope names schema fields.
 - **`tenantScope` names schema fields**, like every other key of a table config
   ([ADR 0032](./docs/adr/0032-tenant-scope-names-schema-fields.md)): `column`, `anyOf` and
   `through.localField` resolve through the table's schema, the indirect `column` and

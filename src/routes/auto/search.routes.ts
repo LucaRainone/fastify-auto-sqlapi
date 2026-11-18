@@ -3,7 +3,7 @@ import { SearchTableBodyPost, SearchTableResponse } from '../../lib/schema/searc
 import { registerForAllTables } from './route-helpers.js';
 import type { RegistrationOptions } from '../sql-api-decorator.js';
 import { rejectRetiredKey, rejectRetiredSearchKeys } from '../../lib/engine/search/fields.js';
-import { DEFAULT_MAX_ITEMS_PER_PAGE } from '../../types.js';
+import { DEFAULT_ITEMS_PER_PAGE, DEFAULT_MAX_ITEMS_PER_PAGE } from '../../types.js';
 import type { SearchParams } from '../../types.js';
 
 /** The search request: every key travels in the body. */
@@ -67,7 +67,7 @@ export default async function searchRoutes(
       // The page size cap is the schemas' `maximum` (a structured 400); `maxRows` is the LIMIT
       // applied when the client does not paginate, and the ceiling of the page-only default.
       const paginator = body.paginator
-        ? { page: body.paginator.page ?? 1, itemsPerPage: body.paginator.itemsPerPage ?? Math.min(500, maxRows) }
+        ? { page: body.paginator.page ?? 1, itemsPerPage: body.paginator.itemsPerPage ?? Math.min(DEFAULT_ITEMS_PER_PAGE, maxRows) }
         : undefined;
 
       const result = await sqlApi.search(tableName, {
